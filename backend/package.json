@@ -1,0 +1,32 @@
+{
+  "name": "polaris-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/api/index.js",
+    "processor": "node src/indexer/runProcessor.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "jest --testPathPattern=e2e",
+    "test:performance": "jest --testPathPattern=performance",
+    "test:ci": "jest --ci --coverage --maxWorkers=2"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "express-graphql": "^0.12.0",
+    "graphql": "^16.9.0",
+    "neo4j-driver": "^5.23.0",
+    "ioredis": "^5.4.1",
+    "eosjs": "^22.0.0",
+    "supertest": "^7.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "babel-jest": "^29.7.0"
+  },
+  "jest": {
+    "config": "test/jest.config.js"
+  }
+}
