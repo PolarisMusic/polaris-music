@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package polaris.v1;
+
+// Events extracted from the Polaris Music Registry contract
+message Events {
+  repeated Event events = 1;
+}
+
+// Individual event from the blockchain
+message Event {
+  string tx_hash = 1;           // Transaction hash
+  uint64 block_num = 2;         // Block number
+  uint64 timestamp = 3;         // Block timestamp
+  string event_type = 4;        // Event type (PUT, ATTEST, VOTE, etc.)
+  EventData data = 5;           // Event-specific data
+}
+
+// Event data union
+message EventData {
+  oneof event {
+    PutEvent put = 1;
+    AttestEvent attest = 2;
+    VoteEvent vote = 3;
+    FinalizeEvent finalize = 4;
+    StakeEvent stake = 5;
+    UnstakeEvent unstake = 6;
+    LikeEvent like = 7;
+    UnlikeEvent unlike = 8;
+    UpdateRespectEvent update_respect = 9;
+  }
+}
+
+// Put action data
+message PutEvent {
+  string author = 1;
+  uint32 type = 2;
+  string hash = 3;              // SHA256 hash as hex string
+  string parent = 4;            // Optional parent hash
+  uint64 ts = 5;
+  repeated string tags = 6;
+  uint64 expires_at = 7;
+}
+
+// Attest action data
+message AttestEvent {
+  string attestor = 1;
+  string tx_hash = 2;
+  uint32 confirmed_type = 3;
+}
+
+// Vote action data
+message VoteEvent {
+  string voter = 1;
+  string tx_hash = 2;
+  int32 val = 3;                // +1, 0, -1
+  uint32 weight = 4;            // Respect weight
+}
+
+// Finalize action data
+message FinalizeEvent {
+  string tx_hash = 1;
+  bool accepted = 2;
+  uint64 approval_percent = 3;  // 0-100
+  uint64 reward_amount = 4;
+}
+
+// Stake action data
+message StakeEvent {
+  string account = 1;
+  string node_id = 2;
+  string quantity = 3;          // Asset string (e.g., "100.0000 MUS")
+}
+
+// Unstake action data
+message UnstakeEvent {
+  string account = 1;
+  string node_id = 2;
+  string quantity = 3;
+}
+
+// Like action data
+message LikeEvent {
+  string account = 1;
+  string node_id = 2;
+  repeated string path = 3;     // Path of node IDs
+}
+
+// Unlike action data
+message UnlikeEvent {
+  string account = 1;
+  string node_id = 2;
+}
+
+// Update Respect action data
+message UpdateRespectEvent {
+  repeated RespectUpdate updates = 1;
+  uint64 election_round = 2;
+}
+
+message RespectUpdate {
+  string account = 1;
+  uint32 respect = 2;
+}
+
+// Statistics aggregated from events
+message Stats {
+  uint64 total_events = 1;
+  uint64 total_puts = 2;
+  uint64 total_votes = 3;
+  uint64 total_stakes = 4;
+  uint64 total_likes = 5;
+  uint64 unique_contributors = 6;
+  string total_staked_amount = 7;
+}
+
+// Account activity tracking
+message AccountActivity {
+  string account = 1;
+  uint64 events_submitted = 2;
+  uint64 votes_cast = 3;
+  uint64 stakes_made = 4;
+  uint64 likes_given = 5;
+  uint64 last_active_block = 6;
+}
+
+message AccountActivities {
+  repeated AccountActivity activities = 1;
+}

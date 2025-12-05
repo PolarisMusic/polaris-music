@@ -1,0 +1,29 @@
+[package]
+name = "polaris-substreams"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Substreams core
+substreams = "0.5"
+substreams-antelope = "0.3"
+
+# Protocol Buffers
+prost = "0.12"
+prost-types = "0.12"
+
+# Utilities
+anyhow = "1.0"
+hex = "0.4"
+
+[build-dependencies]
+substreams-antelope = "0.3"
+anyhow = "1.0"
+
+[profile.release]
+lto = true
+opt-level = 's'
+strip = true

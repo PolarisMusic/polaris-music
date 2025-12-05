@@ -1,0 +1,124 @@
+{
+  "version": "eosio::abi/1.2",
+  "types": [],
+  "structs": [
+    {
+      "name": "put",
+      "base": "",
+      "fields": [
+        {"name": "author", "type": "name"},
+        {"name": "type", "type": "uint8"},
+        {"name": "hash", "type": "checksum256"},
+        {"name": "parent", "type": "checksum256?"},
+        {"name": "ts", "type": "uint32"},
+        {"name": "tags", "type": "name[]"}
+      ]
+    },
+    {
+      "name": "attest",
+      "base": "",
+      "fields": [
+        {"name": "attestor", "type": "name"},
+        {"name": "tx_hash", "type": "checksum256"},
+        {"name": "confirmed_type", "type": "uint8"}
+      ]
+    },
+    {
+      "name": "vote",
+      "base": "",
+      "fields": [
+        {"name": "voter", "type": "name"},
+        {"name": "tx_hash", "type": "checksum256"},
+        {"name": "val", "type": "int8"}
+      ]
+    },
+    {
+      "name": "finalize",
+      "base": "",
+      "fields": [
+        {"name": "tx_hash", "type": "checksum256"}
+      ]
+    },
+    {
+      "name": "stake",
+      "base": "",
+      "fields": [
+        {"name": "account", "type": "name"},
+        {"name": "node_id", "type": "checksum256"},
+        {"name": "quantity", "type": "asset"}
+      ]
+    },
+    {
+      "name": "unstake",
+      "base": "",
+      "fields": [
+        {"name": "account", "type": "name"},
+        {"name": "node_id", "type": "checksum256"},
+        {"name": "quantity", "type": "asset"}
+      ]
+    },
+    {
+      "name": "like",
+      "base": "",
+      "fields": [
+        {"name": "account", "type": "name"},
+        {"name": "node_id", "type": "checksum256"},
+        {"name": "node_path", "type": "checksum256[]"}
+      ]
+    },
+    {
+      "name": "unlike",
+      "base": "",
+      "fields": [
+        {"name": "account", "type": "name"},
+        {"name": "node_id", "type": "checksum256"}
+      ]
+    },
+    {
+      "name": "updaterespect",
+      "base": "",
+      "fields": [
+        {"name": "respect_data", "type": "pair_name_uint32[]"},
+        {"name": "election_round", "type": "uint64"}
+      ]
+    },
+    {
+      "name": "pair_name_uint32",
+      "base": "",
+      "fields": [
+        {"name": "key", "type": "name"},
+        {"name": "value", "type": "uint32"}
+      ]
+    },
+    {
+      "name": "setoracle",
+      "base": "",
+      "fields": [
+        {"name": "oracle", "type": "name"}
+      ]
+    },
+    {
+      "name": "init",
+      "base": "",
+      "fields": [
+        {"name": "oracle", "type": "name"},
+        {"name": "token_contract", "type": "name"}
+      ]
+    }
+  ],
+  "actions": [
+    {"name": "put", "type": "put"},
+    {"name": "attest", "type": "attest"},
+    {"name": "vote", "type": "vote"},
+    {"name": "finalize", "type": "finalize"},
+    {"name": "stake", "type": "stake"},
+    {"name": "unstake", "type": "unstake"},
+    {"name": "like", "type": "like"},
+    {"name": "unlike", "type": "unlike"},
+    {"name": "updaterespect", "type": "updaterespect"},
+    {"name": "setoracle", "type": "setoracle"},
+    {"name": "init", "type": "init"}
+  ],
+  "tables": [],
+  "ricardian_clauses": []
+}

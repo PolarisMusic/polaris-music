@@ -1,0 +1,106 @@
+specVersion: v0.1.0
+package:
+  name: polaris_music_substreams
+  version: v0.1.0
+  url: https://github.com/PolarisMusic/polaris-music
+  doc: |
+    Substreams module for indexing the Polaris Music Registry on Antelope blockchains.
+
+    This module extracts all events from the Polaris smart contract including:
+    - Event anchoring (PUT)
+    - Attestations (ATTEST)
+    - Voting (VOTE)
+    - Finalization (FINALIZE)
+    - Staking (STAKE/UNSTAKE)
+    - Likes (LIKE/UNLIKE)
+    - Respect updates (UPDATE_RESPECT)
+
+imports:
+  antelope: https://github.com/pinax-network/substreams-antelope/releases/download/v0.3.0/antelope-v0.3.0.spkg
+
+protobuf:
+  files:
+    - proto/polaris.proto
+  importPaths:
+    - ./proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: target/wasm32-unknown-unknown/release/polaris_substreams.wasm
+
+modules:
+  # Extract all Polaris events from blocks
+  - name: map_events
+    kind: map
+    inputs:
+      - params: string
+      - source: sf.antelope.type.v1.Block
+    output:
+      type: proto:polaris.v1.Events
+    doc: |
+      Extracts all Polaris Music Registry events from Antelope blocks.
+
+      Parameters:
+      - contract_account: The account name of the Polaris contract (default: "polaris")
+
+      Example:
+        substreams run -e eos.firehose.pinax.network:443 \
+          map_events -p map_events="polaris" \
+          --start-block 100000000 --stop-block +1000
+
+  # Aggregate statistics from events
+  - name: store_stats
+    kind: store
+    updatePolicy: add
+    valueType: int64
+    inputs:
+      - map: map_events
+    doc: |
+      Stores aggregate statistics about Polaris events.
+
+      Keys:
+      - total_events: Total number of events processed
+      - total_puts: Total number of PUT events
+      - total_votes: Total number of VOTE events
+      - total_stakes: Total number of STAKE events
+      - total_likes: Total number of LIKE events
+
+  # Track per-account activity
+  - name: store_account_activity
+    kind: store
+    updatePolicy: add
+    valueType: int64
+    inputs:
+      - map: map_events
+    doc: |
+      Stores per-account activity metrics.
+
+      Keys (per account):
+      - account:{name}:events: Number of events submitted
+      - account:{name}:last_block: Last block with activity
+
+  # Output aggregated statistics
+  - name: map_stats
+    kind: map
+    inputs:
+      - store: store_stats
+        mode: get
+    output:
+      type: proto:polaris.v1.Stats
+    doc: |
+      Outputs aggregated statistics about Polaris events.
+
+      Example:
+        substreams run map_stats --start-block 100000000 --stop-block +1000
+
+params:
+  map_events: polaris
+
+network: eos-mainnet
+
+sink:
+  module: map_events
+  type: sf.substreams.sink.files.v1.Files
+  config:
+    output_path: "./output"
