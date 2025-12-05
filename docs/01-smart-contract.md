@@ -95,35 +95,16 @@ public:
     }
     
     /**
-     * Attest to the validity of an anchored event
-     * Used by trusted attestors to verify high-value submissions
+     * Like a node on the graph
+     * UI tracks path through graph node-by-node, and then publishes in this action
+     * Yet to be implemented
      * 
-     * @param attestor - Account doing the attestation (must be authorized)
-     * @param tx_hash - Hash of the event being attested
-     * @param type - The event type being attested (must match anchor)
+     * @param account - Account doing the liking (must be authorized)
+     * @param node_id - SHA256 identifier of entity being liked
+     * @param path - The node_id-by-node_id path through the graph leading from the starting point to the liked node.
      */
-    ACTION attest(name attestor, checksum256 tx_hash, uint8_t type) {
-        require_auth(attestor);
-        
-        // Verify attestor is authorized
-        check(is_authorized_attestor(attestor), "Not an authorized attestor");
-        
-        // Verify the anchor exists and matches type
-        anchors_table anchors(get_self(), get_self().value);
-        auto idx = anchors.get_index<"byhash"_n>();
-        auto itr = idx.find(tx_hash);
-        check(itr != idx.end(), "Anchor not found");
-        check(itr->type == type, "Type mismatch");
-        
-        // Store attestation
-        attestations_table attestations(get_self(), get_self().value);
-        attestations.emplace(attestor, [&](auto& a) {
-            a.id = attestations.available_primary_key();
-            a.tx_hash = tx_hash;
-            a.attestor = attestor;
-            a.type = type;
-            a.ts = current_time_point();
-        });
+    ACTION like(name account, checksum256 node_id, vector<checksum256> node_path) {
+        // To Be Implemented
     }
     
     // ============ FRACTALLY INTEGRATION ============
