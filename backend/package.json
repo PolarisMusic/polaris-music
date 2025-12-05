@@ -20,7 +20,9 @@
     "neo4j-driver": "^5.23.0",
     "ioredis": "^5.4.1",
     "eosjs": "^22.0.0",
-    "supertest": "^7.0.0"
+    "supertest": "^7.0.0",
+    "ipfs-http-client": "^60.0.1",
+    "@aws-sdk/client-s3": "^3.645.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",
