@@ -852,18 +852,18 @@ ACTION unstake(
     asset quantity
 );
 
-// Like a node after traversing the graph front-end 
+// Like a node after traversing the graph front-end
 ACTION like(
     name account,
     checksum256 node_id,
     vector<checksum256> node_path,
 );
 
-// Update respect score of an account verified through fractally process 
+// Batch update Respect values from Fractally elections (oracle-only)
+// Called weekly after Fractally consensus rounds complete
 ACTION updaterespect(
-    name account,
-    vector<checksum256> node_path,
-    asset quantity
+    std::vector<std::pair<name, uint32_t>> respect_data,  // Array of account:respect pairs
+    uint64_t election_round                                // Fractally round number
 );
 ```
 
@@ -1156,11 +1156,15 @@ This section documents discrepancies between the English-language descriptions i
 
 ### Main README.md Mismatches
 
-#### 1. **release_guests Field Missing from Frontend**
-- **README States** (line 285-297): Release bundle should include `release_guests` field with persons who contributed at release level (mastering engineers, album art, etc.)
-- **Implementation**: Frontend form (`frontend/src/index.js`) does NOT capture release-level guests - only track-level guests are supported
-- **Impact**: Cannot properly credit mastering engineers, album designers, or other release-level contributors
-- **Location**: `frontend/src/components/FormBuilder.js` and `frontend/src/index.js` buildReleaseData()
+#### 1. **release_guests Field Missing from Frontend** ✅ FIXED
+- **Previously**: Frontend form did NOT capture release-level guests
+- **Now Fixed**: Added "Release-Level Credits" section to form
+- **Implementation**:
+  - Added `createReleaseGuestForm()` to FormBuilder.js
+  - Added `extractReleaseGuests()` to index.js
+  - Updated `buildReleaseData()` to include `release_guests` array
+- **Usage**: Credits mastering engineers, album designers, and other release-level contributors
+- **Location**: `frontend/index.html` lines 95-107, `frontend/src/components/FormBuilder.js` lines 200-253, `frontend/src/index.js` lines 135, 190-228
 
 #### 2. **Emission Formula Multiplier Mismatch**
 - **README States** (line 886-890): Multipliers should be:
@@ -1174,24 +1178,18 @@ This section documents discrepancies between the English-language descriptions i
 - **Impact**: Rewards are 100x lower for release bundles and 20x lower for claims than documented
 - **Location**: `contracts/polaris.music.cpp` getMultiplier() function
 
-#### 3. **updaterespect Action Signature Mismatch**
-- **README States** (line 863-867): 
-  ```cpp
-  ACTION updaterespect(
-      name account,
-      vector<checksum256> node_path,
-      asset quantity
-  );
-  ```
-- **Smart Contract Implements** (`contracts/polaris.music.cpp` line 120-150):
+#### 3. **updaterespect Action Signature Mismatch** ✅ FIXED
+- **Previously**: README documented wrong signature with single account parameter
+- **Now Fixed**: Documentation updated to match actual implementation
+- **Correct Signature**:
   ```cpp
   ACTION updaterespect(
       std::vector<std::pair<name, uint32_t>> respect_data,
       uint64_t election_round
   )
   ```
-- **Impact**: Documentation describes wrong function signature entirely
-- **Location**: `contracts/polaris.music.cpp` updaterespect action
+- **Purpose**: Batch update Respect values from Fractally elections (oracle-only)
+- **Location**: `contracts/polaris.music.cpp` lines 242-243, README.md lines 864-867
 
 #### 4. **Missing Backend Directory Structure**
 - **README States** (line 958): Backend should have `config/` directory
@@ -1310,19 +1308,22 @@ This section documents discrepancies between the English-language descriptions i
 
 ### Data Structure Mismatches
 
-#### 20. **proofs Field Inconsistency**
-- **README Example** (line 811-813): Shows `proofs` field with `source_links` array
-- **Frontend Implementation** (`frontend/src/index.js`): Does NOT capture or send proofs field
-- **Impact**: Cannot provide source attribution for releases
-- **Location**: `frontend/src/index.js` buildReleaseData()
+#### 20. **proofs Field Inconsistency** ✅ FIXED
+- **Previously**: Frontend form did NOT capture or send proofs field
+- **Now Fixed**: Added "Source Attribution" section to form
+- **Implementation**:
+  - Added `source_links` input field to index.html
+  - Updated `buildReleaseData()` to create proofs object with source_links array
+- **Usage**: Provide verification sources (Discogs, MusicBrainz, official websites, etc.)
+- **Location**: `frontend/index.html` lines 95-102, `frontend/src/index.js` lines 140-142, 154
 
 ### Summary of Critical Issues
 
 **High Priority (Breaks Documented Functionality):**
-1. Missing `release_guests` field in frontend
+1. ~~Missing `release_guests` field in frontend~~ ✅ FIXED
 2. Emission multipliers 100x different from docs
-3. `updaterespect` action completely different signature
-4. Missing `proofs` field in frontend
+3. ~~`updaterespect` action completely different signature~~ ✅ FIXED
+4. ~~Missing `proofs` field in frontend~~ ✅ FIXED
 5. Docker Compose file missing
 
 **Medium Priority (Documentation Errors):**
@@ -1339,9 +1340,9 @@ This section documents discrepancies between the English-language descriptions i
 
 ### Recommended Actions
 
-1. **Frontend Form**: Add `release_guests` field and `proofs` field to form
+1. ~~**Frontend Form**: Add `release_guests` field and `proofs` field to form~~ ✅ FIXED
 2. **Smart Contract**: Either update multipliers to match docs or update docs to match code
-3. **Documentation**: Update `updaterespect` signature in README to match actual implementation
+3. ~~**Documentation**: Update `updaterespect` signature in README to match actual implementation~~ ✅ FIXED
 4. **Docker**: Create `docker-compose.yml` or remove references from README
 5. **Backend README**: Create comprehensive backend documentation
 6. **Tools**: Either create tools/import directory or remove from README
