@@ -1,0 +1,252 @@
+version: '3.8'
+
+services:
+  # Neo4j Graph Database
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: polaris-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/polarisdev
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_dbms_memory_pagecache_size=1G
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-import:/var/lib/neo4j/import
+      - neo4j-plugins:/plugins
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p polarisdev 'RETURN 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: polaris-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass polarisdev --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # IPFS Node
+  ipfs:
+    image: ipfs/kubo:v0.24.0
+    container_name: polaris-ipfs
+    ports:
+      - "4001:4001"     # P2P
+      - "5001:5001"     # API
+      - "8080:8080"     # Gateway
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ipfs-staging:/export
+      - ipfs-data:/data/ipfs
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs id || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: polaris-minio
+    ports:
+      - "9000:9000"     # API
+      - "9001:9001"     # Console
+    environment:
+      - MINIO_ROOT_USER=polaris
+      - MINIO_ROOT_PASSWORD=polarisdev123
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO Client - Create bucket on startup
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+    container_name: polaris-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set polaris http://minio:9000 polaris polarisdev123;
+      /usr/bin/mc mb polaris/polaris-events --ignore-existing;
+      /usr/bin/mc anonymous set download polaris/polaris-events;
+      exit 0;
+      "
+    networks:
+      - polaris-network
+
+  # Backend API Server
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: polaris-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+
+      # Blockchain
+      - CHAIN_ID=aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906
+      - RPC_URL=https://eos.greymass.com
+      - CONTRACT_ACCOUNT=polaris
+
+      # Graph Database
+      - GRAPH_URI=bolt://neo4j:7687
+      - GRAPH_USER=neo4j
+      - GRAPH_PASSWORD=polarisdev
+
+      # Storage
+      - IPFS_URL=http://ipfs:5001
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=polaris
+      - S3_SECRET_KEY=polarisdev123
+      - S3_BUCKET=polaris-events
+      - S3_REGION=us-east-1
+
+      # Redis Cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=polarisdev
+
+      # API Configuration
+      - CORS_ORIGIN=http://localhost:5173
+      - LOG_LEVEL=debug
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/test:/app/test
+    networks:
+      - polaris-network
+    command: npm run dev
+
+  # Event Processor (Blockchain → Graph)
+  processor:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: polaris-processor
+    environment:
+      - NODE_ENV=development
+
+      # Blockchain
+      - CHAIN_ID=aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906
+      - RPC_URL=https://eos.greymass.com
+      - CONTRACT_ACCOUNT=polaris
+
+      # Graph Database
+      - GRAPH_URI=bolt://neo4j:7687
+      - GRAPH_USER=neo4j
+      - GRAPH_PASSWORD=polarisdev
+
+      # Storage
+      - IPFS_URL=http://ipfs:5001
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=polaris
+      - S3_SECRET_KEY=polarisdev123
+      - S3_BUCKET=polaris-events
+      - S3_REGION=us-east-1
+
+      # Redis Cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=polarisdev
+
+      # Processor Configuration
+      - START_BLOCK=0
+      - BATCH_SIZE=100
+      - POLL_INTERVAL=5000
+      - LOG_LEVEL=debug
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./backend/src:/app/src
+    networks:
+      - polaris-network
+    command: npm run processor
+
+  # Frontend Development Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: polaris-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:3000
+      - VITE_GRAPHQL_URL=http://localhost:3000/graphql
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+    networks:
+      - polaris-network
+    command: npm run dev -- --host
+    depends_on:
+      - api
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-import:
+  neo4j-plugins:
+  redis-data:
+  ipfs-staging:
+  ipfs-data:
+  minio-data:
+
+networks:
+  polaris-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
