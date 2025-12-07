@@ -195,6 +195,64 @@ export class FormBuilder {
     }
 
     /**
+     * Create a release guest form (for release-level personnel)
+     */
+    createReleaseGuestForm(index) {
+        const div = document.createElement('div');
+        div.className = 'nested-item';
+        div.dataset.type = 'release-guest';
+        div.dataset.index = index;
+
+        div.innerHTML = `
+            <div class="nested-item-header">
+                <span class="nested-item-title">Release Guest ${index + 1}</span>
+                <button type="button" class="btn-remove remove-release-guest">Remove</button>
+            </div>
+
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" name="release-guest-name-${index}" required placeholder="George Martin">
+                <small>UNIMPLEMENTED: Add autocomplete search for existing persons</small>
+            </div>
+
+            <div class="form-group">
+                <label>Roles *</label>
+                <div class="roles-container" data-person="release-guest-${index}">
+                    <input type="text" name="release-guest-roles-${index}"
+                           placeholder="Add roles (comma-separated): Mastering Engineer, Producer">
+                    <small>Separate multiple roles with commas. UNIMPLEMENTED: Add role autocomplete/chips</small>
+                </div>
+            </div>
+
+            <div class="subsection">
+                <h4>City</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>City Name</label>
+                        <input type="text" name="release-guest-city-name-${index}" placeholder="London">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Latitude</label>
+                            <input type="number" step="0.00001" name="release-guest-city-lat-${index}" placeholder="51.50735">
+                        </div>
+                        <div class="form-group">
+                            <label>Longitude</label>
+                            <input type="number" step="0.00001" name="release-guest-city-long-${index}" placeholder="-0.12776">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        div.querySelector('.remove-release-guest').addEventListener('click', () => {
+            div.remove();
+        });
+
+        return div;
+    }
+
+    /**
      * Create a complete track form
      */
     createTrackForm(index = null) {

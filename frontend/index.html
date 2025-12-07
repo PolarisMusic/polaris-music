@@ -91,11 +91,33 @@
                             </div>
                         </section>
 
+                        <!-- Source Attribution Section -->
+                        <section class="form-section">
+                            <h3>Source Attribution</h3>
+                            <div class="form-group">
+                                <label for="source-links">Source Links</label>
+                                <input type="text" id="source-links" name="source_links"
+                                       placeholder="https://discogs.com/..., https://musicbrainz.org/... (comma-separated)">
+                                <small>Provide source links for verification (Discogs, MusicBrainz, official websites, etc.)</small>
+                            </div>
+                        </section>
+
                         <!-- Labels Section -->
                         <section class="form-section">
                             <h3>Labels</h3>
                             <div id="labels-container"></div>
                             <button type="button" class="btn-add" id="add-label">+ Add Label</button>
+                        </section>
+
+                        <!-- Release-Level Guests Section -->
+                        <section class="form-section">
+                            <h3>Release-Level Credits</h3>
+                            <p class="section-note">
+                                Add personnel who contributed to the overall release (mastering engineers,
+                                album designers, release-level production, etc.) rather than specific tracks.
+                            </p>
+                            <div id="release-guests-container"></div>
+                            <button type="button" class="btn-add" id="add-release-guest">+ Add Release Guest</button>
                         </section>
 
                         <!-- Tracks Section -->

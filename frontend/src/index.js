@@ -65,6 +65,13 @@ class PolarisApp {
             container.appendChild(this.formBuilder.createLabelForm());
         });
 
+        // Add release guest button
+        document.getElementById('add-release-guest').addEventListener('click', () => {
+            const container = document.getElementById('release-guests-container');
+            const index = container.children.length;
+            container.appendChild(this.formBuilder.createReleaseGuestForm(index));
+        });
+
         // Add track button
         document.getElementById('add-track').addEventListener('click', () => {
             const container = document.getElementById('tracks-container');
@@ -125,7 +132,13 @@ class PolarisApp {
                 formData.get('master_release_id') || null
             ],
             labels: this.extractLabels(),
+            release_guests: this.extractReleaseGuests(),
             tracks: this.extractTracks(),
+        };
+
+        // Proofs object (source attribution)
+        const proofs = {
+            source_links: this.parseCommaSeparated(formData.get('source_links'))
         };
 
         // Build tracklist from tracks
@@ -138,6 +151,7 @@ class PolarisApp {
         return {
             release,
             tracklist,
+            proofs,
         };
     }
 
@@ -175,6 +189,49 @@ class PolarisApp {
         });
 
         return labels;
+    }
+
+    /**
+     * Extract release-level guests from form
+     */
+    extractReleaseGuests() {
+        const guests = [];
+        const guestItems = document.querySelectorAll('[data-type="release-guest"]');
+
+        guestItems.forEach(item => {
+            const index = item.dataset.index;
+            const name = this.getInputValue(item, `release-guest-name-${index}`);
+
+            if (!name) return;
+
+            const cityName = this.getInputValue(item, `release-guest-city-name-${index}`);
+            const lat = this.getInputValue(item, `release-guest-city-lat-${index}`);
+            const long = this.getInputValue(item, `release-guest-city-long-${index}`);
+
+            let cityData = null;
+            if (cityName) {
+                const cityId = HashGenerator.generateCityId(cityName, lat, long);
+                cityData = {
+                    city_id: cityId,
+                    city_name: cityName,
+                    city_lat: parseFloat(lat) || 0,
+                    city_long: parseFloat(long) || 0,
+                };
+            }
+
+            const personId = HashGenerator.generatePersonId(name, cityData?.city_id);
+            const rolesStr = this.getInputValue(item, `release-guest-roles-${index}`);
+            const roles = this.parseRoles(rolesStr);
+
+            guests.push({
+                person_id: personId,
+                person_name: name,
+                person_roles: roles,
+                person_city: cityData,
+            });
+        });
+
+        return guests;
     }
 
     /**
