@@ -1146,3 +1146,204 @@ MIT License - see LICENSE file for details
 - GQL compatible Cypher queries for Neo4j graph database
 - IPFS for decentralized storage
 - EOS/Vaulta blockchain community
+---
+
+## Documentation vs Implementation Mismatches
+
+_Last Updated: 2025-12-07_
+
+This section documents discrepancies between the English-language descriptions in README files and the actual implemented code.
+
+### Main README.md Mismatches
+
+#### 1. **release_guests Field Missing from Frontend**
+- **README States** (line 285-297): Release bundle should include `release_guests` field with persons who contributed at release level (mastering engineers, album art, etc.)
+- **Implementation**: Frontend form (`frontend/src/index.js`) does NOT capture release-level guests - only track-level guests are supported
+- **Impact**: Cannot properly credit mastering engineers, album designers, or other release-level contributors
+- **Location**: `frontend/src/components/FormBuilder.js` and `frontend/src/index.js` buildReleaseData()
+
+#### 2. **Emission Formula Multiplier Mismatch**
+- **README States** (line 886-890): Multipliers should be:
+  - CREATE_RELEASE_BUNDLE: 100,000,000
+  - ADD_CLAIM: 1,000,000
+  - EDIT_CLAIM: 1,000
+- **Smart Contract Implements** (`contracts/polaris.music.cpp` line 507-512):
+  - CREATE_RELEASE_BUNDLE: 1,000,000
+  - ADD_CLAIM: 50,000
+  - EDIT_CLAIM: 1,000
+- **Impact**: Rewards are 100x lower for release bundles and 20x lower for claims than documented
+- **Location**: `contracts/polaris.music.cpp` getMultiplier() function
+
+#### 3. **updaterespect Action Signature Mismatch**
+- **README States** (line 863-867): 
+  ```cpp
+  ACTION updaterespect(
+      name account,
+      vector<checksum256> node_path,
+      asset quantity
+  );
+  ```
+- **Smart Contract Implements** (`contracts/polaris.music.cpp` line 120-150):
+  ```cpp
+  ACTION updaterespect(
+      std::vector<std::pair<name, uint32_t>> respect_data,
+      uint64_t election_round
+  )
+  ```
+- **Impact**: Documentation describes wrong function signature entirely
+- **Location**: `contracts/polaris.music.cpp` updaterespect action
+
+#### 4. **Missing Backend Directory Structure**
+- **README States** (line 958): Backend should have `config/` directory
+- **Implementation**: No `backend/src/config/` directory exists - configuration is handled via environment variables in code
+- **Impact**: Documentation incorrectly describes file structure
+- **Location**: `backend/src/` directory
+
+#### 5. **Docker Compose File Missing**
+- **README States** (multiple references lines 74, 1019-1028): Project should have `docker-compose.yml` for orchestrating services
+- **Implementation**: No `docker-compose.yml` file exists in repository
+- **Impact**: Cannot use documented Docker Compose commands
+- **Location**: Repository root
+
+#### 6. **Missing Deployment Scripts**
+- **README States** (line 1034): Should have `./deploy.sh` script
+- **Implementation**: No deployment script exists
+- **Impact**: Production deployment instructions don't work
+- **Location**: Repository root
+
+#### 7. **Missing Tools Directory**
+- **README States** (lines 949, 974-975): Should have `tools/import/` and `tools/migration/` directories
+- **Implementation**: No `tools/` directory exists
+- **Impact**: Cannot run documented Discogs import (line 922-926)
+- **Location**: Repository root
+
+#### 8. **Missing Kubernetes Files**
+- **README States** (line 977): Should have `k8s/` directory for Kubernetes deployment
+- **Implementation**: No `k8s/` directory exists
+- **Impact**: Kubernetes deployment instructions (line 1037-1040) don't work
+- **Location**: Repository root
+
+#### 9. **Backend README.md Doesn't Exist**
+- **README States** (implicitly): Backend should have comprehensive README
+- **Implementation**: No `backend/README.md` file exists
+- **Impact**: No backend-specific documentation available
+- **Location**: `backend/` directory
+
+### Frontend README.md vs Implementation
+
+#### 10. **Frontend README Claims "Visualization" Directory**
+- **Frontend README States** (line 42): `src/visualization/` for JIT-based graph visualization
+- **Implementation**: Directory exists but only has placeholder `MusicGraph.js` file (1 line)
+- **Impact**: Misleading - visualization is not actually implemented in frontend
+- **Location**: `frontend/src/visualization/MusicGraph.js`
+
+#### 11. **Frontend README Incorrect Package Reference**
+- **Frontend README States** (line 10): Uses "crypto-js" package for hashing
+- **Implementation**: Correct - `package.json` does include crypto-js@^4.2.0
+- **Status**: ✅ MATCHES (no mismatch - documentation is accurate)
+
+### Smart Contract README.md vs Implementation
+
+#### 12. **Missing "clear" Action Documentation**
+- **Contract README**: Does not document the `clear()` action
+- **Implementation** (`contracts/polaris.music.cpp` line 311-347): Has a `clear()` action for testing
+- **Impact**: Undocumented dangerous action exists in code
+- **Location**: `contracts/polaris.music.cpp` clear action
+- **Note**: README correctly warns this should be removed before mainnet (line 621)
+
+#### 13. **Contract README Correctly Documents Actions**
+- **Contract README** (line 11-116): Documents all main actions accurately
+- **Implementation**: Matches - all documented actions exist with correct signatures
+- **Status**: ✅ MATCHES
+
+### Substreams README.md vs Implementation
+
+#### 14. **Substreams Module Outputs Don't Match**  
+- **Substreams README States** (line 61-72): Four modules exist:
+  1. map_events
+  2. store_stats  
+  3. store_account_activity
+  4. map_stats
+- **Implementation** (`substreams/substreams.yaml`): Only defines three modules in YAML manifest
+  - Missing proper module definitions for store modules
+- **Impact**: Incomplete module configuration
+- **Location**: `substreams/substreams.yaml` lines 55-95
+
+#### 15. **Substreams README Build Instructions**
+- **Substreams README** (line 79-83): Says `make build` will work
+- **Implementation**: `Makefile` exists and should work, but requires external dependencies (substreams CLI)
+- **Status**: ⚠️ CONDITIONAL - Works if dependencies installed
+
+### CLAUDE.md vs Implementation
+
+#### 16. **CLAUDE.md Says Tests Directory Has performance/**
+- **CLAUDE.md States** (line 37): `backend/test/performance/` should exist
+- **Implementation**: No `backend/test/performance/` directory exists
+- **Impact**: Performance testing documentation references non-existent directory
+- **Location**: `backend/test/` directory structure
+
+#### 17. **CLAUDE.md Lists Docs That Don't Exist**
+- **CLAUDE.md States** (lines 53-56): Should have comprehensive docs in `docs/` directory
+- **Implementation**: Only 3 docs files exist:
+  - `docs/01-smart-contract.md` ✅
+  - `docs/02-graph-database-schema.md` ❌ (doesn't exist)
+  - `docs/03-event-storage.md` ✅
+  - Other numbered docs don't exist
+- **Impact**: Referenced documentation is incomplete
+- **Location**: `docs/` directory
+
+### Critical Functional Mismatches
+
+#### 18. **Backend Has No Implementation**
+- **Multiple READMEs State**: Backend should have full implementation with Neo4j, IPFS, Redis, etc.
+- **Implementation**: Backend files are mostly placeholder stubs (schema.js, eventStore.js, server.js created but not fully tested)
+- **Status**: ⚠️ CODE EXISTS BUT UNTESTED - Implementation is present but requires:
+  - Database setup
+  - Storage backend configuration  
+  - Testing and validation
+- **Location**: All `backend/src/` files
+
+#### 19. **Event Processor Integration**  
+- **CLAUDE.md States** (line 144): Backend has `backend/src/indexer/eventProcessor.js`
+- **Implementation**: File exists with full implementation
+- **Status**: ✅ MATCHES
+
+### Data Structure Mismatches
+
+#### 20. **proofs Field Inconsistency**
+- **README Example** (line 811-813): Shows `proofs` field with `source_links` array
+- **Frontend Implementation** (`frontend/src/index.js`): Does NOT capture or send proofs field
+- **Impact**: Cannot provide source attribution for releases
+- **Location**: `frontend/src/index.js` buildReleaseData()
+
+### Summary of Critical Issues
+
+**High Priority (Breaks Documented Functionality):**
+1. Missing `release_guests` field in frontend
+2. Emission multipliers 100x different from docs
+3. `updaterespect` action completely different signature
+4. Missing `proofs` field in frontend
+5. Docker Compose file missing
+
+**Medium Priority (Documentation Errors):**
+6. Tools directory doesn't exist (Discogs import broken)
+7. Deployment scripts missing
+8. K8s files missing  
+9. Backend README missing
+10. Performance test directory missing
+
+**Low Priority (Minor Inconsistencies):**
+11. Visualization directory exists but not implemented
+12. Some documentation files missing
+13. `clear()` action undocumented
+
+### Recommended Actions
+
+1. **Frontend Form**: Add `release_guests` field and `proofs` field to form
+2. **Smart Contract**: Either update multipliers to match docs or update docs to match code
+3. **Documentation**: Update `updaterespect` signature in README to match actual implementation
+4. **Docker**: Create `docker-compose.yml` or remove references from README
+5. **Backend README**: Create comprehensive backend documentation
+6. **Tools**: Either create tools/import directory or remove from README
+7. **Testing**: Create performance test directory or update CLAUDE.md
+
