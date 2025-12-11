@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polaris Music Registry - Graph Visualization</title>
+
+    <!-- JIT Library -->
+    <script src="https://cdn.jsdelivr.net/npm/jit@2.0.1/Jit/jit.js"></script>
+
+    <!-- Visualization Styles -->
+    <link rel="stylesheet" href="./src/visualization/visualization.css">
+</head>
+<body>
+    <!-- Top Bar -->
+    <div id="top-bar">
+        <div class="top-bar-left">
+            <div class="logo">Polaris Music Registry</div>
+        </div>
+        <div class="top-bar-right">
+            <div class="user-info">
+                <span id="user-account">Not connected</span>
+                <button id="connect-wallet" class="btn-wallet">Connect Wallet</button>
+            </div>
+            <div class="stats">
+                <span class="stat-item">
+                    <span class="icon">⭐</span>
+                    <span id="favorites-count">0</span> Favorites
+                </span>
+                <span class="stat-item">
+                    <span class="icon">❄️</span>
+                    <span id="history-count">0</span> History
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="main-container">
+        <!-- Visualization Canvas -->
+        <div id="viz-container">
+            <div id="infovis"></div>
+
+            <!-- Controls Overlay -->
+            <div id="controls-overlay">
+                <div class="control-group">
+                    <label>Zoom</label>
+                    <input type="range" id="zoom-slider" min="0.5" max="2" step="0.1" value="1">
+                </div>
+                <button id="center-view" class="btn-control">Center View</button>
+                <button id="toggle-labels" class="btn-control">Toggle Labels</button>
+            </div>
+        </div>
+
+        <!-- Info Viewer Panel -->
+        <div id="info-viewer">
+            <div class="info-header">
+                <h2 id="info-title">Select a node</h2>
+                <button id="close-info" class="btn-close">×</button>
+            </div>
+            <div id="info-content" class="info-content">
+                <p class="placeholder">Click on a Group or Person to see details</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div id="bottom-bar">
+        <button class="btn-action" id="submit-project">Submit a Project</button>
+        <a href="https://ursapolarisrecords.com/polaris" class="btn-action" target="_blank">Info / Contact</a>
+        <a href="https://ursapolarisrecords.com/album-artwork-1" class="btn-action" target="_blank">Merch / Albums</a>
+        <button class="btn-action" id="help">Help</button>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <p>Loading graph data...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="./src/visualization/colorPalette.js"></script>
+    <script type="module" src="./src/visualization/graphApi.js"></script>
+    <script type="module" src="./src/visualization/MusicGraph.js"></script>
+    <script type="module">
+        import { MusicGraph } from './src/visualization/MusicGraph.js';
+
+        // Initialize visualization when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            const graph = new MusicGraph('infovis');
+            window.musicGraph = graph; // For debugging
+        });
+    </script>
+</body>
+</html>
