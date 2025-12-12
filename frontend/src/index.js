@@ -167,11 +167,11 @@ class PolarisApp {
             const labelName = this.getInputValue(item, `label-name-${index}`);
             const cityName = this.getInputValue(item, `label-city-name-${index}`);
             const lat = this.getInputValue(item, `label-city-lat-${index}`);
-            const long = this.getInputValue(item, `label-city-long-${index}`);
+            const lon = this.getInputValue(item, `label-city-lon-${index}`);
 
             if (!labelName || !cityName) return;
 
-            const cityId = HashGenerator.generateCityId(cityName, lat, long);
+            const cityId = HashGenerator.generateCityId(cityName, lat, lon);
             const labelId = HashGenerator.generateLabelId(labelName, cityId);
 
             labels.push({
@@ -183,7 +183,7 @@ class PolarisApp {
                     city_id: cityId,
                     city_name: cityName,
                     city_lat: parseFloat(lat) || 0,
-                    city_long: parseFloat(long) || 0,
+                    city_lon: parseFloat(lon) || 0,
                 }],
             });
         });
@@ -206,16 +206,16 @@ class PolarisApp {
 
             const cityName = this.getInputValue(item, `release-guest-city-name-${index}`);
             const lat = this.getInputValue(item, `release-guest-city-lat-${index}`);
-            const long = this.getInputValue(item, `release-guest-city-long-${index}`);
+            const lon = this.getInputValue(item, `release-guest-city-lon-${index}`);
 
             let cityData = null;
             if (cityName) {
-                const cityId = HashGenerator.generateCityId(cityName, lat, long);
+                const cityId = HashGenerator.generateCityId(cityName, lat, lon);
                 cityData = {
                     city_id: cityId,
                     city_name: cityName,
                     city_lat: parseFloat(lat) || 0,
-                    city_long: parseFloat(long) || 0,
+                    city_lon: parseFloat(lon) || 0,
                 };
             }
 
@@ -302,16 +302,16 @@ class PolarisApp {
 
         const cityName = this.getInputValue(item, `${type}-city-name-${parentIndex}-${index}`);
         const lat = this.getInputValue(item, `${type}-city-lat-${parentIndex}-${index}`);
-        const long = this.getInputValue(item, `${type}-city-long-${parentIndex}-${index}`);
+        const lon = this.getInputValue(item, `${type}-city-lon-${parentIndex}-${index}`);
 
         let cityData = null;
         if (cityName) {
-            const cityId = HashGenerator.generateCityId(cityName, lat, long);
+            const cityId = HashGenerator.generateCityId(cityName, lat, lon);
             cityData = {
                 city_id: cityId,
                 city_name: cityName,
                 city_lat: parseFloat(lat) || 0,
-                city_long: parseFloat(long) || 0,
+                city_lon: parseFloat(lon) || 0,
             };
         }
 

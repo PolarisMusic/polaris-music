@@ -67,7 +67,7 @@ export class FormBuilder {
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="label-city-long-${index}" placeholder="-0.12776">
+                            <input type="number" step="0.00001" name="label-city-lon-${index}" placeholder="-0.12776">
                         </div>
                     </div>
                 </div>
@@ -128,7 +128,7 @@ export class FormBuilder {
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="${type}-city-long-${parentIndex}-${index}" placeholder="-0.12776">
+                            <input type="number" step="0.00001" name="${type}-city-lon-${parentIndex}-${index}" placeholder="-0.12776">
                         </div>
                     </div>
                 </div>
@@ -238,7 +238,7 @@ export class FormBuilder {
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="release-guest-city-long-${index}" placeholder="-0.12776">
+                            <input type="number" step="0.00001" name="release-guest-city-lon-${index}" placeholder="-0.12776">
                         </div>
                     </div>
                 </div>

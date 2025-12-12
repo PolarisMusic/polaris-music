@@ -197,45 +197,6 @@ export class GraphAPI {
                             children: []
                         }
                     ]
-                },
-                {
-                    id: "group-rollingstones",
-                    name: "The Rolling Stones",
-                    data: {
-                        type: "Group",
-                        group_id: "a1b2c3d4e5f6g7h8i9j0...",
-                        group_name: "The Rolling Stones",
-                        formed_date: "1962",
-                        photo_url: null
-                    },
-                    children: [
-                        {
-                            id: "person-mick",
-                            name: "Mick Jagger",
-                            data: {
-                                type: "Person",
-                                person_id: "1a2b3c4d5e6f7g8h9i0j...",
-                                person_name: "Mick Jagger",
-                                participation_percent: 100.0,
-                                photo_url: null,
-                                city: "Dartford"
-                            },
-                            children: []
-                        },
-                        {
-                            id: "person-keith",
-                            name: "Keith Richards",
-                            data: {
-                                type: "Person",
-                                person_id: "2b3c4d5e6f7g8h9i0j1k...",
-                                person_name: "Keith Richards",
-                                participation_percent: 100.0,
-                                photo_url: null,
-                                city: "Dartford"
-                            },
-                            children: []
-                        }
-                    ]
                 }
             ]
         };

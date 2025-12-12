@@ -308,15 +308,54 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (p:Person {person_id: $id})
-                        RETURN p
+                        OPTIONAL MATCH (p)-[m:MEMBER_OF]->(g:Group)
+                        OPTIONAL MATCH (p)-[:WROTE]->(s:Song)
+                        OPTIONAL MATCH (p)-[:PRODUCED]->(t:Track)
+                        OPTIONAL MATCH (p)-[:GUEST_ON]->(tg:Track)
+
+                        RETURN p,
+                               collect(DISTINCT {
+                                   group: g,
+                                   role: m.role,
+                                   from_date: m.from_date,
+                                   to_date: m.to_date,
+                                   instruments: m.instruments
+                               }) as groups,
+                               collect(DISTINCT s) as songsWritten,
+                               collect(DISTINCT t) as tracksProduced,
+                               collect(DISTINCT tg) as guestAppearances
                     `, { id: person_id });
 
                     if (result.records.length === 0) return null;
 
-                    const person = result.records[0].get('p').properties;
+                    const record = result.records[0];
+                    const person = record.get('p').properties;
+                    const groups = record.get('groups')
+                        .filter(g => g.group !== null)
+                        .map(g => ({
+                            group: g.group.properties,
+                            role: g.role,
+                            from_date: g.from_date,
+                            to_date: g.to_date,
+                            instruments: g.instruments || []
+                        }));
+                    const songsWritten = record.get('songsWritten')
+                        .filter(s => s !== null)
+                        .map(s => s.properties);
+                    const tracksProduced = record.get('tracksProduced')
+                        .filter(t => t !== null)
+                        .map(t => t.properties);
+                    const guestAppearances = record.get('guestAppearances')
+                        .filter(t => t !== null)
+                        .map(t => t.properties);
+
                     return {
                         ...person,
-                        alt_names: person.alt_names || []
+                        alt_names: person.alt_names || [],
+                        groups,
+                        songsWritten,
+                        tracksProduced,
+                        guestAppearances
                     };
                 } finally {
                     await session.close();
@@ -329,15 +368,48 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (g:Group {group_id: $id})
-                        RETURN g
+                        OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                        OPTIONAL MATCH (g)-[:PERFORMED_ON]->(t:Track)
+                        OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+
+                        RETURN g,
+                               collect(DISTINCT {
+                                   person: p,
+                                   role: m.role,
+                                   from_date: m.from_date,
+                                   to_date: m.to_date,
+                                   instruments: m.instruments
+                               }) as members,
+                               collect(DISTINCT t) as tracks,
+                               collect(DISTINCT r) as releases
                     `, { id: group_id });
 
                     if (result.records.length === 0) return null;
 
-                    const group = result.records[0].get('g').properties;
+                    const record = result.records[0];
+                    const group = record.get('g').properties;
+                    const members = record.get('members')
+                        .filter(m => m.person !== null)
+                        .map(m => ({
+                            person: m.person.properties,
+                            role: m.role,
+                            from_date: m.from_date,
+                            to_date: m.to_date,
+                            instruments: m.instruments || []
+                        }));
+                    const tracks = record.get('tracks')
+                        .filter(t => t !== null)
+                        .map(t => t.properties);
+                    const releases = record.get('releases')
+                        .filter(r => r !== null)
+                        .map(r => r.properties);
+
                     return {
                         ...group,
-                        alt_names: group.alt_names || []
+                        alt_names: group.alt_names || [],
+                        members,
+                        tracks,
+                        releases
                     };
                 } finally {
                     await session.close();
@@ -360,16 +432,47 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (r:Release {release_id: $id})
-                        RETURN r
+                        OPTIONAL MATCH (t:Track)-[ir:IN_RELEASE]->(r)
+                        OPTIONAL MATCH (r)-[:RELEASED]->(l:Label)
+                        OPTIONAL MATCH (r)-[:IN_MASTER]->(m:Master)
+
+                        RETURN r,
+                               collect(DISTINCT {
+                                   track: t,
+                                   disc_number: ir.disc_number,
+                                   track_number: ir.track_number,
+                                   side: ir.side,
+                                   is_bonus: ir.is_bonus
+                               }) as tracks,
+                               collect(DISTINCT l) as labels,
+                               m as master
                     `, { id: release_id });
 
                     if (result.records.length === 0) return null;
 
-                    const release = result.records[0].get('r').properties;
+                    const record = result.records[0];
+                    const release = record.get('r').properties;
+                    const tracks = record.get('tracks')
+                        .filter(t => t.track !== null)
+                        .map(t => ({
+                            track: t.track.properties,
+                            disc_number: t.disc_number,
+                            track_number: t.track_number,
+                            side: t.side,
+                            is_bonus: t.is_bonus
+                        }));
+                    const labels = record.get('labels')
+                        .filter(l => l !== null)
+                        .map(l => l.properties);
+                    const master = record.get('master');
+
                     return {
                         ...release,
                         alt_names: release.alt_names || [],
-                        format: release.format || []
+                        format: release.format || [],
+                        tracks,
+                        labels,
+                        master: master ? master.properties : null
                     };
                 } finally {
                     await session.close();
@@ -382,15 +485,40 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (t:Track {track_id: $id})
-                        RETURN t
+                        OPTIONAL MATCH (t)-[:RECORDING_OF]->(s:Song)
+                        OPTIONAL MATCH (g:Group)-[:PERFORMED_ON]->(t)
+                        OPTIONAL MATCH (p:Person)-[:GUEST_ON]->(t)
+                        OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+
+                        RETURN t,
+                               s,
+                               collect(DISTINCT g) as performedBy,
+                               collect(DISTINCT p) as guests,
+                               collect(DISTINCT r) as releases
                     `, { id: track_id });
 
                     if (result.records.length === 0) return null;
 
-                    const track = result.records[0].get('t').properties;
+                    const record = result.records[0];
+                    const track = record.get('t').properties;
+                    const song = record.get('s');
+                    const performedBy = record.get('performedBy')
+                        .filter(g => g !== null)
+                        .map(g => g.properties);
+                    const guests = record.get('guests')
+                        .filter(p => p !== null)
+                        .map(p => p.properties);
+                    const releases = record.get('releases')
+                        .filter(r => r !== null)
+                        .map(r => r.properties);
+
                     return {
                         ...track,
-                        listen_links: track.listen_links || []
+                        listen_links: track.listen_links || [],
+                        recordingOf: song ? song.properties : null,
+                        performedBy,
+                        guests,
+                        releases
                     };
                 } finally {
                     await session.close();
@@ -403,15 +531,30 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (s:Song {song_id: $id})
-                        RETURN s
+                        OPTIONAL MATCH (p:Person)-[:WROTE]->(s)
+                        OPTIONAL MATCH (t:Track)-[:RECORDING_OF]->(s)
+
+                        RETURN s,
+                               collect(DISTINCT p) as writers,
+                               collect(DISTINCT t) as recordings
                     `, { id: song_id });
 
                     if (result.records.length === 0) return null;
 
-                    const song = result.records[0].get('s').properties;
+                    const record = result.records[0];
+                    const song = record.get('s').properties;
+                    const writers = record.get('writers')
+                        .filter(p => p !== null)
+                        .map(p => p.properties);
+                    const recordings = record.get('recordings')
+                        .filter(t => t !== null)
+                        .map(t => t.properties);
+
                     return {
                         ...song,
-                        alt_titles: song.alt_titles || []
+                        alt_titles: song.alt_titles || [],
+                        writers,
+                        recordings
                     };
                 } finally {
                     await session.close();
@@ -580,6 +723,346 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('Participation calculation failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/person/:personId
+         * Get person details
+         */
+        this.app.get('/api/person/:personId', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (p:Person {person_id: $personId})
+                        OPTIONAL MATCH (p)-[m:MEMBER_OF]->(g:Group)
+                        OPTIONAL MATCH (p)-[:WROTE]->(s:Song)
+                        OPTIONAL MATCH (p)-[:GUEST_ON]->(t:Track)
+
+                        RETURN p,
+                               collect(DISTINCT {
+                                   group: g.name,
+                                   group_id: g.group_id,
+                                   role: m.role,
+                                   from_date: m.from_date,
+                                   to_date: m.to_date
+                               }) as groups,
+                               count(DISTINCT s) as songsWritten,
+                               count(DISTINCT t) as guestAppearances
+                    `, { personId: req.params.personId });
+
+                    if (result.records.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            error: 'Person not found'
+                        });
+                    }
+
+                    const record = result.records[0];
+                    const person = record.get('p').properties;
+
+                    res.json({
+                        success: true,
+                        data: {
+                            ...person,
+                            groups: record.get('groups').filter(g => g.group !== null),
+                            songsWritten: record.get('songsWritten').toNumber(),
+                            guestAppearances: record.get('guestAppearances').toNumber()
+                        }
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Person details failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/group/:groupId
+         * Get group details
+         */
+        this.app.get('/api/group/:groupId', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (g:Group {group_id: $groupId})
+                        OPTIONAL MATCH (g)-[:PERFORMED_ON]->(t:Track)
+                        OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+                        OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+
+                        RETURN g,
+                               count(DISTINCT t) as trackCount,
+                               count(DISTINCT r) as releaseCount,
+                               collect(DISTINCT {
+                                   person: p.name,
+                                   person_id: p.person_id,
+                                   role: m.role,
+                                   from_date: m.from_date,
+                                   to_date: m.to_date
+                               }) as members
+                    `, { groupId: req.params.groupId });
+
+                    if (result.records.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            error: 'Group not found'
+                        });
+                    }
+
+                    const record = result.records[0];
+                    const group = record.get('g').properties;
+
+                    res.json({
+                        success: true,
+                        data: {
+                            ...group,
+                            trackCount: record.get('trackCount').toNumber(),
+                            releaseCount: record.get('releaseCount').toNumber(),
+                            members: record.get('members').filter(m => m.person !== null)
+                        }
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Group details failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/release/:releaseId
+         * Get release details
+         */
+        this.app.get('/api/release/:releaseId', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (r:Release {release_id: $releaseId})
+                        OPTIONAL MATCH (t:Track)-[ir:IN_RELEASE]->(r)
+                        OPTIONAL MATCH (r)-[:RELEASED]->(l:Label)
+
+                        RETURN r,
+                               collect(DISTINCT {
+                                   track: t.title,
+                                   track_id: t.track_id,
+                                   disc_number: ir.disc_number,
+                                   track_number: ir.track_number,
+                                   side: ir.side
+                               }) as tracks,
+                               collect(DISTINCT {
+                                   label: l.name,
+                                   label_id: l.label_id
+                               }) as labels
+                    `, { releaseId: req.params.releaseId });
+
+                    if (result.records.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            error: 'Release not found'
+                        });
+                    }
+
+                    const record = result.records[0];
+                    const release = record.get('r').properties;
+
+                    res.json({
+                        success: true,
+                        data: {
+                            ...release,
+                            tracks: record.get('tracks').filter(t => t.track !== null),
+                            labels: record.get('labels').filter(l => l.label !== null)
+                        }
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Release details failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/track/:trackId
+         * Get track details
+         */
+        this.app.get('/api/track/:trackId', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (t:Track {track_id: $trackId})
+                        OPTIONAL MATCH (t)-[:RECORDING_OF]->(s:Song)
+                        OPTIONAL MATCH (g:Group)-[:PERFORMED_ON]->(t)
+                        OPTIONAL MATCH (p:Person)-[:GUEST_ON]->(t)
+                        OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+
+                        RETURN t,
+                               s,
+                               collect(DISTINCT {
+                                   group: g.name,
+                                   group_id: g.group_id
+                               }) as performedBy,
+                               collect(DISTINCT {
+                                   guest: p.name,
+                                   person_id: p.person_id
+                               }) as guests,
+                               collect(DISTINCT {
+                                   release: r.name,
+                                   release_id: r.release_id
+                               }) as releases
+                    `, { trackId: req.params.trackId });
+
+                    if (result.records.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            error: 'Track not found'
+                        });
+                    }
+
+                    const record = result.records[0];
+                    const track = record.get('t').properties;
+                    const song = record.get('s');
+
+                    res.json({
+                        success: true,
+                        data: {
+                            ...track,
+                            song: song ? song.properties : null,
+                            performedBy: record.get('performedBy').filter(g => g.group !== null),
+                            guests: record.get('guests').filter(g => g.guest !== null),
+                            releases: record.get('releases').filter(r => r.release !== null)
+                        }
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Track details failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/song/:songId
+         * Get song details
+         */
+        this.app.get('/api/song/:songId', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (s:Song {song_id: $songId})
+                        OPTIONAL MATCH (p:Person)-[:WROTE]->(s)
+                        OPTIONAL MATCH (t:Track)-[:RECORDING_OF]->(s)
+
+                        RETURN s,
+                               collect(DISTINCT {
+                                   writer: p.name,
+                                   person_id: p.person_id
+                               }) as writers,
+                               collect(DISTINCT {
+                                   track: t.title,
+                                   track_id: t.track_id
+                               }) as recordings
+                    `, { songId: req.params.songId });
+
+                    if (result.records.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            error: 'Song not found'
+                        });
+                    }
+
+                    const record = result.records[0];
+                    const song = record.get('s').properties;
+
+                    res.json({
+                        success: true,
+                        data: {
+                            ...song,
+                            writers: record.get('writers').filter(w => w.writer !== null),
+                            recordings: record.get('recordings').filter(r => r.track !== null)
+                        }
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Song details failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/label/:labelId
+         * Get label details
+         */
+        this.app.get('/api/label/:labelId', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (l:Label {label_id: $labelId})
+                        OPTIONAL MATCH (l)<-[:RELEASED]-(r:Release)
+
+                        RETURN l,
+                               collect(DISTINCT {
+                                   release: r.name,
+                                   release_id: r.release_id,
+                                   release_date: r.release_date
+                               }) as releases,
+                               count(r) as releaseCount
+                    `, { labelId: req.params.labelId });
+
+                    if (result.records.length === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            error: 'Label not found'
+                        });
+                    }
+
+                    const record = result.records[0];
+                    const label = record.get('l').properties;
+
+                    res.json({
+                        success: true,
+                        data: {
+                            ...label,
+                            releases: record.get('releases').filter(r => r.release !== null),
+                            releaseCount: record.get('releaseCount').toNumber()
+                        }
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Label details failed:', error);
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -777,7 +1260,7 @@ class APIServer {
         // Start listening
         return new Promise((resolve) => {
             this.server = this.app.listen(this.port, () => {
-                console.log(`\n=€ Polaris Music Registry API Server`);
+                console.log(`\n=ï¿½ Polaris Music Registry API Server`);
                 console.log(`   GraphQL: http://localhost:${this.port}/graphql`);
                 console.log(`   REST:    http://localhost:${this.port}/api`);
                 console.log(`   Health:  http://localhost:${this.port}/health`);

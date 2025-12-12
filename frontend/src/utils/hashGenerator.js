@@ -75,11 +75,11 @@ export class HashGenerator {
     /**
      * Generate a city ID from name and coordinates
      */
-    static generateCityId(name, lat = null, long = null) {
+    static generateCityId(name, lat = null, lon = null) {
         const data = { type: 'city', name: name.toLowerCase().trim() };
-        if (lat !== null && long !== null) {
+        if (lat !== null && lon !== null) {
             data.lat = lat;
-            data.long = long;
+            data.lon = lon;
         }
         return this.generateHash(data);
     }
