@@ -1168,7 +1168,7 @@ class APIServer {
                         LIMIT 20
 
                         MATCH (g)-[:PERFORMED_ON]->(t:Track)
-                        MATCH (p:Person)-[:MEMBER_OF]->(g)
+                        MATCH (p:Person)-[m:MEMBER_OF]->(g)
 
                         RETURN collect(DISTINCT {
                             id: g.group_id,
@@ -1180,7 +1180,16 @@ class APIServer {
                             id: p.person_id,
                             name: p.name,
                             type: 'person'
-                        }) as persons
+                        }) as persons,
+                        collect(DISTINCT {
+                            source: p.person_id,
+                            target: g.group_id,
+                            type: 'MEMBER_OF',
+                            role: m.role,
+                            from_date: m.from_date,
+                            to_date: m.to_date,
+                            instruments: m.instruments
+                        }) as edges
                     `);
 
                     if (result.records.length === 0) {
@@ -1193,11 +1202,12 @@ class APIServer {
 
                     const groups = result.records[0].get('groups');
                     const persons = result.records[0].get('persons');
+                    const edges = result.records[0].get('edges');
 
                     res.json({
                         success: true,
                         nodes: [...groups, ...persons],
-                        edges: [] // TODO: Add edges in future
+                        edges: edges
                     });
                 } finally {
                     await session.close();
