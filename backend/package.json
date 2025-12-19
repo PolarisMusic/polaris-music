@@ -16,18 +16,18 @@
   "dependencies": {
     "express": "^4.19.0",
     "express-graphql": "^0.12.0",
-    "graphql": "^16.9.0",
+    "graphql": "^15.8.0",
     "neo4j-driver": "^5.23.0",
     "ioredis": "^5.4.1",
     "eosjs": "^22.0.0",
-    "supertest": "^7.0.0",
     "ipfs-http-client": "^60.0.1",
     "@aws-sdk/client-s3": "^3.645.0",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "babel-jest": "^29.7.0"
+    "babel-jest": "^29.7.0",
+    "supertest": "^7.0.0"
   },
   "jest": {
     "config": "test/jest.config.js"
