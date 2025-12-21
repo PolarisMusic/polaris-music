@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://eos.greymass.com https://eos.eosusa.io https://*.anchor.link; img-src 'self' data: https:;">
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <title>Polaris Music Registry - Graph Visualization</title>
 
@@ -84,8 +84,53 @@
     <script type="module" src="./src/visualization/colorPalette.js"></script>
     <script type="module" src="./src/visualization/graphApi.js"></script>
     <script type="module" src="./src/visualization/MusicGraph.js"></script>
+    <script type="module" src="./src/wallet/WalletManager.js"></script>
     <script type="module">
         import { MusicGraph } from './src/visualization/MusicGraph.js';
+        import { WalletManager } from './src/wallet/WalletManager.js';
+
+        // Initialize wallet manager
+        const walletManager = new WalletManager();
+        window.walletManager = walletManager; // For debugging
+
+        // UI elements
+        const userAccountEl = document.getElementById('user-account');
+        const connectWalletBtn = document.getElementById('connect-wallet');
+
+        /**
+         * Update UI based on wallet connection status
+         */
+        function updateWalletUI(accountInfo) {
+            if (accountInfo) {
+                userAccountEl.textContent = accountInfo.accountName;
+                userAccountEl.style.color = '#4CAF50';
+                connectWalletBtn.textContent = 'Disconnect';
+            } else {
+                userAccountEl.textContent = 'Not connected';
+                userAccountEl.style.color = '';
+                connectWalletBtn.textContent = 'Connect Wallet';
+            }
+        }
+
+        /**
+         * Handle wallet connection/disconnection
+         */
+        async function handleWalletButtonClick() {
+            if (walletManager.isConnected()) {
+                // Disconnect wallet
+                await walletManager.disconnect();
+                updateWalletUI(null);
+            } else {
+                // Connect wallet
+                try {
+                    const accountInfo = await walletManager.connect();
+                    updateWalletUI(accountInfo);
+                } catch (error) {
+                    console.error('Failed to connect wallet:', error);
+                    alert('Failed to connect wallet. Please try again.');
+                }
+            }
+        }
 
         // Initialize visualization when DOM is ready
         document.addEventListener('DOMContentLoaded', async () => {
@@ -95,11 +140,29 @@
             // Load initial graph data from backend
             await graph.loadGraphData();
 
-            // Button functionality
-            // Submit a Project button - TODO: Create release submission page
+            // Try to restore wallet session
+            try {
+                const accountInfo = await walletManager.restore();
+                if (accountInfo) {
+                    updateWalletUI(accountInfo);
+                }
+            } catch (error) {
+                console.error('Failed to restore wallet session:', error);
+            }
+
+            // Connect Wallet button
+            if (connectWalletBtn) {
+                connectWalletBtn.addEventListener('click', handleWalletButtonClick);
+            }
+
+            // Submit a Project button
             const submitBtn = document.getElementById('submit-project');
             if (submitBtn) {
                 submitBtn.addEventListener('click', () => {
+                    if (!walletManager.isConnected()) {
+                        alert('Please connect your wallet first before submitting a project.');
+                        return;
+                    }
                     alert('Release submission form coming soon!');
                     // TODO: Navigate to submission page when implemented
                     // window.location.href = '/submit-release.html';
@@ -113,6 +176,19 @@
                     window.open('https://www.reddit.com/r/polarismusic/', '_blank');
                 });
             }
+
+            // Listen for wallet events
+            walletManager.on('onConnect', (accountInfo) => {
+                console.log('Wallet connected event:', accountInfo);
+            });
+
+            walletManager.on('onDisconnect', () => {
+                console.log('Wallet disconnected event');
+            });
+
+            walletManager.on('onError', (error) => {
+                console.error('Wallet error event:', error);
+            });
         });
     </script>
 </body>
