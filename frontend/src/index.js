@@ -6,16 +6,23 @@
 import { FormBuilder } from './components/FormBuilder.js';
 import { HashGenerator } from './utils/hashGenerator.js';
 import { api } from './utils/api.js';
+import { WalletManager } from './wallet/WalletManager.js';
+import { TransactionBuilder } from './utils/transactionBuilder.js';
 
 class PolarisApp {
     constructor() {
         this.formBuilder = new FormBuilder();
         this.currentReleaseData = null;
+        this.currentTransaction = null;
+
+        // Initialize wallet manager
+        this.walletManager = new WalletManager();
+        this.transactionBuilder = new TransactionBuilder();
 
         this.init();
     }
 
-    init() {
+    async init() {
         // Tab navigation
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
@@ -26,6 +33,19 @@ class PolarisApp {
 
         // Initialize form handlers
         this.initializeForm();
+
+        // Try to restore wallet session
+        try {
+            const sessionInfo = await this.walletManager.restore();
+            if (sessionInfo) {
+                console.log('Wallet session restored:', sessionInfo);
+                this.showToast('Wallet connected: ' + sessionInfo.accountName, 'success');
+            } else {
+                console.log('No wallet session to restore');
+            }
+        } catch (error) {
+            console.error('Failed to restore wallet session:', error);
+        }
 
         // Check API health
         this.checkAPIHealth();
@@ -395,11 +415,46 @@ class PolarisApp {
      */
     previewJSON() {
         try {
+            // Check if wallet is connected
+            if (!this.walletManager.isConnected()) {
+                this.showToast('Please connect your wallet first', 'error');
+                return;
+            }
+
+            // Build release data
             const releaseData = this.buildReleaseData();
+
+            // Validate release data
+            const validation = this.transactionBuilder.validateReleaseData(releaseData);
+            if (!validation.valid) {
+                this.showToast('Validation failed:\n' + validation.errors.join('\n'), 'error');
+                return;
+            }
+
             this.currentReleaseData = releaseData;
 
+            // Get wallet session info
+            const sessionInfo = this.walletManager.getSessionInfo();
+
+            // Build transaction
+            const sourceLinks = this.parseCommaSeparated(
+                document.querySelector('[name="source_links"]')?.value || ''
+            );
+
+            this.currentTransaction = this.transactionBuilder.buildReleaseTransaction(
+                releaseData,
+                sessionInfo.accountName,
+                sessionInfo.accountName, // Will be replaced with actual pubkey from session
+                sourceLinks
+            );
+
+            // Show preview with both event and transaction data
             const jsonPreview = document.getElementById('json-preview');
-            jsonPreview.textContent = JSON.stringify(releaseData, null, 2);
+            jsonPreview.textContent = JSON.stringify({
+                event: this.currentTransaction.event,
+                eventHash: this.currentTransaction.eventHash,
+                transaction: this.currentTransaction.transaction
+            }, null, 2);
 
             document.getElementById('json-modal').classList.add('show');
         } catch (error) {
@@ -419,11 +474,16 @@ class PolarisApp {
     }
 
     /**
-     * Submit release to backend
+     * Submit release via blockchain transaction
      */
     async submitRelease() {
-        if (!this.currentReleaseData) {
-            this.showToast('No release data to submit', 'error');
+        if (!this.currentTransaction) {
+            this.showToast('No transaction to submit', 'error');
+            return;
+        }
+
+        if (!this.walletManager.isConnected()) {
+            this.showToast('Wallet not connected', 'error');
             return;
         }
 
@@ -431,20 +491,39 @@ class PolarisApp {
         this.showLoading(true);
 
         try {
-            const result = await api.submitRelease(this.currentReleaseData);
+            // Get the transaction action
+            const action = this.currentTransaction.action;
+
+            console.log('Submitting transaction:', action);
+
+            // Sign and broadcast transaction using WharfKit
+            const result = await this.walletManager.transact(action);
+
+            console.log('Transaction result:', result);
 
             this.showLoading(false);
-            this.showToast('Release submitted successfully!', 'success');
+            this.showToast('Release submitted successfully! Transaction ID: ' + (result.resolved?.transaction?.id || 'pending'), 'success');
 
-            console.log('Submission result:', result);
+            // TODO: Store event off-chain (IPFS + S3)
+            // For now, we're just anchoring the hash on-chain
+            // In production, also need to:
+            // 1. Upload event JSON to IPFS
+            // 2. Store event JSON in S3
+            // 3. Cache in Redis
+
+            console.log('Event hash:', this.currentTransaction.eventHash);
+            console.log('Event data:', this.currentTransaction.event);
 
             // Reset form after successful submission
             setTimeout(() => {
                 document.getElementById('release-form').reset();
                 document.getElementById('labels-container').innerHTML = '';
+                document.getElementById('release-guests-container').innerHTML = '';
                 document.getElementById('tracks-container').innerHTML = '';
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
-            }, 2000);
+                this.currentTransaction = null;
+                this.currentReleaseData = null;
+            }, 3000);
 
         } catch (error) {
             this.showLoading(false);
