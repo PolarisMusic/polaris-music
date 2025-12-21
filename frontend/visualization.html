@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000;">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <title>Polaris Music Registry - Graph Visualization</title>
 
     <!-- JIT Library (local copy) -->
@@ -87,9 +88,12 @@
         import { MusicGraph } from './src/visualization/MusicGraph.js';
 
         // Initialize visualization when DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             const graph = new MusicGraph('infovis');
             window.musicGraph = graph; // For debugging
+
+            // Load initial graph data from backend
+            await graph.loadGraphData();
         });
     </script>
 </body>

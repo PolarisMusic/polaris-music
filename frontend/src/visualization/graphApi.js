@@ -6,7 +6,7 @@
  */
 
 export class GraphAPI {
-    constructor(baseUrl = 'http://localhost:3000/api') {
+    constructor(baseUrl = 'http://localhost:3001/api') {
         this.baseUrl = baseUrl;
         this.cache = new Map();
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
