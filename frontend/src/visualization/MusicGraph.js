@@ -646,7 +646,7 @@ export class MusicGraph {
             html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
             person.groups.forEach(group => {
                 const role = group.role || '';
-                html += `<li><strong>${group.name}</strong>${role ? ` - ${role}` : ''}</li>`;
+                html += `<li><strong>${group.group}</strong>${role ? ` - ${role}` : ''}</li>`;
             });
             html += `</ul></div>`;
         }
