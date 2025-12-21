@@ -524,37 +524,136 @@ export class MusicGraph {
     /**
      * Update info panel with node details
      */
-    updateInfoPanel(node = null) {
-        const infoPanel = document.getElementById('info-content');
-        if (!infoPanel) return;
+    async updateInfoPanel(node = null) {
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+        const infoViewer = document.getElementById('info-viewer');
+
+        if (!infoTitle || !infoContent) return;
 
         if (!node) {
-            infoPanel.innerHTML = '<p>Click a node to see details</p>';
+            infoTitle.textContent = 'Select a node';
+            infoContent.innerHTML = '<p class="placeholder">Click on a Group or Person to see details</p>';
             return;
         }
 
         const type = node.data.type || 'Unknown';
-        const name = node.name || 'Unnamed';
+        const nodeId = node.id;
 
-        let html = `
-            <h3>${name}</h3>
-            <p><strong>Type:</strong> ${type}</p>
-        `;
+        // Show loading state
+        infoTitle.textContent = node.name || 'Loading...';
+        infoContent.innerHTML = '<p>Loading details...</p>';
 
-        // Add type-specific info
-        if (type === 'Group') {
-            html += `
-                <p><strong>ID:</strong> ${node.data.group_id || node.id}</p>
-                ${node.data.formed_date ? `<p><strong>Formed:</strong> ${node.data.formed_date}</p>` : ''}
-            `;
-        } else if (type === 'Person') {
-            html += `
-                <p><strong>ID:</strong> ${node.data.person_id || node.id}</p>
-                ${node.data.city ? `<p><strong>City:</strong> ${node.data.city}</p>` : ''}
-            `;
+        // Make info viewer visible
+        if (infoViewer) {
+            infoViewer.style.display = 'block';
         }
 
-        infoPanel.innerHTML = html;
+        try {
+            // Fetch detailed data from API
+            const details = await this.api.fetchNodeDetails(nodeId, type);
+
+            if (!details) {
+                infoContent.innerHTML = '<p>No details available</p>';
+                return;
+            }
+
+            // Build HTML based on node type
+            if (type === 'group' || type === 'Group') {
+                this.renderGroupDetails(details, infoTitle, infoContent);
+            } else if (type === 'person' || type === 'Person') {
+                this.renderPersonDetails(details, infoTitle, infoContent);
+            } else {
+                infoContent.innerHTML = `<p><strong>Type:</strong> ${type}</p>`;
+            }
+        } catch (error) {
+            console.error('Error fetching node details:', error);
+            infoContent.innerHTML = '<p>Error loading details</p>';
+        }
+    }
+
+    /**
+     * Render Group details in info panel
+     */
+    renderGroupDetails(group, titleElement, contentElement) {
+        titleElement.textContent = group.name || group.group_name || 'Unknown Group';
+
+        let html = '';
+
+        // Photo
+        if (group.photo) {
+            html += `<div class="info-photo"><img src="${group.photo}" alt="${group.name}" /></div>`;
+        }
+
+        // Active dates and location
+        const formed = group.formed_date || '';
+        const disbanded = group.disbanded_date || 'present';
+        if (formed) {
+            html += `<p class="info-meta"><strong>Active:</strong> ${formed}–${disbanded}</p>`;
+        }
+
+        // Members section
+        if (group.members && group.members.length > 0) {
+            html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
+            group.members.forEach(member => {
+                const roles = member.roles ? member.roles.join(', ') : '';
+                html += `<li><strong>${member.name}</strong>${roles ? ` - ${roles}` : ''}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        // Bio section
+        if (group.bio || group.description) {
+            html += `<div class="info-section"><h4>Biography</h4><p>${group.bio || group.description}</p></div>`;
+        }
+
+        // Trivia section
+        if (group.trivia) {
+            html += `<div class="info-section"><h4>Trivia</h4><p>${group.trivia}</p></div>`;
+        }
+
+        contentElement.innerHTML = html;
+    }
+
+    /**
+     * Render Person details in info panel
+     */
+    renderPersonDetails(person, titleElement, contentElement) {
+        titleElement.textContent = person.name || person.person_name || 'Unknown Person';
+
+        let html = '';
+
+        // Photo
+        if (person.photo) {
+            html += `<div class="info-photo"><img src="${person.photo}" alt="${person.name}" /></div>`;
+        }
+
+        // Location
+        if (person.city) {
+            html += `<p class="info-meta"><strong>Location:</strong> ${person.city}</p>`;
+        }
+
+        // Groups section
+        if (person.groups && person.groups.length > 0) {
+            html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
+            person.groups.forEach(group => {
+                const role = group.role || '';
+                html += `<li><strong>${group.name}</strong>${role ? ` - ${role}` : ''}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        // Bio section
+        if (person.bio) {
+            html += `<div class="info-section"><h4>Biography</h4><p>${person.bio}</p></div>`;
+        }
+
+        // Trivia section
+        if (person.trivia) {
+            html += `<div class="info-section"><h4>Trivia</h4><p>${person.trivia}</p></div>`;
+        }
+
+        contentElement.innerHTML = html;
     }
 
     /**
