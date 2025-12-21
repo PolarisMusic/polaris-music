@@ -111,13 +111,65 @@ export class GraphAPI {
 
     /**
      * Transform Neo4j response to JIT-compatible format
-     * @param {Object} data - Neo4j graph data
-     * @returns {Object} JIT-compatible tree structure
+     * @param {Object} data - Neo4j graph data {nodes, edges}
+     * @returns {Array} JIT-compatible adjacency list
      */
     transformToJIT(data) {
-        // This will transform the graph data to JIT's expected format
-        // For now, return the data as-is (will be implemented based on actual API response)
-        return data;
+        if (!data || !data.nodes || !data.edges) {
+            console.warn('Invalid graph data format, using mock data');
+            return this.getMockInitialGraph();
+        }
+
+        // Create a map of node adjacencies
+        const adjacencyMap = new Map();
+
+        // Initialize adjacency lists for all nodes
+        data.nodes.forEach(node => {
+            adjacencyMap.set(node.id, []);
+        });
+
+        // Build adjacency lists from edges
+        data.edges.forEach(edge => {
+            // Add bidirectional edges for undirected graph visualization
+            if (adjacencyMap.has(edge.source)) {
+                adjacencyMap.get(edge.source).push({
+                    nodeTo: edge.target,
+                    data: {
+                        weight: 1,
+                        type: edge.type,
+                        role: edge.role,
+                        instruments: edge.instruments
+                    }
+                });
+            }
+
+            if (adjacencyMap.has(edge.target)) {
+                adjacencyMap.get(edge.target).push({
+                    nodeTo: edge.source,
+                    data: {
+                        weight: 1,
+                        type: edge.type,
+                        role: edge.role,
+                        instruments: edge.instruments
+                    }
+                });
+            }
+        });
+
+        // Transform nodes to JIT format with adjacencies
+        const jitNodes = data.nodes.map(node => ({
+            id: node.id,
+            name: node.name,
+            data: {
+                $dim: node.type === 'group' ? 20 : 10, // Groups larger than persons
+                $type: 'circle',
+                type: node.type,
+                trackCount: node.trackCount || 0
+            },
+            adjacencies: adjacencyMap.get(node.id) || []
+        }));
+
+        return jitNodes;
     }
 
     /**
