@@ -94,6 +94,25 @@
 
             // Load initial graph data from backend
             await graph.loadGraphData();
+
+            // Button functionality
+            // Submit a Project button - TODO: Create release submission page
+            const submitBtn = document.getElementById('submit-project');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', () => {
+                    alert('Release submission form coming soon!');
+                    // TODO: Navigate to submission page when implemented
+                    // window.location.href = '/submit-release.html';
+                });
+            }
+
+            // Help button - link to Reddit community
+            const helpBtn = document.getElementById('help');
+            if (helpBtn) {
+                helpBtn.addEventListener('click', () => {
+                    window.open('https://www.reddit.com/r/polarismusic/', '_blank');
+                });
+            }
         });
     </script>
 </body>

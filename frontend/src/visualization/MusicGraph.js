@@ -339,14 +339,15 @@ export class MusicGraph {
     createPersonLabel(domElement, node) {
         const container = document.createElement('div');
         container.className = 'person-node';
-        container.style.padding = '8px 12px';
-        container.style.backgroundColor = '#2c3e50';
+        container.style.padding = '4px 8px';
+        container.style.backgroundColor = 'rgba(0, 0, 0, 0.6)'; // Semi-transparent background
         container.style.color = 'white';
-        container.style.borderRadius = '20px';
+        container.style.borderRadius = '12px';
         container.style.fontSize = '11px';
         container.style.fontWeight = 'bold';
         container.style.textAlign = 'center';
         container.style.minWidth = '60px';
+        container.style.textShadow = '1px 1px 2px rgba(0, 0, 0, 0.8), -1px -1px 2px rgba(0, 0, 0, 0.8)'; // Text outline effect
         container.textContent = node.name;
 
         domElement.appendChild(container);
@@ -405,7 +406,7 @@ export class MusicGraph {
     }
 
     /**
-     * Position node labels
+     * Position node labels near bottom of node circle
      */
     placeNodeLabel(domElement, node) {
         const style = domElement.style;
@@ -414,8 +415,13 @@ export class MusicGraph {
         const w = domElement.offsetWidth;
         const h = domElement.offsetHeight;
 
+        // Get node radius from $dim property (node size in pixels)
+        const nodeRadius = node.data.$dim || 15;
+
+        // Position label below the node circle
+        // Center horizontally, offset vertically by node radius + spacing
         style.left = (left - w / 2) + 'px';
-        style.top = (top - h / 2) + 'px';
+        style.top = (top + nodeRadius + 5) + 'px'; // 5px spacing below circle
         style.display = '';
     }
 
