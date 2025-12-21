@@ -551,7 +551,15 @@ export class MusicGraph {
 
         try {
             // Fetch detailed data from API
-            const details = await this.api.fetchNodeDetails(nodeId, type);
+            const response = await this.api.fetchNodeDetails(nodeId, type);
+
+            if (!response) {
+                infoContent.innerHTML = '<p>No details available</p>';
+                return;
+            }
+
+            // Extract data from API response wrapper { success: true, data: {...} }
+            const details = response.data || response;
 
             if (!details) {
                 infoContent.innerHTML = '<p>No details available</p>';
