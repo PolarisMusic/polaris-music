@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "node --env-file=.env src/api/index.js",
     "processor": "node --env-file=.env src/indexer/runProcessor.js",
+    "db:clear": "node --env-file=.env scripts/clearGraphData.js",
+    "db:load-white-album": "node --env-file=.env scripts/loadWhiteAlbumData.js",
+    "db:reset": "npm run db:clear && npm run db:load-white-album",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
