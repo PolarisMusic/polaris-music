@@ -161,7 +161,7 @@ export class GraphAPI {
             id: node.id,
             name: node.name,
             data: {
-                $dim: node.type === 'group' ? 20 : 10, // Groups larger than persons
+                $dim: node.type === 'group' ? 30 : 25, // Groups=30, Persons=25 (larger nodes)
                 $type: 'circle',
                 type: node.type,
                 trackCount: node.trackCount || 0
