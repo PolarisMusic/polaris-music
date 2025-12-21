@@ -72,7 +72,7 @@ export class MusicGraph {
             // Event handling
             Events: {
                 enable: true,
-                type: 'HTML',
+                type: 'Native', // Use native canvas events for clicking nodes
 
                 onClick: (node, eventInfo, e) => {
                     if (node) {
@@ -166,8 +166,8 @@ export class MusicGraph {
                 this.createDefaultLabel(domElement, node);
         }
 
-        // Make clickable
-        domElement.style.cursor = 'pointer';
+        // Labels are non-interactive - clicks pass through to canvas nodes
+        domElement.style.pointerEvents = 'none';
     }
 
     /**
