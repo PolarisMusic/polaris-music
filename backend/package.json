@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node src/api/index.js",
-    "processor": "node src/indexer/runProcessor.js",
+    "dev": "node --env-file=.env src/api/index.js",
+    "processor": "node --env-file=.env src/indexer/runProcessor.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
