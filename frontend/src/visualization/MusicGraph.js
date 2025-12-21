@@ -604,8 +604,8 @@ export class MusicGraph {
         if (group.members && group.members.length > 0) {
             html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
             group.members.forEach(member => {
-                const roles = member.roles ? member.roles.join(', ') : '';
-                html += `<li><strong>${member.name}</strong>${roles ? ` - ${roles}` : ''}</li>`;
+                const role = member.role || '';
+                html += `<li><strong>${member.person}</strong>${role ? ` - ${role}` : ''}</li>`;
             });
             html += `</ul></div>`;
         }
