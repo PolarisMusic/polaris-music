@@ -31,6 +31,44 @@ class APIClient {
     }
 
     /**
+     * Store event to off-chain storage (IPFS + S3 + Redis)
+     * @param {Object} event - Complete event object with signature
+     * @returns {Promise<Object>} Storage result with hash and locations
+     */
+    async storeEvent(event) {
+        const response = await fetch(`${API_BASE_URL}/events/create`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(event),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to store event');
+        }
+
+        return response.json();
+    }
+
+    /**
+     * Retrieve event from storage by hash
+     * @param {string} hash - Event hash
+     * @returns {Promise<Object>} Event object
+     */
+    async retrieveEvent(hash) {
+        const response = await fetch(`${API_BASE_URL}/events/${hash}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to retrieve event');
+        }
+
+        return response.json();
+    }
+
+    /**
      * Search for existing entities in the database
      * UNIMPLEMENTED: This would query the backend for matching entities
      * TODO: Implement autocomplete search functionality

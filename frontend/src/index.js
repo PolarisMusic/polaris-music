@@ -484,7 +484,7 @@ class PolarisApp {
     }
 
     /**
-     * Submit release via blockchain transaction
+     * Submit release via blockchain transaction and off-chain storage
      */
     async submitRelease() {
         if (!this.currentTransaction) {
@@ -501,28 +501,71 @@ class PolarisApp {
         this.showLoading(true);
 
         try {
+            console.log('=== STEP 1: Store event off-chain ===');
+
+            // Add a placeholder signature (in production, this would be signed by wallet)
+            const eventWithSig = {
+                ...this.currentTransaction.event,
+                sig: 'SIG_K1_PLACEHOLDER' // TODO: Actually sign event with wallet private key
+            };
+
+            // Store event to IPFS + S3 + Redis
+            console.log('Storing event to off-chain storage...');
+            const storageResult = await api.storeEvent(eventWithSig);
+
+            console.log('Storage result:', storageResult);
+
+            // Verify hash matches
+            if (storageResult.hash !== this.currentTransaction.eventHash) {
+                throw new Error('Hash mismatch between client and server');
+            }
+
+            // Show storage locations
+            const storageInfo = [];
+            if (storageResult.stored.ipfs) {
+                storageInfo.push(`IPFS: ${storageResult.stored.ipfs}`);
+            }
+            if (storageResult.stored.s3) {
+                storageInfo.push(`S3: ${storageResult.stored.s3}`);
+            }
+            if (storageResult.stored.redis) {
+                storageInfo.push('Redis: ✓');
+            }
+
+            console.log('Event stored:', storageInfo.join(', '));
+
+            console.log('\n=== STEP 2: Anchor hash on blockchain ===');
+
             // Get the transaction action
             const action = this.currentTransaction.action;
 
-            console.log('Submitting transaction:', action);
+            console.log('Submitting blockchain transaction:', action);
 
             // Sign and broadcast transaction using WharfKit
-            const result = await this.walletManager.transact(action);
+            const txResult = await this.walletManager.transact(action);
 
-            console.log('Transaction result:', result);
+            console.log('Blockchain transaction result:', txResult);
 
             this.showLoading(false);
-            this.showToast('Release submitted successfully! Transaction ID: ' + (result.resolved?.transaction?.id || 'pending'), 'success');
 
-            // TODO: Store event off-chain (IPFS + S3)
-            // For now, we're just anchoring the hash on-chain
-            // In production, also need to:
-            // 1. Upload event JSON to IPFS
-            // 2. Store event JSON in S3
-            // 3. Cache in Redis
+            // Show success with storage details
+            const successMessage = `
+                Release submitted successfully!
 
+                Event Hash: ${this.currentTransaction.eventHash.substring(0, 16)}...
+                Transaction ID: ${txResult.resolved?.transaction?.id || 'pending'}
+
+                Stored in:
+                ${storageInfo.join('\n')}
+            `.trim();
+
+            this.showToast(successMessage, 'success');
+
+            console.log('\n=== SUBMISSION COMPLETE ===');
             console.log('Event hash:', this.currentTransaction.eventHash);
-            console.log('Event data:', this.currentTransaction.event);
+            console.log('IPFS CID:', storageResult.stored.ipfs);
+            console.log('S3 location:', storageResult.stored.s3);
+            console.log('Blockchain TX:', txResult.resolved?.transaction?.id);
 
             // Reset form after successful submission
             setTimeout(() => {
@@ -533,7 +576,7 @@ class PolarisApp {
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
                 this.currentTransaction = null;
                 this.currentReleaseData = null;
-            }, 3000);
+            }, 5000);
 
         } catch (error) {
             this.showLoading(false);
