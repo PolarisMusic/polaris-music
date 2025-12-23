@@ -27,6 +27,16 @@ class PolarisApp {
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
                 const tabName = e.target.dataset.tab;
+
+                // Special handling for Browse Registry tab
+                if (tabName === 'browse') {
+                    const confirmed = confirm('Are you sure you want to navigate away from this page? Any unsaved changes will be lost.');
+                    if (confirmed) {
+                        window.location.href = '/visualization.html';
+                    }
+                    return;
+                }
+
                 this.switchTab(tabName);
             });
         });

@@ -87,6 +87,45 @@ export class TransactionBuilder {
     }
 
     /**
+     * Convert hex string to checksum256 format (array of hex pairs)
+     * @param {string} hexString - Hex string (64 characters)
+     * @returns {string} Checksum256 format for blockchain
+     */
+    hexToChecksum256(hexString) {
+        // Remove any 0x prefix
+        const hex = hexString.replace(/^0x/, '');
+
+        // Ensure it's 64 characters (32 bytes)
+        if (hex.length !== 64) {
+            throw new Error('Hash must be 64 hex characters (32 bytes)');
+        }
+
+        return hex.toLowerCase();
+    }
+
+    /**
+     * Convert tag strings to valid blockchain name types
+     * Names must be 12 characters or less, lowercase a-z, 1-5, and dots
+     * @param {Array<string>} tags - Tag strings
+     * @returns {Array<string>} Valid blockchain names
+     */
+    sanitizeTags(tags) {
+        return tags.map(tag => {
+            // Convert to lowercase, remove invalid characters
+            let name = tag.toLowerCase()
+                .replace(/[^a-z1-5.]/g, '')
+                .substring(0, 12);
+
+            // Ensure not empty
+            if (!name) {
+                name = 'tag';
+            }
+
+            return name;
+        });
+    }
+
+    /**
      * Build blockchain transaction action for anchoring event
      * @param {string} eventHash - SHA-256 hash of event
      * @param {string} authorAccount - Author's blockchain account name
@@ -94,6 +133,12 @@ export class TransactionBuilder {
      * @returns {Object} Transaction action for WharfKit
      */
     buildAnchorAction(eventHash, authorAccount, metadata = {}) {
+        // Convert hash to proper checksum256 format
+        const hash = this.hexToChecksum256(eventHash);
+
+        // Sanitize tags to valid blockchain names
+        const tags = this.sanitizeTags(metadata.tags || ['release']);
+
         return {
             account: this.config.contractAccount,
             name: 'put',
@@ -104,10 +149,10 @@ export class TransactionBuilder {
             data: {
                 author: authorAccount,
                 type: 21, // CREATE_RELEASE_BUNDLE event type
-                hash: eventHash,
-                parent: metadata.parent || '',
+                hash: hash,
+                parent: metadata.parent || null, // Use null for optional, not empty string
                 ts: metadata.timestamp || Math.floor(Date.now() / 1000),
-                tags: metadata.tags || ['release']
+                tags: tags
             }
         };
     }
