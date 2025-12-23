@@ -8,13 +8,15 @@ import { SessionKit } from '@wharfkit/session';
 import { WebRenderer } from '@wharfkit/web-renderer';
 import { WalletPluginAnchor } from '@wharfkit/wallet-plugin-anchor';
 import { WalletPluginCloudWallet } from '@wharfkit/wallet-plugin-cloudwallet';
+import { POLARIS_ABI } from '../contracts/polarisAbi.js';
 
 export class WalletManager {
     constructor(config = {}) {
         this.config = {
             appName: config.appName || 'Polaris Music Registry',
-            chainId: config.chainId || 'aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906', // EOS mainnet
-            rpcUrl: config.rpcUrl || 'https://eos.greymass.com',
+            // Use Jungle4 testnet for development (contract not deployed on mainnet yet)
+            chainId: config.chainId || '73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d', // Jungle4 testnet
+            rpcUrl: config.rpcUrl || 'https://jungle4.greymass.com',
             ...config
         };
 
@@ -53,7 +55,7 @@ export class WalletManager {
             walletPlugins
         });
 
-        console.log('WalletManager initialized');
+        console.log('WalletManager initialized for Jungle4 testnet');
     }
 
     /**
@@ -178,8 +180,20 @@ export class WalletManager {
         }
 
         try {
+            // Provide the ABI directly in the transaction
             const result = await this.session.transact({
                 action
+            }, {
+                abiProvider: {
+                    getAbi: async (account) => {
+                        // Provide Polaris ABI if requested
+                        if (account === 'polaris') {
+                            return POLARIS_ABI;
+                        }
+                        // Otherwise fetch from blockchain
+                        return null;
+                    }
+                }
             });
 
             console.log('Transaction successful:', result);
