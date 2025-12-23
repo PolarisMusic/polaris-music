@@ -10,8 +10,8 @@
  * ensures redundancy and fast retrieval with automatic fallback chains.
  *
  * Storage Flow:
- * 1. Store event ’ IPFS, S3, Redis (parallel)
- * 2. Retrieve event ’ Redis ’ IPFS ’ S3 (fallback chain)
+ * 1. Store event ï¿½ IPFS, S3, Redis (parallel)
+ * 2. Retrieve event ï¿½ Redis ï¿½ IPFS ï¿½ S3 (fallback chain)
  *
  * @module storage/eventStore
  */
@@ -57,11 +57,11 @@ class EventStore {
                 this.ipfsEnabled = true;
                 console.log(` IPFS client initialized: ${config.ipfs.url}`);
             } catch (error) {
-                console.warn('  IPFS initialization failed:', error.message);
+                console.warn('ï¿½ IPFS initialization failed:', error.message);
                 this.ipfsEnabled = false;
             }
         } else {
-            console.warn('  IPFS not configured');
+            console.warn('ï¿½ IPFS not configured');
             this.ipfsEnabled = false;
         }
 
@@ -81,11 +81,11 @@ class EventStore {
                 this.s3Enabled = true;
                 console.log(` S3 client initialized: ${config.s3.endpoint}/${config.s3.bucket}`);
             } catch (error) {
-                console.warn('  S3 initialization failed:', error.message);
+                console.warn('ï¿½ S3 initialization failed:', error.message);
                 this.s3Enabled = false;
             }
         } else {
-            console.warn('  S3 not configured');
+            console.warn('ï¿½ S3 not configured');
             this.s3Enabled = false;
         }
 
@@ -109,14 +109,14 @@ class EventStore {
                 });
 
                 this.redis.on('error', (error) => {
-                    console.warn('  Redis error:', error.message);
+                    console.warn('ï¿½ Redis error:', error.message);
                 });
             } catch (error) {
-                console.warn('  Redis initialization failed:', error.message);
+                console.warn('ï¿½ Redis initialization failed:', error.message);
                 this.redisEnabled = false;
             }
         } else {
-            console.warn('  Redis not configured');
+            console.warn('ï¿½ Redis not configured');
             this.redisEnabled = false;
         }
 
@@ -239,7 +239,7 @@ class EventStore {
 
     /**
      * Retrieve an event by its hash.
-     * Uses fallback chain: Redis ’ IPFS ’ S3
+     * Uses fallback chain: Redis ï¿½ IPFS ï¿½ S3
      * Automatically populates cache on retrieval from slower storage.
      *
      * @param {string} hash - SHA256 hash of the event
@@ -280,7 +280,7 @@ class EventStore {
                     // Populate Redis cache for future requests
                     if (this.redisEnabled) {
                         await this.storeToRedis(JSON.stringify(event), hash)
-                            .catch(err => console.warn(`    Failed to cache: ${err.message}`));
+                            .catch(err => console.warn(`  ï¿½ Failed to cache: ${err.message}`));
                     }
                 }
             } catch (error) {
@@ -301,7 +301,7 @@ class EventStore {
                     // Populate Redis cache for future requests
                     if (this.redisEnabled) {
                         await this.storeToRedis(JSON.stringify(event), hash)
-                            .catch(err => console.warn(`    Failed to cache: ${err.message}`));
+                            .catch(err => console.warn(`  ï¿½ Failed to cache: ${err.message}`));
                     }
                 }
             } catch (error) {
@@ -340,7 +340,14 @@ class EventStore {
             cidVersion: 1 // Use CIDv1 for better compatibility
         });
 
-        return result.cid.toString();
+        const cid = result.cid.toString();
+
+        // Store hashâ†’CID mapping in Redis for retrieval
+        await this.storeHashCIDMapping(hash, cid).catch(err =>
+            console.warn(`   Failed to store hashâ†’CID mapping: ${err.message}`)
+        );
+
+        return cid;
     }
 
     /**
@@ -352,20 +359,22 @@ class EventStore {
      * @returns {Promise<Buffer>} Event data
      */
     async retrieveFromIPFS(hash) {
-        // IPFS stores by CID, but we can map hash ’ CID in metadata
-        // For now, we search through pinned objects
-        // In production, maintain a hash’CID mapping in Redis
+        // Look up CID from hashâ†’CID mapping in Redis
+        const cid = await this.getHashCIDMapping(hash);
 
-        // Try to get by CID if hash is actually a CID
+        if (!cid) {
+            throw new Error(`No IPFS CID found for hash ${hash.substring(0, 12)}... (hashâ†’CID mapping missing)`);
+        }
+
+        // Retrieve from IPFS using CID
         try {
             const chunks = [];
-            for await (const chunk of this.ipfs.cat(hash)) {
+            for await (const chunk of this.ipfs.cat(cid)) {
                 chunks.push(chunk);
             }
             return Buffer.concat(chunks);
         } catch (error) {
-            // Hash is not a CID, need to search
-            throw new Error(`IPFS retrieval requires CID, not hash. Implement hash’CID mapping.`);
+            throw new Error(`IPFS retrieval failed for CID ${cid}: ${error.message}`);
         }
     }
 
@@ -445,6 +454,38 @@ class EventStore {
      */
     async retrieveFromRedis(hash) {
         const key = `event:${hash}`;
+        return await this.redis.get(key);
+    }
+
+    /**
+     * Store hashâ†’CID mapping in Redis for IPFS retrieval.
+     *
+     * @private
+     * @param {string} hash - Event hash
+     * @param {string} cid - IPFS CID
+     * @returns {Promise<void>}
+     */
+    async storeHashCIDMapping(hash, cid) {
+        if (!this.redisEnabled) {
+            return; // Silently skip if Redis not available
+        }
+        const key = `ipfs:hash:${hash}`;
+        // Store mapping with no expiration (permanent)
+        await this.redis.set(key, cid);
+    }
+
+    /**
+     * Retrieve IPFS CID from hash mapping in Redis.
+     *
+     * @private
+     * @param {string} hash - Event hash
+     * @returns {Promise<string|null>} IPFS CID or null if not found
+     */
+    async getHashCIDMapping(hash) {
+        if (!this.redisEnabled) {
+            return null;
+        }
+        const key = `ipfs:hash:${hash}`;
         return await this.redis.get(key);
     }
 
@@ -560,16 +601,21 @@ class EventStore {
         }
 
         if (hash) {
-            const key = `event:${hash}`;
-            const result = await this.redis.del(key);
+            // Clear both event cache and hashâ†’CID mapping
+            const eventKey = `event:${hash}`;
+            const mappingKey = `ipfs:hash:${hash}`;
+            const result = await this.redis.del(eventKey, mappingKey);
             console.log(` Cleared cache for ${hash}: ${result} key(s)`);
             return result;
         } else {
-            // Clear all event keys
-            const keys = await this.redis.keys('event:*');
-            if (keys.length > 0) {
-                const result = await this.redis.del(...keys);
-                console.log(` Cleared cache: ${result} key(s)`);
+            // Clear all event keys and hashâ†’CID mappings
+            const eventKeys = await this.redis.keys('event:*');
+            const mappingKeys = await this.redis.keys('ipfs:hash:*');
+            const allKeys = [...eventKeys, ...mappingKeys];
+
+            if (allKeys.length > 0) {
+                const result = await this.redis.del(...allKeys);
+                console.log(` Cleared cache: ${result} key(s) (${eventKeys.length} events, ${mappingKeys.length} mappings)`);
                 return result;
             }
             return 0;
@@ -657,7 +703,7 @@ class EventStore {
             closePromises.push(
                 this.redis.quit()
                     .then(() => console.log('   Redis connection closed'))
-                    .catch(err => console.warn('    Redis close error:', err.message))
+                    .catch(err => console.warn('  ï¿½ Redis close error:', err.message))
             );
         }
 
