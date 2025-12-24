@@ -8,6 +8,7 @@ import { HashGenerator } from './utils/hashGenerator.js';
 import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
 import { TransactionBuilder } from './utils/transactionBuilder.js';
+import { discogsClient } from './utils/discogsClient.js';
 
 class PolarisApp {
     constructor() {
@@ -139,6 +140,19 @@ class PolarisApp {
         document.getElementById('json-modal').addEventListener('click', (e) => {
             if (e.target.id === 'json-modal') {
                 this.closeModal();
+            }
+        });
+
+        // Discogs fetch button
+        document.getElementById('fetch-discogs-btn').addEventListener('click', () => {
+            this.fetchFromDiscogs();
+        });
+
+        // Allow Enter key in Discogs input
+        document.getElementById('discogs-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.fetchFromDiscogs();
             }
         });
     }
@@ -621,6 +635,199 @@ class PolarisApp {
         setTimeout(() => {
             toast.remove();
         }, 5000);
+    }
+
+    /**
+     * Fetch release data from Discogs and populate form
+     */
+    async fetchFromDiscogs() {
+        const input = document.getElementById('discogs-input').value.trim();
+        const statusDiv = document.getElementById('discogs-status');
+
+        if (!input) {
+            this.showDiscogsStatus('Please enter a Discogs release ID or URL', 'error');
+            return;
+        }
+
+        // Extract release ID
+        const releaseId = discogsClient.extractReleaseId(input);
+        if (!releaseId) {
+            this.showDiscogsStatus('Invalid Discogs release ID or URL', 'error');
+            return;
+        }
+
+        try {
+            this.showDiscogsStatus(`Fetching release ${releaseId} from Discogs...`, 'loading');
+
+            // Fetch release data
+            const releaseData = await discogsClient.fetchRelease(releaseId);
+
+            // Populate form
+            await this.populateFormFromDiscogs(releaseData);
+
+            this.showDiscogsStatus(`✓ Successfully imported: ${releaseData.title}`, 'success');
+            this.showToast(`Imported from Discogs: ${releaseData.title}`, 'success');
+
+        } catch (error) {
+            console.error('Discogs fetch error:', error);
+            this.showDiscogsStatus(`Error: ${error.message}`, 'error');
+            this.showToast('Failed to fetch from Discogs: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Populate form fields from Discogs release data
+     */
+    async populateFormFromDiscogs(discogsRelease) {
+        console.log('Populating form from Discogs data:', discogsRelease);
+
+        // Clear existing dynamic fields
+        document.getElementById('labels-container').innerHTML = '';
+        document.getElementById('release-guests-container').innerHTML = '';
+        document.getElementById('tracks-container').innerHTML = '';
+        this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
+
+        // Populate basic release info
+        document.getElementById('release-name').value = discogsRelease.title || '';
+        document.getElementById('release-date').value = discogsRelease.released || discogsRelease.year || '';
+        document.getElementById('liner-notes').value = discogsRelease.notes || '';
+
+        // Set format
+        if (discogsRelease.formats && discogsRelease.formats.length > 0) {
+            const format = discogsRelease.formats[0].name;
+            const formatSelect = document.getElementById('release-format');
+            // Try to match format
+            const formatMap = {
+                'Vinyl': 'LP',
+                'CD': 'CD',
+                'Cassette': 'Cassette',
+                'Digital': 'Digital'
+            };
+            formatSelect.value = formatMap[format] || 'Other';
+        }
+
+        // Add label if available
+        if (discogsRelease.labels && discogsRelease.labels.length > 0) {
+            const label = discogsRelease.labels[0];
+            const labelForm = this.formBuilder.createLabelForm();
+            document.getElementById('labels-container').appendChild(labelForm);
+
+            // Populate label name
+            const labelIndex = this.formBuilder.counters.label - 1;
+            const labelNameInput = labelForm.querySelector(`#label-name-${labelIndex}`);
+            if (labelNameInput) {
+                labelNameInput.value = label.name || '';
+            }
+        }
+
+        // Add tracks
+        if (discogsRelease.tracklist && discogsRelease.tracklist.length > 0) {
+            for (const discogsTrack of discogsRelease.tracklist) {
+                // Skip if not a regular track (e.g., heading)
+                if (discogsTrack.type_ && discogsTrack.type_ !== 'track') {
+                    continue;
+                }
+
+                const trackForm = this.formBuilder.createTrackForm();
+                document.getElementById('tracks-container').appendChild(trackForm);
+
+                const trackIndex = this.formBuilder.counters.track - 1;
+
+                // Track number and title
+                const trackNumberInput = trackForm.querySelector(`#track-number-${trackIndex}`);
+                const songNameInput = trackForm.querySelector(`#song-name-${trackIndex}`);
+
+                if (trackNumberInput) {
+                    trackNumberInput.value = discogsTrack.position || '';
+                }
+                if (songNameInput) {
+                    songNameInput.value = discogsTrack.title || '';
+                }
+
+                // Track duration
+                if (discogsTrack.duration) {
+                    const durationInput = trackForm.querySelector(`#track-duration-${trackIndex}`);
+                    if (durationInput) {
+                        durationInput.value = discogsTrack.duration;
+                    }
+                }
+
+                // Extract songwriters from credits
+                const songwriters = discogsClient.extractSongwriters(discogsTrack);
+                if (songwriters.length > 0) {
+                    const songwritersInput = trackForm.querySelector(`#songwriters-${trackIndex}`);
+                    if (songwritersInput) {
+                        songwritersInput.value = songwriters.join(', ');
+                    }
+                }
+            }
+        }
+
+        // Add release-level performers as groups
+        if (discogsRelease.artists && discogsRelease.artists.length > 0) {
+            for (const artist of discogsRelease.artists) {
+                const cleanName = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
+
+                if (discogsClient.isGroup(artist)) {
+                    // Add as group
+                    // Note: We'd need to add group forms, but current form structure
+                    // expects groups to be added per-track. For now, we'll just log it.
+                    console.log('Group artist:', cleanName);
+                } else {
+                    // Add as release guest
+                    const guestForm = this.formBuilder.createReleaseGuestForm();
+                    document.getElementById('release-guests-container').appendChild(guestForm);
+
+                    const guestIndex = this.formBuilder.counters.person - 1;
+                    const guestNameInput = guestForm.querySelector(`#release-guest-name-${guestIndex}`);
+                    const guestRoleInput = guestForm.querySelector(`#release-guest-role-${guestIndex}`);
+
+                    if (guestNameInput) {
+                        guestNameInput.value = cleanName;
+                    }
+                    if (guestRoleInput && artist.role) {
+                        guestRoleInput.value = artist.role;
+                    }
+                }
+            }
+        }
+
+        // Parse extra artists (producers, engineers, etc.)
+        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
+            const credits = discogsClient.parseCredits(discogsRelease.extraartists);
+
+            // Add producers as release guests
+            for (const producer of credits.producers) {
+                const guestForm = this.formBuilder.createReleaseGuestForm();
+                document.getElementById('release-guests-container').appendChild(guestForm);
+
+                const guestIndex = this.formBuilder.counters.person - 1;
+                const guestNameInput = guestForm.querySelector(`#release-guest-name-${guestIndex}`);
+                const guestRoleInput = guestForm.querySelector(`#release-guest-role-${guestIndex}`);
+
+                if (guestNameInput) {
+                    guestNameInput.value = producer.name;
+                }
+                if (guestRoleInput) {
+                    guestRoleInput.value = 'Producer';
+                }
+            }
+        }
+
+        // Add source link
+        const sourceLink = `https://www.discogs.com/release/${discogsRelease.id}`;
+        document.getElementById('source-links').value = sourceLink;
+
+        console.log('Form populated successfully');
+    }
+
+    /**
+     * Show Discogs import status message
+     */
+    showDiscogsStatus(message, type = 'success') {
+        const statusDiv = document.getElementById('discogs-status');
+        statusDiv.textContent = message;
+        statusDiv.className = `import-status ${type} show`;
     }
 }
 

@@ -28,6 +28,33 @@
                         on-chain and stored in a decentralized manner. Please be as accurate as possible.
                     </p>
 
+                    <!-- Discogs Import Section -->
+                    <div class="discogs-import">
+                        <details>
+                            <summary>
+                                <span class="icon">📀</span>
+                                <strong>Import from Discogs</strong>
+                                <span class="hint">Auto-fill form from Discogs database</span>
+                            </summary>
+                            <div class="import-content">
+                                <p>Enter a Discogs release URL or ID to automatically populate the form:</p>
+                                <div class="import-input-group">
+                                    <input type="text" id="discogs-input"
+                                           placeholder="https://www.discogs.com/release/249504 or just 249504"
+                                           autocomplete="off">
+                                    <button type="button" id="fetch-discogs-btn" class="btn-secondary">
+                                        Fetch Data
+                                    </button>
+                                </div>
+                                <div id="discogs-status" class="import-status"></div>
+                                <small class="note">
+                                    <strong>Note:</strong> This will auto-populate the form with data from Discogs.
+                                    You can review and edit all fields before submitting.
+                                </small>
+                            </div>
+                        </details>
+                    </div>
+
                     <form id="release-form">
                         <!-- Release Information Section -->
                         <section class="form-section">
