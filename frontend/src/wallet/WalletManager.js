@@ -206,6 +206,31 @@ export class WalletManager {
     }
 
     /**
+     * Sign a message with the wallet's private key
+     * @param {string} message - Message to sign (typically a hash)
+     * @returns {Promise<string>} Signature string (e.g., SIG_K1_...)
+     */
+    async signMessage(message) {
+        if (!this.session) {
+            throw new Error('No active session. Please connect your wallet first.');
+        }
+
+        try {
+            console.log('Signing message with wallet...');
+
+            // WharfKit's signMessage method
+            const signature = await this.session.signMessage(message);
+
+            console.log('Message signed successfully');
+            return signature.toString();
+        } catch (error) {
+            console.error('Message signing failed:', error);
+            this.emit('onError', error);
+            throw error;
+        }
+    }
+
+    /**
      * Add event listener
      * @param {string} event - Event name (onConnect, onDisconnect, onError)
      * @param {Function} callback - Callback function

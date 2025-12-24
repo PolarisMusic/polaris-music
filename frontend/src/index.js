@@ -501,16 +501,23 @@ class PolarisApp {
         this.showLoading(true);
 
         try {
-            console.log('=== STEP 1: Store event off-chain ===');
+            console.log('=== STEP 0: Sign event with wallet ===');
 
-            // Add a placeholder signature (in production, this would be signed by wallet)
+            // Sign the event hash with wallet private key
+            console.log('Signing event hash:', this.currentTransaction.eventHash);
+            const signature = await this.walletManager.signMessage(this.currentTransaction.eventHash);
+            console.log('Signature:', signature);
+
+            // Create signed event
             const eventWithSig = {
                 ...this.currentTransaction.event,
-                sig: 'SIG_K1_PLACEHOLDER' // TODO: Actually sign event with wallet private key
+                sig: signature
             };
 
+            console.log('\n=== STEP 1: Store event off-chain ===');
+
             // Store event to IPFS + S3 + Redis
-            console.log('Storing event to off-chain storage...');
+            console.log('Storing signed event to off-chain storage...');
             const storageResult = await api.storeEvent(eventWithSig);
 
             console.log('Storage result:', storageResult);
