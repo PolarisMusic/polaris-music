@@ -633,8 +633,10 @@ class PolarisApp {
 
     /**
      * Add a release-level group to all existing tracks
+     * @param {number} releaseGroupIndex - Index of the release group
+     * @param {Array} members - Optional array of group members to add
      */
-    addReleaseGroupToAllTracks(releaseGroupIndex) {
+    addReleaseGroupToAllTracks(releaseGroupIndex, members = []) {
         const tracksContainer = document.getElementById('tracks-container');
         const trackItems = tracksContainer.querySelectorAll('.track-item');
 
@@ -660,9 +662,32 @@ class PolarisApp {
             groupsContainer.appendChild(groupForm);
 
             // Populate the group name
-            const groupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIndex}"]`);
-            if (groupNameInput && groupName) {
-                groupNameInput.value = groupName;
+            const trackGroupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIndex}"]`);
+            if (trackGroupNameInput && groupName) {
+                trackGroupNameInput.value = groupName;
+            }
+
+            // Add members if provided
+            if (members && members.length > 0) {
+                const membersContainer = groupForm.querySelector('.members-container');
+                if (membersContainer) {
+                    members.forEach((member, memberIndex) => {
+                        const memberForm = this.formBuilder.createPersonForm(memberIndex, 'member', `${trackIndex}-${groupIndex}`);
+                        membersContainer.appendChild(memberForm);
+
+                        // Populate member name
+                        const memberNameInput = memberForm.querySelector(`input[name="member-name-${trackIndex}-${groupIndex}-${memberIndex}"]`);
+                        if (memberNameInput) {
+                            memberNameInput.value = member.name;
+                        }
+
+                        // Populate member role if available
+                        const memberRolesInput = memberForm.querySelector(`input[name="member-roles-${trackIndex}-${groupIndex}-${memberIndex}"]`);
+                        if (memberRolesInput && member.role) {
+                            memberRolesInput.value = member.role;
+                        }
+                    });
+                }
             }
         });
     }
@@ -740,13 +765,15 @@ class PolarisApp {
         // Populate basic release info
         document.getElementById('release-name').value = discogsRelease.title || '';
 
-        // Fix date format - use YYYY/MM/DD (non-ambiguous and sortable)
+        // Handle flexible date formats (YYYY, YYYY/MM, or YYYY/MM/DD)
         let releaseDate = '';
         if (discogsRelease.released) {
-            // Convert YYYY-MM-DD to YYYY/MM/DD
+            // Discogs may provide YYYY-MM-DD or just YYYY
+            // Convert to YYYY/MM/DD format or keep as-is if just year
             releaseDate = discogsRelease.released.replace(/-/g, '/');
         } else if (discogsRelease.year) {
-            releaseDate = `${discogsRelease.year}/01/01`; // Use January 1st if only year available
+            // If only year available, just use the year
+            releaseDate = String(discogsRelease.year);
         }
         document.getElementById('release-date').value = releaseDate;
 
@@ -781,6 +808,24 @@ class PolarisApp {
             }
         }
 
+        // ===== EXTRACT PERFORMERS FROM EXTRAARTISTS =====
+        // Get performers (actual musicians on the album)
+        const performers = [];
+        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
+            for (const extraArtist of discogsRelease.extraartists) {
+                if (extraArtist.role && extraArtist.role.toLowerCase().includes('performer')) {
+                    const cleanName = extraArtist.name.replace(/\s*\(\d+\)$/, '');
+                    performers.push({
+                        name: cleanName,
+                        id: extraArtist.id,
+                        role: extraArtist.role
+                    });
+                }
+            }
+        }
+
+        console.log('Found performers:', performers);
+
         // ===== RELEASE-LEVEL GROUPS =====
         // Add main performing groups to release-level groups section
         const releaseGroupsContainer = document.getElementById('release-groups-container');
@@ -804,7 +849,8 @@ class PolarisApp {
                 mainGroups.push({
                     name: cleanName,
                     id: artist.id,
-                    index: i
+                    index: i,
+                    members: performers  // Store performers as group members
                 });
             }
         }
@@ -862,7 +908,7 @@ class PolarisApp {
         // ===== AUTO-POPULATE RELEASE GROUPS TO TRACKS =====
         // After all tracks are created, add release groups to each track
         for (const group of mainGroups) {
-            this.addReleaseGroupToAllTracks(group.index);
+            this.addReleaseGroupToAllTracks(group.index, group.members);
         }
 
         // Parse release-level extra artists (producers, engineers, etc.)
