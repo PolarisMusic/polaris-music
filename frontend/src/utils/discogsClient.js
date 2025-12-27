@@ -196,7 +196,7 @@ export class DiscogsClient {
      * @param {Array} extraArtists - Discogs extraartists array
      * @returns {Object} Categorized credits
      */
-    parseCredits(extraArtists) {
+    parseCredits(extraArtists, performerIds = new Set()) {
         const credits = {
             producers: [],
             engineers: [],
@@ -211,6 +211,11 @@ export class DiscogsClient {
             const role = artist.role ? artist.role.toLowerCase() : '';
             const name = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
 
+            // Skip if this person is a performer (they're band members, not guests)
+            if (performerIds.has(artist.id)) {
+                continue;
+            }
+
             if (role.includes('producer')) {
                 credits.producers.push({ name, id: artist.id });
             } else if (role.includes('engineer') || role.includes('recording')) {
@@ -219,11 +224,10 @@ export class DiscogsClient {
                 credits.mixedBy.push({ name, id: artist.id });
             } else if (role.includes('master')) {
                 credits.masteredBy.push({ name, id: artist.id });
-            } else if (!role.includes('performer') &&
-                       (role.includes('vocals') || role.includes('guitar') ||
-                        role.includes('bass') || role.includes('drums') ||
-                        role.includes('keyboards') || role.includes('piano'))) {
-                // Instrument roles indicate guest musicians (but skip performers - they're members)
+            } else if (role.includes('vocals') || role.includes('guitar') ||
+                       role.includes('bass') || role.includes('drums') ||
+                       role.includes('keyboards') || role.includes('piano')) {
+                // Instrument roles indicate guest musicians
                 credits.guests.push({ name, id: artist.id, role: artist.role });
             }
         }

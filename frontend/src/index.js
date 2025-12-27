@@ -811,14 +811,40 @@ class PolarisApp {
         // ===== EXTRACT PERFORMERS FROM EXTRAARTISTS =====
         // Get performers (actual musicians on the album)
         const performers = [];
+        const performerIds = new Set();
+
         if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
+            // First pass: identify all performers and collect their IDs
             for (const extraArtist of discogsRelease.extraartists) {
                 if (extraArtist.role && extraArtist.role.toLowerCase().includes('performer')) {
-                    const cleanName = extraArtist.name.replace(/\s*\(\d+\)$/, '');
+                    performerIds.add(extraArtist.id);
+                }
+            }
+
+            // Second pass: for each performer, collect ALL their roles (instruments, etc.)
+            for (const performerId of performerIds) {
+                const performerEntries = discogsRelease.extraartists.filter(ea => ea.id === performerId);
+
+                if (performerEntries.length > 0) {
+                    const cleanName = performerEntries[0].name.replace(/\s*\(\d+\)$/, '');
+
+                    // Collect all roles for this performer, excluding generic "Performer"
+                    const roles = [];
+                    for (const entry of performerEntries) {
+                        const role = entry.role || '';
+                        // Skip generic "Performer" role, keep specific instruments
+                        if (role && role !== 'Performer') {
+                            roles.push(role);
+                        }
+                    }
+
+                    // Use specific roles if available, otherwise use "Performer"
+                    const finalRole = roles.length > 0 ? roles.join(', ') : 'Performer';
+
                     performers.push({
                         name: cleanName,
-                        id: extraArtist.id,
-                        role: extraArtist.role
+                        id: performerId,
+                        role: finalRole
                     });
                 }
             }
@@ -916,7 +942,7 @@ class PolarisApp {
         let guestIndex = 0;
 
         if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
-            const credits = discogsClient.parseCredits(discogsRelease.extraartists);
+            const credits = discogsClient.parseCredits(discogsRelease.extraartists, performerIds);
 
             // Add producers
             for (const producer of credits.producers) {
