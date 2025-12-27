@@ -211,23 +211,28 @@ export class DiscogsClient {
             const role = artist.role ? artist.role.toLowerCase() : '';
             const name = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
 
-            // Skip if this person is a performer (they're band members, not guests)
-            if (performerIds.has(artist.id)) {
-                continue;
-            }
-
+            // Production/technical roles - include EVERYONE (even performers)
             if (role.includes('producer')) {
                 credits.producers.push({ name, id: artist.id });
-            } else if (role.includes('engineer') || role.includes('recording')) {
+            }
+
+            if (role.includes('engineer') || role.includes('recording')) {
                 credits.engineers.push({ name, id: artist.id, role: artist.role });
-            } else if (role.includes('mix')) {
+            }
+
+            if (role.includes('mix')) {
                 credits.mixedBy.push({ name, id: artist.id });
-            } else if (role.includes('master')) {
+            }
+
+            if (role.includes('master')) {
                 credits.masteredBy.push({ name, id: artist.id });
-            } else if (role.includes('vocals') || role.includes('guitar') ||
-                       role.includes('bass') || role.includes('drums') ||
-                       role.includes('keyboards') || role.includes('piano')) {
-                // Instrument roles indicate guest musicians
+            }
+
+            // Guest musicians - ONLY non-performers with instrument roles
+            if (!performerIds.has(artist.id) &&
+                (role.includes('vocals') || role.includes('guitar') ||
+                 role.includes('bass') || role.includes('drums') ||
+                 role.includes('keyboards') || role.includes('piano'))) {
                 credits.guests.push({ name, id: artist.id, role: artist.role });
             }
         }

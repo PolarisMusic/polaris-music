@@ -809,7 +809,16 @@ class PolarisApp {
         }
 
         // ===== EXTRACT PERFORMERS FROM EXTRAARTISTS =====
-        // Get performers (actual musicians on the album)
+        // Separate performance roles from production/technical roles
+        const performanceRoleKeywords = ['performer', 'drums', 'guitar', 'bass', 'vocals', 'keyboards',
+                                         'piano', 'percussion', 'synthesizer', 'organ', 'harmonica',
+                                         'saxophone', 'trumpet', 'violin', 'cello', 'flute'];
+
+        const isPerformanceRole = (role) => {
+            const roleLower = (role || '').toLowerCase();
+            return performanceRoleKeywords.some(keyword => roleLower.includes(keyword));
+        };
+
         const performers = [];
         const performerIds = new Set();
 
@@ -821,25 +830,25 @@ class PolarisApp {
                 }
             }
 
-            // Second pass: for each performer, collect ALL their roles (instruments, etc.)
+            // Second pass: for each performer, collect ONLY performance roles (instruments, vocals)
             for (const performerId of performerIds) {
                 const performerEntries = discogsRelease.extraartists.filter(ea => ea.id === performerId);
 
                 if (performerEntries.length > 0) {
                     const cleanName = performerEntries[0].name.replace(/\s*\(\d+\)$/, '');
 
-                    // Collect all roles for this performer, excluding generic "Performer"
-                    const roles = [];
+                    // Collect ONLY performance-related roles (instruments, vocals, etc.)
+                    const performanceRoles = [];
                     for (const entry of performerEntries) {
                         const role = entry.role || '';
-                        // Skip generic "Performer" role, keep specific instruments
-                        if (role && role !== 'Performer') {
-                            roles.push(role);
+                        // Only include performance roles, skip production/technical roles
+                        if (isPerformanceRole(role) && role !== 'Performer') {
+                            performanceRoles.push(role);
                         }
                     }
 
-                    // Use specific roles if available, otherwise use "Performer"
-                    const finalRole = roles.length > 0 ? roles.join(', ') : 'Performer';
+                    // Use specific performance roles if available, otherwise use generic "Performer"
+                    const finalRole = performanceRoles.length > 0 ? performanceRoles.join(', ') : 'Performer';
 
                     performers.push({
                         name: cleanName,
@@ -850,7 +859,7 @@ class PolarisApp {
             }
         }
 
-        console.log('Found performers:', performers);
+        console.log('Found performers with performance roles:', performers);
 
         // ===== RELEASE-LEVEL GROUPS =====
         // Add main performing groups to release-level groups section
