@@ -19,6 +19,7 @@ import { graphqlHTTP } from 'express-graphql';
 import { buildSchema } from 'graphql';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
+import { createIdentityRoutes } from './routes/identity.js';
 
 /**
  * GraphQL Schema Definition
@@ -644,6 +645,12 @@ class APIServer {
      * Setup REST endpoints for specific operations
      */
     setupRESTEndpoints() {
+        // ========== IDENTITY MANAGEMENT ==========
+        // Mount identity routes
+        const identityRouter = createIdentityRoutes(this.db, this.store);
+        this.app.use('/api/identity', identityRouter);
+        console.log(' Identity management endpoints mounted at /api/identity');
+
         // ========== HEALTH CHECK ==========
         this.app.get('/health', (req, res) => {
             res.json({
