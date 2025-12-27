@@ -219,10 +219,11 @@ export class DiscogsClient {
                 credits.mixedBy.push({ name, id: artist.id });
             } else if (role.includes('master')) {
                 credits.masteredBy.push({ name, id: artist.id });
-            } else if (role.includes('vocals') || role.includes('guitar') ||
-                       role.includes('bass') || role.includes('drums') ||
-                       role.includes('keyboards') || role.includes('piano')) {
-                // Instrument roles indicate guest musicians
+            } else if (!role.includes('performer') &&
+                       (role.includes('vocals') || role.includes('guitar') ||
+                        role.includes('bass') || role.includes('drums') ||
+                        role.includes('keyboards') || role.includes('piano'))) {
+                // Instrument roles indicate guest musicians (but skip performers - they're members)
                 credits.guests.push({ name, id: artist.id, role: artist.role });
             }
         }
