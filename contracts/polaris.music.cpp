@@ -49,13 +49,15 @@ public:
      * @param author - The blockchain account submitting the event
      * @param type - Event type code:
      *   21 = CREATE_RELEASE_BUNDLE (full release with groups, tracks)
+     *   22 = MINT_ENTITY (create canonical entity with stable ID)
+     *   23 = RESOLVE_ID (map provisional/external ID to canonical)
      *   30 = ADD_CLAIM (add data to existing entity)
      *   31 = EDIT_CLAIM (modify existing data)
      *   40 = VOTE (vote on a submission)
      *   41 = LIKE (like a node in the graph)
      *   42 = DISCUSS (comment on an entity)
      *   50 = FINALIZE (finalize voting and distribute rewards)
-     *   60 = MERGE_NODE (deduplicate entities)
+     *   60 = MERGE_ENTITY (merge duplicate entities, preserving provenance)
      * @param hash - SHA256 hash of the canonical off-chain event body
      * @param parent - Optional parent event hash for threading (discussions)
      * @param ts - Unix timestamp when event was created off-chain
@@ -756,8 +758,10 @@ private:
      */
     uint32_t get_vote_window(uint8_t type) const {
         if(type == 21) return 7 * 24 * 60 * 60; // 7 days for releases
+        if(type == 22) return 3 * 24 * 60 * 60; // 3 days for mint entity
+        if(type == 23) return 2 * 24 * 60 * 60; // 2 days for ID resolution
         if(type == 30 || type == 31) return 3 * 24 * 60 * 60; // 3 days for claims
-        if(type == 60) return 5 * 24 * 60 * 60; // 5 days for merges
+        if(type == 60) return 5 * 24 * 60 * 60; // 5 days for entity merges
         return 24 * 60 * 60; // 1 day default
     }
 
@@ -770,9 +774,11 @@ private:
     uint64_t get_multiplier(uint8_t type) const {
         switch(type) {
             case 21: return 1000000;  // CREATE_RELEASE_BUNDLE (major contribution)
+            case 22: return 100000;   // MINT_ENTITY (canonical entity creation)
+            case 23: return 5000;     // RESOLVE_ID (ID mapping contribution)
             case 30: return 50000;    // ADD_CLAIM (medium contribution)
             case 31: return 1000;     // EDIT_CLAIM (minor contribution)
-            case 60: return 10000;    // MERGE_NODE (cleanup contribution)
+            case 60: return 20000;    // MERGE_ENTITY (deduplication contribution)
             default: return 0;        // No emission (votes, likes, etc.)
         }
     }
