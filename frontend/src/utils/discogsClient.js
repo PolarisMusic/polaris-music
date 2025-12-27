@@ -90,22 +90,72 @@ export class DiscogsClient {
     }
 
     /**
-     * Extract release ID from Discogs URL
-     * @param {string} url - Discogs release URL
-     * @returns {number|null} Release ID or null if invalid
+     * Fetch master release data by Discogs master ID
+     * Masters represent canonical album groupings - this method gets the main release
+     * @param {number} masterId - Discogs master ID
+     * @returns {Promise<Object>} Main release data from master
+     */
+    async fetchMaster(masterId) {
+        await this.rateLimit();
+
+        console.log(`Fetching Discogs master ${masterId}...`);
+
+        const response = await fetch(`${this.apiBase}/masters/${masterId}`, {
+            headers: {
+                'User-Agent': this.userAgent
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                throw new Error(`Master ${masterId} not found on Discogs`);
+            } else if (response.status === 429) {
+                throw new Error('Rate limit exceeded. Please wait and try again.');
+            }
+            throw new Error(`Discogs API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('Discogs master data:', data);
+
+        // Master returns main_release ID - fetch that actual release
+        if (data.main_release) {
+            console.log(`Fetching main release ${data.main_release} from master...`);
+            return this.fetchRelease(data.main_release);
+        }
+
+        return data;
+    }
+
+    /**
+     * Extract release ID or master ID from Discogs URL
+     * @param {string} url - Discogs release or master URL
+     * @returns {Object|null} {type: 'release'|'master', id: number} or null if invalid
      */
     extractReleaseId(url) {
         // Match patterns like:
         // https://www.discogs.com/release/123456
         // https://discogs.com/release/123456-Artist-Name-Album-Title
+        // https://www.discogs.com/master/3239-Artist-Album
         // Just the number: 123456
 
         if (/^\d+$/.test(url)) {
-            return parseInt(url, 10);
+            return { type: 'release', id: parseInt(url, 10) };
         }
 
-        const match = url.match(/\/release\/(\d+)/);
-        return match ? parseInt(match[1], 10) : null;
+        // Check for master URL
+        const masterMatch = url.match(/\/master\/(\d+)/);
+        if (masterMatch) {
+            return { type: 'master', id: parseInt(masterMatch[1], 10) };
+        }
+
+        // Check for release URL
+        const releaseMatch = url.match(/\/release\/(\d+)/);
+        if (releaseMatch) {
+            return { type: 'release', id: parseInt(releaseMatch[1], 10) };
+        }
+
+        return null;
     }
 
     /**

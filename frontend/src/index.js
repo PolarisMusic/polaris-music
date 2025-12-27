@@ -649,18 +649,20 @@ class PolarisApp {
             return;
         }
 
-        // Extract release ID
-        const releaseId = discogsClient.extractReleaseId(input);
-        if (!releaseId) {
+        // Extract release ID or master ID
+        const idInfo = discogsClient.extractReleaseId(input);
+        if (!idInfo) {
             this.showDiscogsStatus('Invalid Discogs release ID or URL', 'error');
             return;
         }
 
         try {
-            this.showDiscogsStatus(`Fetching release ${releaseId} from Discogs...`, 'loading');
+            this.showDiscogsStatus(`Fetching ${idInfo.type} ${idInfo.id} from Discogs...`, 'loading');
 
-            // Fetch release data
-            const releaseData = await discogsClient.fetchRelease(releaseId);
+            // Fetch release data (handles both release and master)
+            const releaseData = idInfo.type === 'master'
+                ? await discogsClient.fetchMaster(idInfo.id)
+                : await discogsClient.fetchRelease(idInfo.id);
 
             // Populate form
             await this.populateFormFromDiscogs(releaseData);
@@ -689,7 +691,16 @@ class PolarisApp {
 
         // Populate basic release info
         document.getElementById('release-name').value = discogsRelease.title || '';
-        document.getElementById('release-date').value = discogsRelease.released || discogsRelease.year || '';
+
+        // Fix date format - convert year to yyyy-MM-dd format
+        let releaseDate = '';
+        if (discogsRelease.released) {
+            releaseDate = discogsRelease.released; // Already in yyyy-MM-dd format
+        } else if (discogsRelease.year) {
+            releaseDate = `${discogsRelease.year}-01-01`; // Use January 1st if only year available
+        }
+        document.getElementById('release-date').value = releaseDate;
+
         document.getElementById('liner-notes').value = discogsRelease.notes || '';
 
         // Set format
@@ -706,21 +717,38 @@ class PolarisApp {
             formatSelect.value = formatMap[format] || 'Other';
         }
 
-        // Add label if available
+        // Add ALL labels (not just first one)
         if (discogsRelease.labels && discogsRelease.labels.length > 0) {
-            const label = discogsRelease.labels[0];
-            const labelForm = this.formBuilder.createLabelForm();
-            document.getElementById('labels-container').appendChild(labelForm);
+            for (const label of discogsRelease.labels) {
+                const labelForm = this.formBuilder.createLabelForm();
+                document.getElementById('labels-container').appendChild(labelForm);
 
-            // Populate label name
-            const labelIndex = this.formBuilder.counters.label - 1;
-            const labelNameInput = labelForm.querySelector(`#label-name-${labelIndex}`);
-            if (labelNameInput) {
-                labelNameInput.value = label.name || '';
+                // Populate label name
+                const labelIndex = this.formBuilder.counters.label - 1;
+                const labelNameInput = labelForm.querySelector(`input[name="label-name-${labelIndex}"]`);
+                if (labelNameInput) {
+                    labelNameInput.value = label.name || '';
+                }
             }
         }
 
-        // Add tracks
+        // Extract main performing groups
+        const mainGroups = [];
+        if (discogsRelease.artists && discogsRelease.artists.length > 0) {
+            for (const artist of discogsRelease.artists) {
+                const cleanName = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
+
+                // Per domain model, even solo artists are "groups of one"
+                // All main artists should be treated as groups performing on tracks
+                mainGroups.push({
+                    name: cleanName,
+                    id: artist.id,
+                    isGroup: discogsClient.isGroup(artist)
+                });
+            }
+        }
+
+        // Add tracks with groups
         if (discogsRelease.tracklist && discogsRelease.tracklist.length > 0) {
             for (const discogsTrack of discogsRelease.tracklist) {
                 // Skip if not a regular track (e.g., heading)
@@ -734,8 +762,8 @@ class PolarisApp {
                 const trackIndex = this.formBuilder.counters.track - 1;
 
                 // Track number and title
-                const trackNumberInput = trackForm.querySelector(`#track-number-${trackIndex}`);
-                const songNameInput = trackForm.querySelector(`#song-name-${trackIndex}`);
+                const trackNumberInput = trackForm.querySelector(`input[name="track-number-${trackIndex}"]`);
+                const songNameInput = trackForm.querySelector(`input[name="song-name-${trackIndex}"]`);
 
                 if (trackNumberInput) {
                     trackNumberInput.value = discogsTrack.position || '';
@@ -746,7 +774,7 @@ class PolarisApp {
 
                 // Track duration
                 if (discogsTrack.duration) {
-                    const durationInput = trackForm.querySelector(`#track-duration-${trackIndex}`);
+                    const durationInput = trackForm.querySelector(`input[name="track-duration-${trackIndex}"]`);
                     if (durationInput) {
                         durationInput.value = discogsTrack.duration;
                     }
@@ -755,61 +783,152 @@ class PolarisApp {
                 // Extract songwriters from credits
                 const songwriters = discogsClient.extractSongwriters(discogsTrack);
                 if (songwriters.length > 0) {
-                    const songwritersInput = trackForm.querySelector(`#songwriters-${trackIndex}`);
+                    const songwritersInput = trackForm.querySelector(`input[name="songwriters-${trackIndex}"]`);
                     if (songwritersInput) {
                         songwritersInput.value = songwriters.join(', ');
                     }
                 }
-            }
-        }
 
-        // Add release-level performers as groups
-        if (discogsRelease.artists && discogsRelease.artists.length > 0) {
-            for (const artist of discogsRelease.artists) {
-                const cleanName = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
+                // Add main performing groups to this track
+                // Since Discogs doesn't provide track-level assignments, add all main artists to all tracks
+                const groupsContainer = trackForm.querySelector('.track-groups-container');
+                if (groupsContainer) {
+                    for (let groupIdx = 0; groupIdx < mainGroups.length; groupIdx++) {
+                        const group = mainGroups[groupIdx];
+                        const groupForm = this.formBuilder.createGroupForm(trackIndex, groupIdx);
+                        groupsContainer.appendChild(groupForm);
 
-                if (discogsClient.isGroup(artist)) {
-                    // Add as group
-                    // Note: We'd need to add group forms, but current form structure
-                    // expects groups to be added per-track. For now, we'll just log it.
-                    console.log('Group artist:', cleanName);
-                } else {
-                    // Add as release guest
-                    const guestForm = this.formBuilder.createReleaseGuestForm();
-                    document.getElementById('release-guests-container').appendChild(guestForm);
-
-                    const guestIndex = this.formBuilder.counters.person - 1;
-                    const guestNameInput = guestForm.querySelector(`#release-guest-name-${guestIndex}`);
-                    const guestRoleInput = guestForm.querySelector(`#release-guest-role-${guestIndex}`);
-
-                    if (guestNameInput) {
-                        guestNameInput.value = cleanName;
+                        // Populate group name
+                        const groupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIdx}"]`);
+                        if (groupNameInput) {
+                            groupNameInput.value = group.name;
+                        }
                     }
-                    if (guestRoleInput && artist.role) {
-                        guestRoleInput.value = artist.role;
+                }
+
+                // Add track-level guest performers (from track extraartists)
+                if (discogsTrack.extraartists && discogsTrack.extraartists.length > 0) {
+                    const trackGuestsContainer = trackForm.querySelector('.track-guests-container');
+                    if (trackGuestsContainer) {
+                        for (const extraArtist of discogsTrack.extraartists) {
+                            const role = extraArtist.role ? extraArtist.role.toLowerCase() : '';
+                            const cleanName = extraArtist.name.replace(/\s*\(\d+\)$/, '');
+
+                            // Add as track guest if they're a performer (not songwriter, already handled)
+                            if (role.includes('vocals') || role.includes('guitar') ||
+                                role.includes('bass') || role.includes('drums') ||
+                                role.includes('keyboards') || role.includes('piano') ||
+                                role.includes('percussion')) {
+                                // Note: Would need track guest form - for now skip
+                                console.log(`Track ${trackIndex} guest: ${cleanName} - ${extraArtist.role}`);
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Parse extra artists (producers, engineers, etc.)
+        // Parse release-level extra artists (producers, engineers, etc.)
+        const releaseGuestsContainer = document.getElementById('release-guests-container');
+        let guestIndex = 0;
+
         if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
             const credits = discogsClient.parseCredits(discogsRelease.extraartists);
 
-            // Add producers as release guests
+            // Add producers
             for (const producer of credits.producers) {
-                const guestForm = this.formBuilder.createReleaseGuestForm();
-                document.getElementById('release-guests-container').appendChild(guestForm);
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+                releaseGuestsContainer.appendChild(guestForm);
 
-                const guestIndex = this.formBuilder.counters.person - 1;
-                const guestNameInput = guestForm.querySelector(`#release-guest-name-${guestIndex}`);
-                const guestRoleInput = guestForm.querySelector(`#release-guest-role-${guestIndex}`);
+                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
+                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
 
                 if (guestNameInput) {
                     guestNameInput.value = producer.name;
                 }
-                if (guestRoleInput) {
-                    guestRoleInput.value = 'Producer';
+                if (guestRolesInput) {
+                    guestRolesInput.value = 'Producer';
+                }
+            }
+
+            // Add engineers
+            for (const engineer of credits.engineers) {
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+                releaseGuestsContainer.appendChild(guestForm);
+
+                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
+                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
+
+                if (guestNameInput) {
+                    guestNameInput.value = engineer.name;
+                }
+                if (guestRolesInput) {
+                    guestRolesInput.value = engineer.role || 'Engineer';
+                }
+            }
+
+            // Add mixing engineers
+            for (const mixer of credits.mixedBy) {
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+                releaseGuestsContainer.appendChild(guestForm);
+
+                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
+                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
+
+                if (guestNameInput) {
+                    guestNameInput.value = mixer.name;
+                }
+                if (guestRolesInput) {
+                    guestRolesInput.value = 'Mix Engineer';
+                }
+            }
+
+            // Add mastering engineers
+            for (const masterer of credits.masteredBy) {
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+                releaseGuestsContainer.appendChild(guestForm);
+
+                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
+                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
+
+                if (guestNameInput) {
+                    guestNameInput.value = masterer.name;
+                }
+                if (guestRolesInput) {
+                    guestRolesInput.value = 'Mastering Engineer';
+                }
+            }
+
+            // Add guest performers from release-level credits
+            for (const guest of credits.guests) {
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+                releaseGuestsContainer.appendChild(guestForm);
+
+                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
+                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
+
+                if (guestNameInput) {
+                    guestNameInput.value = guest.name;
+                }
+                if (guestRolesInput) {
+                    guestRolesInput.value = guest.role || 'Guest Performer';
+                }
+            }
+        }
+
+        // Extract recording location from companies (entity_type "23" is "Recorded At")
+        if (discogsRelease.companies && discogsRelease.companies.length > 0) {
+            for (const company of discogsRelease.companies) {
+                if (company.entity_type === '23' || company.entity_type_name === 'Recorded At') {
+                    const locationInput = document.getElementById('recording-location');
+                    if (locationInput) {
+                        // Append if there are multiple recording locations
+                        const currentValue = locationInput.value;
+                        const newValue = company.name;
+                        locationInput.value = currentValue
+                            ? `${currentValue}, ${newValue}`
+                            : newValue;
+                    }
                 }
             }
         }
@@ -819,6 +938,7 @@ class PolarisApp {
         document.getElementById('source-links').value = sourceLink;
 
         console.log('Form populated successfully');
+        console.log(`Added: ${mainGroups.length} groups, ${guestIndex} release guests`);
     }
 
     /**
