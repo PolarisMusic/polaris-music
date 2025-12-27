@@ -1434,6 +1434,7 @@ class MusicGraphDatabase {
 
     /**
      * Get database statistics.
+     * Only counts ACTIVE entities (excludes MERGED and PROVISIONAL).
      *
      * @returns {Promise<Object>} Node and relationship counts
      */
@@ -1442,6 +1443,7 @@ class MusicGraphDatabase {
         try {
             const result = await session.run(`
                 MATCH (n)
+                WHERE n.status = 'ACTIVE' OR n.status IS NULL
                 RETURN labels(n)[0] as type, count(*) as count
                 ORDER BY count DESC
             `);

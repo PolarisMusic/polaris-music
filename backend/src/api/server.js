@@ -309,10 +309,15 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (p:Person {person_id: $id})
+                        WHERE p.status = 'ACTIVE'
                         OPTIONAL MATCH (p)-[m:MEMBER_OF]->(g:Group)
+                        WHERE g.status = 'ACTIVE'
                         OPTIONAL MATCH (p)-[:WROTE]->(s:Song)
+                        WHERE s.status = 'ACTIVE'
                         OPTIONAL MATCH (p)-[:PRODUCED]->(t:Track)
+                        WHERE t.status = 'ACTIVE'
                         OPTIONAL MATCH (p)-[:GUEST_ON]->(tg:Track)
+                        WHERE tg.status = 'ACTIVE'
 
                         RETURN p,
                                collect(DISTINCT {
@@ -369,9 +374,13 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (g:Group {group_id: $id})
+                        WHERE g.status = 'ACTIVE'
                         OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                        WHERE p.status = 'ACTIVE'
                         OPTIONAL MATCH (g)-[:PERFORMED_ON]->(t:Track)
+                        WHERE t.status = 'ACTIVE'
                         OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+                        WHERE r.status = 'ACTIVE'
 
                         RETURN g,
                                collect(DISTINCT {
@@ -433,9 +442,13 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (r:Release {release_id: $id})
+                        WHERE r.status = 'ACTIVE'
                         OPTIONAL MATCH (t:Track)-[ir:IN_RELEASE]->(r)
+                        WHERE t.status = 'ACTIVE'
                         OPTIONAL MATCH (r)-[:RELEASED]->(l:Label)
+                        WHERE l.status = 'ACTIVE'
                         OPTIONAL MATCH (r)-[:IN_MASTER]->(m:Master)
+                        WHERE m.status = 'ACTIVE'
 
                         RETURN r,
                                collect(DISTINCT {
@@ -486,10 +499,15 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (t:Track {track_id: $id})
+                        WHERE t.status = 'ACTIVE'
                         OPTIONAL MATCH (t)-[:RECORDING_OF]->(s:Song)
+                        WHERE s.status = 'ACTIVE'
                         OPTIONAL MATCH (g:Group)-[:PERFORMED_ON]->(t)
+                        WHERE g.status = 'ACTIVE'
                         OPTIONAL MATCH (p:Person)-[:GUEST_ON]->(t)
+                        WHERE p.status = 'ACTIVE'
                         OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+                        WHERE r.status = 'ACTIVE'
 
                         RETURN t,
                                s,
@@ -532,8 +550,11 @@ class APIServer {
                 try {
                     const result = await session.run(`
                         MATCH (s:Song {song_id: $id})
+                        WHERE s.status = 'ACTIVE'
                         OPTIONAL MATCH (p:Person)-[:WROTE]->(s)
+                        WHERE p.status = 'ACTIVE'
                         OPTIONAL MATCH (t:Track)-[:RECORDING_OF]->(s)
+                        WHERE t.status = 'ACTIVE'
 
                         RETURN s,
                                collect(DISTINCT p) as writers,
@@ -569,6 +590,7 @@ class APIServer {
                     const result = await session.run(`
                         CALL db.index.fulltext.queryNodes('entitySearch', $query)
                         YIELD node, score
+                        WHERE node.status = 'ACTIVE'
                         RETURN node, labels(node)[0] as type, score
                         ORDER BY score DESC
                         LIMIT $limit
@@ -585,6 +607,7 @@ class APIServer {
                     const result = await session.run(`
                         MATCH (n)
                         WHERE n.name CONTAINS $query
+                          AND n.status = 'ACTIVE'
                         RETURN n, labels(n)[0] as type
                         LIMIT $limit
                     `, { query, limit });
