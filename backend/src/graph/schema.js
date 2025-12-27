@@ -16,6 +16,8 @@
 
 import neo4j from 'neo4j-driver';
 import { createHash } from 'crypto';
+import { IdentityService, EntityType } from '../identity/idService.js';
+import { MergeOperations } from './merge.js';
 
 /**
  * Main class for interacting with the Neo4j graph database.
@@ -264,10 +266,10 @@ class MusicGraphDatabase {
 
             for (const group of bundle.groups || []) {
                 const groupOpId = opId();
-                const groupId = group.group_id ||
-                               this.generateProvisionalId('group', group);
+                const groupId = await this.resolveEntityId(tx, 'group', group);
 
-                console.log(`  Creating/updating group: ${group.name} (${groupId.substring(0, 12)}...)`);
+                const idKind = IdentityService.parseId(groupId).kind;
+                console.log(`  Creating/updating group: ${group.name} (${groupId.substring(0, 12)}...) [${idKind}]`);
 
                 await tx.run(`
                     MERGE (g:Group {group_id: $groupId})
@@ -297,13 +299,15 @@ class MusicGraphDatabase {
                     bio: group.bio || null,
                     formed: group.formed_date || null,
                     disbanded: group.disbanded_date || null,
-                    status: group.group_id ? 'canonical' : 'provisional',
+                    status: idKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
                     eventHash,
                     account: submitterAccount
                 });
 
                 // Link to origin City if provided
                 if (group.origin_city) {
+                    const cityId = await this.resolveEntityId(tx, 'city', group.origin_city);
+
                     await tx.run(`
                         MATCH (g:Group {group_id: $groupId})
                         MERGE (c:City {city_id: $cityId})
@@ -313,8 +317,7 @@ class MusicGraphDatabase {
                         MERGE (g)-[:ORIGIN]->(c)
                     `, {
                         groupId,
-                        cityId: group.origin_city.city_id ||
-                               this.generateProvisionalId('city', group.origin_city),
+                        cityId,
                         cityName: group.origin_city.name,
                         cityLat: group.origin_city.lat,
                         cityLon: group.origin_city.lon
@@ -323,10 +326,10 @@ class MusicGraphDatabase {
 
                 // Process Group members with their roles and periods
                 for (const member of group.members || []) {
-                    const personId = member.person_id ||
-                                   this.generateProvisionalId('person', member);
+                    const personId = await this.resolveEntityId(tx, 'person', member);
+                    const personIdKind = IdentityService.parseId(personId).kind;
 
-                    console.log(`    Adding member: ${member.name}`);
+                    console.log(`    Adding member: ${member.name} [${personIdKind}]`);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -348,7 +351,7 @@ class MusicGraphDatabase {
                     `, {
                         personId,
                         name: member.name,
-                        status: member.person_id ? 'canonical' : 'provisional',
+                        status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
                         groupId,
                         role: member.role || 'member',
                         from: member.from_date || null,
@@ -359,6 +362,8 @@ class MusicGraphDatabase {
 
                     // Link person to origin city if provided
                     if (member.origin_city) {
+                        const memberCityId = await this.resolveEntityId(tx, 'city', member.origin_city);
+
                         await tx.run(`
                             MATCH (p:Person {person_id: $personId})
                             MERGE (c:City {city_id: $cityId})
@@ -368,8 +373,7 @@ class MusicGraphDatabase {
                             MERGE (p)-[:ORIGIN]->(c)
                         `, {
                             personId,
-                            cityId: member.origin_city.city_id ||
-                                   this.generateProvisionalId('city', member.origin_city),
+                            cityId: memberCityId,
                             cityName: member.origin_city.name,
                             cityLat: member.origin_city.lat,
                             cityLon: member.origin_city.lon
@@ -387,8 +391,7 @@ class MusicGraphDatabase {
             // ========== 2. CREATE RELEASE ==========
 
             const releaseOpId = opId();
-            const releaseId = bundle.release.release_id ||
-                             this.generateProvisionalId('release', bundle.release);
+            const releaseId = await this.resolveEntityId(tx, 'release', bundle.release);
 
             console.log(`  Creating release: ${bundle.release.name} (${releaseId.substring(0, 12)}...)`);
 
@@ -431,8 +434,7 @@ class MusicGraphDatabase {
 
             // Process release-level guests (engineers, producers, etc.)
             for (const guest of bundle.release.guests || []) {
-                const personId = guest.person_id ||
-                               this.generateProvisionalId('person', guest);
+                const personId = await this.resolveEntityId(tx, 'person', guest);
 
                 await tx.run(`
                     MERGE (p:Person {person_id: $personId})
@@ -465,8 +467,7 @@ class MusicGraphDatabase {
 
             for (const song of bundle.songs || []) {
                 const songOpId = opId();
-                const songId = song.song_id ||
-                              this.generateProvisionalId('song', song);
+                const songId = await this.resolveEntityId(tx, 'song', song);
 
                 console.log(`  Creating song: ${song.title} (${songId.substring(0, 12)}...)`);
 
@@ -491,8 +492,7 @@ class MusicGraphDatabase {
 
                 // Link songwriters (Persons who WROTE this Song)
                 for (const writer of song.writers || []) {
-                    const writerId = writer.person_id ||
-                                   this.generateProvisionalId('person', writer);
+                    const writerId = await this.resolveEntityId(tx, 'person', writer);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -526,8 +526,7 @@ class MusicGraphDatabase {
 
             for (const track of bundle.tracks || []) {
                 const trackOpId = opId();
-                const trackId = track.track_id ||
-                               this.generateProvisionalId('track', track);
+                const trackId = await this.resolveEntityId(tx, 'track', track);
 
                 console.log(`  Creating track: ${track.title} (${trackId.substring(0, 12)}...)`);
 
@@ -580,8 +579,7 @@ class MusicGraphDatabase {
 
                 // Link GUEST performers (individuals not in the main group)
                 for (const guest of track.guests || []) {
-                    const guestId = guest.person_id ||
-                                  this.generateProvisionalId('person', guest);
+                    const guestId = await this.resolveEntityId(tx, 'person', guest);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -610,8 +608,7 @@ class MusicGraphDatabase {
 
                 // Link producers
                 for (const producer of track.producers || []) {
-                    const producerId = producer.person_id ||
-                                     this.generateProvisionalId('person', producer);
+                    const producerId = await this.resolveEntityId(tx, 'person', producer);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -633,8 +630,7 @@ class MusicGraphDatabase {
 
                 // Link arrangers
                 for (const arranger of track.arrangers || []) {
-                    const arrangerId = arranger.person_id ||
-                                      this.generateProvisionalId('person', arranger);
+                    const arrangerId = await this.resolveEntityId(tx, 'person', arranger);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -749,8 +745,7 @@ class MusicGraphDatabase {
 
             // Link labels
             for (const label of bundle.release.labels || []) {
-                const labelId = label.label_id ||
-                               this.generateProvisionalId('label', label);
+                const labelId = await this.resolveEntityId(tx, 'label', label);
 
                 await tx.run(`
                     MERGE (l:Label {label_id: $labelId})
@@ -790,7 +785,7 @@ class MusicGraphDatabase {
             // ========== 7. CREATE SOURCE REFERENCES ==========
 
             for (const source of bundle.sources || []) {
-                const sourceId = this.generateProvisionalId('source', source);
+                const sourceId = await this.resolveEntityId(tx, 'source', source);
 
                 await tx.run(`
                     MERGE (s:Source {source_id: $sourceId})
@@ -888,7 +883,7 @@ class MusicGraphDatabase {
 
             // Link source if provided
             if (source && source.url) {
-                const sourceId = this.generateProvisionalId('source', source);
+                const sourceId = await this.resolveEntityId(tx, 'source', source);
                 await tx.run(`
                     MERGE (s:Source {source_id: $sourceId})
                     SET s.url = $url,
@@ -1173,10 +1168,158 @@ class MusicGraphDatabase {
     }
 
     /**
+     * Resolve entity ID using the new identity system.
+     * Checks for external IDs first, then generates provisional ID.
+     *
+     * @param {Object} session - Neo4j session
+     * @param {string} type - Entity type (person, group, track, etc.)
+     * @param {Object} data - Entity data
+     * @returns {Promise<string>} Resolved ID (canonical if mapped, provisional otherwise)
+     */
+    async resolveEntityId(session, type, data) {
+        // 1. If explicit canonical or external ID provided, use it
+        const explicitIdField = `${type}_id`;
+        if (data[explicitIdField]) {
+            const parsedId = IdentityService.parseId(data[explicitIdField]);
+
+            // If it's canonical, use directly
+            if (parsedId.kind === 'canonical') {
+                return data[explicitIdField];
+            }
+
+            // If it's external, check IdentityMap
+            if (parsedId.kind === 'external') {
+                const canonicalId = await MergeOperations.resolveExternalId(
+                    session,
+                    parsedId.source,
+                    parsedId.externalType,
+                    parsedId.externalId
+                );
+
+                if (canonicalId) {
+                    console.log(`    Resolved ${data[explicitIdField]} → ${canonicalId.substring(0, 20)}...`);
+                    return canonicalId;
+                }
+
+                // External ID not mapped yet, will create provisional
+                console.log(`    External ID ${data[explicitIdField]} not mapped, creating provisional`);
+            }
+        }
+
+        // 2. Check for common external ID fields (Discogs, MusicBrainz, etc.)
+        const externalIdFields = {
+            discogs_id: 'discogs',
+            musicbrainz_id: 'musicbrainz',
+            isni: 'isni',
+            wikidata_id: 'wikidata',
+            spotify_id: 'spotify'
+        };
+
+        for (const [field, source] of Object.entries(externalIdFields)) {
+            if (data[field]) {
+                // Try to resolve via IdentityMap
+                const canonicalId = await MergeOperations.resolveExternalId(
+                    session,
+                    source,
+                    type,
+                    data[field]
+                );
+
+                if (canonicalId) {
+                    console.log(`    Resolved ${source}:${type}:${data[field]} → ${canonicalId.substring(0, 20)}...`);
+                    return canonicalId;
+                }
+            }
+        }
+
+        // 3. No external ID mapping found, generate provisional ID
+        return this.generateProvisionalIdNew(type, data);
+    }
+
+    /**
+     * Generate deterministic provisional ID using IdentityService.
+     * This replaces the old hash-based method with the new fingerprint approach.
+     *
+     * @param {string} type - Entity type (person, group, track, etc.)
+     * @param {Object} data - Entity data
+     * @returns {string} Provisional ID (prov:{type}:{hash})
+     */
+    generateProvisionalIdNew(type, data) {
+        let fingerprint;
+
+        switch(type) {
+            case 'person':
+                fingerprint = IdentityService.personFingerprint({
+                    name: data.name || data.person_name,
+                    birth_year: data.birth_year
+                });
+                break;
+
+            case 'group':
+                fingerprint = IdentityService.groupFingerprint({
+                    name: data.name || data.group_name
+                });
+                break;
+
+            case 'song':
+                fingerprint = IdentityService.songFingerprint({
+                    title: data.title || data.song_title,
+                    primary_writer: data.primary_writer
+                });
+                break;
+
+            case 'track':
+                fingerprint = IdentityService.trackFingerprint({
+                    title: data.title || data.track_title,
+                    release_id: data.release_id,
+                    position: data.track_number || data.position
+                });
+                break;
+
+            case 'release':
+                fingerprint = IdentityService.releaseFingerprint({
+                    title: data.name || data.release_name,
+                    date: data.release_date || data.year,
+                    catalog_number: data.catalog_number
+                });
+                break;
+
+            case 'label':
+                fingerprint = {
+                    type: 'label',
+                    name: IdentityService.normalizeName(data.name || data.label_name)
+                };
+                break;
+
+            case 'city':
+                fingerprint = {
+                    type: 'city',
+                    name: IdentityService.normalizeName(data.name || data.city_name),
+                    lat: data.lat,
+                    lon: data.lon
+                };
+                break;
+
+            case 'source':
+                fingerprint = {
+                    type: 'source',
+                    url: data.url
+                };
+                break;
+
+            default:
+                throw new Error(`Unknown entity type: ${type}`);
+        }
+
+        return IdentityService.makeProvisionalId(type, fingerprint);
+    }
+
+    /**
      * Generate deterministic provisional ID when external ID unavailable.
      * IDs are consistent for the same input data, ensuring idempotency.
      * Format: prov:{type}:{hash}
      *
+     * @deprecated Use generateProvisionalIdNew() instead
      * @param {string} type - Entity type (person, group, track, etc.)
      * @param {Object} data - Entity data
      * @returns {string} Provisional ID
