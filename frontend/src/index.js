@@ -632,6 +632,38 @@ class PolarisApp {
     }
 
     /**
+     * Parse Discogs tracks field (e.g., "3, 5, 6, 8 to 14" or "" for all)
+     * @param {string} tracksField - The tracks field from Discogs extraartist
+     * @returns {Array<string>} Array of track positions this applies to (or ['*ALL*'] for all tracks)
+     */
+    parseTracksField(tracksField) {
+        if (!tracksField || tracksField.trim() === '') {
+            // Empty means all tracks
+            return ['*ALL*'];
+        }
+
+        const positions = [];
+        const parts = tracksField.split(',').map(p => p.trim());
+
+        for (const part of parts) {
+            if (part.includes(' to ')) {
+                // Range: "8 to 14"
+                const [start, end] = part.split(' to ').map(s => s.trim());
+                const startNum = parseInt(start);
+                const endNum = parseInt(end);
+                for (let i = startNum; i <= endNum; i++) {
+                    positions.push(String(i));
+                }
+            } else {
+                // Single track: "3"
+                positions.push(part);
+            }
+        }
+
+        return positions;
+    }
+
+    /**
      * Add a release-level group to all existing tracks
      * @param {number} releaseGroupIndex - Index of the release group
      * @param {Array} members - Optional array of group members to add
@@ -890,6 +922,32 @@ class PolarisApp {
             }
         }
 
+        // ===== EXTRACT RELEASE-LEVEL SONGWRITERS =====
+        // Parse release-level "Written-By" credits and their track assignments
+        const releaseSongwriters = new Map(); // Map of track position -> songwriter names
+
+        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
+            for (const extraArtist of discogsRelease.extraartists) {
+                const role = extraArtist.role || '';
+                if (role.toLowerCase().includes('written') || role.toLowerCase().includes('composer')) {
+                    const cleanName = extraArtist.name.replace(/\s*\(\d+\)$/, '');
+                    const tracksField = extraArtist.tracks || '';
+
+                    // Parse tracks field: "" = all tracks, "3, 5, 6, 8 to 14" = specific tracks
+                    const trackPositions = this.parseTracksField(tracksField);
+
+                    for (const position of trackPositions) {
+                        if (!releaseSongwriters.has(position)) {
+                            releaseSongwriters.set(position, []);
+                        }
+                        releaseSongwriters.get(position).push(cleanName);
+                    }
+                }
+            }
+        }
+
+        console.log('Release-level songwriters by track:', releaseSongwriters);
+
         // ===== TRACKS =====
         // Add tracks with all data (groups will be auto-populated after tracks are created)
         if (discogsRelease.tracklist && discogsRelease.tracklist.length > 0) {
@@ -922,11 +980,21 @@ class PolarisApp {
                 }
 
                 // ===== SONGWRITERS =====
-                // Add songwriters as person forms in songwriters-container
-                const songwriters = discogsClient.extractSongwriters(discogsTrack);
+                // Merge release-level and track-level songwriters
+                const trackLevelSongwriters = discogsClient.extractSongwriters(discogsTrack);
+                const releaseLevelForThisTrack = releaseSongwriters.get(discogsTrack.position) || [];
+                const allTrackSongwriters = releaseSongwriters.get('*ALL*') || [];
+
+                // Combine all songwriters, removing duplicates
+                const allSongwriters = new Set([
+                    ...allTrackSongwriters,      // Release-level (all tracks)
+                    ...releaseLevelForThisTrack, // Release-level (this track)
+                    ...trackLevelSongwriters     // Track-level (co-writers)
+                ]);
+
                 const songwritersContainer = trackForm.querySelector('.songwriters-container');
-                if (songwritersContainer && songwriters.length > 0) {
-                    songwriters.forEach((songwriter, idx) => {
+                if (songwritersContainer && allSongwriters.size > 0) {
+                    Array.from(allSongwriters).forEach((songwriter, idx) => {
                         const songwriterForm = this.formBuilder.createPersonForm(idx, 'songwriter', trackIndex);
                         songwritersContainer.appendChild(songwriterForm);
 
