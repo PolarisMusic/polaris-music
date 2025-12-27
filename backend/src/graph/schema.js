@@ -141,6 +141,12 @@ class MusicGraphDatabase {
                 {
                     name: 'media_id',
                     query: 'CREATE CONSTRAINT media_id IF NOT EXISTS FOR (m:Media) REQUIRE m.media_id IS UNIQUE'
+                },
+
+                // IdentityMap: Maps external IDs to canonical IDs
+                {
+                    name: 'identity_map_key',
+                    query: 'CREATE CONSTRAINT identity_map_key IF NOT EXISTS FOR (im:IdentityMap) REQUIRE im.key IS UNIQUE'
                 }
             ];
 
@@ -152,7 +158,7 @@ class MusicGraphDatabase {
                 } catch (error) {
                     // Constraint might already exist - this is fine
                     if (!error.message.includes('already exists')) {
-                        console.warn(`    Warning creating constraint ${constraint.name}:`, error.message);
+                        console.warn(`  ï¿½ Warning creating constraint ${constraint.name}:`, error.message);
                     }
                 }
             }
@@ -179,7 +185,12 @@ class MusicGraphDatabase {
                 { name: 'group_status', query: 'CREATE INDEX group_status IF NOT EXISTS FOR (g:Group) ON (g.status)' },
 
                 // Event hash lookups
-                { name: 'claim_event', query: 'CREATE INDEX claim_event IF NOT EXISTS FOR (c:Claim) ON (c.event_hash)' }
+                { name: 'claim_event', query: 'CREATE INDEX claim_event IF NOT EXISTS FOR (c:Claim) ON (c.event_hash)' },
+
+                // IdentityMap lookups (for external ID resolution)
+                { name: 'identity_map_source', query: 'CREATE INDEX identity_map_source IF NOT EXISTS FOR (im:IdentityMap) ON (im.source)' },
+                { name: 'identity_map_external_id', query: 'CREATE INDEX identity_map_external_id IF NOT EXISTS FOR (im:IdentityMap) ON (im.external_id)' },
+                { name: 'identity_map_canonical', query: 'CREATE INDEX identity_map_canonical IF NOT EXISTS FOR (im:IdentityMap) ON (im.canonical_id)' }
             ];
 
             // Create all indexes
@@ -189,7 +200,7 @@ class MusicGraphDatabase {
                     console.log(`   Created index: ${index.name}`);
                 } catch (error) {
                     if (!error.message.includes('already exists')) {
-                        console.warn(`    Warning creating index ${index.name}:`, error.message);
+                        console.warn(`  ï¿½ Warning creating index ${index.name}:`, error.message);
                     }
                 }
             }
