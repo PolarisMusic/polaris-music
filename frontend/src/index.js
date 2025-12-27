@@ -692,12 +692,13 @@ class PolarisApp {
         // Populate basic release info
         document.getElementById('release-name').value = discogsRelease.title || '';
 
-        // Fix date format - convert year to yyyy-MM-dd format
+        // Fix date format - use YYYY/MM/DD (non-ambiguous and sortable)
         let releaseDate = '';
         if (discogsRelease.released) {
-            releaseDate = discogsRelease.released; // Already in yyyy-MM-dd format
+            // Convert YYYY-MM-DD to YYYY/MM/DD
+            releaseDate = discogsRelease.released.replace(/-/g, '/');
         } else if (discogsRelease.year) {
-            releaseDate = `${discogsRelease.year}-01-01`; // Use January 1st if only year available
+            releaseDate = `${discogsRelease.year}/01/01`; // Use January 1st if only year available
         }
         document.getElementById('release-date').value = releaseDate;
 
@@ -732,7 +733,7 @@ class PolarisApp {
             }
         }
 
-        // Extract main performing groups
+        // Extract main performing groups from release-level artists
         const mainGroups = [];
         if (discogsRelease.artists && discogsRelease.artists.length > 0) {
             for (const artist of discogsRelease.artists) {
@@ -748,7 +749,7 @@ class PolarisApp {
             }
         }
 
-        // Add tracks with groups
+        // Add tracks with all data
         if (discogsRelease.tracklist && discogsRelease.tracklist.length > 0) {
             for (const discogsTrack of discogsRelease.tracklist) {
                 // Skip if not a regular track (e.g., heading)
@@ -761,37 +762,43 @@ class PolarisApp {
 
                 const trackIndex = this.formBuilder.counters.track - 1;
 
-                // Track number and title
+                // ===== BASIC TRACK INFO =====
+                // Track title (FIXED: was song-name, should be track-title)
+                const trackTitleInput = trackForm.querySelector(`input[name="track-title-${trackIndex}"]`);
+                if (trackTitleInput) {
+                    trackTitleInput.value = discogsTrack.title || '';
+                }
+
+                // Track number - parse from position (may be like "A1", "1", etc.)
                 const trackNumberInput = trackForm.querySelector(`input[name="track-number-${trackIndex}"]`);
-                const songNameInput = trackForm.querySelector(`input[name="song-name-${trackIndex}"]`);
-
-                if (trackNumberInput) {
-                    trackNumberInput.value = discogsTrack.position || '';
-                }
-                if (songNameInput) {
-                    songNameInput.value = discogsTrack.title || '';
-                }
-
-                // Track duration
-                if (discogsTrack.duration) {
-                    const durationInput = trackForm.querySelector(`input[name="track-duration-${trackIndex}"]`);
-                    if (durationInput) {
-                        durationInput.value = discogsTrack.duration;
+                if (trackNumberInput && discogsTrack.position) {
+                    // Extract numeric part from position (e.g., "A1" -> "1", "12" -> "12")
+                    const numMatch = discogsTrack.position.match(/\d+/);
+                    if (numMatch) {
+                        trackNumberInput.value = numMatch[0];
                     }
                 }
 
-                // Extract songwriters from credits
+                // ===== SONGWRITERS =====
+                // Add songwriters as person forms in songwriters-container
                 const songwriters = discogsClient.extractSongwriters(discogsTrack);
-                if (songwriters.length > 0) {
-                    const songwritersInput = trackForm.querySelector(`input[name="songwriters-${trackIndex}"]`);
-                    if (songwritersInput) {
-                        songwritersInput.value = songwriters.join(', ');
-                    }
+                const songwritersContainer = trackForm.querySelector('.songwriters-container');
+                if (songwritersContainer && songwriters.length > 0) {
+                    songwriters.forEach((songwriter, idx) => {
+                        const songwriterForm = this.formBuilder.createPersonForm(idx, 'songwriter', trackIndex);
+                        songwritersContainer.appendChild(songwriterForm);
+
+                        // Populate songwriter name
+                        const songwriterNameInput = songwriterForm.querySelector(`input[name="songwriter-name-${trackIndex}-${idx}"]`);
+                        if (songwriterNameInput) {
+                            songwriterNameInput.value = songwriter;
+                        }
+                    });
                 }
 
-                // Add main performing groups to this track
-                // Since Discogs doesn't provide track-level assignments, add all main artists to all tracks
-                const groupsContainer = trackForm.querySelector('.track-groups-container');
+                // ===== PERFORMING GROUPS =====
+                // Add all main groups to this track (FIXED: was .track-groups-container, should be .groups-container)
+                const groupsContainer = trackForm.querySelector('.groups-container');
                 if (groupsContainer) {
                     for (let groupIdx = 0; groupIdx < mainGroups.length; groupIdx++) {
                         const group = mainGroups[groupIdx];
@@ -802,26 +809,6 @@ class PolarisApp {
                         const groupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIdx}"]`);
                         if (groupNameInput) {
                             groupNameInput.value = group.name;
-                        }
-                    }
-                }
-
-                // Add track-level guest performers (from track extraartists)
-                if (discogsTrack.extraartists && discogsTrack.extraartists.length > 0) {
-                    const trackGuestsContainer = trackForm.querySelector('.track-guests-container');
-                    if (trackGuestsContainer) {
-                        for (const extraArtist of discogsTrack.extraartists) {
-                            const role = extraArtist.role ? extraArtist.role.toLowerCase() : '';
-                            const cleanName = extraArtist.name.replace(/\s*\(\d+\)$/, '');
-
-                            // Add as track guest if they're a performer (not songwriter, already handled)
-                            if (role.includes('vocals') || role.includes('guitar') ||
-                                role.includes('bass') || role.includes('drums') ||
-                                role.includes('keyboards') || role.includes('piano') ||
-                                role.includes('percussion')) {
-                                // Note: Would need track guest form - for now skip
-                                console.log(`Track ${trackIndex} guest: ${cleanName} - ${extraArtist.role}`);
-                            }
                         }
                     }
                 }
