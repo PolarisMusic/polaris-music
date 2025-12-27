@@ -8,7 +8,7 @@
  * 4. Handles different event types with specific handlers
  *
  * Event Flow:
- * Blockchain ’ Fetch from Storage ’ Validate ’ Process ’ Update Graph
+ * Blockchain ï¿½ Fetch from Storage ï¿½ Validate ï¿½ Process ï¿½ Update Graph
  *
  * @module indexer/eventProcessor
  */
@@ -24,12 +24,14 @@ import EventStore from '../storage/eventStore.js';
  */
 const EVENT_TYPES = {
     CREATE_RELEASE_BUNDLE: 21,
+    MINT_ENTITY: 22,           // Create canonical entity
+    RESOLVE_ID: 23,            // Map provisional/external ID to canonical
     ADD_CLAIM: 30,
     EDIT_CLAIM: 31,
     VOTE: 40,
     LIKE: 41,
     FINALIZE: 50,
-    MERGE_NODE: 60
+    MERGE_ENTITY: 60           // Merge duplicate entities (renamed from MERGE_NODE)
 };
 
 /**
@@ -79,12 +81,14 @@ class EventProcessor {
         // Event handlers by type
         this.eventHandlers = {
             [EVENT_TYPES.CREATE_RELEASE_BUNDLE]: this.handleReleaseBundle.bind(this),
+            [EVENT_TYPES.MINT_ENTITY]: this.handleMintEntity.bind(this),
+            [EVENT_TYPES.RESOLVE_ID]: this.handleResolveId.bind(this),
             [EVENT_TYPES.ADD_CLAIM]: this.handleAddClaim.bind(this),
             [EVENT_TYPES.EDIT_CLAIM]: this.handleEditClaim.bind(this),
             [EVENT_TYPES.VOTE]: this.handleVote.bind(this),
             [EVENT_TYPES.LIKE]: this.handleLike.bind(this),
             [EVENT_TYPES.FINALIZE]: this.handleFinalize.bind(this),
-            [EVENT_TYPES.MERGE_NODE]: this.handleMergeNode.bind(this)
+            [EVENT_TYPES.MERGE_ENTITY]: this.handleMergeEntity.bind(this)
         };
     }
 
@@ -100,7 +104,7 @@ class EventProcessor {
             return;
         }
 
-        console.log('=€ Starting Event Processor...');
+        console.log('=ï¿½ Starting Event Processor...');
 
         // Test connections
         const dbConnected = await this.db.testConnection();
@@ -451,29 +455,263 @@ class EventProcessor {
         console.log(`  Finalizing event ${event.body.target_hash}`);
 
         // Finalization triggers reward distribution on blockchain
-        // Could update entity status in graph (provisional ’ canonical)
+        // Could update entity status in graph (provisional ï¿½ canonical)
 
         console.log(`   Finalized`);
     }
 
     /**
-     * Handle MERGE_NODE event
+     * Handle MINT_ENTITY event
+     * Creates a new canonical entity with stable ID
+     *
+     * Event body structure:
+     * {
+     *   entity_type: "person" | "group" | "song" | "track" | "release" | "master" | "label",
+     *   canonical_id: "polaris:{type}:{uuid}",  // optional, generated if not provided
+     *   initial_claims: [{ property: string, value: any, confidence: number }],
+     *   provenance: {
+     *     source: "manual" | "import" | "ai_suggested",
+     *     submitter: string,
+     *     evidence: string
+     *   }
+     * }
      *
      * @private
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleMergeNode(event, actionData) {
-        console.log(`  Merging nodes: ${event.body.source_id} ’ ${event.body.target_id}`);
+    async handleMintEntity(event, actionData) {
+        const { entity_type, canonical_id, initial_claims = [], provenance = {} } = event.body;
 
-        await this.db.mergeNodes(
-            event.body.source_id,
-            event.body.target_id,
-            event.body.node_type,
-            event.body.reason || 'Duplicate'
-        );
+        console.log(`  Minting canonical ${entity_type}: ${canonical_id || '(auto-generated)'}`);
 
-        console.log(`   Nodes merged`);
+        const session = this.db.driver.session();
+        try {
+            // Import the identity service
+            const { IdentityService, EntityType } = await import('../identity/idService.js');
+
+            // Validate entity type
+            if (!Object.values(EntityType).includes(entity_type)) {
+                throw new Error(`Invalid entity_type: ${entity_type}`);
+            }
+
+            // Use provided canonical ID or generate new one
+            const cid = canonical_id || IdentityService.mintCanonicalId(entity_type);
+
+            // Verify it's a valid canonical ID
+            if (!IdentityService.isCanonical(cid)) {
+                throw new Error(`Invalid canonical ID: ${cid}`);
+            }
+
+            console.log(`    Creating entity: ${cid}`);
+
+            // Helper to capitalize first letter for node label
+            const capitalizeFirst = (str) => str.charAt(0).toUpperCase() + str.slice(1);
+
+            // Create the entity node with minimal fields
+            await session.run(
+                `CREATE (n:${capitalizeFirst(entity_type)} {
+                    id: $id,
+                    status: 'ACTIVE',
+                    created_at: datetime(),
+                    created_by: $createdBy,
+                    creation_source: $source,
+                    event_hash: $eventHash
+                })
+                RETURN n.id as id`,
+                {
+                    id: cid,
+                    createdBy: provenance.submitter || actionData.author,
+                    source: provenance.source || 'manual',
+                    eventHash: actionData.hash
+                }
+            );
+
+            // Add initial claims if provided
+            for (const claim of initial_claims) {
+                await session.run(
+                    `MATCH (n {id: $entityId})
+                     CREATE (c:Claim {
+                         claim_id: randomUUID(),
+                         property: $property,
+                         value: $value,
+                         confidence: $confidence,
+                         created_at: datetime(),
+                         created_by: $submitter,
+                         event_hash: $eventHash
+                     })
+                     CREATE (c)-[:CLAIMS_ABOUT]->(n)`,
+                    {
+                        entityId: cid,
+                        property: claim.property,
+                        value: JSON.stringify(claim.value),
+                        confidence: claim.confidence || 1.0,
+                        submitter: provenance.submitter || actionData.author,
+                        eventHash: actionData.hash
+                    }
+                );
+            }
+
+            console.log(`   Created ${entity_type} ${cid.substring(0, 24)}... with ${initial_claims.length} claims`);
+
+        } catch (error) {
+            console.error(`   Failed to mint entity:`, error.message);
+            throw error;
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * Handle RESOLVE_ID event
+     * Maps a provisional or external ID to a canonical ID
+     *
+     * Event body structure:
+     * {
+     *   subject_id: string,      // provisional (prov:type:hash) or external (source:type:id)
+     *   canonical_id: string,    // canonical ID to resolve to (polaris:type:uuid)
+     *   method: "manual" | "import" | "ai_suggested" | "authority_source",
+     *   confidence: number,      // 0-1, default 1.0
+     *   evidence: string | object
+     * }
+     *
+     * @private
+     * @param {Object} event - Event data
+     * @param {Object} actionData - Blockchain action data
+     */
+    async handleResolveId(event, actionData) {
+        const {
+            subject_id,
+            canonical_id,
+            method = 'manual',
+            confidence = 1.0,
+            evidence = ''
+        } = event.body;
+
+        console.log(`  Resolving ID: ${subject_id} -> ${canonical_id}`);
+
+        const session = this.db.driver.session();
+        try {
+            // Import identity modules
+            const { IdentityService, IDKind } = await import('../identity/idService.js');
+            const { MergeOperations } = await import('../graph/merge.js');
+
+            // Parse both IDs
+            const subjectParsed = IdentityService.parseId(subject_id);
+            const canonicalParsed = IdentityService.parseId(canonical_id);
+
+            // Validate canonical ID
+            if (!IdentityService.isCanonical(canonical_id)) {
+                throw new Error(`Target must be canonical ID, got: ${canonical_id}`);
+            }
+
+            // Validate subject is not canonical
+            if (subjectParsed.kind === IDKind.CANONICAL) {
+                throw new Error(`Subject must be provisional or external, not canonical. Use MERGE_ENTITY for canonical->canonical.`);
+            }
+
+            console.log(`    Subject kind: ${subjectParsed.kind}`);
+
+            // Handle based on subject ID kind
+            if (subjectParsed.kind === IDKind.EXTERNAL) {
+                // Create IdentityMap entry
+                await MergeOperations.createIdentityMapping(session, {
+                    source: subjectParsed.source,
+                    externalType: subjectParsed.externalType,
+                    externalId: subjectParsed.externalId,
+                    canonicalId: canonical_id,
+                    confidence,
+                    submitter: actionData.author,
+                    evidence: typeof evidence === 'object' ? JSON.stringify(evidence) : evidence
+                });
+
+                console.log(`   Created IdentityMap: ${subject_id} -> ${canonical_id}`);
+            }
+
+            if (subjectParsed.kind === IDKind.PROVISIONAL) {
+                // Create ALIAS_OF relationship
+                await MergeOperations.createAlias(session, subject_id, canonical_id);
+
+                console.log(`   Created alias: ${subject_id} -> ${canonical_id}`);
+            }
+
+        } catch (error) {
+            console.error(`   Failed to resolve ID:`, error.message);
+            throw error;
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * Handle MERGE_ENTITY event
+     * Merges duplicate entities while preserving all data
+     * Replaces the old MERGE_NODE handler with identity-aware implementation
+     *
+     * Event body structure:
+     * {
+     *   survivor_id: string,      // Canonical ID to keep (polaris:type:uuid)
+     *   absorbed_ids: string[],   // IDs to merge into survivor (canonical or provisional)
+     *   evidence: string,
+     *   submitter: string,
+     *   strategy: {
+     *     rewire_edges: boolean,
+     *     move_claims: boolean,
+     *     tombstone_absorbed: boolean
+     *   }
+     * }
+     *
+     * @private
+     * @param {Object} event - Event data
+     * @param {Object} actionData - Blockchain action data
+     */
+    async handleMergeEntity(event, actionData) {
+        const {
+            survivor_id,
+            absorbed_ids,
+            evidence = '',
+            submitter,
+            strategy = {}
+        } = event.body;
+
+        console.log(`  Merging ${absorbed_ids.length} entities into ${survivor_id}`);
+
+        const session = this.db.driver.session();
+        try {
+            // Import merge operations
+            const { MergeOperations } = await import('../graph/merge.js');
+            const { IdentityService } = await import('../identity/idService.js');
+
+            // Validate survivor is canonical
+            if (!IdentityService.isCanonical(survivor_id)) {
+                throw new Error(`Survivor must be canonical ID, got: ${survivor_id}`);
+            }
+
+            // Execute merge with full provenance
+            const stats = await MergeOperations.mergeEntities(
+                session,
+                survivor_id,
+                absorbed_ids,
+                {
+                    submitter: submitter || actionData.author,
+                    eventHash: actionData.hash,
+                    evidence,
+                    rewireEdges: strategy.rewire_edges !== false,  // default true
+                    moveClaims: strategy.move_claims !== false     // default true
+                }
+            );
+
+            console.log(`   Merged ${stats.absorbedCount} entities:`);
+            console.log(`      - Rewired ${stats.edgesRewired} edges`);
+            console.log(`      - Moved ${stats.claimsMoved} claims`);
+            console.log(`      - Created ${stats.tombstonesCreated} tombstones`);
+
+        } catch (error) {
+            console.error(`   Merge failed:`, error.message);
+            throw error;
+        } finally {
+            await session.close();
+        }
     }
 
     /**
