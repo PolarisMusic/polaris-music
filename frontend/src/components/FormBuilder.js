@@ -253,6 +253,45 @@ export class FormBuilder {
     }
 
     /**
+     * Create a release-level group form (groups performing on the entire release)
+     */
+    createReleaseGroupForm(index) {
+        const div = document.createElement('div');
+        div.className = 'nested-item release-group-item';
+        div.dataset.type = 'release-group';
+        div.dataset.index = index;
+
+        div.innerHTML = `
+            <div class="nested-item-header">
+                <span class="nested-item-title">Release Group ${index + 1}</span>
+                <button type="button" class="btn-remove remove-release-group">Remove</button>
+            </div>
+
+            <div class="form-group">
+                <label>Group Name *</label>
+                <input type="text" name="release-group-name-${index}" required placeholder="The Beatles" data-group-index="${index}">
+                <small>This group will be added to all tracks. You can remove it from individual tracks if needed.</small>
+            </div>
+
+            <div class="form-group">
+                <label>Alternative Names</label>
+                <input type="text" name="release-group-altnames-${index}" placeholder="The Fab Four">
+            </div>
+        `;
+
+        div.querySelector('.remove-release-group').addEventListener('click', () => {
+            // Remove this group from the release level
+            const groupIndex = div.dataset.index;
+            div.remove();
+
+            // TODO: Optionally remove from all tracks (would need to implement)
+            // For now, we'll leave the groups in tracks when removed from release level
+        });
+
+        return div;
+    }
+
+    /**
      * Create a complete track form
      */
     createTrackForm(index = null) {

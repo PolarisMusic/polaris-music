@@ -96,6 +96,17 @@ class PolarisApp {
             container.appendChild(this.formBuilder.createLabelForm());
         });
 
+        // Add release group button
+        document.getElementById('add-release-group').addEventListener('click', () => {
+            const container = document.getElementById('release-groups-container');
+            const index = container.children.length;
+            const groupForm = this.formBuilder.createReleaseGroupForm(index);
+            container.appendChild(groupForm);
+
+            // Auto-populate this group to all existing tracks
+            this.addReleaseGroupToAllTracks(index);
+        });
+
         // Add release guest button
         document.getElementById('add-release-guest').addEventListener('click', () => {
             const container = document.getElementById('release-guests-container');
@@ -621,6 +632,42 @@ class PolarisApp {
     }
 
     /**
+     * Add a release-level group to all existing tracks
+     */
+    addReleaseGroupToAllTracks(releaseGroupIndex) {
+        const tracksContainer = document.getElementById('tracks-container');
+        const trackItems = tracksContainer.querySelectorAll('.track-item');
+
+        // Get the group name from the release-level group form
+        const releaseGroupForm = document.querySelector(`.release-group-item[data-index="${releaseGroupIndex}"]`);
+        if (!releaseGroupForm) return;
+
+        const groupNameInput = releaseGroupForm.querySelector(`input[name="release-group-name-${releaseGroupIndex}"]`);
+        const groupName = groupNameInput ? groupNameInput.value : '';
+
+        // Add this group to each track
+        trackItems.forEach((trackItem) => {
+            const trackIndex = parseInt(trackItem.dataset.index);
+            const groupsContainer = trackItem.querySelector('.groups-container');
+            if (!groupsContainer) return;
+
+            // Get the next group index for this track
+            const existingGroups = groupsContainer.querySelectorAll('.nested-item');
+            const groupIndex = existingGroups.length;
+
+            // Create and add the group form
+            const groupForm = this.formBuilder.createGroupForm(trackIndex, groupIndex);
+            groupsContainer.appendChild(groupForm);
+
+            // Populate the group name
+            const groupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIndex}"]`);
+            if (groupNameInput && groupName) {
+                groupNameInput.value = groupName;
+            }
+        });
+    }
+
+    /**
      * Show toast notification
      */
     showToast(message, type = 'success') {
@@ -685,6 +732,7 @@ class PolarisApp {
 
         // Clear existing dynamic fields
         document.getElementById('labels-container').innerHTML = '';
+        document.getElementById('release-groups-container').innerHTML = '';
         document.getElementById('release-guests-container').innerHTML = '';
         document.getElementById('tracks-container').innerHTML = '';
         this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
@@ -733,23 +781,36 @@ class PolarisApp {
             }
         }
 
-        // Extract main performing groups from release-level artists
+        // ===== RELEASE-LEVEL GROUPS =====
+        // Add main performing groups to release-level groups section
+        const releaseGroupsContainer = document.getElementById('release-groups-container');
         const mainGroups = [];
+
         if (discogsRelease.artists && discogsRelease.artists.length > 0) {
-            for (const artist of discogsRelease.artists) {
+            for (let i = 0; i < discogsRelease.artists.length; i++) {
+                const artist = discogsRelease.artists[i];
                 const cleanName = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
 
-                // Per domain model, even solo artists are "groups of one"
-                // All main artists should be treated as groups performing on tracks
+                // Add to release groups container
+                const groupForm = this.formBuilder.createReleaseGroupForm(i);
+                releaseGroupsContainer.appendChild(groupForm);
+
+                // Populate group name
+                const groupNameInput = groupForm.querySelector(`input[name="release-group-name-${i}"]`);
+                if (groupNameInput) {
+                    groupNameInput.value = cleanName;
+                }
+
                 mainGroups.push({
                     name: cleanName,
                     id: artist.id,
-                    isGroup: discogsClient.isGroup(artist)
+                    index: i
                 });
             }
         }
 
-        // Add tracks with all data
+        // ===== TRACKS =====
+        // Add tracks with all data (groups will be auto-populated after tracks are created)
         if (discogsRelease.tracklist && discogsRelease.tracklist.length > 0) {
             for (const discogsTrack of discogsRelease.tracklist) {
                 // Skip if not a regular track (e.g., heading)
@@ -795,24 +856,13 @@ class PolarisApp {
                         }
                     });
                 }
-
-                // ===== PERFORMING GROUPS =====
-                // Add all main groups to this track (FIXED: was .track-groups-container, should be .groups-container)
-                const groupsContainer = trackForm.querySelector('.groups-container');
-                if (groupsContainer) {
-                    for (let groupIdx = 0; groupIdx < mainGroups.length; groupIdx++) {
-                        const group = mainGroups[groupIdx];
-                        const groupForm = this.formBuilder.createGroupForm(trackIndex, groupIdx);
-                        groupsContainer.appendChild(groupForm);
-
-                        // Populate group name
-                        const groupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIdx}"]`);
-                        if (groupNameInput) {
-                            groupNameInput.value = group.name;
-                        }
-                    }
-                }
             }
+        }
+
+        // ===== AUTO-POPULATE RELEASE GROUPS TO TRACKS =====
+        // After all tracks are created, add release groups to each track
+        for (const group of mainGroups) {
+            this.addReleaseGroupToAllTracks(group.index);
         }
 
         // Parse release-level extra artists (producers, engineers, etc.)
