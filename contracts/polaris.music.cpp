@@ -171,7 +171,10 @@ public:
         likes_table likes(get_self(), account.value);
         auto itr = likes.find(node_id);
 
-        if (itr == likes.end()) {
+        // Save state before modifying likes table (iterator will be stale after modification)
+        bool is_new_like = (itr == likes.end());
+
+        if (is_new_like) {
             likes.emplace(account, [&](auto& l) {
                 l.node_id = node_id;
                 l.path = node_path;
@@ -194,8 +197,8 @@ public:
                 a.node_id = node_id;
                 a.like_count = 1;
             });
-        } else if (itr == likes.end()) {
-            // Only increment if this was a new like
+        } else if (is_new_like) {
+            // Only increment if this was a new like (use saved state)
             aggregates.modify(agg_itr, account, [&](auto& a) {
                 a.like_count += 1;
             });
@@ -441,7 +444,10 @@ public:
         stakes_table stakes(get_self(), account.value);
         auto itr = stakes.find(node_id);
 
-        if(itr == stakes.end()) {
+        // Save state before modifying stakes table (iterator will be stale after modification)
+        bool is_new_staker = (itr == stakes.end());
+
+        if(is_new_staker) {
             stakes.emplace(account, [&](auto& s) {
                 s.node_id = node_id;
                 s.amount = quantity;
@@ -468,8 +474,8 @@ public:
         } else {
             aggregates.modify(agg_itr, account, [&](auto& a) {
                 a.total += quantity;
-                // Only increment staker count for new stakers
-                if(itr == stakes.end()) {
+                // Only increment staker count for new stakers (use saved state)
+                if(is_new_staker) {
                     a.staker_count += 1;
                 }
             });
@@ -575,7 +581,7 @@ public:
 
         attestations_table attestations(get_self(), get_self().value);
         auto att_itr = attestations.begin();
-        while(att_itr != att_itr.end()) {
+        while(att_itr != attestations.end()) {
             att_itr = attestations.erase(att_itr);
         }
 
