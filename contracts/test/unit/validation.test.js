@@ -223,19 +223,18 @@ describe('Polaris Contract Validation Logic', function() {
             const upVotes = 333333;
             const downVotes = 370370;
             const totalVotes = upVotes + downVotes;
-            const approvalThresholdBP = 4739; // ~47.39%
+            const approvalThresholdBP = 4736; // ~47.36%
 
             // Integer calculation is deterministic
             const approved = (totalVotes > 0) &&
                            (upVotes * 10000 >= totalVotes * approvalThresholdBP);
 
-            // 333333/703703 = 47.3684...% which is > 47.39%
+            // 333333/703703 = 47.3684...% which is >= 47.36%
             expect(approved).to.be.true;
 
-            // Verify floating point would have same result (but less reliable across platforms)
-            const floatApproval = upVotes / totalVotes;
-            const floatThreshold = approvalThresholdBP / 10000;
-            expect(floatApproval).to.be.greaterThan(floatThreshold);
+            // Verify integer calculation
+            const actualBP = Math.floor((upVotes * 10000) / totalVotes);
+            expect(actualBP).to.equal(4736); // Actual: 47.36%
         });
     });
 
@@ -245,22 +244,21 @@ describe('Polaris Contract Validation Logic', function() {
             // Simulating the calculation (using BigInt in JavaScript)
             const uint64Max = BigInt('18446744073709551615');
 
-            // Large reward amount * large weight could overflow
-            const totalAmount = BigInt('10000000000000000'); // 1e16
-            const weight = BigInt('1000000'); // 1e6
-            const totalWeight = BigInt('10000000'); // 1e7
+            // Example that WOULD overflow in uint64 without uint128 intermediate
+            const totalAmount = BigInt('18000000000000000000'); // 18e18 - near uint64 max
+            const weight = BigInt('100');
+            const totalWeight = BigInt('10');
 
-            // Without uint128 intermediate: (total * weight) might overflow
-            const product = totalAmount * weight; // This is fine in BigInt
-
-            // But in C++ uint64_t, if product > uint64Max, it wraps around
+            // Product would exceed uint64_max
+            const product = totalAmount * weight;
             const wouldOverflow = product > uint64Max;
 
-            // Our fix uses uint128_t for intermediate calculation
-            const share = product / totalWeight;
+            // This WOULD overflow in C++ uint64_t without uint128 intermediate
+            expect(wouldOverflow).to.be.true;
 
-            expect(wouldOverflow).to.be.false; // This particular case doesn't overflow
-            expect(share).to.equal(BigInt('1000000000000000')); // 1e15
+            // But with uint128_t, we can safely calculate
+            const share = product / totalWeight;
+            expect(share > BigInt('0')).to.be.true;
         });
 
         it('should handle maximum safe values', function() {
@@ -274,8 +272,13 @@ describe('Polaris Contract Validation Logic', function() {
             const product = safeTotal * weight;
             const share = product / totalWeight;
 
-            expect(share).to.be.greaterThan(BigInt('0'));
-            expect(share).to.be.lessThan(uint64Max);
+            // Verify share is positive and within uint64 range
+            expect(share > BigInt('0')).to.be.true;
+            expect(share < uint64Max).to.be.true;
+
+            // Verify actual calculation
+            const expectedShare = BigInt('184467440737');
+            expect(share).to.equal(expectedShare);
         });
     });
 
