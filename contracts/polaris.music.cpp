@@ -69,8 +69,8 @@ public:
         require_auth(author);
 
         // Validate inputs
-        check(type > 0 && type < 100, "Invalid event type");
-        check(ts > 0, "Invalid timestamp");
+        check(type >= MIN_EVENT_TYPE && type <= MAX_EVENT_TYPE, "Invalid event type");
+        check(ts >= MIN_VALID_TIMESTAMP, "Timestamp too far in past (minimum 2023-01-01)");
         check(tags.size() <= 10, "Too many tags (max 10)");
 
         // Prevent duplicate hashes
@@ -109,10 +109,10 @@ public:
 
         // Increment global submission counter for emission calculations
         globals_singleton globals(get_self(), get_self().value);
-        auto g = globals.get_or_default();
+        auto g = get_globals();
 
         // Only increment for content submissions, not votes/likes/discussions
-        if (type >= 20 && type < 40) {
+        if (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE) {
             g.x += 1; // Global submission number
         }
 
@@ -259,6 +259,11 @@ public:
         check(respect_data.size() > 0, "Empty respect data");
         check(respect_data.size() <= 1000, "Too many updates in one transaction");
 
+        // Validate election round is incrementing (prevents replaying old data)
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+        check(election_round > g.round, "Election round must increment (prevents stale data)");
+
         respect_table respect(get_self(), get_self().value);
 
         for(const auto& [account, respect_value] : respect_data) {
@@ -283,6 +288,10 @@ public:
                 });
             }
         }
+
+        // Update global round after successful processing
+        g.round = election_round;
+        globals.set(g, get_self());
     }
 
     /**
@@ -391,12 +400,10 @@ public:
         // Calculate weighted vote totals
         auto [up_votes, down_votes] = calculate_weighted_votes(tx_hash);
         uint64_t total_votes = up_votes + down_votes;
-        double approval = total_votes > 0 ?
-                         static_cast<double>(up_votes) / total_votes : 0.0;
 
         // Get emission parameters
         globals_singleton globals(get_self(), get_self().value);
-        auto g = globals.get_or_default();
+        auto g = get_globals();
 
         uint64_t multiplier = get_multiplier(anchor_itr->type);
         double x = static_cast<double>(g.x);
@@ -411,7 +418,7 @@ public:
 
             // Prevent overflow when casting to uint64_t (max ~18.4 quintillion)
             // Cap at 1 trillion tokens (1,000,000,000,000.0000 MUS with 4 decimals)
-            const double MAX_MINT = 10000000000000000.0; // 1 trillion * 10000 (4 decimal places)
+            constexpr double MAX_MINT = 10000000000000000.0; // 1 trillion * 10000 (4 decimal places)
             if(total_with_carry > MAX_MINT) {
                 total_with_carry = MAX_MINT;
             }
@@ -421,7 +428,10 @@ public:
         }
 
         // Determine payout distribution based on approval threshold
-        bool accepted = approval >= 0.90; // 90% approval required
+        // Use integer basis points to avoid floating point comparison issues
+        // 9000 basis points = 90.00% approval required
+        constexpr uint64_t APPROVAL_THRESHOLD_BP = 9000; // 90%
+        bool accepted = (total_votes > 0) && (up_votes * 10000 >= total_votes * APPROVAL_THRESHOLD_BP);
 
         if(mint > 0) {
             distribute_rewards(anchor_itr->author, tx_hash, mint, accepted);
@@ -508,6 +518,7 @@ public:
      */
     ACTION unstake(name account, checksum256 node_id, asset quantity) {
         require_auth(account);
+        check(quantity.symbol == symbol("MUS", 4), "Invalid token symbol (must be MUS)");
         check(quantity.amount > 0, "Must unstake positive amount");
 
         // Update individual stake
@@ -649,6 +660,17 @@ public:
     }
 
 private:
+    // ============ CONSTANTS ============
+
+    // Event type validation ranges
+    static constexpr uint8_t MIN_EVENT_TYPE = 1;
+    static constexpr uint8_t MAX_EVENT_TYPE = 99;
+    static constexpr uint8_t MIN_CONTENT_TYPE = 20;
+    static constexpr uint8_t MAX_CONTENT_TYPE = 39;
+
+    // Timestamp validation (2023-01-01 00:00:00 UTC)
+    static constexpr uint32_t MIN_VALID_TIMESTAMP = 1672531200;
+
     // ============ DATA STRUCTURES ============
 
     /**
@@ -813,6 +835,15 @@ private:
     typedef eosio::singleton<"globals"_n, global_state> globals_singleton;
 
     // ============ HELPER FUNCTIONS ============
+
+    /**
+     * @brief Get global state and ensure contract is initialized
+     */
+    global_state get_globals() const {
+        globals_singleton globals(get_self(), get_self().value);
+        check(globals.exists(), "Contract not initialized - call init() first");
+        return globals.get();
+    }
 
     /**
      * @brief Get voting window duration based on event type
@@ -988,7 +1019,8 @@ private:
         itr = hash_idx.lower_bound(tx_hash);
         while(itr != hash_idx.end() && itr->tx_hash == tx_hash) {
             if(itr->val != 0) {
-                uint64_t voter_share = (total_amount * itr->weight) / total_weight;
+                // Use 128-bit intermediate to prevent overflow
+                uint64_t voter_share = (static_cast<uint128_t>(total_amount) * itr->weight) / total_weight;
                 if(voter_share > 0) {
                     distributions.push_back({itr->voter, voter_share});
                 }
@@ -1040,8 +1072,8 @@ private:
 
         // Distribute proportionally to each node's stakers
         for(auto node_itr = aggregates.begin(); node_itr != aggregates.end(); ++node_itr) {
-            // Calculate this node's share of total rewards
-            uint64_t node_share = (total_amount * node_itr->total.amount) / total_staked;
+            // Calculate this node's share of total rewards (use 128-bit to prevent overflow)
+            uint64_t node_share = (static_cast<uint128_t>(total_amount) * node_itr->total.amount) / total_staked;
             if(node_share == 0) continue;
 
             // Distribute node's share to all stakers on this node
