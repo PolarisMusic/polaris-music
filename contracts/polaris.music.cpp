@@ -308,6 +308,37 @@ public:
         globals.set(g, get_self());
     }
 
+    /**
+     * @brief Set governance parameters
+     *
+     * Allows contract authority to adjust governance parameters without redeployment.
+     * All parameters use basis points (10000 = 100%) or absolute values as documented.
+     *
+     * @param approval_threshold_bp - Approval threshold in basis points (9000 = 90%)
+     * @param max_vote_weight - Maximum Respect weight cap for voting
+     * @param attestor_respect_threshold - Minimum Respect required to be attestor
+     */
+    ACTION setparams(uint64_t approval_threshold_bp,
+                     uint32_t max_vote_weight,
+                     uint32_t attestor_respect_threshold) {
+        require_auth(get_self());
+
+        // Validation
+        check(approval_threshold_bp > 0 && approval_threshold_bp <= 10000,
+              "Approval threshold must be 1-10000 basis points (0.01%-100%)");
+        check(max_vote_weight > 0 && max_vote_weight <= 10000,
+              "Max vote weight must be 1-10000");
+        check(attestor_respect_threshold > 0 && attestor_respect_threshold <= 1000,
+              "Attestor Respect threshold must be 1-1000");
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+        g.approval_threshold_bp = approval_threshold_bp;
+        g.max_vote_weight = max_vote_weight;
+        g.attestor_respect_threshold = attestor_respect_threshold;
+        globals.set(g, get_self());
+    }
+
     // ============ VOTING WITH RESPECT WEIGHTS ============
 
     /**
@@ -334,6 +365,7 @@ public:
               "Voting window has closed");
 
         // Get voter's Respect for weight calculation
+        auto g = get_globals();
         respect_table respect(get_self(), get_self().value);
         auto respect_itr = respect.find(voter.value);
         uint32_t voter_respect = 1; // Default weight if no Respect
@@ -341,7 +373,9 @@ public:
         if(respect_itr != respect.end()) {
             voter_respect = respect_itr->respect;
             // Cap maximum individual influence to prevent whale control
-            if(voter_respect > 100) voter_respect = 100;
+            if(voter_respect > g.max_vote_weight) {
+                voter_respect = g.max_vote_weight;
+            }
         }
 
         // Store or update vote
@@ -429,9 +463,8 @@ public:
 
         // Determine payout distribution based on approval threshold
         // Use integer basis points to avoid floating point comparison issues
-        // 9000 basis points = 90.00% approval required
-        constexpr uint64_t APPROVAL_THRESHOLD_BP = 9000; // 90%
-        bool accepted = (total_votes > 0) && (up_votes * 10000 >= total_votes * APPROVAL_THRESHOLD_BP);
+        // Default: 9000 basis points = 90.00% approval required (configurable via setparams)
+        bool accepted = (total_votes > 0) && (up_votes * 10000 >= total_votes * g.approval_threshold_bp);
 
         if(mint > 0) {
             distribute_rewards(anchor_itr->author, tx_hash, mint, accepted);
@@ -584,20 +617,29 @@ public:
         g.fractally_oracle = oracle;
         g.token_contract = token_contract;
 
+        // Initialize governance parameters with defaults
+        g.approval_threshold_bp = 9000;  // 90% approval required
+        g.max_vote_weight = 100;         // Cap voting weight at 100 Respect
+        g.attestor_respect_threshold = 50; // Require 50 Respect to attest
+
         globals.set(g, get_self());
     }
 
     /**
      * @brief Clear all data (for testing only)
      *
-     * SAFETY GUARDS:
+     * COMPILE-TIME GUARD:
+     * - Only available when compiled with -DTESTNET flag
+     * - Automatically excluded from production builds
+     *
+     * RUNTIME SAFETY GUARDS:
      * - Only works if total anchors <= 100 (prevents production misuse)
      * - Only works if total stake == 0 (prevents destroying value)
      * - Requires contract authority
      *
-     * For production deployment, this action should be removed entirely
-     * by commenting out or using compile-time flags.
+     * To enable: compile with eosio-cpp -DTESTNET ...
      */
+#ifdef TESTNET
     ACTION clear() {
         require_auth(get_self());
 
@@ -658,6 +700,7 @@ public:
         globals_singleton globals(get_self(), get_self().value);
         globals.remove();
     }
+#endif // TESTNET
 
 private:
     // ============ CONSTANTS ============
@@ -810,7 +853,13 @@ private:
         name        fractally_oracle; // Who can update Respect
         name        token_contract; // MUS token contract
 
-        EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract))
+        // Configurable governance parameters
+        uint64_t    approval_threshold_bp = 9000;  // 90% (in basis points: 9000/10000)
+        uint32_t    max_vote_weight = 100;         // Maximum voting weight cap
+        uint32_t    attestor_respect_threshold = 50; // Minimum Respect to be attestor
+
+        EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)
+                        (approval_threshold_bp)(max_vote_weight)(attestor_respect_threshold))
     };
 
     // Table type definitions
@@ -852,12 +901,12 @@ private:
      * appropriate community review time.
      */
     uint32_t get_vote_window(uint8_t type) const {
-        if(type == 21) return 7 * 24 * 60 * 60; // 7 days for releases
-        if(type == 22) return 3 * 24 * 60 * 60; // 3 days for mint entity
-        if(type == 23) return 2 * 24 * 60 * 60; // 2 days for ID resolution
-        if(type == 30 || type == 31) return 3 * 24 * 60 * 60; // 3 days for claims
-        if(type == 60) return 5 * 24 * 60 * 60; // 5 days for entity merges
-        return 24 * 60 * 60; // 1 day default
+        if(type == 21) return 7 * 24 * 60 * 60;     // 604800 seconds = 7 days (release bundles)
+        if(type == 22) return 3 * 24 * 60 * 60;     // 259200 seconds = 3 days (mint entity)
+        if(type == 23) return 2 * 24 * 60 * 60;     // 172800 seconds = 2 days (ID resolution)
+        if(type == 30 || type == 31) return 3 * 24 * 60 * 60; // 259200 seconds = 3 days (add/edit claims)
+        if(type == 60) return 5 * 24 * 60 * 60;     // 432000 seconds = 5 days (entity merges)
+        return 24 * 60 * 60;                        // 86400 seconds = 1 day (default)
     }
 
     /**
@@ -923,10 +972,11 @@ private:
         // In production, check against attestors table
         if(account == name("council.pol")) return true;
 
-        // Could also check Respect threshold
+        // Check Respect threshold (configurable via setparams)
+        auto g = get_globals();
         respect_table respect(get_self(), get_self().value);
         auto itr = respect.find(account.value);
-        if(itr != respect.end() && itr->respect >= 50) {
+        if(itr != respect.end() && itr->respect >= g.attestor_respect_threshold) {
             return true; // High Respect members can attest
         }
 
