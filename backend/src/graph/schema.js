@@ -207,6 +207,31 @@ class MusicGraphDatabase {
                 }
             }
 
+            // ========== CHECK APOC AVAILABILITY ==========
+            // APOC plugin is required for merge operations
+            try {
+                const apocResult = await session.run(
+                    `CALL dbms.procedures() YIELD name
+                     WHERE name STARTS WITH 'apoc.'
+                     RETURN count(name) as apocCount`
+                );
+
+                const apocCount = apocResult.records[0]?.get('apocCount').toNumber() || 0;
+
+                if (apocCount === 0) {
+                    console.warn('WARNING: APOC plugin not detected!');
+                    console.warn('  Merge operations require APOC plugin.');
+                    console.warn('  Install with: neo4j-admin dbms install-plugin apoc');
+                    console.warn('  Or download from: https://github.com/neo4j-contrib/neo4j-apoc-procedures/releases');
+                    console.warn('  Continuing without APOC - merge operations will fail if attempted.');
+                } else {
+                    console.log(`  APOC plugin detected (${apocCount} procedures available)`);
+                }
+            } catch (error) {
+                console.warn(' Could not check APOC availability:', error.message);
+                console.warn('  Merge operations may fail if APOC is not installed.');
+            }
+
             console.log(' Database schema initialized successfully');
 
         } catch (error) {

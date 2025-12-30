@@ -35,6 +35,21 @@ const EVENT_TYPES = {
 };
 
 /**
+ * Safe mapping of entity types to Neo4j node labels
+ * This prevents Cypher injection by providing an explicit whitelist
+ */
+const NODE_LABELS = {
+    'person': 'Person',
+    'group': 'Group',
+    'song': 'Song',
+    'track': 'Track',
+    'release': 'Release',
+    'master': 'Master',
+    'label': 'Label',
+    'city': 'City'
+};
+
+/**
  * Event Processor that syncs blockchain events to graph database
  */
 class EventProcessor {
@@ -505,12 +520,15 @@ class EventProcessor {
 
             console.log(`    Creating entity: ${cid}`);
 
-            // Helper to capitalize first letter for node label
-            const capitalizeFirst = (str) => str.charAt(0).toUpperCase() + str.slice(1);
+            // Get safe node label from whitelist mapping (prevents Cypher injection)
+            const nodeLabel = NODE_LABELS[entity_type];
+            if (!nodeLabel) {
+                throw new Error(`No node label mapping for entity_type: ${entity_type}`);
+            }
 
             // Create the entity node with minimal fields
             await session.run(
-                `CREATE (n:${capitalizeFirst(entity_type)} {
+                `CREATE (n:${nodeLabel} {
                     id: $id,
                     status: 'ACTIVE',
                     created_at: datetime(),
