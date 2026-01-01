@@ -99,6 +99,37 @@ public:
         // Store the anchor on-chain
         uint64_t anchor_id = anchors.available_primary_key();
 
+        // Capture submission-time x BEFORE incrementing (for escrow-based emission)
+        uint64_t submission_x = g.x;
+
+        // Calculate emission at submission time using submission_x
+        uint64_t multiplier = get_multiplier(type);
+        uint64_t mint = 0;
+
+        if (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE && multiplier > 0) {
+            double x = static_cast<double>(submission_x);
+
+            if (x >= 1.0) {
+                // Calculate emission using logarithmic curve: g(x) = m * ln(x) / x
+                double g_raw = multiplier * std::log(x) / x;
+                double total_with_carry = g_raw + g.carry;
+
+                // Prevent overflow when casting to uint64_t
+                constexpr double MAX_MINT = 10000000000000000.0; // 1 trillion * 10000
+                if(total_with_carry > MAX_MINT) {
+                    total_with_carry = MAX_MINT;
+                }
+
+                mint = static_cast<uint64_t>(total_with_carry);
+                g.carry = total_with_carry - mint;
+            }
+        }
+
+        // Mint tokens to contract (escrow) if emission > 0
+        if (mint > 0) {
+            issue_tokens(get_self(), mint, "Escrow for anchor " + std::to_string(anchor_id));
+        }
+
         anchors.emplace(author, [&](auto& a) {
             a.id = anchor_id;
             a.author = author;
@@ -109,10 +140,11 @@ public:
             a.tags = tags;
             a.expires_at = expires_at;
             a.finalized = false;
+            a.escrowed_amount = mint;
+            a.submission_x = submission_x;
         });
 
-        // Increment global submission counter for emission calculations
-        // (g was already fetched for pause check above)
+        // NOW increment global submission counter AFTER capturing submission_x
         // Only increment for content submissions, not votes/likes/discussions
         if (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE) {
             g.x += 1; // Global submission number
@@ -122,7 +154,7 @@ public:
         globals.set(g, get_self());
 
         // Emit event for off-chain indexers
-        emit_anchor_event(author, type, hash, anchor_id, g.x);
+        emit_anchor_event(author, type, hash, anchor_id, submission_x);
     }
 
     /**
@@ -431,6 +463,47 @@ public:
     }
 
     /**
+     * @brief Set distribution ratios for approved and rejected submissions
+     *
+     * Allows tuning reward distribution without contract redeployment.
+     * All ratios are in basis points (10000 = 100%).
+     *
+     * @param approved_author_pct - % to author if approved (default: 4000 = 40%)
+     * @param approved_voters_pct - % to YES voters if approved (default: 3000 = 30%)
+     * @param approved_stakers_pct - % to stakers if approved (default: 3000 = 30%)
+     * @param rejected_voters_pct - % to NO voters if rejected (default: 5000 = 50%)
+     * @param rejected_stakers_pct - % to stakers if rejected (default: 5000 = 50%)
+     */
+    ACTION setdistribution(
+        uint64_t approved_author_pct,
+        uint64_t approved_voters_pct,
+        uint64_t approved_stakers_pct,
+        uint64_t rejected_voters_pct,
+        uint64_t rejected_stakers_pct
+    ) {
+        require_auth(get_self());
+
+        // Validate approved ratios sum to 10000 (100%)
+        check(approved_author_pct + approved_voters_pct + approved_stakers_pct == 10000,
+              "Approved distribution must sum to 100% (10000 basis points)");
+
+        // Validate rejected ratios sum to 10000 (100%)
+        check(rejected_voters_pct + rejected_stakers_pct == 10000,
+              "Rejected distribution must sum to 100% (10000 basis points)");
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+
+        g.approved_author_pct = approved_author_pct;
+        g.approved_voters_pct = approved_voters_pct;
+        g.approved_stakers_pct = approved_stakers_pct;
+        g.rejected_voters_pct = rejected_voters_pct;
+        g.rejected_stakers_pct = rejected_stakers_pct;
+
+        globals.set(g, get_self());
+    }
+
+    /**
      * @brief Emergency pause all critical operations
      *
      * Halts put, vote, stake, and finalize actions during security incident.
@@ -567,47 +640,28 @@ public:
         auto [up_votes, down_votes] = calculate_weighted_votes(tx_hash);
         uint64_t total_votes = up_votes + down_votes;
 
-        // Get emission parameters
-        // (g was already fetched for pause check above)
-        uint64_t multiplier = get_multiplier(anchor_itr->type);
-        double x = static_cast<double>(g.x);
-
-        // Calculate emission using logarithmic curve
-        // g(x) = m * ln(x) / x
-        // This creates a decreasing reward over time as the registry grows
-        uint64_t mint = 0;
-        if (x >= 1.0 && multiplier > 0) {
-            double g_raw = multiplier * std::log(x) / x;
-            double total_with_carry = g_raw + g.carry;
-
-            // Prevent overflow when casting to uint64_t (max ~18.4 quintillion)
-            // Cap at 1 trillion tokens (1,000,000,000,000.0000 MUS with 4 decimals)
-            constexpr double MAX_MINT = 10000000000000000.0; // 1 trillion * 10000 (4 decimal places)
-            if(total_with_carry > MAX_MINT) {
-                total_with_carry = MAX_MINT;
-            }
-
-            mint = static_cast<uint64_t>(total_with_carry);
-            g.carry = total_with_carry - mint;
-        }
+        // Retrieve escrowed amount (tokens were minted at submission time)
+        uint64_t escrowed_amount = anchor_itr->escrowed_amount;
 
         // Determine payout distribution based on approval threshold
         // Use integer basis points to avoid floating point comparison issues
         // Default: 9000 basis points = 90.00% approval required (configurable via setparams)
         bool accepted = (total_votes > 0) && (up_votes * 10000 >= total_votes * g.approval_threshold_bp);
 
-        if(mint > 0) {
-            distribute_rewards(anchor_itr->author, tx_hash, mint, accepted);
+        // Distribute escrowed tokens based on outcome
+        if(escrowed_amount > 0) {
+            if(accepted) {
+                distribute_rewards_approved(anchor_itr->author, tx_hash, escrowed_amount);
+            } else {
+                distribute_rewards_rejected(tx_hash, escrowed_amount, up_votes, down_votes);
+            }
         }
 
-        // Mark as finalized
+        // Mark as finalized and zero out escrow
         hash_idx.modify(anchor_itr, same_payer, [&](auto& a) {
             a.finalized = true;
+            a.escrowed_amount = 0;
         });
-
-        // Update global state
-        globals_singleton globals(get_self(), get_self().value);
-        globals.set(g, get_self());
     }
 
     // ============ STAKING ON GRAPH NODES ============
@@ -994,13 +1048,16 @@ private:
         std::vector<name> tags;     // Searchable tags
         uint32_t    expires_at;     // When voting closes
         bool        finalized;      // Rewards distributed?
+        uint64_t    escrowed_amount = 0; // Tokens minted and held in escrow
+        uint64_t    submission_x = 0;    // Value of g.x at submission time
 
         uint64_t primary_key() const { return id; }
         checksum256 by_hash() const { return hash; }
         uint64_t by_author() const { return author.value; }
 
         EOSLIB_SERIALIZE(anchor, (id)(author)(type)(hash)(parent)
-                                 (ts)(tags)(expires_at)(finalized))
+                                 (ts)(tags)(expires_at)(finalized)
+                                 (escrowed_amount)(submission_x))
     };
 
     /**
@@ -1171,12 +1228,19 @@ private:
         uint32_t    vote_window_default = 86400;       // 1 day for others
 
         // Configurable emission multipliers
-        uint64_t    multiplier_release = 1000000;      // CREATE_RELEASE_BUNDLE
+        uint64_t    multiplier_release = 100000000;    // CREATE_RELEASE_BUNDLE (100M)
         uint64_t    multiplier_mint = 100000;          // MINT_ENTITY
         uint64_t    multiplier_resolve = 5000;         // RESOLVE_ID
-        uint64_t    multiplier_add_claim = 50000;      // ADD_CLAIM
+        uint64_t    multiplier_add_claim = 1000000;    // ADD_CLAIM (1M)
         uint64_t    multiplier_edit_claim = 1000;      // EDIT_CLAIM
         uint64_t    multiplier_merge = 20000;          // MERGE_ENTITY
+
+        // Distribution ratios (in basis points, 10000 = 100%)
+        uint64_t    approved_author_pct = 4000;    // 40% to author if approved
+        uint64_t    approved_voters_pct = 3000;    // 30% to voters if approved
+        uint64_t    approved_stakers_pct = 3000;   // 30% to stakers if approved
+        uint64_t    rejected_voters_pct = 5000;    // 50% to no-voters if rejected
+        uint64_t    rejected_stakers_pct = 5000;   // 50% to stakers if rejected
 
         EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)
                         (approval_threshold_bp)(max_vote_weight)(attestor_respect_threshold)
@@ -1184,7 +1248,9 @@ private:
                         (vote_window_release)(vote_window_mint)(vote_window_resolve)
                         (vote_window_claim)(vote_window_merge)(vote_window_default)
                         (multiplier_release)(multiplier_mint)(multiplier_resolve)
-                        (multiplier_add_claim)(multiplier_edit_claim)(multiplier_merge))
+                        (multiplier_add_claim)(multiplier_edit_claim)(multiplier_merge)
+                        (approved_author_pct)(approved_voters_pct)(approved_stakers_pct)
+                        (rejected_voters_pct)(rejected_stakers_pct))
     };
 
     // Table type definitions
@@ -1347,31 +1413,64 @@ private:
     }
 
     /**
-     * @brief Distribute rewards based on voting outcome
+     * @brief Distribute rewards for approved submissions
      *
-     * Accepted submissions: 50% to submitter, 50% to voters
-     * Rejected submissions: 50% to voters, 50% to stakers
+     * Distribution:
+     * - 40% to author (configurable via approved_author_pct)
+     * - 30% to voters who voted YES (configurable via approved_voters_pct)
+     * - 30% to stakers (configurable via approved_stakers_pct)
      */
-    void distribute_rewards(name submitter, const checksum256& tx_hash,
-                           uint64_t total_amount, bool accepted) {
+    void distribute_rewards_approved(name author, const checksum256& tx_hash, uint64_t total_amount) {
         if(total_amount == 0) return;
 
-        if(accepted) {
-            // 50% to submitter
-            uint64_t submitter_share = total_amount / 2;
-            issue_tokens(submitter, submitter_share, "Accepted submission reward");
+        auto g = get_globals();
 
-            // 50% to voters (weighted by Respect)
-            uint64_t voter_share = total_amount - submitter_share;
-            distribute_to_voters(tx_hash, voter_share);
-        } else {
-            // 50% to voters (reward those who correctly rejected)
-            uint64_t voter_share = total_amount / 2;
-            distribute_to_voters(tx_hash, voter_share);
+        // Calculate shares based on configured ratios
+        uint64_t author_share = (total_amount * g.approved_author_pct) / 10000;
+        uint64_t voters_share = (total_amount * g.approved_voters_pct) / 10000;
+        uint64_t stakers_share = total_amount - author_share - voters_share;
 
-            // 50% to global stakers (distributed based on stake proportion)
-            uint64_t staker_share = total_amount - voter_share;
-            distribute_to_stakers(staker_share);
+        // Transfer to author
+        if (author_share > 0) {
+            issue_tokens(author, author_share, "Approved submission reward");
+        }
+
+        // Distribute to voters who voted YES (weighted by stake)
+        if (voters_share > 0) {
+            distribute_to_voters(tx_hash, voters_share, true); // true = up voters only
+        }
+
+        // Distribute to stakers
+        if (stakers_share > 0) {
+            distribute_to_stakers(stakers_share);
+        }
+    }
+
+    /**
+     * @brief Distribute rewards for rejected submissions
+     *
+     * Distribution:
+     * - 50% to voters who voted NO (configurable via rejected_voters_pct)
+     * - 50% to stakers (configurable via rejected_stakers_pct)
+     */
+    void distribute_rewards_rejected(const checksum256& tx_hash, uint64_t total_amount,
+                                    uint64_t up_votes, uint64_t down_votes) {
+        if(total_amount == 0) return;
+
+        auto g = get_globals();
+
+        // Calculate shares based on configured ratios
+        uint64_t voters_share = (total_amount * g.rejected_voters_pct) / 10000;
+        uint64_t stakers_share = total_amount - voters_share;
+
+        // Distribute to voters who voted NO (down voters)
+        if (voters_share > 0) {
+            distribute_to_voters(tx_hash, voters_share, false); // false = down voters only
+        }
+
+        // Distribute to stakers
+        if (stakers_share > 0) {
+            distribute_to_stakers(stakers_share);
         }
     }
 
@@ -1381,18 +1480,25 @@ private:
      * Uses checks-effects-interactions pattern to prevent reentrancy:
      * 1. Calculate all distributions
      * 2. Issue all tokens (external calls)
+     *
+     * @param tx_hash - Event hash to distribute rewards for
+     * @param total_amount - Total amount to distribute
+     * @param up_voters_only - If true, distribute only to YES voters; if false, only to NO voters
      */
-    void distribute_to_voters(const checksum256& tx_hash, uint64_t total_amount) {
+    void distribute_to_voters(const checksum256& tx_hash, uint64_t total_amount, bool up_voters_only) {
         if(total_amount == 0) return;
 
         votes_table votes(get_self(), get_self().value);
         auto hash_idx = votes.get_index<"byhash"_n>();
 
-        // First pass: calculate total weight
+        // Determine which vote value we're looking for (+1 for up voters, -1 for down voters)
+        int8_t target_vote = up_voters_only ? 1 : -1;
+
+        // First pass: calculate total weight of target voters
         uint64_t total_weight = 0;
         auto itr = hash_idx.lower_bound(tx_hash);
         while(itr != hash_idx.end() && itr->tx_hash == tx_hash) {
-            if(itr->val != 0) { // Only count non-neutral votes
+            if(itr->val == target_vote) {
                 total_weight += itr->weight;
             }
             ++itr;
@@ -1404,7 +1510,7 @@ private:
         std::vector<std::pair<name, uint64_t>> distributions;
         itr = hash_idx.lower_bound(tx_hash);
         while(itr != hash_idx.end() && itr->tx_hash == tx_hash) {
-            if(itr->val != 0) {
+            if(itr->val == target_vote) {
                 // Use 128-bit intermediate to prevent overflow
                 uint64_t voter_share = (static_cast<uint128_t>(total_amount) * itr->weight) / total_weight;
                 if(voter_share > 0) {
@@ -1416,7 +1522,8 @@ private:
 
         // Third pass: execute all token distributions (external calls last)
         for(const auto& [voter, amount] : distributions) {
-            issue_tokens(voter, amount, "Voting reward");
+            std::string memo = up_voters_only ? "YES vote reward" : "NO vote reward";
+            issue_tokens(voter, amount, memo);
         }
     }
 
