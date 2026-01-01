@@ -68,6 +68,10 @@ public:
                std::vector<name> tags) {
         require_auth(author);
 
+        // Check if contract is paused
+        auto g = get_globals();
+        check(!g.paused, "Contract is paused");
+
         // Validate inputs
         check(type >= MIN_EVENT_TYPE && type <= MAX_EVENT_TYPE, "Invalid event type");
         check(ts >= MIN_VALID_TIMESTAMP, "Timestamp too far in past (minimum 2023-01-01)");
@@ -108,14 +112,13 @@ public:
         });
 
         // Increment global submission counter for emission calculations
-        globals_singleton globals(get_self(), get_self().value);
-        auto g = get_globals();
-
+        // (g was already fetched for pause check above)
         // Only increment for content submissions, not votes/likes/discussions
         if (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE) {
             g.x += 1; // Global submission number
         }
 
+        globals_singleton globals(get_self(), get_self().value);
         globals.set(g, get_self());
 
         // Emit event for off-chain indexers
@@ -326,9 +329,15 @@ public:
                      uint32_t attestor_respect_threshold) {
         require_auth(get_self());
 
-        // Validation
+        // Validation with sanity checks for reasonable governance
         check(approval_threshold_bp > 0 && approval_threshold_bp <= 10000,
               "Approval threshold must be 1-10000 basis points (0.01%-100%)");
+
+        // Sanity check: Warn about extreme thresholds
+        // Below 50% makes most submissions pass, above 95% makes most fail
+        check(approval_threshold_bp >= 5000 && approval_threshold_bp <= 9500,
+              "Approval threshold should be 50%-95% (5000-9500 bp) for effective governance");
+
         check(max_vote_weight > 0 && max_vote_weight <= 10000,
               "Max vote weight must be 1-10000");
         check(attestor_respect_threshold > 0 && attestor_respect_threshold <= 1000,
@@ -339,6 +348,118 @@ public:
         g.approval_threshold_bp = approval_threshold_bp;
         g.max_vote_weight = max_vote_weight;
         g.attestor_respect_threshold = attestor_respect_threshold;
+        globals.set(g, get_self());
+    }
+
+    /**
+     * @brief Set voting window durations for different event types
+     *
+     * Allows tuning review periods without contract redeployment.
+     *
+     * @param release - Voting window for CREATE_RELEASE_BUNDLE (in seconds)
+     * @param mint - Voting window for MINT_ENTITY (in seconds)
+     * @param resolve - Voting window for RESOLVE_ID (in seconds)
+     * @param claim - Voting window for ADD_CLAIM/EDIT_CLAIM (in seconds)
+     * @param merge - Voting window for MERGE_ENTITY (in seconds)
+     * @param default_window - Default voting window for other types (in seconds)
+     */
+    ACTION setvotewindows(uint32_t release, uint32_t mint, uint32_t resolve,
+                          uint32_t claim, uint32_t merge, uint32_t default_window) {
+        require_auth(get_self());
+
+        // Validation: reasonable time ranges (1 hour to 30 days)
+        const uint32_t MIN_WINDOW = 3600;        // 1 hour
+        const uint32_t MAX_WINDOW = 2592000;     // 30 days
+
+        check(release >= MIN_WINDOW && release <= MAX_WINDOW, "Release window out of range (1h - 30d)");
+        check(mint >= MIN_WINDOW && mint <= MAX_WINDOW, "Mint window out of range (1h - 30d)");
+        check(resolve >= MIN_WINDOW && resolve <= MAX_WINDOW, "Resolve window out of range (1h - 30d)");
+        check(claim >= MIN_WINDOW && claim <= MAX_WINDOW, "Claim window out of range (1h - 30d)");
+        check(merge >= MIN_WINDOW && merge <= MAX_WINDOW, "Merge window out of range (1h - 30d)");
+        check(default_window >= MIN_WINDOW && default_window <= MAX_WINDOW, "Default window out of range (1h - 30d)");
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+
+        g.vote_window_release = release;
+        g.vote_window_mint = mint;
+        g.vote_window_resolve = resolve;
+        g.vote_window_claim = claim;
+        g.vote_window_merge = merge;
+        g.vote_window_default = default_window;
+
+        globals.set(g, get_self());
+    }
+
+    /**
+     * @brief Set emission multipliers for different event types
+     *
+     * Allows tuning reward economics without contract redeployment.
+     *
+     * @param release - Multiplier for CREATE_RELEASE_BUNDLE
+     * @param mint - Multiplier for MINT_ENTITY
+     * @param resolve - Multiplier for RESOLVE_ID
+     * @param add_claim - Multiplier for ADD_CLAIM
+     * @param edit_claim - Multiplier for EDIT_CLAIM
+     * @param merge - Multiplier for MERGE_ENTITY
+     */
+    ACTION setmultipliers(uint64_t release, uint64_t mint, uint64_t resolve,
+                          uint64_t add_claim, uint64_t edit_claim, uint64_t merge) {
+        require_auth(get_self());
+
+        // Validation: reasonable multiplier ranges (0 to 100M)
+        const uint64_t MAX_MULTIPLIER = 100000000; // 100 million
+
+        check(release <= MAX_MULTIPLIER, "Release multiplier too high (max 100M)");
+        check(mint <= MAX_MULTIPLIER, "Mint multiplier too high (max 100M)");
+        check(resolve <= MAX_MULTIPLIER, "Resolve multiplier too high (max 100M)");
+        check(add_claim <= MAX_MULTIPLIER, "Add claim multiplier too high (max 100M)");
+        check(edit_claim <= MAX_MULTIPLIER, "Edit claim multiplier too high (max 100M)");
+        check(merge <= MAX_MULTIPLIER, "Merge multiplier too high (max 100M)");
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+
+        g.multiplier_release = release;
+        g.multiplier_mint = mint;
+        g.multiplier_resolve = resolve;
+        g.multiplier_add_claim = add_claim;
+        g.multiplier_edit_claim = edit_claim;
+        g.multiplier_merge = merge;
+
+        globals.set(g, get_self());
+    }
+
+    /**
+     * @brief Emergency pause all critical operations
+     *
+     * Halts put, vote, stake, and finalize actions during security incident.
+     * Only contract authority can pause/unpause.
+     */
+    ACTION pause() {
+        require_auth(get_self());
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+        check(!g.paused, "Contract already paused");
+
+        g.paused = true;
+        globals.set(g, get_self());
+    }
+
+    /**
+     * @brief Unpause contract operations
+     *
+     * Resumes normal operations after emergency is resolved.
+     */
+    ACTION unpause() {
+        require_auth(get_self());
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+        check(g.paused, "Contract not paused");
+
+        g.paused = false;
         globals.set(g, get_self());
     }
 
@@ -358,6 +479,10 @@ public:
         require_auth(voter);
         check(val >= -1 && val <= 1, "Invalid vote value (must be -1, 0, or 1)");
 
+        // Check if contract is paused
+        auto g = get_globals();
+        check(!g.paused, "Contract is paused");
+
         // Verify the anchor exists and voting window is still open
         anchors_table anchors(get_self(), get_self().value);
         auto hash_idx = anchors.get_index<"byhash"_n>();
@@ -368,7 +493,7 @@ public:
               "Voting window has closed");
 
         // Get voter's Respect for weight calculation
-        auto g = get_globals();
+        // (g was already fetched for pause check above)
         respect_table respect(get_self(), get_self().value);
         auto respect_itr = respect.find(voter.value);
         uint32_t voter_respect = 1; // Default weight if no Respect
@@ -418,6 +543,10 @@ public:
     ACTION finalize(checksum256 tx_hash) {
         // Anyone can call finalize after voting window closes
 
+        // Check if contract is paused
+        auto g = get_globals();
+        check(!g.paused, "Contract is paused");
+
         anchors_table anchors(get_self(), get_self().value);
         auto hash_idx = anchors.get_index<"byhash"_n>();
         auto anchor_itr = hash_idx.find(tx_hash);
@@ -439,9 +568,7 @@ public:
         uint64_t total_votes = up_votes + down_votes;
 
         // Get emission parameters
-        globals_singleton globals(get_self(), get_self().value);
-        auto g = get_globals();
-
+        // (g was already fetched for pause check above)
         uint64_t multiplier = get_multiplier(anchor_itr->type);
         double x = static_cast<double>(g.x);
 
@@ -479,6 +606,7 @@ public:
         });
 
         // Update global state
+        globals_singleton globals(get_self(), get_self().value);
         globals.set(g, get_self());
     }
 
@@ -496,6 +624,11 @@ public:
      */
     ACTION stake(name account, checksum256 node_id, asset quantity) {
         require_auth(account);
+
+        // Check if contract is paused
+        auto g = get_globals();
+        check(!g.paused, "Contract is paused");
+
         check(quantity.symbol == symbol("MUS", 4), "Invalid token symbol (must be MUS)");
         check(quantity.amount > 0, "Must stake positive amount");
 
@@ -1026,8 +1159,32 @@ private:
         uint32_t    max_vote_weight = 100;         // Maximum voting weight cap
         uint32_t    attestor_respect_threshold = 50; // Minimum Respect to be attestor
 
+        // Emergency controls
+        bool        paused = false; // Emergency pause flag
+
+        // Configurable voting windows (in seconds)
+        uint32_t    vote_window_release = 604800;      // 7 days for releases
+        uint32_t    vote_window_mint = 259200;         // 3 days for mint entity
+        uint32_t    vote_window_resolve = 172800;      // 2 days for ID resolution
+        uint32_t    vote_window_claim = 259200;        // 3 days for add/edit claims
+        uint32_t    vote_window_merge = 432000;        // 5 days for entity merges
+        uint32_t    vote_window_default = 86400;       // 1 day for others
+
+        // Configurable emission multipliers
+        uint64_t    multiplier_release = 1000000;      // CREATE_RELEASE_BUNDLE
+        uint64_t    multiplier_mint = 100000;          // MINT_ENTITY
+        uint64_t    multiplier_resolve = 5000;         // RESOLVE_ID
+        uint64_t    multiplier_add_claim = 50000;      // ADD_CLAIM
+        uint64_t    multiplier_edit_claim = 1000;      // EDIT_CLAIM
+        uint64_t    multiplier_merge = 20000;          // MERGE_ENTITY
+
         EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)
-                        (approval_threshold_bp)(max_vote_weight)(attestor_respect_threshold))
+                        (approval_threshold_bp)(max_vote_weight)(attestor_respect_threshold)
+                        (paused)
+                        (vote_window_release)(vote_window_mint)(vote_window_resolve)
+                        (vote_window_claim)(vote_window_merge)(vote_window_default)
+                        (multiplier_release)(multiplier_mint)(multiplier_resolve)
+                        (multiplier_add_claim)(multiplier_edit_claim)(multiplier_merge))
     };
 
     // Table type definitions
@@ -1072,15 +1229,18 @@ private:
      * @brief Get voting window duration based on event type
      *
      * Different event types have different voting windows to allow
-     * appropriate community review time.
+     * appropriate community review time. Values are configurable via
+     * setvotewindows() action.
      */
     uint32_t get_vote_window(uint8_t type) const {
-        if(type == 21) return 7 * 24 * 60 * 60;     // 604800 seconds = 7 days (release bundles)
-        if(type == 22) return 3 * 24 * 60 * 60;     // 259200 seconds = 3 days (mint entity)
-        if(type == 23) return 2 * 24 * 60 * 60;     // 172800 seconds = 2 days (ID resolution)
-        if(type == 30 || type == 31) return 3 * 24 * 60 * 60; // 259200 seconds = 3 days (add/edit claims)
-        if(type == 60) return 5 * 24 * 60 * 60;     // 432000 seconds = 5 days (entity merges)
-        return 24 * 60 * 60;                        // 86400 seconds = 1 day (default)
+        auto g = get_globals();
+
+        if(type == 21) return g.vote_window_release;    // CREATE_RELEASE_BUNDLE
+        if(type == 22) return g.vote_window_mint;       // MINT_ENTITY
+        if(type == 23) return g.vote_window_resolve;    // RESOLVE_ID
+        if(type == 30 || type == 31) return g.vote_window_claim; // ADD_CLAIM / EDIT_CLAIM
+        if(type == 60) return g.vote_window_merge;      // MERGE_ENTITY
+        return g.vote_window_default;                   // Default for other types
     }
 
     /**
@@ -1088,16 +1248,19 @@ private:
      *
      * Higher multipliers for more valuable contributions.
      * The logarithmic curve applies to the multiplier.
+     * Values are configurable via setmultipliers() action.
      */
     uint64_t get_multiplier(uint8_t type) const {
+        auto g = get_globals();
+
         switch(type) {
-            case 21: return 1000000;  // CREATE_RELEASE_BUNDLE (major contribution)
-            case 22: return 100000;   // MINT_ENTITY (canonical entity creation)
-            case 23: return 5000;     // RESOLVE_ID (ID mapping contribution)
-            case 30: return 50000;    // ADD_CLAIM (medium contribution)
-            case 31: return 1000;     // EDIT_CLAIM (minor contribution)
-            case 60: return 20000;    // MERGE_ENTITY (deduplication contribution)
-            default: return 0;        // No emission (votes, likes, etc.)
+            case 21: return g.multiplier_release;     // CREATE_RELEASE_BUNDLE
+            case 22: return g.multiplier_mint;        // MINT_ENTITY
+            case 23: return g.multiplier_resolve;     // RESOLVE_ID
+            case 30: return g.multiplier_add_claim;   // ADD_CLAIM
+            case 31: return g.multiplier_edit_claim;  // EDIT_CLAIM
+            case 60: return g.multiplier_merge;       // MERGE_ENTITY
+            default: return 0;                        // No emission (votes, likes, etc.)
         }
     }
 
