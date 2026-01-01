@@ -15,6 +15,9 @@
     "mocha": "^10.2.0",
     "chai": "^4.3.7"
   },
+  "overrides": {
+    "elliptic": "^6.6.1"
+  },
   "engines": {
     "node": ">=14.0.0"
   }
