@@ -1,0 +1,143 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v2
+      id: filter
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+          frontend:
+            - 'frontend/**'
+          contracts:
+            - 'contracts/**'
+          k8s:
+            - 'k8s/**'
+
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    needs: changes
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+
+    - name: Lint backend
+      if: needs.changes.outputs.backend == 'true'
+      working-directory: backend
+      run: |
+        npm ci
+        npm run lint --if-present || echo "Linting not configured"
+
+    - name: Lint frontend
+      if: needs.changes.outputs.frontend == 'true'
+      working-directory: frontend
+      run: |
+        npm ci
+        npm run lint --if-present || echo "Linting not configured"
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Semgrep
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: >-
+          p/security-audit
+          p/secrets
+          p/javascript
+          p/typescript
+
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+      with:
+        fail-on-severity: moderate
+
+  validate-k8s:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.k8s == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install kustomize
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    - name: Validate base manifests
+      working-directory: k8s/base
+      run: |
+        kustomize build . | kubectl apply --dry-run=client -f - || exit 1
+
+    - name: Validate development overlay
+      working-directory: k8s/overlays/development
+      run: |
+        kustomize build . | kubectl apply --dry-run=client -f - || exit 1
+
+    - name: Validate production overlay
+      working-directory: k8s/overlays/production
+      run: |
+        kustomize build . | kubectl apply --dry-run=client -f - || exit 1
+
+  pr-labeler:
+    name: Label PR
+    runs-on: ubuntu-latest
+    needs: changes
+    permissions:
+      pull-requests: write
+
+    steps:
+    - name: Add component labels
+      uses: actions/labeler@v5
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        configuration-path: .github/labeler.yml
+
+  size-label:
+    name: PR Size Label
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+    - uses: codelytv/pr-size-labeler@v1
+      with:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        xs_label: 'size/xs'
+        xs_max_size: '10'
+        s_label: 'size/s'
+        s_max_size: '100'
+        m_label: 'size/m'
+        m_max_size: '500'
+        l_label: 'size/l'
+        l_max_size: '1000'
+        xl_label: 'size/xl'

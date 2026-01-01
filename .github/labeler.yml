@@ -1,0 +1,26 @@
+# Auto-labeling configuration for PRs
+
+backend:
+  - backend/**/*
+
+frontend:
+  - frontend/**/*
+
+contracts:
+  - contracts/**/*
+
+infrastructure:
+  - k8s/**/*
+  - docker-compose.yml
+  - .github/**/*
+
+documentation:
+  - '**/*.md'
+  - docs/**/*
+
+ci/cd:
+  - .github/workflows/**/*
+
+dependencies:
+  - '**/package.json'
+  - '**/package-lock.json'
