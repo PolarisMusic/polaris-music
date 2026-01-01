@@ -58,6 +58,7 @@
         <div id="info-viewer">
             <div class="info-header">
                 <h2 id="info-title">Select a node</h2>
+                <button id="like-button" class="btn-like" style="display: none;">🤍 Like</button>
                 <button id="close-info" class="btn-close">×</button>
             </div>
             <div id="info-content" class="info-content">
@@ -83,6 +84,8 @@
     <!-- Scripts -->
     <script type="module" src="./src/visualization/colorPalette.js"></script>
     <script type="module" src="./src/visualization/graphApi.js"></script>
+    <script type="module" src="./src/visualization/PathTracker.js"></script>
+    <script type="module" src="./src/visualization/LikeManager.js"></script>
     <script type="module" src="./src/visualization/MusicGraph.js"></script>
     <script type="module" src="./src/wallet/WalletManager.js"></script>
     <script type="module">
@@ -134,7 +137,8 @@
 
         // Initialize visualization when DOM is ready
         document.addEventListener('DOMContentLoaded', async () => {
-            const graph = new MusicGraph('infovis');
+            // Pass walletManager to enable like functionality
+            const graph = new MusicGraph('infovis', walletManager);
             window.musicGraph = graph; // For debugging
 
             // Load initial graph data from backend
