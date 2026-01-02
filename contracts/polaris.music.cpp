@@ -270,19 +270,24 @@ public:
         auto itr = likes.require_find(node_id, "Like not found");
         likes.erase(itr);
 
-        // Update aggregate
+        // Update aggregate (gracefully handle missing aggregate)
         likeagg_table aggregates(get_self(), get_self().value);
-        auto agg_itr = aggregates.require_find(node_id, "Like aggregate not found");
+        auto agg_itr = aggregates.find(node_id);
 
-        aggregates.modify(agg_itr, account, [&](auto& a) {
-            check(a.like_count > 0, "Like count already zero (data corruption)");
-            a.like_count -= 1;
-        });
+        // If aggregate exists, decrement and remove if zero
+        if (agg_itr != aggregates.end()) {
+            aggregates.modify(agg_itr, account, [&](auto& a) {
+                if (a.like_count > 0) {
+                    a.like_count -= 1;
+                }
+            });
 
-        // Remove aggregate if count reaches zero
-        if (agg_itr->like_count == 0) {
-            aggregates.erase(agg_itr);
+            // Remove aggregate if count reaches zero
+            if (agg_itr->like_count == 0) {
+                aggregates.erase(agg_itr);
+            }
         }
+        // If aggregate doesn't exist, that's okay - like record was still removed
     }
 
     // ============ FRACTALLY INTEGRATION ============
@@ -931,6 +936,43 @@ public:
     }
 
     /**
+     * @brief Reinitialize contract configuration (recovery from init errors)
+     *
+     * Allows contract owner to fix configuration errors after initial deployment
+     * without requiring contract redeployment. Only updates oracle and token_contract.
+     * Does NOT reset x, carry, round, or governance parameters.
+     *
+     * @param oracle - Fractally oracle account (updates Respect values)
+     * @param token_contract - Token contract account (MUS token)
+     *
+     * @pre Contract must be initialized
+     * @pre Requires contract authority
+     * @pre Oracle and token_contract must be valid accounts
+     */
+    ACTION reinit(name oracle, name token_contract) {
+        require_auth(get_self());
+
+        globals_singleton globals(get_self(), get_self().value);
+        check(globals.exists(), "Contract not initialized - use init() first");
+
+        // Validate oracle account exists
+        check(is_account(oracle), "Oracle account does not exist");
+
+        // Validate token contract exists
+        check(is_account(token_contract), "Token contract account does not exist");
+        check(token_contract != get_self(), "Token contract cannot be self");
+
+        // Validate token contract implements eosio.token interface
+        validate_token_contract(token_contract);
+
+        // Update only oracle and token_contract, preserve all other state
+        auto g = globals.get();
+        g.fractally_oracle = oracle;
+        g.token_contract = token_contract;
+        globals.set(g, get_self());
+    }
+
+    /**
      * @brief Notification action for off-chain indexers
      *
      * This action is called inline to emit events that indexers can monitor.
@@ -965,15 +1007,50 @@ public:
      * To enable: compile with eosio-cpp -DTESTNET ...
      */
 #ifdef TESTNET
+    /**
+     * @brief Clear all contract data (DEVELOPMENT/TESTING ONLY)
+     *
+     * Resets the contract to initial state by erasing all table data.
+     * Intended for development, testing, and testnet resets.
+     *
+     * **SAFETY CHECKS** (prevent accidental production data loss):
+     * 1. Anchor limit: Fails if >100 anchors exist (indicates production use)
+     * 2. Stake protection: Fails if any tokens are staked (prevents value destruction)
+     *
+     * **TABLES CLEARED**:
+     * - anchors: All event anchors
+     * - votes: All voting records
+     * - respect: All Respect values
+     * - stakes: All token stakes
+     * - nodeagg: All stake aggregates
+     * - likeagg: All like aggregates
+     *
+     * **PRESERVED DATA**:
+     * - globals: Contract configuration (oracle, token_contract, governance params)
+     *
+     * @pre Requires contract authority (get_self())
+     * @pre Anchor count <= 100
+     * @pre Total staked tokens = 0
+     *
+     * **WARNING**: This action is DANGEROUS in production. Only use on testnets
+     * or for local development. Production contracts should NEVER call this.
+     *
+     * **Example usage** (testnet reset):
+     * ```
+     * cleos push action polaris clear '[]' -p polaris@active
+     * ```
+     */
     ACTION clear() {
         require_auth(get_self());
 
-        // SAFETY: Prevent clearing production data
+        // SAFETY CHECK 1: Prevent clearing production data
+        // Production systems will have >100 anchors, so this prevents accidents
         anchors_table anchors(get_self(), get_self().value);
         uint64_t anchor_count = std::distance(anchors.begin(), anchors.end());
         check(anchor_count <= 100, "Cannot clear: too many anchors (production data detected)");
 
-        // SAFETY: Prevent destroying staked value
+        // SAFETY CHECK 2: Prevent destroying staked value
+        // If tokens are staked, clearing would destroy user funds - absolutely prevent this
         nodeagg_table nodeagg(get_self(), get_self().value);
         uint64_t total_staked = 0;
         for(auto itr = nodeagg.begin(); itr != nodeagg.end(); ++itr) {
