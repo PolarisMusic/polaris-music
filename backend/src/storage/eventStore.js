@@ -459,7 +459,8 @@ class EventStore {
     }
 
     /**
-     * Store hash→CID mapping in Redis for IPFS retrieval.
+     * Store hash→CID mapping in Redis AND S3 for durable retrieval.
+     * S3 sidecar file provides fallback if Redis cache is cleared.
      *
      * @private
      * @param {string} hash - Event hash
@@ -467,27 +468,120 @@ class EventStore {
      * @returns {Promise<void>}
      */
     async storeHashCIDMapping(hash, cid) {
-        if (!this.redisEnabled) {
-            return; // Silently skip if Redis not available
+        const promises = [];
+
+        // Store in Redis (fast cache)
+        if (this.redisEnabled) {
+            const key = `ipfs:hash:${hash}`;
+            promises.push(
+                this.redis.set(key, cid)
+                    .catch(err => console.warn(`   Failed to cache hash→CID in Redis: ${err.message}`))
+            );
         }
-        const key = `ipfs:hash:${hash}`;
-        // Store mapping with no expiration (permanent)
-        await this.redis.set(key, cid);
+
+        // Store in S3 sidecar file (durable fallback)
+        if (this.s3Enabled) {
+            promises.push(
+                this.storeCIDToS3(hash, cid)
+                    .catch(err => console.warn(`   Failed to store hash→CID in S3: ${err.message}`))
+            );
+        }
+
+        await Promise.allSettled(promises);
+    }
+
+    /**
+     * Store CID to S3 sidecar file for durable hash→CID mapping.
+     *
+     * @private
+     * @param {string} hash - Event hash
+     * @param {string} cid - IPFS CID
+     * @returns {Promise<void>}
+     */
+    async storeCIDToS3(hash, cid) {
+        const key = `mappings/${hash.substring(0, 2)}/${hash}.json`;
+        const data = JSON.stringify({ hash, cid, stored_at: new Date().toISOString() });
+
+        const command = new PutObjectCommand({
+            Bucket: this.s3Bucket,
+            Key: key,
+            Body: data,
+            ContentType: 'application/json'
+        });
+
+        await this.s3.send(command);
     }
 
     /**
      * Retrieve IPFS CID from hash mapping in Redis.
+     * Falls back to S3 metadata if Redis cache miss.
      *
      * @private
      * @param {string} hash - Event hash
      * @returns {Promise<string|null>} IPFS CID or null if not found
      */
     async getHashCIDMapping(hash) {
-        if (!this.redisEnabled) {
+        // Try Redis cache first (fast)
+        if (this.redisEnabled) {
+            const key = `ipfs:hash:${hash}`;
+            const cid = await this.redis.get(key);
+            if (cid) {
+                return cid;
+            }
+        }
+
+        // Fallback to S3 metadata (durable)
+        return await this.getCIDFromS3Metadata(hash);
+    }
+
+    /**
+     * Retrieve IPFS CID from S3 sidecar file.
+     * This provides a durable fallback if Redis cache is cleared.
+     *
+     * @private
+     * @param {string} hash - Event hash
+     * @returns {Promise<string|null>} IPFS CID from S3 sidecar, or null if not found
+     */
+    async getCIDFromS3Metadata(hash) {
+        if (!this.s3Enabled) {
             return null;
         }
-        const key = `ipfs:hash:${hash}`;
-        return await this.redis.get(key);
+
+        try {
+            const key = `mappings/${hash.substring(0, 2)}/${hash}.json`;
+
+            const command = new GetObjectCommand({
+                Bucket: this.s3Bucket,
+                Key: key
+            });
+
+            const response = await this.s3.send(command);
+
+            // Convert stream to string
+            const chunks = [];
+            for await (const chunk of response.Body) {
+                chunks.push(chunk);
+            }
+            const data = Buffer.concat(chunks).toString('utf-8');
+            const mapping = JSON.parse(data);
+
+            const cid = mapping.cid;
+
+            if (cid) {
+                console.log(`   Retrieved IPFS CID from S3 sidecar: ${cid}`);
+                // Re-populate Redis cache for future requests
+                if (this.redisEnabled) {
+                    const redisKey = `ipfs:hash:${hash}`;
+                    await this.redis.set(redisKey, cid)
+                        .catch(err => console.warn(`   Failed to cache CID: ${err.message}`));
+                }
+            }
+
+            return cid || null;
+        } catch (error) {
+            // Sidecar file not found - not an error, just return null
+            return null;
+        }
     }
 
     /**
