@@ -158,7 +158,7 @@ services:
       - ./backend/test:/app/test
     networks:
       - polaris-network
-    command: npm run dev
+    command: npm run dev:docker
 
   # Event Processor (Blockchain → Graph)
   processor:
@@ -212,7 +212,7 @@ services:
       - ./backend/src:/app/src
     networks:
       - polaris-network
-    command: npm run processor
+    command: npm run processor:docker
 
   # Frontend Development Server
   frontend:
