@@ -77,6 +77,13 @@ public:
         check(ts >= MIN_VALID_TIMESTAMP, "Timestamp too far in past (minimum 2023-01-01)");
         check(tags.size() <= 10, "Too many tags (max 10)");
 
+        // Validate each tag format and length
+        for (const auto& tag : tags) {
+            check(tag.length() >= 3, "Tag too short (minimum 3 characters): " + tag.to_string());
+            check(tag.length() <= 12, "Tag too long (maximum 12 characters): " + tag.to_string());
+            // Note: Antelope name type already validates format (a-z, 1-5, dots only)
+        }
+
         // Prevent duplicate hashes
         anchors_table anchors(get_self(), get_self().value);
         auto hash_idx = anchors.get_index<"byhash"_n>();
