@@ -468,10 +468,12 @@ public:
      * Allows tuning reward distribution without contract redeployment.
      * All ratios are in basis points (10000 = 100%).
      *
-     * @param approved_author_pct - % to author if approved (default: 4000 = 40%)
-     * @param approved_voters_pct - % to YES voters if approved (default: 3000 = 30%)
-     * @param approved_stakers_pct - % to stakers if approved (default: 3000 = 30%)
-     * @param rejected_voters_pct - % to NO voters if rejected (default: 5000 = 50%)
+     * Voters receive equal shares (not weighted by Respect).
+     *
+     * @param approved_author_pct - % to author if approved (default: 5000 = 50%)
+     * @param approved_voters_pct - % to YES voters if approved, distributed equally (default: 5000 = 50%)
+     * @param approved_stakers_pct - % to stakers if approved (default: 0 = 0%, typically unused)
+     * @param rejected_voters_pct - % to NO voters if rejected, distributed equally (default: 5000 = 50%)
      * @param rejected_stakers_pct - % to stakers if rejected (default: 5000 = 50%)
      */
     ACTION setdistribution(
@@ -1236,10 +1238,10 @@ private:
         uint64_t    multiplier_merge = 20000;          // MERGE_ENTITY
 
         // Distribution ratios (in basis points, 10000 = 100%)
-        uint64_t    approved_author_pct = 4000;    // 40% to author if approved
-        uint64_t    approved_voters_pct = 3000;    // 30% to voters if approved
-        uint64_t    approved_stakers_pct = 3000;   // 30% to stakers if approved
-        uint64_t    rejected_voters_pct = 5000;    // 50% to no-voters if rejected
+        uint64_t    approved_author_pct = 5000;    // 50% to author if approved
+        uint64_t    approved_voters_pct = 5000;    // 50% to voters if approved (equal distribution)
+        uint64_t    approved_stakers_pct = 0;      // 0% to stakers if approved
+        uint64_t    rejected_voters_pct = 5000;    // 50% to no-voters if rejected (equal distribution)
         uint64_t    rejected_stakers_pct = 5000;   // 50% to stakers if rejected
 
         EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)
@@ -1416,9 +1418,8 @@ private:
      * @brief Distribute rewards for approved submissions
      *
      * Distribution:
-     * - 40% to author (configurable via approved_author_pct)
-     * - 30% to voters who voted YES (configurable via approved_voters_pct)
-     * - 30% to stakers (configurable via approved_stakers_pct)
+     * - 50% to author (configurable via approved_author_pct)
+     * - 50% to voters who voted YES, distributed equally (configurable via approved_voters_pct)
      */
     void distribute_rewards_approved(name author, const checksum256& tx_hash, uint64_t total_amount) {
         if(total_amount == 0) return;
@@ -1427,22 +1428,16 @@ private:
 
         // Calculate shares based on configured ratios
         uint64_t author_share = (total_amount * g.approved_author_pct) / 10000;
-        uint64_t voters_share = (total_amount * g.approved_voters_pct) / 10000;
-        uint64_t stakers_share = total_amount - author_share - voters_share;
+        uint64_t voters_share = total_amount - author_share;
 
         // Transfer to author
         if (author_share > 0) {
             issue_tokens(author, author_share, "Approved submission reward");
         }
 
-        // Distribute to voters who voted YES (weighted by stake)
+        // Distribute to voters who voted YES (equal distribution among voters)
         if (voters_share > 0) {
             distribute_to_voters(tx_hash, voters_share, true); // true = up voters only
-        }
-
-        // Distribute to stakers
-        if (stakers_share > 0) {
-            distribute_to_stakers(stakers_share);
         }
     }
 
@@ -1450,7 +1445,7 @@ private:
      * @brief Distribute rewards for rejected submissions
      *
      * Distribution:
-     * - 50% to voters who voted NO (configurable via rejected_voters_pct)
+     * - 50% to voters who voted NO, distributed equally (configurable via rejected_voters_pct)
      * - 50% to stakers (configurable via rejected_stakers_pct)
      */
     void distribute_rewards_rejected(const checksum256& tx_hash, uint64_t total_amount,
@@ -1463,7 +1458,7 @@ private:
         uint64_t voters_share = (total_amount * g.rejected_voters_pct) / 10000;
         uint64_t stakers_share = total_amount - voters_share;
 
-        // Distribute to voters who voted NO (down voters)
+        // Distribute to voters who voted NO (down voters, equal distribution)
         if (voters_share > 0) {
             distribute_to_voters(tx_hash, voters_share, false); // false = down voters only
         }
@@ -1475,11 +1470,15 @@ private:
     }
 
     /**
-     * @brief Distribute rewards to voters proportionally by weight
+     * @brief Distribute rewards to voters equally (not weighted by Respect)
+     *
+     * Each voter receives an equal share of the total amount, regardless of their
+     * Respect value. This provides fair compensation for voting participation.
      *
      * Uses checks-effects-interactions pattern to prevent reentrancy:
-     * 1. Calculate all distributions
-     * 2. Issue all tokens (external calls)
+     * 1. Count voters
+     * 2. Calculate equal shares
+     * 3. Issue all tokens (external calls)
      *
      * @param tx_hash - Event hash to distribute rewards for
      * @param total_amount - Total amount to distribute
@@ -1494,36 +1493,36 @@ private:
         // Determine which vote value we're looking for (+1 for up voters, -1 for down voters)
         int8_t target_vote = up_voters_only ? 1 : -1;
 
-        // First pass: calculate total weight of target voters
-        uint64_t total_weight = 0;
+        // First pass: count target voters
+        uint32_t voter_count = 0;
         auto itr = hash_idx.lower_bound(tx_hash);
         while(itr != hash_idx.end() && itr->tx_hash == tx_hash) {
             if(itr->val == target_vote) {
-                total_weight += itr->weight;
+                voter_count++;
             }
             ++itr;
         }
 
-        if(total_weight == 0) return;
+        if(voter_count == 0) return;
 
-        // Second pass: collect all distributions (avoid reentrancy)
-        std::vector<std::pair<name, uint64_t>> distributions;
+        // Calculate equal share per voter
+        uint64_t share_per_voter = total_amount / voter_count;
+        if(share_per_voter == 0) return;
+
+        // Second pass: collect all voters (avoid reentrancy)
+        std::vector<name> voters;
         itr = hash_idx.lower_bound(tx_hash);
         while(itr != hash_idx.end() && itr->tx_hash == tx_hash) {
             if(itr->val == target_vote) {
-                // Use 128-bit intermediate to prevent overflow
-                uint64_t voter_share = (static_cast<uint128_t>(total_amount) * itr->weight) / total_weight;
-                if(voter_share > 0) {
-                    distributions.push_back({itr->voter, voter_share});
-                }
+                voters.push_back(itr->voter);
             }
             ++itr;
         }
 
         // Third pass: execute all token distributions (external calls last)
-        for(const auto& [voter, amount] : distributions) {
-            std::string memo = up_voters_only ? "YES vote reward" : "NO vote reward";
-            issue_tokens(voter, amount, memo);
+        std::string memo = up_voters_only ? "YES vote reward" : "NO vote reward";
+        for(const auto& voter : voters) {
+            issue_tokens(voter, share_per_voter, memo);
         }
     }
 
