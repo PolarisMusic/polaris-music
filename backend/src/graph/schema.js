@@ -150,6 +150,45 @@ class MusicGraphDatabase {
                 {
                     name: 'identity_map_key',
                     query: 'CREATE CONSTRAINT identity_map_key IF NOT EXISTS FOR (im:IdentityMap) REQUIRE im.key IS UNIQUE'
+                },
+
+                // Universal ID constraints (for merge operations)
+                // These ensure all nodes have a universal 'id' property for entity merge/resolution
+                {
+                    name: 'person_universal_id',
+                    query: 'CREATE CONSTRAINT person_universal_id IF NOT EXISTS FOR (p:Person) REQUIRE p.id IS UNIQUE'
+                },
+                {
+                    name: 'group_universal_id',
+                    query: 'CREATE CONSTRAINT group_universal_id IF NOT EXISTS FOR (g:Group) REQUIRE g.id IS UNIQUE'
+                },
+                {
+                    name: 'song_universal_id',
+                    query: 'CREATE CONSTRAINT song_universal_id IF NOT EXISTS FOR (s:Song) REQUIRE s.id IS UNIQUE'
+                },
+                {
+                    name: 'track_universal_id',
+                    query: 'CREATE CONSTRAINT track_universal_id IF NOT EXISTS FOR (t:Track) REQUIRE t.id IS UNIQUE'
+                },
+                {
+                    name: 'release_universal_id',
+                    query: 'CREATE CONSTRAINT release_universal_id IF NOT EXISTS FOR (r:Release) REQUIRE r.id IS UNIQUE'
+                },
+                {
+                    name: 'master_universal_id',
+                    query: 'CREATE CONSTRAINT master_universal_id IF NOT EXISTS FOR (m:Master) REQUIRE m.id IS UNIQUE'
+                },
+                {
+                    name: 'label_universal_id',
+                    query: 'CREATE CONSTRAINT label_universal_id IF NOT EXISTS FOR (l:Label) REQUIRE l.id IS UNIQUE'
+                },
+                {
+                    name: 'account_universal_id',
+                    query: 'CREATE CONSTRAINT account_universal_id IF NOT EXISTS FOR (a:Account) REQUIRE a.id IS UNIQUE'
+                },
+                {
+                    name: 'city_universal_id',
+                    query: 'CREATE CONSTRAINT city_universal_id IF NOT EXISTS FOR (c:City) REQUIRE c.id IS UNIQUE'
                 }
             ];
 
@@ -304,7 +343,8 @@ class MusicGraphDatabase {
 
                 await tx.run(`
                     MERGE (g:Group {group_id: $groupId})
-                    SET g.name = $name,
+                    SET g.id = $groupId,
+                        g.name = $name,
                         g.alt_names = $altNames,
                         g.bio = $bio,
                         g.formed_date = $formed,
@@ -316,6 +356,7 @@ class MusicGraphDatabase {
                     // Link to submitter Account
                     WITH g
                     MERGE (a:Account {account_id: $account})
+                    ON CREATE SET a.id = $account
                     ON CREATE SET a.created_at = datetime()
                     MERGE (a)-[sub:SUBMITTED {
                         event_hash: $eventHash,
@@ -342,7 +383,8 @@ class MusicGraphDatabase {
                     await tx.run(`
                         MATCH (g:Group {group_id: $groupId})
                         MERGE (c:City {city_id: $cityId})
-                        ON CREATE SET c.name = $cityName,
+                        ON CREATE SET c.id = $cityId,
+                                     c.name = $cityName,
                                      c.lat = $cityLat,
                                      c.lon = $cityLon
                         MERGE (g)-[:ORIGIN]->(c)
@@ -364,7 +406,8 @@ class MusicGraphDatabase {
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
-                        ON CREATE SET p.name = $name,
+                        ON CREATE SET p.id = $personId,
+                            p.name = $name,
                                      p.status = $status,
                                      p.created_at = datetime()
 
@@ -398,7 +441,8 @@ class MusicGraphDatabase {
                         await tx.run(`
                             MATCH (p:Person {person_id: $personId})
                             MERGE (c:City {city_id: $cityId})
-                            ON CREATE SET c.name = $cityName,
+                            ON CREATE SET c.id = $cityId,
+                                     c.name = $cityName,
                                          c.lat = $cityLat,
                                          c.lon = $cityLon
                             MERGE (p)-[:ORIGIN]->(c)
@@ -428,7 +472,8 @@ class MusicGraphDatabase {
 
             await tx.run(`
                 MERGE (r:Release {release_id: $releaseId})
-                SET r.name = $name,
+                SET r.id = $releaseId,
+                    r.name = $name,
                     r.alt_names = $altNames,
                     r.release_date = $date,
                     r.format = $format,
@@ -444,6 +489,7 @@ class MusicGraphDatabase {
                 // Link to submitter
                 WITH r
                 MERGE (a:Account {account_id: $account})
+                    ON CREATE SET a.id = $account
                 MERGE (a)-[:SUBMITTED {event_hash: $eventHash}]->(r)
 
                 RETURN r.release_id as releaseId
@@ -469,7 +515,8 @@ class MusicGraphDatabase {
 
                 await tx.run(`
                     MERGE (p:Person {person_id: $personId})
-                    ON CREATE SET p.name = $name,
+                    ON CREATE SET p.id = $personId,
+                            p.name = $name,
                                  p.status = $status
 
                     WITH p
@@ -504,7 +551,8 @@ class MusicGraphDatabase {
 
                 await tx.run(`
                     MERGE (s:Song {song_id: $songId})
-                    SET s.title = $title,
+                    SET s.id = $songId,
+                        s.title = $title,
                         s.alt_titles = $altTitles,
                         s.iswc = $iswc,
                         s.year = $year,
@@ -527,7 +575,8 @@ class MusicGraphDatabase {
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
-                        ON CREATE SET p.name = $name,
+                        ON CREATE SET p.id = $personId,
+                            p.name = $name,
                                      p.status = $status
                         WITH p
                         MATCH (s:Song {song_id: $songId})
@@ -563,7 +612,8 @@ class MusicGraphDatabase {
 
                 await tx.run(`
                     MERGE (t:Track {track_id: $trackId})
-                    SET t.title = $title,
+                    SET t.id = $trackId,
+                        t.title = $title,
                         t.isrc = $isrc,
                         t.duration = $duration,
                         t.recording_date = $recordingDate,
@@ -614,7 +664,8 @@ class MusicGraphDatabase {
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
-                        ON CREATE SET p.name = $name,
+                        ON CREATE SET p.id = $personId,
+                            p.name = $name,
                                      p.status = $status
 
                         WITH p
@@ -643,7 +694,8 @@ class MusicGraphDatabase {
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
-                        ON CREATE SET p.name = $name,
+                        ON CREATE SET p.id = $personId,
+                            p.name = $name,
                                      p.status = $status
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
@@ -665,7 +717,8 @@ class MusicGraphDatabase {
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
-                        ON CREATE SET p.name = $name,
+                        ON CREATE SET p.id = $personId,
+                            p.name = $name,
                                      p.status = $status
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
@@ -712,7 +765,8 @@ class MusicGraphDatabase {
                     await tx.run(`
                         MATCH (t1:Track {track_id: $trackId})
                         MERGE (t2:Track {track_id: $sampleId})
-                        ON CREATE SET t2.status = 'provisional',
+                        ON CREATE SET t2.id = $sampleId,
+                                     t2.status = 'provisional',
                                      t2.title = $sampleTitle
                         MERGE (t1)-[s:SAMPLES {claim_id: $claimId}]->(t2)
                         SET s.portion_used = $portion,
@@ -762,7 +816,8 @@ class MusicGraphDatabase {
             if (normalizedBundle.release.master_id) {
                 await tx.run(`
                     MERGE (m:Master {master_id: $masterId})
-                    ON CREATE SET m.name = $masterName,
+                    ON CREATE SET m.id = $masterId,
+                                 m.name = $masterName,
                                  m.created_at = datetime()
                     WITH m
                     MATCH (r:Release {release_id: $releaseId})
@@ -780,7 +835,8 @@ class MusicGraphDatabase {
 
                 await tx.run(`
                     MERGE (l:Label {label_id: $labelId})
-                    ON CREATE SET l.name = $labelName,
+                    ON CREATE SET l.id = $labelId,
+                                 l.name = $labelName,
                                  l.status = $status
 
                     WITH l
@@ -798,7 +854,8 @@ class MusicGraphDatabase {
                     await tx.run(`
                         MATCH (l:Label {label_id: $labelId})
                         MERGE (c:City {city_id: $cityId})
-                        ON CREATE SET c.name = $cityName,
+                        ON CREATE SET c.id = $cityId,
+                                     c.name = $cityName,
                                      c.lat = $cityLat,
                                      c.lon = $cityLon
                         MERGE (l)-[:ORIGIN]->(c)
