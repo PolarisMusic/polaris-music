@@ -18,6 +18,7 @@ import neo4j from 'neo4j-driver';
 import { createHash } from 'crypto';
 import { IdentityService, EntityType } from '../identity/idService.js';
 import { MergeOperations } from './merge.js';
+import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 
 /**
  * Main class for interacting with the Neo4j graph database.
@@ -271,6 +272,11 @@ class MusicGraphDatabase {
                 throw new Error('Invalid release bundle: missing required fields');
             }
 
+            // Normalize bundle to canonical schema format
+            // Handles legacy field names (release_name → name, releaseDate → release_date, etc.)
+            console.log(`Normalizing release bundle from event ${eventHash.substring(0, 8)}...`);
+            const normalizedBundle = normalizeReleaseBundle(bundle);
+
             console.log(`Processing release bundle from event ${eventHash.substring(0, 8)}...`);
 
             // Generate deterministic operation IDs for each sub-operation
@@ -289,7 +295,7 @@ class MusicGraphDatabase {
 
             const processedGroups = [];
 
-            for (const group of bundle.groups || []) {
+            for (const group of normalizedBundle.groups || []) {
                 const groupOpId = opId();
                 const groupId = await this.resolveEntityId(tx, 'group', group);
 
@@ -416,9 +422,9 @@ class MusicGraphDatabase {
             // ========== 2. CREATE RELEASE ==========
 
             const releaseOpId = opId();
-            const releaseId = await this.resolveEntityId(tx, 'release', bundle.release);
+            const releaseId = await this.resolveEntityId(tx, 'release', normalizedBundle.release);
 
-            console.log(`  Creating release: ${bundle.release.name} (${releaseId.substring(0, 12)}...)`);
+            console.log(`  Creating release: ${normalizedBundle.release.name} (${releaseId.substring(0, 12)}...)`);
 
             await tx.run(`
                 MERGE (r:Release {release_id: $releaseId})
@@ -443,22 +449,22 @@ class MusicGraphDatabase {
                 RETURN r.release_id as releaseId
             `, {
                 releaseId,
-                name: bundle.release.name,
-                altNames: bundle.release.alt_names || [],
-                date: bundle.release.release_date || null,
-                format: bundle.release.format || [],
-                country: bundle.release.country || null,
-                catalogNumber: bundle.release.catalog_number || null,
-                linerNotes: bundle.release.liner_notes || null,
-                trivia: bundle.release.trivia || null,
-                albumArt: bundle.release.album_art || null,
-                status: bundle.release.release_id ? 'canonical' : 'provisional',
+                name: normalizedBundle.release.name,
+                altNames: normalizedBundle.release.alt_names || [],
+                date: normalizedBundle.release.release_date || null,
+                format: normalizedBundle.release.format || [],
+                country: normalizedBundle.release.country || null,
+                catalogNumber: normalizedBundle.release.catalog_number || null,
+                linerNotes: normalizedBundle.release.liner_notes || null,
+                trivia: normalizedBundle.release.trivia || null,
+                albumArt: normalizedBundle.release.album_art || null,
+                status: normalizedBundle.release.release_id ? 'canonical' : 'provisional',
                 eventHash,
                 account: submitterAccount
             });
 
             // Process release-level guests (engineers, producers, etc.)
-            for (const guest of bundle.release.guests || []) {
+            for (const guest of normalizedBundle.release.guests || []) {
                 const personId = await this.resolveEntityId(tx, 'person', guest);
 
                 await tx.run(`
@@ -484,13 +490,13 @@ class MusicGraphDatabase {
 
             // Create audit claim for release
             await this.createClaim(tx, releaseOpId, 'Release', releaseId,
-                                 'created', bundle.release, eventHash);
+                                 'created', normalizedBundle.release, eventHash);
 
             // ========== 3. PROCESS SONGS (Compositions) ==========
 
             const processedSongs = new Map(); // songId -> song data
 
-            for (const song of bundle.songs || []) {
+            for (const song of normalizedBundle.songs || []) {
                 const songOpId = opId();
                 const songId = await this.resolveEntityId(tx, 'song', song);
 
@@ -549,7 +555,7 @@ class MusicGraphDatabase {
 
             const processedTracks = [];
 
-            for (const track of bundle.tracks || []) {
+            for (const track of normalizedBundle.tracks || []) {
                 const trackOpId = opId();
                 const trackId = await this.resolveEntityId(tx, 'track', track);
 
@@ -730,9 +736,9 @@ class MusicGraphDatabase {
             // ========== 5. CREATE TRACKLIST ==========
             // Link tracks to the release with order information
 
-            console.log(`  Linking ${bundle.tracklist?.length || 0} tracks to release...`);
+            console.log(`  Linking ${normalizedBundle.tracklist?.length || 0} tracks to release...`);
 
-            for (const item of bundle.tracklist || []) {
+            for (const item of normalizedBundle.tracklist || []) {
                 await tx.run(`
                     MATCH (t:Track {track_id: $trackId})
                     MATCH (r:Release {release_id: $releaseId})
@@ -753,7 +759,7 @@ class MusicGraphDatabase {
 
             // ========== 6. LINK MASTER AND LABELS ==========
 
-            if (bundle.release.master_id) {
+            if (normalizedBundle.release.master_id) {
                 await tx.run(`
                     MERGE (m:Master {master_id: $masterId})
                     ON CREATE SET m.name = $masterName,
@@ -762,14 +768,14 @@ class MusicGraphDatabase {
                     MATCH (r:Release {release_id: $releaseId})
                     MERGE (r)-[:IN_MASTER]->(m)
                 `, {
-                    masterId: bundle.release.master_id,
-                    masterName: bundle.release.master_name || bundle.release.name,
+                    masterId: normalizedBundle.release.master_id,
+                    masterName: normalizedBundle.release.master_name || normalizedBundle.release.name,
                     releaseId
                 });
             }
 
             // Link labels
-            for (const label of bundle.release.labels || []) {
+            for (const label of normalizedBundle.release.labels || []) {
                 const labelId = await this.resolveEntityId(tx, 'label', label);
 
                 await tx.run(`
