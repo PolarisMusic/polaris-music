@@ -20,6 +20,7 @@ import { create as createIPFS } from 'ipfs-http-client';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
 import { createHash } from 'crypto';
+import stringify from 'fast-json-stable-stringify';
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -523,7 +524,13 @@ class EventStore {
 
     /**
      * Calculate deterministic SHA256 hash of an event.
-     * Hash is calculated from canonical JSON representation.
+     * Hash is calculated from canonical JSON representation using RFC 8785-compliant
+     * stable stringification that handles nested objects correctly.
+     *
+     * CRITICAL: Uses fast-json-stable-stringify to prevent hash collisions.
+     * Previous implementation with JSON.stringify(obj, keys.sort()) only sorted
+     * top-level keys, causing nested objects to serialize as {} and creating
+     * hash collisions for events differing only in nested fields.
      *
      * @param {Object} event - Event to hash
      * @returns {string} SHA256 hash (hex)
@@ -533,8 +540,9 @@ class EventStore {
         // Exclude signature field from hash calculation
         const { sig, ...eventWithoutSig } = event;
 
-        // Sort keys for deterministic JSON
-        const canonical = JSON.stringify(eventWithoutSig, Object.keys(eventWithoutSig).sort());
+        // Use stable stringify to recursively sort all keys (including nested)
+        // This ensures events with different nested data produce different hashes
+        const canonical = stringify(eventWithoutSig);
 
         return createHash('sha256')
             .update(canonical)
