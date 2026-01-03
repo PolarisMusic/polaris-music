@@ -22,6 +22,7 @@ import EventStore from '../storage/eventStore.js';
 import { createIdentityRoutes } from './routes/identity.js';
 import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
+import { MergeOperations } from '../graph/merge.js';
 
 /**
  * GraphQL Schema Definition
@@ -748,6 +749,83 @@ class APIServer {
             } catch (error) {
                 console.error('Event retrieval failed:', error);
                 res.status(404).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * POST /api/merge
+         * Merge duplicate entities (event-sourced)
+         *
+         * Creates a MERGE_ENTITY event, stores it, and performs the merge operation.
+         * Returns the event hash for provenance tracking and replay.
+         */
+        this.app.post('/api/merge', async (req, res) => {
+            try {
+                const { survivorId, absorbedIds, evidence, submitter } = req.body;
+
+                // Validate inputs
+                if (!survivorId || !absorbedIds || !Array.isArray(absorbedIds) || absorbedIds.length === 0) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'survivorId and absorbedIds (non-empty array) are required'
+                    });
+                }
+
+                // Create MERGE_ENTITY event
+                const mergeEvent = {
+                    v: 1,
+                    type: 'MERGE_ENTITY',
+                    author_pubkey: submitter || 'system',
+                    created_at: Math.floor(Date.now() / 1000),
+                    parents: [],
+                    body: {
+                        survivor_id: survivorId,
+                        absorbed_ids: absorbedIds,
+                        evidence: evidence || '',
+                        merged_at: new Date().toISOString()
+                    },
+                    proofs: {
+                        source_links: []
+                    },
+                    sig: '' // In production, should be signed by submitter
+                };
+
+                // Store event (creates hash)
+                const storeResult = await this.store.storeEvent(mergeEvent);
+                const eventHash = storeResult.hash;
+
+                console.log(`Merge event created: ${eventHash}`);
+
+                // Perform merge operation with event hash
+                const session = this.db.driver.session();
+                try {
+                    const mergeStats = await MergeOperations.mergeEntities(
+                        session,
+                        survivorId,
+                        absorbedIds,
+                        {
+                            submitter: submitter || 'system',
+                            eventHash: eventHash,
+                            evidence: evidence || '',
+                            rewireEdges: true,
+                            moveClaims: true
+                        }
+                    );
+
+                    res.status(200).json({
+                        success: true,
+                        eventHash: eventHash,
+                        merge: mergeStats
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Merge operation failed:', error);
+                res.status(400).json({
                     success: false,
                     error: error.message
                 });
