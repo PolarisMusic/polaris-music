@@ -23,6 +23,7 @@ export class IngestionHandler {
         this.store = eventStore;
         this.processor = eventProcessor;
         this.processedHashes = new Set(); // In-memory dedupe cache (TODO: use Redis)
+        this.processedBlockTrxAction = new Set(); // Secondary dedupe by (block, trx, ordinal) - T6
     }
 
     /**
@@ -72,6 +73,22 @@ export class IngestionHandler {
             }
         } catch (error) {
             // Event not found - proceed with ingestion
+        }
+
+        // Step 2b: Secondary dedupe by (blockNum, trxId, actionOrdinal) - T6
+        // This prevents double-ingestion when switching between Substreams and SHiP
+        if (block_num && trx_id && action_ordinal !== undefined) {
+            const blockTrxActionKey = `${block_num}:${trx_id}:${action_ordinal}`;
+            if (this.processedBlockTrxAction.has(blockTrxActionKey)) {
+                return {
+                    status: 'duplicate',
+                    eventHash: event_hash,
+                    message: 'Event already processed (duplicate block/trx/action)',
+                    dedupeKey: blockTrxActionKey
+                };
+            }
+            // Mark as processed
+            this.processedBlockTrxAction.add(blockTrxActionKey);
         }
 
         // Step 3: Parse payload
