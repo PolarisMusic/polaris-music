@@ -20,6 +20,8 @@ import { buildSchema } from 'graphql';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
 import { createIdentityRoutes } from './routes/identity.js';
+import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
+import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 
 /**
  * GraphQL Schema Definition
@@ -688,12 +690,28 @@ class APIServer {
         /**
          * POST /api/events/create
          * Submit a new event to storage and blockchain
+         *
+         * Validates CREATE_RELEASE_BUNDLE events against canonical schema
+         * to ensure no partial writes and deterministic error messages.
          */
         this.app.post('/api/events/create', async (req, res) => {
             try {
                 const event = req.body;
 
-                // Validate and store event
+                // Validate CREATE_RELEASE_BUNDLE events at ingress
+                if (event.type === 'CREATE_RELEASE_BUNDLE' && event.body) {
+                    // Step 1: Normalize legacy field names → canonical format
+                    const normalizedBundle = normalizeReleaseBundle(event.body);
+
+                    // Step 2: Validate against canonical schema
+                    // This ensures deterministic validation and prevents partial writes
+                    validateReleaseBundleOrThrow(normalizedBundle);
+
+                    // Replace event body with normalized+validated version
+                    event.body = normalizedBundle;
+                }
+
+                // Store validated event
                 const result = await this.store.storeEvent(event);
 
                 res.status(201).json({

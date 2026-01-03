@@ -19,6 +19,7 @@ import { createHash } from 'crypto';
 import { IdentityService, EntityType } from '../identity/idService.js';
 import { MergeOperations } from './merge.js';
 import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
+import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 
 /**
  * Main class for interacting with the Neo4j graph database.
@@ -311,10 +312,15 @@ class MusicGraphDatabase {
                 throw new Error('Invalid release bundle: missing required fields');
             }
 
-            // Normalize bundle to canonical schema format
+            // Step 1: Normalize bundle to canonical schema format
             // Handles legacy field names (release_name → name, releaseDate → release_date, etc.)
             console.log(`Normalizing release bundle from event ${eventHash.substring(0, 8)}...`);
             const normalizedBundle = normalizeReleaseBundle(bundle);
+
+            // Step 2: Validate normalized bundle against canonical schema
+            // This ensures data integrity and prevents partial writes
+            console.log(`Validating canonical bundle from event ${eventHash.substring(0, 8)}...`);
+            validateReleaseBundleOrThrow(normalizedBundle);
 
             console.log(`Processing release bundle from event ${eventHash.substring(0, 8)}...`);
 
