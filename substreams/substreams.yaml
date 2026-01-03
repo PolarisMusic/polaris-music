@@ -94,8 +94,33 @@ modules:
       Example:
         substreams run map_stats --start-block 100000000 --stop-block +1000
 
+  # Extract anchored events for chain ingestion (T5 primary output)
+  - name: map_anchored_events
+    kind: map
+    inputs:
+      - params: string
+      - source: sf.antelope.type.v1.Block
+    output:
+      type: proto:polaris.v1.AnchoredEvents
+    doc: |
+      Extracts anchored events with complete blockchain provenance for chain ingestion.
+      This is the primary output for the T5 ingestion pipeline.
+
+      Each anchored event includes:
+      - Event hash (SHA256 of payload)
+      - Raw event payload (JSON)
+      - Block metadata (number, ID, timestamp)
+      - Transaction metadata (ID, action ordinal)
+      - Source identifier
+
+      Example:
+        substreams run -e eos.firehose.pinax.network:443 \
+          map_anchored_events -p map_anchored_events="polaris" \
+          --start-block 100000000 --stop-block +1000
+
 params:
   map_events: polaris
+  map_anchored_events: polaris
 
 network: eos-mainnet
 

@@ -19,10 +19,12 @@ import { graphqlHTTP } from 'express-graphql';
 import { buildSchema } from 'graphql';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
+import EventProcessor from '../indexer/eventProcessor.js';
 import { createIdentityRoutes } from './routes/identity.js';
 import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 import { MergeOperations } from '../graph/merge.js';
+import { IngestionHandler } from './ingestion.js';
 
 /**
  * GraphQL Schema Definition
@@ -266,6 +268,13 @@ class APIServer {
         // Initialize database and storage
         this.db = new MusicGraphDatabase(config.database);
         this.store = new EventStore(config.storage);
+
+        // Initialize event processor and ingestion handler (T5)
+        this.eventProcessor = new EventProcessor({
+            db: this.db,
+            store: this.store
+        });
+        this.ingestionHandler = new IngestionHandler(this.store, this.eventProcessor);
 
         // Setup middleware and routes
         this.setupMiddleware();
@@ -828,6 +837,66 @@ class APIServer {
                 res.status(400).json({
                     success: false,
                     error: error.message
+                });
+            }
+        });
+
+        // ========== CHAIN INGESTION ENDPOINT (T5) ==========
+
+        /**
+         * POST /api/ingest/anchored-event
+         * Ingest anchored event from Substreams chain ingestion
+         *
+         * Request body: AnchoredEvent
+         * {
+         *   event_hash: string,
+         *   payload: string | Buffer,
+         *   block_num: number,
+         *   block_id: string,
+         *   trx_id: string,
+         *   action_ordinal: number,
+         *   timestamp: number,
+         *   source: string,
+         *   contract_account: string,
+         *   action_name: string
+         * }
+         *
+         * Response:
+         * {
+         *   status: "processed" | "duplicate" | "error",
+         *   eventHash: string,
+         *   eventType?: string,
+         *   blockNum?: number,
+         *   trxId?: string,
+         *   processing?: Object
+         * }
+         */
+        this.app.post('/api/ingest/anchored-event', async (req, res) => {
+            try {
+                const anchoredEvent = req.body;
+
+                // Validate required fields
+                if (!anchoredEvent.event_hash || !anchoredEvent.payload) {
+                    return res.status(400).json({
+                        status: 'error',
+                        error: 'Missing required fields: event_hash and payload'
+                    });
+                }
+
+                // Process anchored event
+                const result = await this.ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+                // Return appropriate status code
+                const statusCode = result.status === 'duplicate' ? 200 : 201;
+
+                res.status(statusCode).json(result);
+
+            } catch (error) {
+                console.error('Chain ingestion error:', error);
+                res.status(500).json({
+                    status: 'error',
+                    error: error.message,
+                    stack: this.config.env === 'development' ? error.stack : undefined
                 });
             }
         });

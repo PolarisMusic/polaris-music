@@ -9,9 +9,9 @@ use substreams::store::{StoreAdd, StoreAddInt64, StoreGet, StoreGetInt64, StoreN
 use substreams_antelope::pb::Block;
 
 use pb::polaris::v1::{
-    AccountActivities, AccountActivity, AttestEvent, Event, EventData, Events, FinalizeEvent,
-    LikeEvent, PutEvent, RespectUpdate, StakeEvent, Stats, UnlikeEvent, UnstakeEvent,
-    UpdateRespectEvent, VoteEvent,
+    AccountActivities, AccountActivity, AnchoredEvent, AnchoredEvents, AttestEvent, Event,
+    EventData, Events, FinalizeEvent, LikeEvent, PutEvent, RespectUpdate, StakeEvent, Stats,
+    UnlikeEvent, UnstakeEvent, UpdateRespectEvent, VoteEvent,
 };
 
 /// Map module: Extract all Polaris Music Registry events from blocks
@@ -77,6 +77,103 @@ fn map_events(params: String, block: Block) -> Result<Events, Error> {
     log::info!("Extracted {} events from block {}", events.len(), block.number);
 
     Ok(Events { events })
+}
+
+/// Map module: Extract anchored events with full blockchain provenance (T5)
+/// This is the primary output for chain ingestion pipeline
+#[substreams::handlers::map]
+fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, Error> {
+    use sha2::{Digest, Sha256};
+
+    // Parse contract account from params (defaults to "polaris")
+    let contract_account = if params.is_empty() {
+        "polaris".to_string()
+    } else {
+        params
+    };
+
+    log::info!(
+        "Processing block {} for anchored events (contract: {})",
+        block.number,
+        contract_account
+    );
+
+    let mut anchored_events = Vec::new();
+    let block_id = hex::encode(&block.id);
+    let block_timestamp = block
+        .header
+        .as_ref()
+        .and_then(|h| h.timestamp.as_ref())
+        .map(|t| t.seconds as u64)
+        .unwrap_or(0);
+
+    // Iterate through all transactions in the block
+    for trx_trace in &block.transaction_traces {
+        if trx_trace.receipt.is_none() {
+            continue;
+        }
+
+        let trx_id = hex::encode(&trx_trace.id);
+
+        // Iterate through all action traces
+        for (action_ordinal, action_trace) in trx_trace.action_traces.iter().enumerate() {
+            // Only process actions from our contract
+            if action_trace.receiver != contract_account {
+                continue;
+            }
+
+            // Only process relevant actions (put is primary for T5)
+            let action = match action_trace.action.as_ref() {
+                Some(a) => a,
+                None => continue,
+            };
+
+            // Filter actions we care about for ingestion
+            // Primary: PUT (event anchoring)
+            // Secondary: VOTE, FINALIZE (for completeness)
+            match action.name.as_str() {
+                "put" | "vote" | "finalize" => {}
+                _ => continue, // Skip other actions for now
+            }
+
+            // Extract JSON payload
+            let json_data = match action.json_data.as_ref() {
+                Some(data) => data.to_string(),
+                None => continue,
+            };
+
+            // Compute event hash from payload
+            let mut hasher = Sha256::new();
+            hasher.update(json_data.as_bytes());
+            let event_hash = hex::encode(hasher.finalize());
+
+            // Create anchored event
+            let anchored_event = AnchoredEvent {
+                event_hash,
+                payload: json_data.into_bytes(),
+                block_num: block.number,
+                block_id: block_id.clone(),
+                trx_id: trx_id.clone(),
+                action_ordinal: action_ordinal as u32,
+                timestamp: block_timestamp,
+                source: "substreams-eos".to_string(),
+                contract_account: contract_account.clone(),
+                action_name: action.name.clone(),
+            };
+
+            anchored_events.push(anchored_event);
+        }
+    }
+
+    log::info!(
+        "Extracted {} anchored events from block {}",
+        anchored_events.len(),
+        block.number
+    );
+
+    Ok(AnchoredEvents {
+        events: anchored_events,
+    })
 }
 
 /// Store module: Aggregate statistics from events
