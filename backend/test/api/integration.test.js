@@ -8,8 +8,11 @@
  * - Database and storage integration
  */
 
+import { jest } from '@jest/globals';
 import request from 'supertest';
 import APIServer from '../../src/api/server.js';
+import MusicGraphDatabase from '../../src/graph/schema.js';
+import EventStore from '../../src/storage/eventStore.js';
 
 // Mock dependencies
 jest.mock('../../src/graph/schema.js');
@@ -23,9 +26,6 @@ describe('API Server Integration Tests', () => {
 
     beforeAll(async () => {
         // Setup mocks
-        const MusicGraphDatabase = require('../../src/graph/schema.js').default;
-        const EventStore = require('../../src/storage/eventStore.js').default;
-
         mockDb = {
             driver: {
                 session: jest.fn(() => ({
@@ -459,9 +459,6 @@ describe('API Server Integration Tests', () => {
 
 describe('Server Lifecycle', () => {
     test('should start and stop server cleanly', async () => {
-        const MusicGraphDatabase = require('../../src/graph/schema.js').default;
-        const EventStore = require('../../src/storage/eventStore.js').default;
-
         const mockDb = {
             testConnection: jest.fn().mockResolvedValue(true),
             close: jest.fn().mockResolvedValue(undefined)
@@ -495,9 +492,6 @@ describe('Server Lifecycle', () => {
     });
 
     test('should fail to start if database unavailable', async () => {
-        const MusicGraphDatabase = require('../../src/graph/schema.js').default;
-        const EventStore = require('../../src/storage/eventStore.js').default;
-
         const mockDb = {
             testConnection: jest.fn().mockResolvedValue(false)
         };

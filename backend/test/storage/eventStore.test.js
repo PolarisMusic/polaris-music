@@ -10,7 +10,11 @@
  * - Error handling
  */
 
+import { jest } from '@jest/globals';
 import EventStore from '../../src/storage/eventStore.js';
+import { create } from 'ipfs-http-client';
+import { S3Client } from '@aws-sdk/client-s3';
+import Redis from 'ioredis';
 
 // Mock external dependencies
 jest.mock('ipfs-http-client');
@@ -86,13 +90,8 @@ describe('EventStore', () => {
         };
 
         // Mock the modules
-        const { create } = require('ipfs-http-client');
         create.mockReturnValue(mockIPFS);
-
-        const { S3Client } = require('@aws-sdk/client-s3');
         S3Client.mockImplementation(() => mockS3);
-
-        const Redis = require('ioredis');
         Redis.mockImplementation(() => mockRedis);
 
         // Create store instance

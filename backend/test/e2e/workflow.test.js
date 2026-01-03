@@ -9,7 +9,11 @@
  * - Error handling and recovery
  */
 
+import { jest } from '@jest/globals';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
+import { JsonRpc } from 'eosjs';
+import MusicGraphDatabase from '../../src/graph/schema.js';
+import EventStore from '../../src/storage/eventStore.js';
 
 // Mock dependencies
 jest.mock('eosjs');
@@ -24,10 +28,6 @@ describe('EventProcessor', () => {
 
     beforeEach(() => {
         // Setup mocks
-        const MusicGraphDatabase = require('../../src/graph/schema.js').default;
-        const EventStore = require('../../src/storage/eventStore.js').default;
-        const { JsonRpc } = require('eosjs');
-
         mockDb = {
             testConnection: jest.fn().mockResolvedValue(true),
             processReleaseBundle: jest.fn().mockResolvedValue({

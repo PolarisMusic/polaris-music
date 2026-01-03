@@ -124,8 +124,8 @@ describe('Event Signature Verification', () => {
         test('Rejects event with wrong public key', () => {
             const event = createSignedEvent({ test: 'data' });
 
-            // Change public key to different key
-            const otherPrivateKey = PrivateKey.fromString('5J5j7P8f7Q6h7R8g7S9h7T1k7U2l7V3m7W4n7X5o7Y6p7Z7q7A8r');
+            // Change public key to different key (use another valid test key)
+            const otherPrivateKey = PrivateKey.fromString('5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss');
             event.author_pubkey = otherPrivateKey.getPublicKey().toString();
 
             const result = verifyEventSignature(event);

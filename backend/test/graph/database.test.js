@@ -9,7 +9,9 @@
  * - Connection management
  */
 
+import { jest } from '@jest/globals';
 import MusicGraphDatabase from '../../src/graph/schema.js';
+import neo4j from 'neo4j-driver';
 
 // Mock Neo4j driver for unit testing
 // In integration tests, use real Neo4j instance
@@ -40,8 +42,7 @@ describe('MusicGraphDatabase', () => {
             close: jest.fn().mockResolvedValue(undefined)
         };
 
-        // Mock the neo4j module
-        const neo4j = require('neo4j-driver');
+        // Mock the neo4j module functions
         neo4j.driver = jest.fn().mockReturnValue(mockDriver);
         neo4j.auth = {
             basic: jest.fn().mockReturnValue({})
