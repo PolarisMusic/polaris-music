@@ -203,6 +203,125 @@ export class IngestionHandler {
     }
 
     /**
+     * Process an AnchoredEvent from Substreams or SHiP
+     *
+     * This method handles the AnchoredEvent format emitted by both
+     * Substreams and SHiP chain ingestion sources.
+     *
+     * Stage 4: Uses content_hash for deduplication (stable across sources)
+     *
+     * @param {Object} anchoredEvent - Anchored event from chain source
+     * @param {string} anchoredEvent.content_hash - Canonical content hash (put.hash)
+     * @param {string} anchoredEvent.event_hash - Action payload hash (debugging)
+     * @param {string|Buffer} anchoredEvent.payload - Raw action JSON payload
+     * @param {number} anchoredEvent.block_num - Block number
+     * @param {string} anchoredEvent.block_id - Block ID
+     * @param {string} anchoredEvent.trx_id - Transaction ID
+     * @param {number} anchoredEvent.action_ordinal - Action index
+     * @param {number} anchoredEvent.timestamp - Block timestamp
+     * @param {string} anchoredEvent.source - Source (substreams-eos, ship-eos)
+     * @param {string} anchoredEvent.action_name - Action name (put, vote, etc.)
+     * @returns {Promise<Object>} Processing result
+     */
+    async processAnchoredEvent(anchoredEvent) {
+        const {
+            content_hash,
+            event_hash,
+            payload,
+            block_num,
+            block_id,
+            trx_id,
+            action_ordinal,
+            timestamp,
+            source,
+            contract_account,
+            action_name
+        } = anchoredEvent;
+
+        // Step 1: Validate required fields
+        if (!content_hash) {
+            throw new Error('Missing required field: content_hash');
+        }
+
+        if (!payload) {
+            throw new Error('Missing required field: payload');
+        }
+
+        console.log(`\nProcessing anchored event from ${source}:`);
+        console.log(`  Content Hash: ${content_hash.substring(0, 12)}...`);
+        console.log(`  Action: ${action_name}`);
+        console.log(`  Block: ${block_num}`);
+
+        // Step 2: Check for duplicates by content_hash
+        if (this.processedHashes.has(content_hash)) {
+            console.log(`   Duplicate event (already processed)`);
+            this.stats.eventsDuplicate++;
+            return {
+                status: 'duplicate',
+                contentHash: content_hash,
+                message: 'Event already processed'
+            };
+        }
+
+        try {
+            // Step 3: Parse payload to extract action data
+            const payloadStr = typeof payload === 'string' ? payload : payload.toString('utf-8');
+            const actionData = JSON.parse(payloadStr);
+
+            // Step 4: Only process 'put' actions (event anchoring)
+            if (action_name !== 'put') {
+                console.log(`  Skipping non-put action: ${action_name}`);
+                return {
+                    status: 'skipped',
+                    contentHash: content_hash,
+                    message: `Action ${action_name} not supported yet`
+                };
+            }
+
+            // Step 5: Extract action metadata from payload
+            const { author, type, hash, parent, ts, tags = [] } = actionData;
+
+            // Verify payload hash matches content_hash
+            if (hash && hash !== content_hash) {
+                console.warn(`  Warning: payload.hash (${hash}) != content_hash (${content_hash})`);
+            }
+
+            // Step 6: Use processPutAction for the actual processing
+            // This ensures consistent behavior regardless of input format
+            const blockchainMetadata = {
+                block_num,
+                block_id,
+                trx_id,
+                action_ordinal,
+                source
+            };
+
+            // Create put action data format
+            const putActionData = {
+                author,
+                type,
+                hash: content_hash, // Use content_hash from anchored event
+                parent,
+                ts,
+                tags
+            };
+
+            // Process using existing logic
+            return await this.processPutAction(putActionData, blockchainMetadata);
+
+        } catch (error) {
+            console.error(` Failed to process anchored event:`, error.message);
+            this.stats.eventsFailed++;
+
+            return {
+                status: 'failed',
+                contentHash: content_hash,
+                error: error.message
+            };
+        }
+    }
+
+    /**
      * Process an event based on its type
      *
      * Routes the event to the appropriate handler in the EventProcessor.
