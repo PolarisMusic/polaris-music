@@ -131,16 +131,17 @@ message AccountActivities {
 // AnchoredEvent: Event with complete blockchain provenance
 // This is the primary output for chain ingestion (T5)
 message AnchoredEvent {
-  string event_hash = 1;           // SHA256 hash of event payload
-  bytes payload = 2;               // Raw event JSON payload
-  uint64 block_num = 3;            // Block number
-  string block_id = 4;             // Block ID (hex)
-  string trx_id = 5;               // Transaction ID (hex)
-  uint32 action_ordinal = 6;       // Action index within transaction
-  uint64 timestamp = 7;            // Block timestamp (Unix seconds)
-  string source = 8;               // Source identifier (e.g., "substreams-eos")
-  string contract_account = 9;     // Contract account name
-  string action_name = 10;         // Action name (e.g., "put")
+  string content_hash = 1;         // Canonical content hash from put.hash (SHA256 of off-chain event JSON)
+  string event_hash = 2;           // SHA256 hash of action payload (for debugging/trace identity)
+  bytes payload = 3;               // Raw action JSON payload (contains put.hash)
+  uint64 block_num = 4;            // Block number
+  string block_id = 5;             // Block ID (hex)
+  string trx_id = 6;               // Transaction ID (hex)
+  uint32 action_ordinal = 7;       // Action index within transaction
+  uint64 timestamp = 8;            // Block timestamp (Unix seconds)
+  string source = 9;               // Source identifier (e.g., "substreams-eos")
+  string contract_account = 10;    // Contract account name
+  string action_name = 11;         // Action name (e.g., "put")
 }
 
 // Collection of anchored events

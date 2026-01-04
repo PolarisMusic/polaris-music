@@ -339,16 +339,32 @@ export class ShipEventSource extends EventEmitter {
     /**
      * Create AnchoredEvent from action data
      * CRITICAL: Must match Substreams format exactly (T6 requirement)
+     *
+     * Stage 3 Update: Use put.hash as content_hash (canonical identifier)
+     * instead of computing hash from action JSON (unstable across sources)
      */
     createAnchoredEvent(actionPayload, actionName, metadata) {
         // Convert action payload to JSON string
         const payloadJson = JSON.stringify(actionPayload);
 
-        // Compute event hash (SHA256 of payload)
+        // Compute event hash from action payload (for debugging/trace identity)
         const eventHash = crypto.createHash('sha256').update(payloadJson).digest('hex');
+
+        // Extract content_hash from put.hash (canonical identifier)
+        // This is the SHA256 of the off-chain event JSON, anchored on-chain
+        let contentHash;
+        if (actionName === 'put' && actionPayload.hash) {
+            // Use put.hash as canonical content hash
+            // This is what was anchored on-chain and matches the off-chain event
+            contentHash = actionPayload.hash;
+        } else {
+            // For non-put actions (vote, finalize), use action payload hash
+            contentHash = eventHash;
+        }
 
         // Create anchored event (same schema as Substreams)
         return {
+            content_hash: contentHash,
             event_hash: eventHash,
             payload: payloadJson,
             block_num: metadata.blockNum,

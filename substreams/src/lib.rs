@@ -79,11 +79,15 @@ fn map_events(params: String, block: Block) -> Result<Events, Error> {
     Ok(Events { events })
 }
 
-/// Map module: Extract anchored events with full blockchain provenance (T5)
+/// Map module: Extract anchored events with full blockchain provenance (T5/T6)
 /// This is the primary output for chain ingestion pipeline
+///
+/// CRITICAL: Uses put.hash as content_hash (canonical identifier from blockchain)
+/// instead of computing hash from action JSON (which is unstable across sources)
 #[substreams::handlers::map]
 fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, Error> {
     use sha2::{Digest, Sha256};
+    use abi::polaris_music::actions::Put;
 
     // Parse contract account from params (defaults to "polaris")
     let contract_account = if params.is_empty() {
@@ -142,13 +146,35 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
                 None => continue,
             };
 
-            // Compute event hash from payload
+            // Compute event hash from action payload (for debugging/trace identity)
             let mut hasher = Sha256::new();
             hasher.update(json_data.as_bytes());
             let event_hash = hex::encode(hasher.finalize());
 
+            // Extract content_hash from put.hash (canonical identifier)
+            // This is the SHA256 of the off-chain event JSON, anchored on-chain
+            let content_hash = if action.name == "put" {
+                // Parse put action to extract hash field
+                match action.json_data.as_ref() {
+                    Some(data) => {
+                        match data.parse_json::<Put>() {
+                            Ok(put_action) => hex::encode(put_action.hash),
+                            Err(_) => {
+                                log::warn!("Failed to parse put action, using event_hash as fallback");
+                                event_hash.clone()
+                            }
+                        }
+                    }
+                    None => event_hash.clone(),
+                }
+            } else {
+                // For non-put actions (vote, finalize), use action payload hash
+                event_hash.clone()
+            };
+
             // Create anchored event
             let anchored_event = AnchoredEvent {
+                content_hash,
                 event_hash,
                 payload: json_data.into_bytes(),
                 block_num: block.number,
