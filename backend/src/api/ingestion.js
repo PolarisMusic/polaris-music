@@ -1,333 +1,287 @@
 /**
- * @fileoverview Chain Ingestion Endpoint for Anchored Events (T5)
+ * @fileoverview Chain Ingestion Handler for Polaris Music Registry
  *
- * Processes anchored events from Substreams with:
- * - Signature verification (T2)
- * - Event deduplication by eventHash
- * - Event storage (T2)
- * - ReleaseBundle validation (T3)
- * - Graph ingestion
+ * This module handles ingestion of blockchain events from external sources
+ * (Substreams, SHiP, etc.) into the backend processing pipeline.
  *
- * Idempotent ingestion: Same eventHash processed only once.
+ * ## Why this architecture exists
+ *
+ * The on-chain smart contract (polaris.music.cpp) only stores lightweight anchors:
+ *
+ * ```cpp
+ * ACTION put(name author, uint8_t type, checksum256 hash,
+ *            std::optional<checksum256> parent, uint32_t ts,
+ *            std::vector<name> tags)
+ * ```
+ *
+ * The `hash` field is a SHA256 of the full off-chain event JSON. This design:
+ * - Keeps blockchain storage costs minimal
+ * - Allows complex release bundles (100+ KB) to be anchored on-chain
+ * - Provides cryptographic proof of data integrity
+ * - Enables efficient blockchain indexing
+ *
+ * The full event content is stored off-chain in:
+ * - IPFS (decentralized, content-addressed)
+ * - S3 (reliable backup)
+ * - Redis (fast cache)
+ *
+ * ## Ingestion Flow
+ *
+ * 1. Receive put action payload (contains hash, author, type, etc.)
+ * 2. Extract content_hash from payload
+ * 3. Fetch full event JSON from EventStore using retrieveEvent(content_hash)
+ * 4. Verify hash matches (integrity check)
+ * 5. Attach blockchain metadata to event (block_num, trx_id, etc.)
+ * 6. Process event through normal validation and graph ingestion
+ *
+ * This ensures that:
+ * - Only blockchain-anchored events are processed
+ * - Schema validation runs on complete event data
+ * - Blockchain provenance is preserved in the graph
+ *
+ * @module api/ingestion
  */
 
-import { EventStore } from '../storage/eventStore.js';
-import EventProcessor from '../indexer/eventProcessor.js';
-import crypto from 'crypto';
+import { createHash } from 'crypto';
+import stringify from 'fast-json-stable-stringify';
 
 /**
- * Ingestion Handler
+ * Ingestion handler for blockchain events
+ *
+ * Processes `put` actions by fetching off-chain event content and
+ * routing to appropriate event handlers.
  */
 export class IngestionHandler {
+    /**
+     * Create a new ingestion handler
+     *
+     * @param {EventStore} eventStore - Event storage instance
+     * @param {EventProcessor} eventProcessor - Event processor instance
+     */
     constructor(eventStore, eventProcessor) {
         this.store = eventStore;
         this.processor = eventProcessor;
-        this.processedHashes = new Set(); // In-memory dedupe cache (TODO: use Redis)
-        this.processedBlockTrxAction = new Set(); // Secondary dedupe by (block, trx, ordinal) - T6
-    }
 
-    /**
-     * Process anchored event from chain ingestion
-     *
-     * @param {Object} anchoredEvent - AnchoredEvent from Substreams
-     * @returns {Promise<Object>} Result with status and details
-     */
-    async processAnchoredEvent(anchoredEvent) {
-        const {
-            event_hash,
-            payload,
-            block_num,
-            block_id,
-            trx_id,
-            action_ordinal,
-            timestamp,
-            source,
-            contract_account,
-            action_name,
-        } = anchoredEvent;
+        // In-memory deduplication cache
+        this.processedHashes = new Set();
 
-        // Step 1: Validate input
-        if (!event_hash || !payload) {
-            throw new Error('Missing required fields: event_hash and payload are required');
-        }
-
-        // Step 2: Deduplicate by eventHash (idempotent ingestion)
-        if (this.processedHashes.has(event_hash)) {
-            return {
-                status: 'duplicate',
-                eventHash: event_hash,
-                message: 'Event already processed (deduplicated)',
-            };
-        }
-
-        // Check if event already exists in storage
-        try {
-            const existingEvent = await this.store.getEvent(event_hash);
-            if (existingEvent) {
-                this.processedHashes.add(event_hash);
-                return {
-                    status: 'duplicate',
-                    eventHash: event_hash,
-                    message: 'Event already exists in storage',
-                };
-            }
-        } catch (error) {
-            // Event not found - proceed with ingestion
-        }
-
-        // Step 2b: Secondary dedupe by (blockNum, trxId, actionOrdinal) - T6
-        // This prevents double-ingestion when switching between Substreams and SHiP
-        if (block_num && trx_id && action_ordinal !== undefined) {
-            const blockTrxActionKey = `${block_num}:${trx_id}:${action_ordinal}`;
-            if (this.processedBlockTrxAction.has(blockTrxActionKey)) {
-                return {
-                    status: 'duplicate',
-                    eventHash: event_hash,
-                    message: 'Event already processed (duplicate block/trx/action)',
-                    dedupeKey: blockTrxActionKey
-                };
-            }
-            // Mark as processed
-            this.processedBlockTrxAction.add(blockTrxActionKey);
-        }
-
-        // Step 3: Parse payload
-        let eventPayload;
-        try {
-            // Payload might be string or Buffer
-            const payloadStr = typeof payload === 'string' ? payload : payload.toString('utf-8');
-            eventPayload = JSON.parse(payloadStr);
-        } catch (error) {
-            throw new Error(`Invalid JSON payload: ${error.message}`);
-        }
-
-        // Step 4: Reconstruct event structure
-        // The payload from blockchain action needs to be wrapped in our event format
-        const event = this.reconstructEventFromPayload(eventPayload, action_name, {
-            block_num,
-            block_id,
-            trx_id,
-            action_ordinal,
-            timestamp,
-            source,
-            contract_account,
-        });
-
-        // Step 5: Verify event hash matches
-        const computedHash = this.computeEventHash(event);
-        if (computedHash !== event_hash) {
-            console.warn(
-                `Event hash mismatch: provided ${event_hash}, computed ${computedHash}. Using provided hash.`
-            );
-            // Use provided hash (from blockchain) as authoritative
-        }
-
-        // Step 6: Validate signature (T2)
-        // For blockchain-anchored events, signature is implicit (blockchain consensus)
-        // Skip signature verification for anchored events from Substreams
-        // Mark as verified by blockchain consensus
-        event.blockchain_verified = true;
-        event.blockchain_metadata = {
-            block_num,
-            block_id,
-            trx_id,
-            action_ordinal,
-            timestamp,
-            source,
-        };
-
-        // Step 7: Store event (T2)
-        try {
-            await this.store.storeEvent(event, event_hash);
-        } catch (error) {
-            throw new Error(`Failed to store event: ${error.message}`);
-        }
-
-        // Step 8: Process event based on type
-        const processingResult = await this.processEventByType(event, event_hash, {
-            block_num,
-            trx_id,
-            timestamp,
-        });
-
-        // Step 9: Mark as processed
-        this.processedHashes.add(event_hash);
-
-        return {
-            status: 'processed',
-            eventHash: event_hash,
-            eventType: event.type,
-            blockNum: block_num,
-            trxId: trx_id,
-            processing: processingResult,
+        // Statistics
+        this.stats = {
+            eventsProcessed: 0,
+            eventsDuplicate: 0,
+            eventsNotFound: 0,
+            eventsFailed: 0,
+            lastProcessedTime: null
         };
     }
 
     /**
-     * Reconstruct event from blockchain action payload
+     * Process a `put` action from the blockchain
      *
-     * @param {Object} actionPayload - Raw action data from blockchain
-     * @param {string} actionName - Action name (put, vote, finalize, etc.)
-     * @param {Object} metadata - Blockchain metadata
-     * @returns {Object} Reconstructed event
-     */
-    reconstructEventFromPayload(actionPayload, actionName, metadata) {
-        // Map blockchain action names to event types
-        const actionToEventType = {
-            put: 'CREATE_RELEASE_BUNDLE', // Primary for T5
-            vote: 'VOTE',
-            finalize: 'FINALIZE',
-        };
-
-        const eventType = actionToEventType[actionName] || actionName.toUpperCase();
-
-        // For PUT actions, extract the actual event from the hash reference
-        // The blockchain stores event hashes; we need to retrieve the full event
-        if (actionName === 'put') {
-            // The action payload contains: { author, type, hash, parent, ts, tags, expires_at }
-            // The actual event body is retrieved from IPFS/S3 using the hash
-            // For now, we'll use the action payload as-is
-            // TODO: Fetch full event from storage if hash is provided
-            return {
-                v: 1,
-                type: eventType,
-                author_pubkey: actionPayload.author || '',
-                created_at: actionPayload.ts || metadata.timestamp,
-                parents: actionPayload.parent ? [actionPayload.parent] : [],
-                body: actionPayload.body || {}, // Event body should be in action data
-                proofs: actionPayload.proofs || { source_links: [] },
-                sig: '', // Blockchain-verified, no separate signature
-            };
-        }
-
-        // For other action types (vote, finalize), use action payload directly
-        return {
-            v: 1,
-            type: eventType,
-            author_pubkey: actionPayload.voter || actionPayload.author || '',
-            created_at: metadata.timestamp,
-            parents: [],
-            body: actionPayload,
-            proofs: { source_links: [] },
-            sig: '',
-        };
-    }
-
-    /**
-     * Compute event hash (for verification)
+     * This is the main entry point for chain ingestion. The action payload
+     * contains only metadata and a content hash - we must fetch the full
+     * event body from storage.
      *
-     * @param {Object} event - Event object
-     * @returns {string} SHA256 hex hash
-     */
-    computeEventHash(event) {
-        // Use canonical hash computation from T2
-        const canonical = JSON.stringify(event, Object.keys(event).sort());
-        return crypto.createHash('sha256').update(canonical).digest('hex');
-    }
-
-    /**
-     * Process event based on type
-     *
-     * @param {Object} event - Event object
-     * @param {string} eventHash - Event hash
-     * @param {Object} metadata - Blockchain metadata
+     * @param {Object} actionData - Put action data
+     * @param {string} actionData.author - Author account name
+     * @param {number} actionData.type - Event type code
+     * @param {string} actionData.hash - SHA256 content hash (hex string)
+     * @param {string} [actionData.parent] - Optional parent hash
+     * @param {number} actionData.ts - Unix timestamp
+     * @param {string[]} [actionData.tags] - Optional tags
+     * @param {Object} [blockchainMetadata] - Optional blockchain context
+     * @param {number} [blockchainMetadata.block_num] - Block number
+     * @param {string} [blockchainMetadata.block_id] - Block ID
+     * @param {string} [blockchainMetadata.trx_id] - Transaction ID
+     * @param {number} [blockchainMetadata.action_ordinal] - Action index
+     * @param {string} [blockchainMetadata.source] - Source (e.g., "substreams-eos")
      * @returns {Promise<Object>} Processing result
      */
-    async processEventByType(event, eventHash, metadata) {
+    async processPutAction(actionData, blockchainMetadata = {}) {
+        const { author, type, hash, parent, ts, tags = [] } = actionData;
+
+        // Step 1: Validate required fields
+        if (!hash) {
+            throw new Error('Missing required field: hash');
+        }
+
+        // Normalize hash to lowercase hex string (do this early for logging)
+        const content_hash = this.normalizeHash(hash);
+
+        console.log(`\nProcessing put action:`);
+        console.log(`  Hash: ${content_hash.substring(0, 12)}...`);
+        console.log(`  Author: ${author}`);
+        console.log(`  Type: ${type}`);
+        console.log(`  Block: ${blockchainMetadata.block_num || 'N/A'}`);
+
+        // Step 2: Check for duplicates
+        if (this.processedHashes.has(content_hash)) {
+            console.log(`   Duplicate event (already processed)`);
+            this.stats.eventsDuplicate++;
+            return {
+                status: 'duplicate',
+                contentHash: content_hash,
+                message: 'Event already processed'
+            };
+        }
+
         try {
-            switch (event.type) {
-                case 'CREATE_RELEASE_BUNDLE':
-                    // Validate and ingest release bundle (T3)
-                    return await this.processor.handleCreateReleaseBundle(event, {
-                        hash: eventHash,
-                        author: event.author_pubkey,
-                        blockNum: metadata.block_num,
-                        trxId: metadata.trx_id,
-                    });
+            // Step 3: Fetch full event from off-chain storage
+            console.log(`  Fetching event from storage...`);
+            const event = await this.store.retrieveEvent(content_hash);
 
-                case 'VOTE':
-                    // Handle vote (de-scoped for T5, documented below)
-                    return await this.handleVoteEvent(event, eventHash, metadata);
-
-                case 'FINALIZE':
-                    // Handle finalize (de-scoped for T5, documented below)
-                    return await this.handleFinalizeEvent(event, eventHash, metadata);
-
-                case 'MERGE_ENTITY':
-                    // Handle merge (T4)
-                    return await this.processor.handleMergeEntity(event, {
-                        hash: eventHash,
-                        author: event.author_pubkey,
-                    });
-
-                default:
-                    console.warn(`Unknown event type: ${event.type}`);
-                    return {
-                        status: 'skipped',
-                        reason: `Unknown event type: ${event.type}`,
-                    };
+            if (!event) {
+                console.error(`   Event not found in storage: ${content_hash}`);
+                this.stats.eventsNotFound++;
+                return {
+                    status: 'not_found',
+                    contentHash: content_hash,
+                    message: 'Event not found in storage'
+                };
             }
+
+            // Step 4: Verify the fetched event hash matches
+            const computedHash = this.store.calculateHash(event);
+            if (computedHash !== content_hash) {
+                throw new Error(
+                    `Hash mismatch: action hash ${content_hash} != computed hash ${computedHash}`
+                );
+            }
+
+            // Step 5: Attach blockchain metadata to event
+            // This enriches the off-chain event with blockchain provenance
+            const enrichedEvent = {
+                ...event,
+                blockchain_verified: true,
+                blockchain_metadata: {
+                    anchor_hash: content_hash,
+                    block_num: blockchainMetadata.block_num,
+                    block_id: blockchainMetadata.block_id,
+                    trx_id: blockchainMetadata.trx_id,
+                    action_ordinal: blockchainMetadata.action_ordinal,
+                    source: blockchainMetadata.source || 'unknown',
+                    ingested_at: new Date().toISOString()
+                }
+            };
+
+            // Step 6: Create action metadata (compatible with EventProcessor)
+            const actionMetadata = {
+                hash: content_hash,
+                type,
+                author,
+                parent,
+                ts,
+                tags
+            };
+
+            // Step 7: Process event by type using EventProcessor handlers
+            await this.processEventByType(enrichedEvent, actionMetadata);
+
+            // Mark as processed
+            this.processedHashes.add(content_hash);
+            this.stats.eventsProcessed++;
+            this.stats.lastProcessedTime = new Date();
+
+            console.log(` Event processed successfully`);
+
+            return {
+                status: 'success',
+                contentHash: content_hash,
+                eventType: type
+            };
+
         } catch (error) {
-            console.error(`Error processing ${event.type} event:`, error);
-            throw error;
+            console.error(` Failed to process event:`, error.message);
+            this.stats.eventsFailed++;
+
+            return {
+                status: 'failed',
+                contentHash: content_hash,
+                error: error.message
+            };
         }
     }
 
     /**
-     * Handle VOTE event
+     * Process an event based on its type
      *
-     * T5 DECISION: Vote handling is DE-SCOPED for initial implementation.
-     * Votes require:
-     * - Respect weight lookup from blockchain state
-     * - Aggregation logic for approval calculation
-     * - Integration with finalization process
+     * Routes the event to the appropriate handler in the EventProcessor.
+     * This maintains compatibility with the existing event processing pipeline.
      *
-     * TODO (Future): Implement vote handling
-     * - Query Respect values from chain tables
-     * - Store vote with weight in graph
-     * - Update submission score aggregates
-     *
-     * @param {Object} event - Vote event
-     * @param {string} eventHash - Event hash
-     * @param {Object} metadata - Blockchain metadata
-     * @returns {Promise<Object>} Result
+     * @private
+     * @param {Object} event - Full event with blockchain metadata
+     * @param {Object} actionData - Blockchain action metadata
      */
-    async handleVoteEvent(event, eventHash, metadata) {
-        console.log(`Vote event received (eventHash: ${eventHash}) - SKIPPED (de-scoped for T5)`);
+    async processEventByType(event, actionData) {
+        const handler = this.processor.eventHandlers[actionData.type];
+
+        if (!handler) {
+            console.warn(`  No handler for event type ${actionData.type}`);
+            return;
+        }
+
+        // Call the appropriate event handler
+        await handler(event, actionData);
+    }
+
+    /**
+     * Normalize hash to lowercase hex string
+     *
+     * Handles different hash formats:
+     * - Hex string: "abc123..."
+     * - Checksum256 array: [1, 2, 3, ...]
+     * - Object with hex field: { hex: "abc123..." }
+     *
+     * @private
+     * @param {string|Array|Object} hash - Hash in any format
+     * @returns {string} Lowercase hex string
+     */
+    normalizeHash(hash) {
+        // Already a hex string
+        if (typeof hash === 'string') {
+            return hash.toLowerCase();
+        }
+
+        // Checksum256 array (convert to hex)
+        if (Array.isArray(hash)) {
+            return Buffer.from(hash).toString('hex').toLowerCase();
+        }
+
+        // Object with hex field
+        if (hash && typeof hash === 'object' && hash.hex) {
+            return hash.hex.toLowerCase();
+        }
+
+        throw new Error(`Invalid hash format: ${JSON.stringify(hash)}`);
+    }
+
+    /**
+     * Get ingestion statistics
+     *
+     * @returns {Object} Statistics object
+     */
+    getStats() {
         return {
-            status: 'de-scoped',
-            eventType: 'VOTE',
-            message: 'Vote handling not implemented in T5. See TODO in ingestion.js',
+            ...this.stats,
+            cacheSize: this.processedHashes.size,
+            successRate: this.stats.eventsProcessed > 0
+                ? ((this.stats.eventsProcessed /
+                    (this.stats.eventsProcessed + this.stats.eventsFailed)) * 100).toFixed(2) + '%'
+                : 'N/A'
         };
     }
 
     /**
-     * Handle FINALIZE event
+     * Clear the deduplication cache
      *
-     * T5 DECISION: Finalize handling is DE-SCOPED for initial implementation.
-     * Finalization requires:
-     * - Vote aggregation and approval calculation
-     * - Reward distribution logic
-     * - State transitions (provisional -> canonical IDs)
-     *
-     * TODO (Future): Implement finalize handling
-     * - Calculate approval percentage from votes
-     * - Update submission status (accepted/rejected)
-     * - Trigger reward distribution
-     * - Promote provisional IDs to canonical if accepted
-     *
-     * @param {Object} event - Finalize event
-     * @param {string} eventHash - Event hash
-     * @param {Object} metadata - Blockchain metadata
-     * @returns {Promise<Object>} Result
+     * Useful for testing or when memory usage is a concern.
+     * Events are still deduplicated against storage.
      */
-    async handleFinalizeEvent(event, eventHash, metadata) {
-        console.log(`Finalize event received (eventHash: ${eventHash}) - SKIPPED (de-scoped for T5)`);
-        return {
-            status: 'de-scoped',
-            eventType: 'FINALIZE',
-            message: 'Finalize handling not implemented in T5. See TODO in ingestion.js',
-        };
+    clearCache() {
+        const size = this.processedHashes.size;
+        this.processedHashes.clear();
+        console.log(`Cleared ingestion cache (${size} hashes)`);
+        return size;
     }
 }
 
