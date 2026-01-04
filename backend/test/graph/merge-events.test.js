@@ -10,7 +10,7 @@
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import neo4j from 'neo4j-driver';
-import { EventStore } from '../../src/storage/eventStore.js';
+import EventStore from '../../src/storage/eventStore.js';
 import { MergeOperations } from '../../src/graph/merge.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
 
@@ -30,11 +30,22 @@ describe('Event-Sourced Merge Operations', () => {
             )
         );
 
-        // Initialize event store
+        // Initialize event store with correct config shape
         eventStore = new EventStore({
-            s3Bucket: process.env.S3_BUCKET || 'polaris-test-events',
-            redisHost: process.env.REDIS_HOST || 'localhost',
-            redisPort: process.env.REDIS_PORT || 6379
+            s3: {
+                endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
+                region: process.env.S3_REGION || 'us-east-1',
+                bucket: process.env.S3_BUCKET || 'polaris-test-events',
+                accessKeyId: process.env.S3_ACCESS_KEY || 'minioadmin',
+                secretAccessKey: process.env.S3_SECRET_KEY || 'minioadmin'
+            },
+            redis: {
+                host: process.env.REDIS_HOST || 'localhost',
+                port: parseInt(process.env.REDIS_PORT || '6379')
+            },
+            ipfs: {
+                url: process.env.IPFS_URL || 'http://localhost:5001'
+            }
         });
 
         // Initialize event processor

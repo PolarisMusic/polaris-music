@@ -295,9 +295,34 @@ export function createIdentityRoutes(db, store) {
 
             console.log(`Merging ${absorbed_ids.length} entities into ${survivor_id}`);
 
+            // Create MERGE_ENTITY event for provenance
+            const mergeEvent = {
+                v: 1,
+                type: 'MERGE_ENTITY',
+                author_pubkey: submitter,
+                created_at: Math.floor(Date.now() / 1000),
+                parents: [],
+                body: {
+                    survivor_id,
+                    absorbed_ids,
+                    evidence,
+                    merged_at: new Date().toISOString()
+                },
+                proofs: {
+                    source_links: []
+                },
+                sig: '' // In production, should be signed by submitter
+            };
+
+            // Store event to get hash
+            const storeResult = await store.storeEvent(mergeEvent);
+            const eventHash = storeResult.hash;
+
+            console.log(`Merge event created: ${eventHash}`);
+
             const session = db.driver.session();
             try {
-                // Execute merge
+                // Execute merge with event hash
                 const stats = await MergeOperations.mergeEntities(
                     session,
                     survivor_id,
@@ -305,7 +330,7 @@ export function createIdentityRoutes(db, store) {
                     {
                         submitter,
                         evidence,
-                        eventHash: null, // TODO: Create MERGE_ENTITY event
+                        eventHash, // Now has proper event hash
                         rewireEdges: true,
                         moveClaims: true
                     }
@@ -313,6 +338,7 @@ export function createIdentityRoutes(db, store) {
 
                 res.status(200).json({
                     success: true,
+                    eventHash,
                     merge_result: stats,
                     message: `Successfully merged ${stats.absorbedCount} entities into ${survivor_id}`
                 });
