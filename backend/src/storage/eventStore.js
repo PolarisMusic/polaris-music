@@ -146,15 +146,24 @@ class EventStore {
      * @param {Object} event.body - Event body data
      * @param {Object} [event.proofs] - Proof/source data
      * @param {string} event.sig - Cryptographic signature
+     * @param {string} [expectedHash] - Optional expected hash for verification
      * @returns {Promise<Object>} Storage result with hash and locations
-     * @throws {Error} If all storage methods fail
+     * @throws {Error} If all storage methods fail or if expectedHash doesn't match computed hash
      */
-    async storeEvent(event) {
+    async storeEvent(event, expectedHash = null) {
         // Validate event structure
         this.validateEvent(event);
 
         // Calculate deterministic hash
         const hash = this.calculateHash(event);
+
+        // Enforce hash match if expected hash is provided
+        if (expectedHash !== null && expectedHash !== hash) {
+            throw new Error(
+                `Hash mismatch: expected ${expectedHash}, but computed ${hash}. ` +
+                `This indicates the event content doesn't match the blockchain anchor.`
+            );
+        }
         const eventJSON = JSON.stringify(event, null, 2);
         const eventBuffer = Buffer.from(eventJSON, 'utf-8');
 
@@ -325,6 +334,18 @@ class EventStore {
         console.log(` Event retrieved successfully from ${source}`);
 
         return event;
+    }
+
+    /**
+     * Retrieve an event by its hash (alias for retrieveEvent).
+     * Provided for API compatibility with code that expects getEvent().
+     *
+     * @param {string} hash - SHA256 hash of the event
+     * @returns {Promise<Object>} The event object
+     * @throws {Error} If event not found in any storage
+     */
+    async getEvent(hash) {
+        return this.retrieveEvent(hash);
     }
 
     /**
