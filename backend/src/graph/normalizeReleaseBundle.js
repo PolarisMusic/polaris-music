@@ -5,10 +5,10 @@
  * Handles legacy field names and validates against canonical schema.
  *
  * Field Mappings:
- * - release_name ’ name
- * - releaseDate ’ release_date
- * - albumArt ’ album_art
- * - camelCase ’ snake_case (general pattern)
+ * - release_name ï¿½ name
+ * - releaseDate ï¿½ release_date
+ * - albumArt ï¿½ album_art
+ * - camelCase ï¿½ snake_case (general pattern)
  */
 
 /**
@@ -136,7 +136,7 @@ function normalizeRelease(release) {
     if (release.release_id) normalized.release_id = release.release_id;
     if (release.alt_names) normalized.alt_names = release.alt_names;
 
-    // Date field (releaseDate ’ release_date)
+    // Date field (releaseDate ï¿½ release_date)
     const releaseDate = release.release_date || release.releaseDate;
     if (releaseDate) {
         normalized.release_date = releaseDate;
@@ -148,7 +148,7 @@ function normalizeRelease(release) {
     if (release.liner_notes) normalized.liner_notes = release.liner_notes;
     if (release.trivia) normalized.trivia = release.trivia;
 
-    // Album art (albumArt ’ album_art)
+    // Album art (albumArt ï¿½ album_art)
     const albumArt = release.album_art || release.albumArt;
     if (albumArt) normalized.album_art = albumArt;
 
@@ -225,6 +225,30 @@ function normalizeTrack(track) {
     if (track.performed_by) normalized.performed_by = track.performed_by;
     if (track.recording_of) normalized.recording_of = track.recording_of;
     if (track.samples) normalized.samples = track.samples;
+
+    // Map track.groups â†’ performed_by_groups for graph ingestion
+    // Frontend sends track.groups, graph expects performed_by_groups
+    if (track.groups && Array.isArray(track.groups)) {
+        normalized.performed_by_groups = track.groups
+            .map(group => {
+                // Ensure we have at least a group_id or name to identify the group
+                const group_id = group.group_id || group.id;
+                const name = group.name || group.group_name;
+
+                if (!group_id && !name) {
+                    // Skip groups without any identifier
+                    return null;
+                }
+
+                return {
+                    group_id,
+                    name,
+                    ...(group.credited_as && { credited_as: group.credited_as }),
+                    ...(group.role && { role: group.role })
+                };
+            })
+            .filter(group => group !== null); // Remove invalid entries
+    }
 
     if (track.guests && Array.isArray(track.guests)) {
         normalized.guests = track.guests.map(guest => {

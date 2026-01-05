@@ -104,6 +104,18 @@
         "performed_by": { "type": "string" },
         "recording_of": { "type": "string" },
         "samples": { "type": "array", "items": { "type": "string" } },
+        "performed_by_groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group_id": { "type": "string" },
+              "name": { "type": "string" },
+              "credited_as": { "type": "string" },
+              "role": { "type": "string" }
+            }
+          }
+        },
         "guests": {
           "type": "array",
           "items": { "$ref": "#/definitions/Person" }
