@@ -848,8 +848,9 @@ class APIServer {
          *
          * Request body: AnchoredEvent
          * {
-         *   event_hash: string,
-         *   payload: string | Buffer,
+         *   content_hash: string,        // REQUIRED: Canonical content hash from put.hash
+         *   payload: string | Buffer,    // REQUIRED: Raw action JSON payload
+         *   event_hash: string,          // OPTIONAL: Action payload hash (debugging only)
          *   block_num: number,
          *   block_id: string,
          *   trx_id: string,
@@ -874,11 +875,11 @@ class APIServer {
             try {
                 const anchoredEvent = req.body;
 
-                // Validate required fields
-                if (!anchoredEvent.event_hash || !anchoredEvent.payload) {
+                // Validate required fields (content_hash is canonical, event_hash is optional)
+                if (!anchoredEvent.content_hash || !anchoredEvent.payload) {
                     return res.status(400).json({
                         status: 'error',
-                        error: 'Missing required fields: event_hash and payload'
+                        error: 'Missing required fields: content_hash and payload'
                     });
                 }
 
