@@ -15,6 +15,7 @@
  */
 
 import express from 'express';
+import cors from 'cors';
 import { graphqlHTTP } from 'express-graphql';
 import { buildSchema } from 'graphql';
 import MusicGraphDatabase from '../graph/schema.js';
@@ -287,21 +288,19 @@ class APIServer {
      * Setup Express middleware
      */
     setupMiddleware() {
+        // CORS - Enable cross-origin requests from frontend
+        // Uses CORS_ORIGIN env var from docker-compose or defaults to Vite dev server
+        const corsOrigin = this.config.corsOrigin || process.env.CORS_ORIGIN || 'http://localhost:5173';
+        this.app.use(cors({
+            origin: corsOrigin,
+            methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+            allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+            credentials: false
+        }));
+        console.log(` CORS enabled for origin: ${corsOrigin}`);
+
         // Parse JSON bodies
         this.app.use(express.json({ limit: '10mb' }));
-
-        // CORS headers
-        this.app.use((req, res, next) => {
-            res.header('Access-Control-Allow-Origin', '*');
-            res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-            res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-
-            if (req.method === 'OPTIONS') {
-                return res.sendStatus(200);
-            }
-
-            next();
-        });
 
         // Request logging
         this.app.use((req, res, next) => {
