@@ -448,7 +448,7 @@ class PolarisApp {
     /**
      * Preview JSON before submission
      */
-    previewJSON() {
+    async previewJSON() {
         try {
             // Check if wallet is connected
             if (!this.walletManager.isConnected()) {
@@ -471,7 +471,7 @@ class PolarisApp {
             // Get wallet session info
             const sessionInfo = this.walletManager.getSessionInfo();
 
-            // Build transaction
+            // Build transaction (event only, no hash yet)
             const sourceLinks = this.parseCommaSeparated(
                 document.querySelector('[name="source_links"]')?.value || ''
             );
@@ -483,11 +483,28 @@ class PolarisApp {
                 sourceLinks
             );
 
+            // Get canonical hash from server (this normalizes and validates)
+            console.log('Getting canonical hash from server...');
+            const prepareResult = await api.prepareEvent(this.currentTransaction.event);
+
+            // Store the canonical hash and build blockchain action
+            this.currentTransaction.eventHash = prepareResult.hash;
+            this.currentTransaction.action = this.transactionBuilder.buildActionFromHash(
+                prepareResult.hash,
+                sessionInfo.accountName
+            );
+            this.currentTransaction.transaction = {
+                actions: [this.currentTransaction.action]
+            };
+
+            console.log('Canonical hash:', prepareResult.hash);
+
             // Show preview with both event and transaction data
             const jsonPreview = document.getElementById('json-preview');
             jsonPreview.textContent = JSON.stringify({
                 event: this.currentTransaction.event,
                 eventHash: this.currentTransaction.eventHash,
+                action: this.currentTransaction.action,
                 transaction: this.currentTransaction.transaction
             }, null, 2);
 
@@ -542,14 +559,18 @@ class PolarisApp {
             console.log('\n=== STEP 1: Store event off-chain ===');
 
             // Store event to IPFS + S3 + Redis
+            // Pass expected hash from /api/events/prepare for verification
             console.log('Storing signed event to off-chain storage...');
-            const storageResult = await api.storeEvent(eventWithSig);
+            const storageResult = await api.storeEvent(eventWithSig, this.currentTransaction.eventHash);
 
             console.log('Storage result:', storageResult);
 
-            // Verify hash matches
+            // Verify hash matches (should always match since we used server hash)
             if (storageResult.hash !== this.currentTransaction.eventHash) {
-                throw new Error('Hash mismatch between client and server');
+                throw new Error(
+                    `Hash mismatch: expected ${this.currentTransaction.eventHash}, got ${storageResult.hash}. ` +
+                    `This should never happen when using /api/events/prepare.`
+                );
             }
 
             // Show storage locations

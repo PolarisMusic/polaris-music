@@ -49,17 +49,42 @@ class APIClient {
     }
 
     /**
-     * Store event to off-chain storage (IPFS + S3 + Redis)
-     * @param {Object} event - Complete event object with signature
-     * @returns {Promise<Object>} Storage result with hash and locations
+     * Prepare event for signing by normalizing and getting canonical hash
+     * @param {Object} event - Event object WITHOUT signature
+     * @returns {Promise<Object>} { success: true, hash, normalizedEvent }
      */
-    async storeEvent(event) {
-        const response = await fetch(`${API_BASE_URL}/events/create`, {
+    async prepareEvent(event) {
+        const response = await fetch(`${API_BASE_URL}/events/prepare`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(event),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to prepare event');
+        }
+
+        return response.json();
+    }
+
+    /**
+     * Store event to off-chain storage (IPFS + S3 + Redis)
+     * @param {Object} event - Complete event object with signature
+     * @param {string} expectedHash - Optional expected hash for verification
+     * @returns {Promise<Object>} Storage result with hash and locations
+     */
+    async storeEvent(event, expectedHash = null) {
+        const payload = expectedHash ? { ...event, expected_hash: expectedHash } : event;
+
+        const response = await fetch(`${API_BASE_URL}/events/create`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
         });
 
         if (!response.ok) {

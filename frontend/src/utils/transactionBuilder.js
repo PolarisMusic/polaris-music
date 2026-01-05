@@ -164,35 +164,42 @@ export class TransactionBuilder {
 
     /**
      * Build complete transaction for release submission
-     * Combines event creation, hashing, and blockchain action
+     * NOTE: This method builds the event WITHOUT calculating the hash.
+     * The hash must be obtained from the server via /api/events/prepare
+     * to ensure it matches the canonical normalized hash.
      *
      * @param {Object} releaseData - Release bundle from form
      * @param {string} authorAccount - Author's blockchain account
      * @param {string} authorPubkey - Author's public key
      * @param {Array} sourceLinks - Source attribution links
-     * @returns {Object} Complete transaction package
+     * @returns {Object} Transaction package WITHOUT eventHash (call prepareEvent to get hash)
      */
     buildReleaseTransaction(releaseData, authorAccount, authorPubkey, sourceLinks = []) {
-        // 1. Create event structure
+        // 1. Create event structure (without sig)
         const event = this.buildReleaseBundleEvent(releaseData, authorPubkey, sourceLinks);
 
-        // 2. Calculate event hash
-        const eventHash = this.calculateEventHash(event);
+        // 2. Hash will be obtained from server via /api/events/prepare
+        // This ensures the hash matches the canonical normalized version
 
-        // 3. Build blockchain action
-        const action = this.buildAnchorAction(eventHash, authorAccount, {
-            tags: ['release', 'submission']
-        });
-
-        // 4. Return complete package
+        // 3. Return event and author account (hash and action will be built after prepare)
         return {
             event,
-            eventHash,
-            action,
-            transaction: {
-                actions: [action]
-            }
+            authorAccount,
+            // eventHash will be set after calling /api/events/prepare
+            // action will be built after getting hash from server
         };
+    }
+
+    /**
+     * Build blockchain action after receiving canonical hash from server
+     * @param {string} eventHash - Canonical hash from /api/events/prepare
+     * @param {string} authorAccount - Author's blockchain account
+     * @returns {Object} Blockchain action for anchoring
+     */
+    buildActionFromHash(eventHash, authorAccount) {
+        return this.buildAnchorAction(eventHash, authorAccount, {
+            tags: ['release', 'submission']
+        });
     }
 
     /**

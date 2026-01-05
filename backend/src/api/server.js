@@ -697,15 +697,72 @@ class APIServer {
         // ========== EVENT ENDPOINTS ==========
 
         /**
+         * POST /api/events/prepare
+         * Prepare an event for signing/anchoring by normalizing and returning canonical hash
+         *
+         * This endpoint allows the frontend to get the canonical hash that will be used
+         * for storage BEFORE signing, ensuring the hash anchored on-chain matches
+         * the hash the backend will store.
+         *
+         * Flow:
+         * 1. Frontend builds event (without sig)
+         * 2. Calls /api/events/prepare to get canonical hash
+         * 3. Signs the returned hash
+         * 4. Adds sig to event
+         * 5. Calls /api/events/create to store
+         *
+         * @returns {Object} { success: true, hash, normalizedEvent }
+         */
+        this.app.post('/api/events/prepare', async (req, res) => {
+            try {
+                const event = req.body;
+
+                // Clone event to avoid mutating the original
+                const preparedEvent = JSON.parse(JSON.stringify(event));
+
+                // Normalize CREATE_RELEASE_BUNDLE events
+                if (preparedEvent.type === 'CREATE_RELEASE_BUNDLE' && preparedEvent.body) {
+                    // Step 1: Normalize legacy field names → canonical format
+                    const normalizedBundle = normalizeReleaseBundle(preparedEvent.body);
+
+                    // Step 2: Validate against canonical schema
+                    validateReleaseBundleOrThrow(normalizedBundle);
+
+                    // Replace event body with normalized+validated version
+                    preparedEvent.body = normalizedBundle;
+                }
+
+                // Calculate canonical hash (using same logic as EventStore)
+                // Exclude sig field to match storage hash calculation
+                const hash = this.store.calculateHash(preparedEvent);
+
+                res.json({
+                    success: true,
+                    hash,
+                    normalizedEvent: preparedEvent
+                });
+            } catch (error) {
+                console.error('Event preparation failed:', error);
+                res.status(400).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
          * POST /api/events/create
          * Submit a new event to storage and blockchain
          *
          * Validates CREATE_RELEASE_BUNDLE events against canonical schema
          * to ensure no partial writes and deterministic error messages.
+         *
+         * @param {string} req.body.expected_hash - Optional. Expected hash from /api/events/prepare.
+         *                                          If provided and doesn't match computed hash, returns 400.
          */
         this.app.post('/api/events/create', async (req, res) => {
             try {
-                const event = req.body;
+                const { expected_hash, ...event } = req.body;
 
                 // Validate CREATE_RELEASE_BUNDLE events at ingress
                 if (event.type === 'CREATE_RELEASE_BUNDLE' && event.body) {
@@ -720,8 +777,8 @@ class APIServer {
                     event.body = normalizedBundle;
                 }
 
-                // Store validated event
-                const result = await this.store.storeEvent(event);
+                // Store validated event (pass expectedHash for verification)
+                const result = await this.store.storeEvent(event, expected_hash || null);
 
                 res.status(201).json({
                     success: true,
