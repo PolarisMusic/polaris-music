@@ -242,11 +242,13 @@ services:
   #   - Jungle4: jungle4.eos.firehose.eosnation.io:9001 (testnet)
   #   - EOS Mainnet: eos.firehose.pinax.network:443
   substreams-sink:
-    image: node:18-alpine
+    build:
+      context: ./substreams
+      dockerfile: Dockerfile
     container_name: polaris-substreams-sink
-    working_dir: /app
     environment:
       # Backend ingestion endpoint (internal Docker network)
+      # NOTE: Do NOT include /api suffix - it's added automatically by http-sink.mjs
       - BACKEND_URL=http://api:3000
 
       # Substreams configuration (reads from .env file)
@@ -258,11 +260,9 @@ services:
 
       # Logging
       - NODE_ENV=development
-    volumes:
-      - ./substreams:/app
     networks:
       - polaris-network
-    command: node sink/http-sink.mjs --endpoint=http://api:3000/api
+    command: node sink/http-sink.mjs --endpoint=http://api:3000
     depends_on:
       api:
         condition: service_started

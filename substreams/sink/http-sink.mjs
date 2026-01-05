@@ -39,6 +39,17 @@ const config = {
     requestTimeoutMs: 10000, // 10 second timeout
 };
 
+// Utility: Sanitize backend URL (strip trailing /api if present)
+function sanitizeBackendUrl(url) {
+    // Remove trailing slash
+    let sanitized = url.replace(/\/$/, '');
+    // Remove trailing /api (will be added back when constructing full endpoint)
+    if (sanitized.endsWith('/api')) {
+        sanitized = sanitized.slice(0, -4);
+    }
+    return sanitized;
+}
+
 // Parse command-line arguments
 for (const arg of process.argv.slice(2)) {
     if (arg === '--help' || arg === '-h') {
@@ -50,13 +61,14 @@ Usage:
   node http-sink.mjs [options]
 
 Options:
-  --endpoint=<url>       Backend ingestion endpoint (default: http://localhost:3000)
+  --endpoint=<url>       Backend base URL (default: http://localhost:3000)
+                         NOTE: Do not include /api suffix - it will be added automatically
   --contract=<account>   Contract account name (default: polaris)
   --start-block=<num>    Starting block number (default: 0)
   --help, -h             Show this help message
 
 Environment Variables:
-  BACKEND_URL            Backend ingestion endpoint
+  BACKEND_URL            Backend base URL (without /api suffix)
   SUBSTREAMS_ENDPOINT    Firehose endpoint (default: eos.firehose.pinax.network:443)
   SUBSTREAMS_API_TOKEN   Pinax API token (REQUIRED - get from https://app.pinax.network)
   START_BLOCK            Starting block number
@@ -67,13 +79,16 @@ Example:
         `);
         process.exit(0);
     } else if (arg.startsWith('--endpoint=')) {
-        config.backendUrl = arg.split('=')[1];
+        config.backendUrl = sanitizeBackendUrl(arg.split('=')[1]);
     } else if (arg.startsWith('--contract=')) {
         config.contractAccount = arg.split('=')[1];
     } else if (arg.startsWith('--start-block=')) {
         config.startBlock = arg.split('=')[1];
     }
 }
+
+// Sanitize backendUrl from environment variable
+config.backendUrl = sanitizeBackendUrl(config.backendUrl);
 
 // Validation
 if (!config.apiToken) {
@@ -228,9 +243,40 @@ async function processLine(line) {
 }
 
 /**
+ * Check if substreams binary is available
+ * @returns {Promise<boolean>} True if available
+ */
+async function checkSubstreamsBinary() {
+    return new Promise((resolve) => {
+        const checkProcess = spawn('which', ['substreams']);
+        checkProcess.on('close', (code) => {
+            resolve(code === 0);
+        });
+        checkProcess.on('error', () => {
+            resolve(false);
+        });
+    });
+}
+
+/**
  * Main function: Run Substreams and pipe output to HTTP sink
  */
 async function main() {
+    // Check if substreams binary is available
+    const hasSubstreams = await checkSubstreamsBinary();
+    if (!hasSubstreams) {
+        console.error('ERROR: substreams binary not found in PATH');
+        console.error('');
+        console.error('The substreams CLI is required to run this sink.');
+        console.error('');
+        console.error('Installation options:');
+        console.error('  1. Install via: curl https://substreams.streamingfast.io/install.sh | bash');
+        console.error('  2. Download from: https://github.com/streamingfast/substreams/releases');
+        console.error('  3. Use the provided Docker image (see docker-compose.yml)');
+        console.error('');
+        process.exit(1);
+    }
+
     console.log('Starting Substreams...');
     console.log('');
 
