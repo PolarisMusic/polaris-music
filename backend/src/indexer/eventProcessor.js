@@ -56,7 +56,11 @@ class EventProcessor {
     /**
      * Create a new event processor
      *
-     * @param {Object} config - Processor configuration
+     * INJECTION MODE (for API server ingestion):
+     * @param {Object} config.db - Pre-initialized MusicGraphDatabase instance
+     * @param {Object} config.store - Pre-initialized EventStore instance
+     *
+     * NORMAL MODE (for standalone processor):
      * @param {Object} config.blockchain - Blockchain configuration
      * @param {string} config.blockchain.rpcUrl - EOS RPC endpoint
      * @param {string} config.blockchain.contractAccount - Contract account name
@@ -68,19 +72,42 @@ class EventProcessor {
     constructor(config) {
         this.config = config;
 
-        // Initialize blockchain RPC
-        this.rpc = new JsonRpc(config.blockchain.rpcUrl, { fetch });
-        this.contractAccount = config.blockchain.contractAccount || 'polaris';
-        this.pollInterval = config.blockchain.pollInterval || 5000;
+        // Detect injection mode: if db and store are already provided, use them directly
+        const injectionMode = !!(config.db && config.store);
+        this.blockchainEnabled = !injectionMode;
 
-        // Initialize database and storage
-        this.db = new MusicGraphDatabase(config.database);
-        this.store = new EventStore(config.storage);
+        if (injectionMode) {
+            // INJECTION MODE: Use pre-initialized instances (API server mode)
+            this.db = config.db;
+            this.store = config.store;
+            this.rpc = null;
+            this.contractAccount = null;
+            this.pollInterval = null;
+            this.lastProcessedBlock = 0;
+            this.currentBlock = 0;
+            console.log('EventProcessor initialized in injection mode (blockchain disabled)');
+        } else {
+            // NORMAL MODE: Initialize from config (standalone processor mode)
+            if (!config.blockchain?.rpcUrl) {
+                throw new Error('EventProcessor requires either {db, store} or {blockchain, database, storage}');
+            }
 
-        // Processing state
+            // Initialize blockchain RPC
+            this.rpc = new JsonRpc(config.blockchain.rpcUrl, { fetch });
+            this.contractAccount = config.blockchain.contractAccount || 'polaris';
+            this.pollInterval = config.blockchain.pollInterval || 5000;
+
+            // Initialize database and storage
+            this.db = new MusicGraphDatabase(config.database);
+            this.store = new EventStore(config.storage);
+
+            // Processing state
+            this.lastProcessedBlock = config.startBlock || 0;
+            this.currentBlock = 0;
+        }
+
+        // Common state (both modes)
         this.isRunning = false;
-        this.lastProcessedBlock = config.startBlock || 0;
-        this.currentBlock = 0;
 
         // Statistics
         this.stats = {
@@ -93,7 +120,7 @@ class EventProcessor {
             lastProcessedTime: null
         };
 
-        // Event handlers by type
+        // Event handlers by type (needed in both modes)
         this.eventHandlers = {
             [EVENT_TYPES.CREATE_RELEASE_BUNDLE]: this.handleReleaseBundle.bind(this),
             [EVENT_TYPES.MINT_ENTITY]: this.handleMintEntity.bind(this),
@@ -114,6 +141,14 @@ class EventProcessor {
      * @returns {Promise<void>}
      */
     async start() {
+        if (!this.blockchainEnabled) {
+            throw new Error(
+                'EventProcessor.start() requires blockchain configuration. ' +
+                'This instance was created in injection mode (for API server ingestion). ' +
+                'Use backend/src/indexer/runProcessor.js for blockchain event processing.'
+            );
+        }
+
         if (this.isRunning) {
             console.warn('Event processor already running');
             return;
@@ -177,9 +212,15 @@ class EventProcessor {
      * Main processing loop
      * Continuously polls blockchain and processes new events
      *
+     * NOTE: Not available in injection mode.
+     *
      * @private
      */
     async processLoop() {
+        if (!this.blockchainEnabled) {
+            throw new Error('processLoop() not available in injection mode');
+        }
+
         while (this.isRunning) {
             try {
                 // Get latest block info
@@ -211,11 +252,17 @@ class EventProcessor {
     /**
      * Process a range of blocks for events
      *
+     * NOTE: Not available in injection mode.
+     *
      * @private
      * @param {number} fromBlock - Start block (inclusive)
      * @param {number} toBlock - End block (inclusive)
      */
     async processBlockRange(fromBlock, toBlock) {
+        if (!this.blockchainEnabled) {
+            throw new Error('processBlockRange() not available in injection mode');
+        }
+
         console.log(`Processing blocks ${fromBlock} to ${toBlock}...`);
 
         // Process in chunks to avoid overwhelming the system
@@ -250,12 +297,18 @@ class EventProcessor {
     /**
      * Get actions from blockchain in a block range
      *
+     * NOTE: Not available in injection mode.
+     *
      * @private
      * @param {number} fromBlock - Start block
      * @param {number} toBlock - End block
      * @returns {Promise<Array>} Array of actions
      */
     async getActionsInRange(fromBlock, toBlock) {
+        if (!this.blockchainEnabled) {
+            throw new Error('getActionsInRange() not available in injection mode');
+        }
+
         try {
             // Use get_actions API with filters
             const response = await this.rpc.history_get_actions(
@@ -280,12 +333,18 @@ class EventProcessor {
     /**
      * Fallback method to get actions by fetching individual blocks
      *
+     * NOTE: Not available in injection mode.
+     *
      * @private
      * @param {number} fromBlock - Start block
      * @param {number} toBlock - End block
      * @returns {Promise<Array>} Array of actions
      */
     async getActionsInRangeFallback(fromBlock, toBlock) {
+        if (!this.blockchainEnabled) {
+            throw new Error('getActionsInRangeFallback() not available in injection mode');
+        }
+
         const actions = [];
 
         for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
