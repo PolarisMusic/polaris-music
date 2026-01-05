@@ -9,8 +9,13 @@ import CryptoJS from 'crypto-js';
 
 export class TransactionBuilder {
     constructor(config = {}) {
+        // Read from environment variables with 'polaris' as default
+        const contractAccount = config.contractAccount
+            || import.meta.env.VITE_CONTRACT_ACCOUNT
+            || 'polaris';
+
         this.config = {
-            contractAccount: config.contractAccount || 'polaris',
+            contractAccount,
             ...config
         };
     }

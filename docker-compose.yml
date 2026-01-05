@@ -118,9 +118,9 @@ services:
       - NODE_ENV=development
       - PORT=3000
 
-      # Blockchain
-      - CHAIN_ID=aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906
-      - RPC_URL=https://eos.greymass.com
+      # Blockchain (Jungle4 testnet for development)
+      - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
+      - RPC_URL=https://jungle4.greymass.com
       - CONTRACT_ACCOUNT=polaris
 
       # Graph Database
@@ -169,9 +169,9 @@ services:
     environment:
       - NODE_ENV=development
 
-      # Blockchain
-      - CHAIN_ID=aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906
-      - RPC_URL=https://eos.greymass.com
+      # Blockchain (Jungle4 testnet for development)
+      - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
+      - RPC_URL=https://jungle4.greymass.com
       - CONTRACT_ACCOUNT=polaris
 
       # Graph Database
@@ -238,6 +238,9 @@ services:
   # Substreams HTTP Sink (Chain Ingestion)
   # NOTE: Requires SUBSTREAMS_API_TOKEN to be set in .env file
   # Get your token from https://app.pinax.network
+  # IMPORTANT: SUBSTREAMS_ENDPOINT must match the chain used by frontend/backend
+  #   - Jungle4: jungle4.eos.firehose.eosnation.io:9001 (testnet)
+  #   - EOS Mainnet: eos.firehose.pinax.network:443
   substreams-sink:
     image: node:18-alpine
     container_name: polaris-substreams-sink
@@ -247,8 +250,9 @@ services:
       - BACKEND_URL=http://api:3000
 
       # Substreams configuration (reads from .env file)
+      # Default to Jungle4 testnet for development
       - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN}
-      - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-eos.firehose.pinax.network:443}
+      - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.eos.firehose.eosnation.io:9001}
       - START_BLOCK=${START_BLOCK:-0}
       - CONTRACT_ACCOUNT=polaris
 

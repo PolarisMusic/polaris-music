@@ -12,11 +12,24 @@ import { POLARIS_ABI } from '../contracts/polarisAbi.js';
 
 export class WalletManager {
     constructor(config = {}) {
+        // Read from environment variables with Jungle4 testnet as default
+        const chainId = config.chainId
+            || import.meta.env.VITE_CHAIN_ID
+            || '73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d'; // Jungle4 testnet
+
+        const rpcUrl = config.rpcUrl
+            || import.meta.env.VITE_RPC_URL
+            || 'https://jungle4.greymass.com';
+
+        const contractAccount = config.contractAccount
+            || import.meta.env.VITE_CONTRACT_ACCOUNT
+            || 'polaris';
+
         this.config = {
             appName: config.appName || 'Polaris Music Registry',
-            // Use Jungle4 testnet for development (contract not deployed on mainnet yet)
-            chainId: config.chainId || '73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d', // Jungle4 testnet
-            rpcUrl: config.rpcUrl || 'https://jungle4.greymass.com',
+            chainId,
+            rpcUrl,
+            contractAccount,
             ...config
         };
 
@@ -55,7 +68,11 @@ export class WalletManager {
             walletPlugins
         });
 
-        console.log('WalletManager initialized for Jungle4 testnet');
+        console.log('WalletManager initialized:', {
+            chainId: this.config.chainId,
+            rpcUrl: this.config.rpcUrl,
+            contractAccount: this.config.contractAccount
+        });
     }
 
     /**
@@ -186,8 +203,8 @@ export class WalletManager {
             }, {
                 abiProvider: {
                     getAbi: async (account) => {
-                        // Provide Polaris ABI if requested
-                        if (account === 'polaris') {
+                        // Provide Polaris ABI if requested for configured contract account
+                        if (account === this.config.contractAccount) {
                             return POLARIS_ABI;
                         }
                         // Otherwise fetch from blockchain
