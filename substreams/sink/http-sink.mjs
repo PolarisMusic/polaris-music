@@ -34,6 +34,12 @@ const config = {
     apiToken: process.env.SUBSTREAMS_API_TOKEN || '',
     startBlock: process.env.START_BLOCK || '0',
     contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
+
+    // Substreams package configuration (Pinax Antelope foundational modules)
+    substreamsPackage: process.env.SUBSTREAMS_PACKAGE || 'antelope_common@v0.4.0',
+    substreamsModule: process.env.SUBSTREAMS_MODULE || 'filtered_actions',
+    substreamsParams: process.env.SUBSTREAMS_PARAMS || '', // Will be set from contractAccount if empty
+
     maxRetries: 5,
     retryDelayMs: 1000,
     requestTimeoutMs: 10000, // 10 second timeout
@@ -71,6 +77,9 @@ Environment Variables:
   BACKEND_URL            Backend base URL (without /api suffix)
   SUBSTREAMS_ENDPOINT    Firehose endpoint (default: eos.firehose.pinax.network:443)
   SUBSTREAMS_API_TOKEN   Pinax API token (REQUIRED - get from https://app.pinax.network)
+  SUBSTREAMS_PACKAGE     Substreams package (default: antelope_common@v0.4.0)
+  SUBSTREAMS_MODULE      Module to run (default: filtered_actions)
+  SUBSTREAMS_PARAMS      Filter params (default: code:CONTRACT_ACCOUNT && action:put)
   START_BLOCK            Starting block number
   CONTRACT_ACCOUNT       Contract account name
 
@@ -90,6 +99,11 @@ Example:
 // Sanitize backendUrl from environment variable
 config.backendUrl = sanitizeBackendUrl(config.backendUrl);
 
+// Set default substreams params if not provided
+if (!config.substreamsParams) {
+    config.substreamsParams = `code:${config.contractAccount} && action:put`;
+}
+
 // Validation
 if (!config.apiToken) {
     console.error('ERROR: SUBSTREAMS_API_TOKEN environment variable is required');
@@ -101,10 +115,13 @@ if (!config.apiToken) {
 
 console.log('Polaris Substreams HTTP Sink');
 console.log('============================');
-console.log(`Backend URL:        ${config.backendUrl}`);
+console.log(`Backend URL:         ${config.backendUrl}`);
 console.log(`Substreams Endpoint: ${config.substreamsEndpoint}`);
-console.log(`Contract Account:   ${config.contractAccount}`);
-console.log(`Start Block:        ${config.startBlock}`);
+console.log(`Substreams Package:  ${config.substreamsPackage}`);
+console.log(`Substreams Module:   ${config.substreamsModule}`);
+console.log(`Filter Params:       ${config.substreamsParams}`);
+console.log(`Contract Account:    ${config.contractAccount}`);
+console.log(`Start Block:         ${config.startBlock}`);
 console.log('');
 
 // Statistics
@@ -207,28 +224,39 @@ async function processLine(line) {
     try {
         const data = JSON.parse(line);
 
-        // Extract anchored events from Substreams output
-        // Format: { "@module": "map_anchored_events", "@type": "...", "@data": {...} }
-        if (data['@module'] === 'map_anchored_events' && data['@data']) {
-            const anchoredEvents = data['@data'].events || [];
+        // Extract action traces from filtered_actions module output
+        // Format: { "@module": "filtered_actions", "@type": "sf.antelope.type.v1.ActionTraces", "@data": {...} }
+        if (data['@module'] === config.substreamsModule && data['@data']) {
+            const actionTraces = data['@data'].actionTraces || [];
 
-            for (const event of anchoredEvents) {
+            for (const actionTrace of actionTraces) {
                 stats.eventsReceived++;
 
-                // Convert protobuf bytes to objects for posting
-                // Stage 3 update: includes content_hash field
+                // Extract action data from ActionTrace format
+                // filtered_actions returns sf.antelope.type.v1.ActionTrace
+                const action = actionTrace.action || actionTrace.receipt?.receiver;
+                if (!action) {
+                    console.warn('  Skipping action trace without action data');
+                    continue;
+                }
+
+                // Extract the 'put' action data (our contract's anchoring action)
+                const actionData = action.jsonData ? JSON.parse(action.jsonData) : action.data;
+
+                // Build AnchoredEvent structure expected by backend
+                // Maps from Antelope action to our ingestion format
                 const postableEvent = {
-                    content_hash: event.content_hash || event.contentHash, // Stage 3: canonical hash
-                    event_hash: event.event_hash || event.eventHash,       // Action payload hash (debugging)
-                    payload: event.payload ? Buffer.from(event.payload, 'base64').toString('utf-8') : '',
-                    block_num: event.block_num || event.blockNum,
-                    block_id: event.block_id || event.blockId,
-                    trx_id: event.trx_id || event.trxId,
-                    action_ordinal: event.action_ordinal || event.actionOrdinal,
-                    timestamp: event.timestamp,
-                    source: event.source,
-                    contract_account: event.contract_account || event.contractAccount,
-                    action_name: event.action_name || event.actionName,
+                    content_hash: actionData.hash,  // The content hash from put action
+                    event_hash: actionData.hash,    // Use same for now (can derive from action data if needed)
+                    payload: JSON.stringify(actionData), // The full action data
+                    block_num: actionTrace.blockNum || actionTrace.block_num,
+                    block_id: actionTrace.blockId || actionTrace.block_id,
+                    trx_id: actionTrace.trxId || actionTrace.receipt?.trxId,
+                    action_ordinal: actionTrace.actionOrdinal || actionTrace.executionIndex,
+                    timestamp: actionTrace.blockTime || actionTrace.block_time,
+                    source: 'substreams',
+                    contract_account: action.account,
+                    action_name: action.name,
                 };
 
                 await postAnchoredEvent(postableEvent);
@@ -280,16 +308,18 @@ async function main() {
     console.log('Starting Substreams...');
     console.log('');
 
-    // Build substreams command
+    // Build substreams command using Pinax Antelope foundational modules
+    // Package: antelope_common@v0.4.0 (published by Pinax)
+    // Module: filtered_actions (filters by code/action/data predicates)
+    // Params: code:CONTRACT_ACCOUNT && action:put
     const substreamsArgs = [
         'run',
         '-e',
         config.substreamsEndpoint,
-        '--manifest',
-        '../substreams.yaml',
-        'map_anchored_events',
-        '-p',
-        `map_anchored_events=${config.contractAccount}`,
+        config.substreamsPackage,
+        config.substreamsModule,
+        '--params',
+        config.substreamsParams,
         '--start-block',
         config.startBlock,
         '--stop-block',

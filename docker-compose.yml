@@ -241,6 +241,9 @@ services:
   # IMPORTANT: SUBSTREAMS_ENDPOINT must match the chain used by frontend/backend
   #   - Jungle4: jungle4.eos.firehose.eosnation.io:9001 (testnet)
   #   - EOS Mainnet: eos.firehose.pinax.network:443
+  # NEW: Uses Pinax Antelope foundational modules (antelope_common@v0.4.0)
+  #   - No local build artifacts needed
+  #   - Filters by: code:CONTRACT_ACCOUNT && action:put
   substreams-sink:
     build:
       context: ./substreams
@@ -251,11 +254,17 @@ services:
       # NOTE: Do NOT include /api suffix - it's added automatically by http-sink.mjs
       - BACKEND_URL=http://api:3000
 
-      # Substreams configuration (reads from .env file)
+      # Substreams connection (reads from .env file)
       # Default to Jungle4 testnet for development
       - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN}
       - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.eos.firehose.eosnation.io:9001}
       - START_BLOCK=${START_BLOCK:-0}
+
+      # Substreams package configuration (Pinax foundational modules)
+      # Uses published antelope_common package instead of custom parsing
+      - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-antelope_common@v0.4.0}
+      - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-filtered_actions}
+      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-code:polaris && action:put}
       - CONTRACT_ACCOUNT=polaris
 
       # Logging
