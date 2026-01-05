@@ -482,5 +482,32 @@ describe('normalizeReleaseBundle', () => {
                 normalizeReleaseBundle(frontendBundle);
             }).toThrow(/Referenced track_id not found in catalog: trk_999/);
         });
+
+        it('should output ONLY canonical fields (position, track_title, track_id, duration)', () => {
+            const frontendBundle = {
+                release: {
+                    name: 'Test Album'
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Track 1', duration: 180 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', disc_side: 'A', track_number: 1, duration: 180 }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(frontendBundle);
+
+            // Verify exact keys present (no extra fields)
+            const tracklistItem = normalized.tracklist[0];
+            const keys = Object.keys(tracklistItem).sort();
+
+            // Should have exactly: duration, position, track_id, track_title
+            expect(keys).toEqual(['duration', 'position', 'track_id', 'track_title']);
+
+            // Verify helper fields are NOT present
+            expect(tracklistItem).not.toHaveProperty('disc_side');
+            expect(tracklistItem).not.toHaveProperty('track_number');
+        });
     });
 });

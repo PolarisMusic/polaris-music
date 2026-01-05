@@ -453,9 +453,9 @@ function normalizeTracklistItem(item, idx) {
     if (item.track_id) normalized.track_id = item.track_id;
     if (item.duration !== undefined) normalized.duration = item.duration;
 
-    // Store frontend-specific fields temporarily (will be stripped later)
-    if (item.disc_side) normalized.disc_side = item.disc_side;
-    if (item.track_number) normalized.track_number = item.track_number;
+    // NOTE: disc_side and track_number are NOT stored here
+    // They are read directly from the original item in normalizeTracklist()
+    // and used only for deriving position, never included in output
 
     return normalized;
 }
