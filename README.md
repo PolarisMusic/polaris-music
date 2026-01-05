@@ -106,7 +106,14 @@ S3_BUCKET=polaris-events
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=your-redis-password
+
+# Frontend Configuration (frontend/.env or docker-compose.yml)
+# IMPORTANT: VITE_API_URL must include the /api prefix
+VITE_API_URL=http://localhost:3000/api
+VITE_GRAPHQL_URL=http://localhost:3000/graphql
 ```
+
+**Note on Frontend API URL**: The `VITE_API_URL` environment variable must include the `/api` prefix. The backend API serves REST endpoints under `/api/*` (e.g., `/api/events/create`), while GraphQL is at `/graphql` and health checks at `/health`. The frontend client automatically normalizes the URL if the `/api` suffix is missing, but it's recommended to include it explicitly in your configuration.
 
 ## Core Concepts
 

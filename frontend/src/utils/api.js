@@ -2,7 +2,25 @@
  * API client for Polaris Music Registry backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+/**
+ * Normalize API URL to ensure it has the /api prefix
+ * @param {string} url - Base URL (with or without /api)
+ * @returns {string} URL with /api prefix
+ */
+function normalizeApiUrl(url) {
+    if (!url) return 'http://localhost:3000/api';
+
+    // If it already ends with /api, use as-is
+    if (url.endsWith('/api')) {
+        return url;
+    }
+
+    // If it ends with a slash, remove it before adding /api
+    const cleanUrl = url.replace(/\/$/, '');
+    return `${cleanUrl}/api`;
+}
+
+const API_BASE_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
 class APIClient {
     /**
