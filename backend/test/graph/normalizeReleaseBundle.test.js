@@ -351,4 +351,136 @@ describe('normalizeReleaseBundle', () => {
             expect(normalized.tracks[0].performed_by_groups[0].name).toBe('Legacy Band');
         });
     });
+
+    describe('Frontend tracklist shape (Item 5 Revised)', () => {
+        it('should accept frontend tracklist shape with track_id, disc_side, track_number', () => {
+            // Frontend sends: { track_id, disc_side, track_number }
+            // Backend needs: { position, track_title, track_id }
+            const frontendBundle = {
+                release: {
+                    name: 'Abbey Road'
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Come Together', duration: 259, isrc: 'GBAYE0601729' },
+                    { track_id: 'trk_2', title: 'Something', duration: 182, isrc: 'GBAYE0601730' }
+                ],
+                tracklist: [
+                    // Frontend shape: no position or track_title
+                    { track_id: 'trk_1', disc_side: 'A', track_number: 1, duration: 259 },
+                    { track_id: 'trk_2', disc_side: 'A', track_number: 2, duration: 182 }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(frontendBundle);
+
+            // Should derive position from disc_side + track_number
+            expect(normalized.tracklist[0].position).toBe('A-1');
+            expect(normalized.tracklist[1].position).toBe('A-2');
+
+            // Should derive track_title from catalog
+            expect(normalized.tracklist[0].track_title).toBe('Come Together');
+            expect(normalized.tracklist[1].track_title).toBe('Something');
+
+            // Should preserve track_id
+            expect(normalized.tracklist[0].track_id).toBe('trk_1');
+            expect(normalized.tracklist[1].track_id).toBe('trk_2');
+
+            // Should NOT include non-canonical fields (disc_side, track_number)
+            expect(normalized.tracklist[0].disc_side).toBeUndefined();
+            expect(normalized.tracklist[0].track_number).toBeUndefined();
+        });
+
+        it('should derive position from track_number alone when disc_side missing', () => {
+            const frontendBundle = {
+                release: {
+                    name: 'Test Album'
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Track 1' },
+                    { track_id: 'trk_2', title: 'Track 2' }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', track_number: 1 },
+                    { track_id: 'trk_2', track_number: 2 }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(frontendBundle);
+
+            // Should use track_number as position
+            expect(normalized.tracklist[0].position).toBe('1');
+            expect(normalized.tracklist[1].position).toBe('2');
+        });
+
+        it('should fallback to index+1 when both disc_side and track_number missing', () => {
+            const frontendBundle = {
+                release: {
+                    name: 'Test Album'
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Track 1' },
+                    { track_id: 'trk_2', title: 'Track 2' }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1' },
+                    { track_id: 'trk_2' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(frontendBundle);
+
+            // Should fallback to 1-based index
+            expect(normalized.tracklist[0].position).toBe('1');
+            expect(normalized.tracklist[1].position).toBe('2');
+        });
+
+        it('should handle multi-disc frontend tracklist', () => {
+            const frontendBundle = {
+                release: {
+                    name: 'The Beatles (White Album)'
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Back in the U.S.S.R.' },
+                    { track_id: 'trk_2', title: 'Dear Prudence' },
+                    { track_id: 'trk_3', title: 'Revolution 1' },
+                    { track_id: 'trk_4', title: 'Honey Pie' }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', disc_side: '1A', track_number: 1 },
+                    { track_id: 'trk_2', disc_side: '1A', track_number: 2 },
+                    { track_id: 'trk_3', disc_side: '2B', track_number: 1 },
+                    { track_id: 'trk_4', disc_side: '2B', track_number: 2 }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(frontendBundle);
+
+            expect(normalized.tracklist[0].position).toBe('1A-1');
+            expect(normalized.tracklist[1].position).toBe('1A-2');
+            expect(normalized.tracklist[2].position).toBe('2B-1');
+            expect(normalized.tracklist[3].position).toBe('2B-2');
+
+            // All should have track_title derived
+            expect(normalized.tracklist[0].track_title).toBe('Back in the U.S.S.R.');
+            expect(normalized.tracklist[3].track_title).toBe('Honey Pie');
+        });
+
+        it('should error if track_id references non-existent catalog track', () => {
+            const frontendBundle = {
+                release: {
+                    name: 'Test Album'
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Track 1' }
+                ],
+                tracklist: [
+                    { track_id: 'trk_999' } // Does not exist in catalog
+                ]
+            };
+
+            expect(() => {
+                normalizeReleaseBundle(frontendBundle);
+            }).toThrow(/Referenced track_id not found in catalog: trk_999/);
+        });
+    });
 });

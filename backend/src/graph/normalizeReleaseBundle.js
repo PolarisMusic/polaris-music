@@ -209,8 +209,8 @@ function normalizeTracklist(tracklistInput, trackIdMap, tracks, errors) {
         try {
             const item = tracklistInput[idx];
 
-            // Normalize the base tracklist item
-            const normalized = normalizeTracklistItem(item);
+            // Normalize the base tracklist item (accepts frontend shape)
+            const normalized = normalizeTracklistItem(item, idx);
 
             // Ensure tracklist item has track_id reference
             if (!normalized.track_id) {
@@ -226,6 +226,9 @@ function normalizeTracklist(tracklistInput, trackIdMap, tracks, errors) {
                         errors.push(`tracklist[${idx}]: Could not resolve track_id for track_title: ${normalized.track_title}`);
                         continue; // Skip this item
                     }
+                } else {
+                    errors.push(`tracklist[${idx}]: Missing track_id and cannot derive from track_title`);
+                    continue;
                 }
             }
 
@@ -235,7 +238,37 @@ function normalizeTracklist(tracklistInput, trackIdMap, tracks, errors) {
                 continue; // Skip this item
             }
 
-            tracklist.push(normalized);
+            // Derive track_title from catalog if missing
+            if (!normalized.track_title) {
+                const catalogTrack = tracks[trackIdMap.get(normalized.track_id)];
+                normalized.track_title = catalogTrack.title;
+            }
+
+            // Derive position if missing (from frontend shape)
+            if (!normalized.position) {
+                if (item.disc_side && item.track_number) {
+                    normalized.position = `${item.disc_side}-${item.track_number}`;
+                } else if (item.track_number) {
+                    normalized.position = String(item.track_number);
+                } else {
+                    // Fallback to 1-based index
+                    normalized.position = String(idx + 1);
+                }
+            }
+
+            // Strip non-canonical fields (schema has additionalProperties: false)
+            const canonical = {
+                position: normalized.position,
+                track_title: normalized.track_title,
+                track_id: normalized.track_id
+            };
+
+            // Include optional duration if present
+            if (normalized.duration !== undefined) {
+                canonical.duration = normalized.duration;
+            }
+
+            tracklist.push(canonical);
 
         } catch (err) {
             errors.push(`tracklist[${idx}]: ${err.message}`);
@@ -398,27 +431,31 @@ function normalizeTrack(track) {
 
 /**
  * Normalize TracklistItem object
+ * Accepts both canonical shape (position, track_title) and frontend shape (track_id, disc_side, track_number)
+ * Missing fields will be derived by parent normalizeTracklist() function
+ *
+ * @param {Object} item - Tracklist item from input
+ * @param {number} idx - Index in tracklist array (for fallback position)
+ * @returns {Object} Partially normalized item (may be missing required fields)
  */
-function normalizeTracklistItem(item) {
+function normalizeTracklistItem(item, idx) {
     if (!item || typeof item !== 'object') {
         throw new Error('Must be an object');
     }
 
-    if (!item.position) {
-        throw new Error('position is required');
-    }
+    const normalized = {};
 
-    if (!item.track_title || item.track_title.trim() === '') {
-        throw new Error('track_title is required and cannot be empty');
-    }
+    // Accept canonical shape
+    if (item.position) normalized.position = item.position;
+    if (item.track_title) normalized.track_title = item.track_title.trim();
 
-    const normalized = {
-        position: item.position,
-        track_title: item.track_title.trim()
-    };
-
+    // Accept frontend shape (for derivation by parent)
     if (item.track_id) normalized.track_id = item.track_id;
     if (item.duration !== undefined) normalized.duration = item.duration;
+
+    // Store frontend-specific fields temporarily (will be stripped later)
+    if (item.disc_side) normalized.disc_side = item.disc_side;
+    if (item.track_number) normalized.track_number = item.track_number;
 
     return normalized;
 }
