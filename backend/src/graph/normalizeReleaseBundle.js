@@ -4,15 +4,25 @@
  * Converts frontend data to canonical schema format before graph ingestion.
  * Handles legacy field names and validates against canonical schema.
  *
+ * Data Model:
+ * - tracks: Unique track entities (reusable across releases)
+ * - tracklist: Release-specific references to tracks (order, disc/side)
+ *
  * Field Mappings:
- * - release_name � name
- * - releaseDate � release_date
- * - albumArt � album_art
- * - camelCase � snake_case (general pattern)
+ * - release_name → name
+ * - releaseDate → release_date
+ * - albumArt → album_art
+ * - camelCase → snake_case (general pattern)
  */
+
+import crypto from 'crypto';
 
 /**
  * Normalize a ReleaseBundle from frontend format to canonical format
+ *
+ * Accepts both:
+ * - Legacy shape: { release: { tracks: [...] }, tracklist: [...] }
+ * - Canonical shape: { release, tracks: [...], tracklist: [...], groups: [...] }
  *
  * @param {Object} bundle - ReleaseBundle from frontend
  * @returns {Object} Normalized bundle matching canonical schema
@@ -46,33 +56,27 @@ export function normalizeReleaseBundle(bundle) {
         });
     }
 
-    // Normalize tracks (required, at least 1)
-    const normalizedTracks = [];
-    if (bundle.tracks && Array.isArray(bundle.tracks)) {
-        bundle.tracks.forEach((track, idx) => {
-            try {
-                normalizedTracks.push(normalizeTrack(track));
-            } catch (err) {
-                errors.push(`tracks[${idx}]: ${err.message}`);
-            }
-        });
-    } else {
-        errors.push('tracks: Required field, must be non-empty array');
+    // ========== TRACK CATALOG NORMALIZATION ==========
+    // Determine track definitions from various input sources
+    // Priority: bundle.tracks > bundle.release.tracks > derive from tracklist
+    const trackDefs = bundle.tracks || bundle.release?.tracks || [];
+
+    if (!Array.isArray(trackDefs)) {
+        errors.push('tracks: Must be an array');
     }
 
-    // Normalize tracklist (required, at least 1)
-    const normalizedTracklist = [];
-    if (bundle.tracklist && Array.isArray(bundle.tracklist)) {
-        bundle.tracklist.forEach((item, idx) => {
-            try {
-                normalizedTracklist.push(normalizeTracklistItem(item));
-            } catch (err) {
-                errors.push(`tracklist[${idx}]: ${err.message}`);
-            }
-        });
-    } else {
-        errors.push('tracklist: Required field, must be non-empty array');
+    // Normalize and deduplicate tracks into catalog
+    const { tracks: normalizedTracks, trackIdMap } = normalizeTrackCatalog(trackDefs, errors);
+
+    // ========== TRACKLIST NORMALIZATION ==========
+    // Normalize tracklist to reference track_id (not embedded track objects)
+    const tracklistInput = bundle.tracklist || [];
+
+    if (!Array.isArray(tracklistInput)) {
+        errors.push('tracklist: Must be an array');
     }
+
+    const normalizedTracklist = normalizeTracklist(tracklistInput, trackIdMap, normalizedTracks, errors);
 
     // Normalize songs (optional)
     const normalizedSongs = [];
@@ -112,6 +116,137 @@ export function normalizeReleaseBundle(bundle) {
         ...(normalizedSongs.length > 0 && { songs: normalizedSongs }),
         ...(normalizedSources.length > 0 && { sources: normalizedSources })
     };
+}
+
+/**
+ * Normalize track catalog: deduplicate tracks and ensure stable track_id
+ *
+ * @param {Array} trackDefs - Track definitions from input
+ * @param {Array} errors - Error collection
+ * @returns {Object} { tracks: Array, trackIdMap: Map }
+ */
+function normalizeTrackCatalog(trackDefs, errors) {
+    const tracks = [];
+    const trackIdMap = new Map(); // Maps track_id → track index
+    const seenIds = new Set();
+
+    for (let idx = 0; idx < trackDefs.length; idx++) {
+        try {
+            const trackDef = trackDefs[idx];
+            const normalized = normalizeTrack(trackDef);
+
+            // Ensure track has a stable track_id
+            if (!normalized.track_id) {
+                normalized.track_id = generateTrackId(normalized);
+            }
+
+            // Deduplicate by track_id
+            if (seenIds.has(normalized.track_id)) {
+                // Skip duplicate, but note it in console (not an error)
+                console.log(`Note: Skipping duplicate track_id: ${normalized.track_id}`);
+                continue;
+            }
+
+            seenIds.add(normalized.track_id);
+            trackIdMap.set(normalized.track_id, tracks.length);
+            tracks.push(normalized);
+
+        } catch (err) {
+            errors.push(`tracks[${idx}]: ${err.message}`);
+        }
+    }
+
+    if (tracks.length === 0) {
+        errors.push('tracks: Must have at least one valid track');
+    }
+
+    return { tracks, trackIdMap };
+}
+
+/**
+ * Generate deterministic track_id when missing
+ *
+ * Priority:
+ * 1. ISRC if available
+ * 2. Hash of normalized title + duration
+ *
+ * @param {Object} track - Normalized track
+ * @returns {string} Deterministic track_id
+ */
+function generateTrackId(track) {
+    // Priority 1: ISRC-based ID
+    if (track.isrc) {
+        return `track:isrc:${track.isrc}`;
+    }
+
+    // Priority 2: Hash of canonical identity (title + duration)
+    const normalizedTitle = track.title.toLowerCase().trim().replace(/\s+/g, ' ');
+    const duration = track.duration || 0;
+    const identityString = `track:${normalizedTitle}:${duration}`;
+
+    // Generate short hash (first 16 chars of SHA256)
+    const hash = crypto.createHash('sha256')
+        .update(identityString)
+        .digest('hex')
+        .substring(0, 16);
+
+    return `track:gen:${hash}`;
+}
+
+/**
+ * Normalize tracklist to reference track_id (not embedded track objects)
+ *
+ * @param {Array} tracklistInput - Tracklist items from input
+ * @param {Map} trackIdMap - Map of track_id → track index
+ * @param {Array} tracks - Normalized tracks catalog
+ * @param {Array} errors - Error collection
+ * @returns {Array} Normalized tracklist
+ */
+function normalizeTracklist(tracklistInput, trackIdMap, tracks, errors) {
+    const tracklist = [];
+
+    for (let idx = 0; idx < tracklistInput.length; idx++) {
+        try {
+            const item = tracklistInput[idx];
+
+            // Normalize the base tracklist item
+            const normalized = normalizeTracklistItem(item);
+
+            // Ensure tracklist item has track_id reference
+            if (!normalized.track_id) {
+                // Try to resolve track_id from track_title by matching catalog
+                if (normalized.track_title) {
+                    const matchedTrack = tracks.find(t =>
+                        t.title.toLowerCase() === normalized.track_title.toLowerCase()
+                    );
+
+                    if (matchedTrack) {
+                        normalized.track_id = matchedTrack.track_id;
+                    } else {
+                        errors.push(`tracklist[${idx}]: Could not resolve track_id for track_title: ${normalized.track_title}`);
+                        continue; // Skip this item
+                    }
+                }
+            }
+
+            // Verify track_id exists in catalog
+            if (!trackIdMap.has(normalized.track_id)) {
+                errors.push(`tracklist[${idx}]: Referenced track_id not found in catalog: ${normalized.track_id}`);
+                continue; // Skip this item
+            }
+
+            tracklist.push(normalized);
+
+        } catch (err) {
+            errors.push(`tracklist[${idx}]: ${err.message}`);
+        }
+    }
+
+    if (tracklist.length === 0) {
+        errors.push('tracklist: Must have at least one valid item');
+    }
+
+    return tracklist;
 }
 
 /**

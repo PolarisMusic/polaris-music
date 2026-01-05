@@ -2,13 +2,193 @@
  * @fileoverview Tests for ReleaseBundle normalization
  *
  * Verifies that frontend data is correctly normalized to canonical schema format,
- * including mapping track.groups → track.performed_by_groups for graph ingestion.
+ * including:
+ * - Accepting legacy shape (release.tracks) and canonical shape (top-level tracks)
+ * - Mapping track.groups → track.performed_by_groups for graph ingestion
+ * - Generating deterministic track_id when missing
+ * - Deduplicating tracks
+ * - Normalizing tracklist to reference track_id
  */
 
 import { describe, it, expect } from '@jest/globals';
 import { normalizeReleaseBundle } from '../../src/graph/normalizeReleaseBundle.js';
 
 describe('normalizeReleaseBundle', () => {
+    describe('Legacy input handling (Item 5)', () => {
+        it('should accept legacy shape with release.tracks and produce canonical output', () => {
+            // Legacy frontend shape: { release: { tracks: [...] }, tracklist: [...] }
+            const legacyBundle = {
+                release: {
+                    name: 'Abbey Road',
+                    release_date: '1969-09-26',
+                    tracks: [
+                        {
+                            title: 'Come Together',
+                            duration: 259,
+                            isrc: 'GBAYE0601729'
+                        },
+                        {
+                            title: 'Something',
+                            duration: 182,
+                            isrc: 'GBAYE0601730'
+                        }
+                    ]
+                },
+                tracklist: [
+                    { position: '1', track_title: 'Come Together', duration: 259 },
+                    { position: '2', track_title: 'Something', duration: 182 }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(legacyBundle);
+
+            // Should have canonical structure
+            expect(normalized.release).toBeDefined();
+            expect(normalized.tracks).toBeDefined();
+            expect(normalized.tracklist).toBeDefined();
+
+            // Tracks should be at top-level
+            expect(normalized.tracks).toHaveLength(2);
+            expect(normalized.tracks[0].title).toBe('Come Together');
+            expect(normalized.tracks[1].title).toBe('Something');
+
+            // Each track should have track_id (ISRC-based)
+            expect(normalized.tracks[0].track_id).toBe('track:isrc:GBAYE0601729');
+            expect(normalized.tracks[1].track_id).toBe('track:isrc:GBAYE0601730');
+
+            // Tracklist should reference track_id
+            expect(normalized.tracklist).toHaveLength(2);
+            expect(normalized.tracklist[0].track_id).toBe('track:isrc:GBAYE0601729');
+            expect(normalized.tracklist[1].track_id).toBe('track:isrc:GBAYE0601730');
+            expect(normalized.tracklist[0].position).toBe('1');
+        });
+
+        it('should accept canonical shape and pass through unchanged', () => {
+            // Canonical shape: { release, tracks, tracklist, groups }
+            const canonicalBundle = {
+                release: {
+                    name: 'Test Album'
+                },
+                groups: [
+                    { group_id: 'grp_test', name: 'Test Band' }
+                ],
+                tracks: [
+                    {
+                        track_id: 'track_explicit_id',
+                        title: 'Test Track',
+                        duration: 180
+                    }
+                ],
+                tracklist: [
+                    {
+                        position: '1',
+                        track_title: 'Test Track',
+                        track_id: 'track_explicit_id'
+                    }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(canonicalBundle);
+
+            // Should preserve track_id
+            expect(normalized.tracks[0].track_id).toBe('track_explicit_id');
+            expect(normalized.tracklist[0].track_id).toBe('track_explicit_id');
+        });
+
+        it('should generate deterministic track_id when missing (hash-based)', () => {
+            const bundle = {
+                release: {
+                    name: 'Test Album',
+                    tracks: [
+                        {
+                            title: 'No ID Track',
+                            duration: 200
+                            // No track_id or ISRC
+                        }
+                    ]
+                },
+                tracklist: [
+                    { position: '1', track_title: 'No ID Track' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            // Should generate track_id
+            expect(normalized.tracks[0].track_id).toBeDefined();
+            expect(normalized.tracks[0].track_id).toMatch(/^track:gen:/);
+
+            // Tracklist should reference generated track_id
+            expect(normalized.tracklist[0].track_id).toBe(normalized.tracks[0].track_id);
+        });
+
+        it('should deduplicate tracks by track_id', () => {
+            const bundle = {
+                release: {
+                    name: 'Test Album',
+                    tracks: [
+                        { track_id: 'trk_1', title: 'Track 1', duration: 180 },
+                        { track_id: 'trk_1', title: 'Track 1 Duplicate', duration: 180 }, // Duplicate
+                        { track_id: 'trk_2', title: 'Track 2', duration: 200 }
+                    ]
+                },
+                tracklist: [
+                    { position: '1', track_title: 'Track 1', track_id: 'trk_1' },
+                    { position: '2', track_title: 'Track 2', track_id: 'trk_2' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            // Should only have 2 tracks (duplicate removed)
+            expect(normalized.tracks).toHaveLength(2);
+            expect(normalized.tracks[0].track_id).toBe('trk_1');
+            expect(normalized.tracks[1].track_id).toBe('trk_2');
+
+            // Tracklist should still be valid
+            expect(normalized.tracklist).toHaveLength(2);
+        });
+
+        it('should match tracklist items to track catalog by title', () => {
+            const bundle = {
+                release: {
+                    name: 'Test Album',
+                    tracks: [
+                        { title: 'Come Together', duration: 259, isrc: 'ABC123' }
+                    ]
+                },
+                tracklist: [
+                    // Tracklist doesn't have track_id, only title
+                    { position: '1', track_title: 'Come Together', duration: 259 }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            // Should match by title and add track_id to tracklist
+            expect(normalized.tracklist[0].track_id).toBe('track:isrc:ABC123');
+        });
+
+        it('should error on tracklist item that cannot be resolved to catalog', () => {
+            const bundle = {
+                release: {
+                    name: 'Test Album',
+                    tracks: [
+                        { title: 'Track A', duration: 180 }
+                    ]
+                },
+                tracklist: [
+                    { position: '1', track_title: 'Non Existent Track' } // Doesn't match catalog
+                ]
+            };
+
+            // Should throw validation error
+            expect(() => {
+                normalizeReleaseBundle(bundle);
+            }).toThrow(/Could not resolve track_id/);
+        });
+    });
+
     describe('Track normalization', () => {
         it('should map track.groups to performed_by_groups', () => {
             // Frontend data with track.groups
