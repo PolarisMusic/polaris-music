@@ -115,6 +115,59 @@ VITE_GRAPHQL_URL=http://localhost:3000/graphql
 
 **Note on Frontend API URL**: The `VITE_API_URL` environment variable must include the `/api` prefix. The backend API serves REST endpoints under `/api/*` (e.g., `/api/events/create`), while GraphQL is at `/graphql` and health checks at `/health`. The frontend client automatically normalizes the URL if the `/api` suffix is missing, but it's recommended to include it explicitly in your configuration.
 
+### Chain Ingestion (Blockchain Events)
+
+The system supports automated chain ingestion via Substreams, which monitors the blockchain for anchored events and automatically ingests them into the graph database.
+
+#### Substreams HTTP Sink
+
+The `substreams-sink` service consumes events from the blockchain via Pinax Firehose and posts them to the backend ingestion endpoint. This service is included in `docker-compose.yml` but requires a Pinax API token to run.
+
+**Setup**:
+
+1. **Get a Pinax API Token**:
+   - Visit https://app.pinax.network
+   - Sign up and get your API token
+
+2. **Configure the token** (choose one method):
+
+   **Method A - Environment file** (recommended):
+   ```bash
+   # Create .env file in project root
+   echo "SUBSTREAMS_API_TOKEN=your_token_here" >> .env
+   ```
+
+   **Method B - docker-compose.yml**:
+   ```yaml
+   # Uncomment and set in docker-compose.yml line 250
+   - SUBSTREAMS_API_TOKEN=your_token_here
+   ```
+
+3. **Start the stack** (including chain ingestion):
+   ```bash
+   docker-compose up -d
+   ```
+
+   The `substreams-sink` service will automatically start and begin ingesting blockchain events.
+
+4. **Verify ingestion** (check logs):
+   ```bash
+   docker-compose logs -f substreams-sink
+   ```
+
+   You should see events being posted to `/api/ingest/anchored-event`.
+
+**Running without chain ingestion** (if you don't have a Pinax token):
+```bash
+# Start only core services (excludes substreams-sink)
+docker-compose up -d neo4j redis ipfs minio api frontend
+```
+
+**Configuration Options**:
+- `START_BLOCK`: Block number to start ingestion from (default: 0)
+- `CONTRACT_ACCOUNT`: Contract account name (default: polaris)
+- `SUBSTREAMS_ENDPOINT`: Firehose endpoint (default: eos.firehose.pinax.network:443)
+
 ## Core Concepts
 
 ### Releases as the primary means for building the registry.

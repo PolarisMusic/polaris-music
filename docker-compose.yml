@@ -235,6 +235,37 @@ services:
     depends_on:
       - api
 
+  # Substreams HTTP Sink (Chain Ingestion)
+  # NOTE: Requires SUBSTREAMS_API_TOKEN to be set in .env file
+  # Get your token from https://app.pinax.network
+  substreams-sink:
+    image: node:18-alpine
+    container_name: polaris-substreams-sink
+    working_dir: /app
+    environment:
+      # Backend ingestion endpoint (internal Docker network)
+      - BACKEND_URL=http://api:3000
+
+      # Substreams configuration (reads from .env file)
+      - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN}
+      - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-eos.firehose.pinax.network:443}
+      - START_BLOCK=${START_BLOCK:-0}
+      - CONTRACT_ACCOUNT=polaris
+
+      # Logging
+      - NODE_ENV=development
+    volumes:
+      - ./substreams:/app
+    networks:
+      - polaris-network
+    command: node sink/http-sink.mjs --endpoint=http://api:3000/api
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    # This service will exit immediately if SUBSTREAMS_API_TOKEN is not set
+    # To run without chain ingestion: docker-compose up -d neo4j redis ipfs minio api frontend
+
 volumes:
   neo4j-data:
   neo4j-logs:
