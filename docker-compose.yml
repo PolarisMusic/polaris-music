@@ -271,17 +271,20 @@ services:
       #   - Build: cd substreams && make package
       #   - Package: /app/substreams/polaris_music_substreams.spkg
       #   - Module: map_anchored_events
-      #   - Params: map_anchored_events="polaris" (module-keyed format)
+      #   - Params: map_anchored_events=polaris (module-keyed, no inner quotes)
       #
       # Option 2: Pinax foundational modules (requires Pinax to have your contract ABI)
       #   - Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg
       #   - Module: filtered_actions
-      #   - Params: filtered_actions="code:polaris && action:put" (module-keyed)
+      #   - Params: filtered_actions=code:polaris && action:put (module-keyed, no inner quotes)
       #
-      # CRITICAL: Params MUST be in module-keyed format: <module_name>="<value>"
+      # CRITICAL: Params MUST be in module-keyed format: <module_name>=<value>
+      # NOTE: Do NOT use inner quotes in params - spawn() passes them literally
+      # Good: filtered_actions=code:polaris && action:put
+      # Bad:  filtered_actions="code:polaris && action:put" (quotes passed to CLI)
       - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg}
       - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-filtered_actions}
-      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-filtered_actions="code:polaris && action:put"}
+      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-filtered_actions=code:polaris && action:put}
       - CONTRACT_ACCOUNT=polaris
 
       # Logging

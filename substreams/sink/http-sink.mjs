@@ -207,6 +207,37 @@ function safeHashPreview(value, n = 8) {
 }
 
 /**
+ * Normalize module-keyed params by stripping wrapping quotes from value
+ * Handles params like: module="value" or module='value' or module=value
+ *
+ * CRITICAL: When using spawn() with argv array (not shell), quotes are NOT
+ * automatically stripped. This function removes a single pair of wrapping
+ * quotes to prevent them from being passed literally to the substreams CLI.
+ *
+ * @param {string} params - Module-keyed params string
+ * @returns {string} Normalized params without wrapping quotes on value
+ */
+function normalizeModuleParams(params) {
+    // Split on first '=' to get module name and value
+    const eqIndex = params.indexOf('=');
+    if (eqIndex === -1) {
+        // No '=' means not module-keyed, return as-is
+        return params;
+    }
+
+    const moduleName = params.slice(0, eqIndex);
+    let value = params.slice(eqIndex + 1);
+
+    // Strip a single pair of wrapping quotes (either " or ')
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+    }
+
+    return `${moduleName}=${value}`;
+}
+
+/**
  * Post anchored event to backend with retry logic
  *
  * Uses AbortController for timeout (Node 18+ compatible)
@@ -523,13 +554,24 @@ async function main() {
     // Module: filtered_actions (Pinax) OR map_anchored_events (local custom)
     //
     // CRITICAL: Params must be module-keyed for parameterized modules
-    //   Format: --params <module_name>="<value>"
-    //   Example: --params map_anchored_events="polaris"
-    //   NOT: --params "code:polaris && action:put"
+    //   Format: --params <module_name>=<value>
+    //   Example: --params map_anchored_events=polaris
+    //   Example: --params filtered_actions=code:polaris && action:put
+    //   NOT: --params "code:polaris && action:put" (missing module name)
     //
     // Current behavior:
-    //   - If SUBSTREAMS_PARAMS contains "=", use as-is (already module-keyed)
+    //   - If SUBSTREAMS_PARAMS contains "=", assume it's module-keyed and normalize it
     //   - Otherwise, prefix with module name (for backwards compatibility)
+    //   - normalizeModuleParams() strips wrapping quotes from spawn() argv (not a shell)
+
+    // Build raw params (possibly with quotes from env var)
+    const rawParams = config.substreamsParams.includes('=')
+        ? config.substreamsParams
+        : `${config.substreamsModule}=${config.substreamsParams}`;
+
+    // Normalize params (strip wrapping quotes that would be passed literally via spawn)
+    const normalizedParams = normalizeModuleParams(rawParams);
+
     const substreamsArgs = [
         'run',
         '-e',
@@ -537,10 +579,7 @@ async function main() {
         config.substreamsPackage,
         config.substreamsModule,
         '--params',
-        // Module-keyed params: if not already in "module=value" format, add it
-        config.substreamsParams.includes('=')
-            ? config.substreamsParams
-            : `${config.substreamsModule}="${config.substreamsParams}"`,
+        normalizedParams,
         '--start-block',
         config.startBlock,
         '--stop-block',
@@ -549,6 +588,10 @@ async function main() {
         'jsonl',
         '--plain-output',
     ];
+
+    // Log the normalized params for debugging
+    console.log(`Normalized params: ${normalizedParams}`);
+    console.log('');
 
     // Set environment variable for API token
     const env = { ...process.env, SUBSTREAMS_API_TOKEN: config.apiToken };
