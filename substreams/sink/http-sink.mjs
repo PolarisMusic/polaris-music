@@ -238,18 +238,108 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
 /**
  * Process Substreams output line by line
  *
+ * Handles two output formats:
+ * 1. ActionTraces from Pinax filtered_actions module (sf.antelope.type.v1.ActionTraces)
+ * 2. AnchoredEvents from local map_anchored_events module (polaris.v1.AnchoredEvents)
+ *
  * @param {string} line - JSON line from Substreams output
  */
 async function processLine(line) {
     try {
         const data = JSON.parse(line);
 
-        // Extract action traces from filtered_actions module output
-        // Format: { "@module": "filtered_actions", "@type": "sf.antelope.type.v1.ActionTraces", "@data": {...} }
-        if (data['@module'] === config.substreamsModule && data['@data']) {
-            const actionTraces = data['@data'].actionTraces || [];
+        if (!data['@module'] || !data['@data']) {
+            return; // Skip non-module output lines
+        }
 
-            for (const actionTrace of actionTraces) {
+        // Detect output format by @type or @module
+        const isAnchoredEvents =
+            data['@type'] === 'polaris.v1.AnchoredEvents' ||
+            data['@module'] === 'map_anchored_events';
+
+        if (isAnchoredEvents) {
+            // Format: { "@module": "map_anchored_events", "@type": "polaris.v1.AnchoredEvents", "@data": { "events": [...] } }
+            await processAnchoredEventsOutput(data['@data']);
+        } else if (data['@module'] === config.substreamsModule) {
+            // Format: { "@module": "filtered_actions", "@type": "sf.antelope.type.v1.ActionTraces", "@data": { "actionTraces": [...] } }
+            await processActionTracesOutput(data['@data']);
+        }
+    } catch (error) {
+        // Ignore parse errors for progress messages and other non-JSON lines
+        if (!line.startsWith('Progress:') && !line.startsWith('Block:')) {
+            console.error('Error processing line:', error.message);
+        }
+    }
+}
+
+/**
+ * Process AnchoredEvents output from map_anchored_events module
+ * This is the preferred format with embedded ABI and clean event structure
+ *
+ * @param {Object} data - AnchoredEvents data with events array
+ */
+async function processAnchoredEventsOutput(data) {
+    const events = data.events || [];
+
+    for (const event of events) {
+        stats.eventsReceived++;
+
+        // Decode payload from base64 bytes to UTF-8 JSON string
+        let payloadStr;
+        if (typeof event.payload === 'string') {
+            // Already a string (base64)
+            try {
+                payloadStr = Buffer.from(event.payload, 'base64').toString('utf-8');
+            } catch (error) {
+                console.error(`✗ Failed to decode base64 payload:`, error.message);
+                stats.eventsFailed++;
+                continue;
+            }
+        } else if (Array.isArray(event.payload)) {
+            // Byte array
+            payloadStr = Buffer.from(event.payload).toString('utf-8');
+        } else {
+            console.error(`✗ Invalid payload format:`, typeof event.payload);
+            stats.eventsFailed++;
+            continue;
+        }
+
+        // Build AnchoredEvent structure for backend (already in correct format!)
+        // The proto uses snake_case which matches backend expectations
+        const postableEvent = {
+            content_hash: event.content_hash || event.contentHash,
+            event_hash: event.event_hash || event.eventHash,
+            payload: payloadStr,
+            block_num: event.block_num || event.blockNum,
+            block_id: event.block_id || event.blockId,
+            trx_id: event.trx_id || event.trxId,
+            action_ordinal: event.action_ordinal || event.actionOrdinal,
+            timestamp: event.timestamp,
+            source: event.source || 'substreams',
+            contract_account: event.contract_account || event.contractAccount,
+            action_name: event.action_name || event.actionName,
+        };
+
+        console.log(
+            `  Received ${postableEvent.action_name} event: ` +
+            `${postableEvent.content_hash.substring(0, 12)}... ` +
+            `(block ${postableEvent.block_num})`
+        );
+
+        await postAnchoredEvent(postableEvent);
+    }
+}
+
+/**
+ * Process ActionTraces output from filtered_actions module (Pinax antelope-common)
+ * This format requires endpoint ABI decoding and is less reliable for custom contracts
+ *
+ * @param {Object} data - ActionTraces data with actionTraces array
+ */
+async function processActionTracesOutput(data) {
+    const actionTraces = data.actionTraces || [];
+
+    for (const actionTrace of actionTraces) {
                 stats.eventsReceived++;
 
                 // Extract action data from ActionTrace format
@@ -375,8 +465,17 @@ async function main() {
 
     // Build substreams command using Pinax Antelope foundational modules
     // Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg (stable .spkg URL)
-    // Module: filtered_actions (filters by code/action/data predicates)
-    // Params: code:CONTRACT_ACCOUNT && action:put
+    //   OR: Local package at /app/substreams/polaris_music_substreams.spkg (custom ABI)
+    // Module: filtered_actions (Pinax) OR map_anchored_events (local custom)
+    //
+    // CRITICAL: Params must be module-keyed for parameterized modules
+    //   Format: --params <module_name>="<value>"
+    //   Example: --params map_anchored_events="polaris"
+    //   NOT: --params "code:polaris && action:put"
+    //
+    // Current behavior:
+    //   - If SUBSTREAMS_PARAMS contains "=", use as-is (already module-keyed)
+    //   - Otherwise, prefix with module name (for backwards compatibility)
     const substreamsArgs = [
         'run',
         '-e',
@@ -384,7 +483,10 @@ async function main() {
         config.substreamsPackage,
         config.substreamsModule,
         '--params',
-        config.substreamsParams,
+        // Module-keyed params: if not already in "module=value" format, add it
+        config.substreamsParams.includes('=')
+            ? config.substreamsParams
+            : `${config.substreamsModule}="${config.substreamsParams}"`,
         '--start-block',
         config.startBlock,
         '--stop-block',

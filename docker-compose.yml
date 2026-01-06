@@ -262,12 +262,22 @@ services:
       - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.substreams.pinax.network:443}
       - START_BLOCK=${START_BLOCK:-0}
 
-      # Substreams package configuration (Pinax foundational modules)
-      # Uses stable .spkg URL (more reliable than shorthand registry ref)
-      # NOTE: Action decoding requires contract ABI availability to Pinax
+      # Substreams package configuration
+      # Option 1 (Recommended): Local package with embedded contract ABI
+      #   - Build: cd substreams && make package
+      #   - Package: /app/substreams/polaris_music_substreams.spkg
+      #   - Module: map_anchored_events
+      #   - Params: map_anchored_events="polaris" (module-keyed format)
+      #
+      # Option 2: Pinax foundational modules (requires Pinax to have your contract ABI)
+      #   - Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg
+      #   - Module: filtered_actions
+      #   - Params: filtered_actions="code:polaris && action:put" (module-keyed)
+      #
+      # CRITICAL: Params MUST be in module-keyed format: <module_name>="<value>"
       - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg}
       - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-filtered_actions}
-      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-code:polaris && action:put}
+      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-filtered_actions="code:polaris && action:put"}
       - CONTRACT_ACCOUNT=polaris
 
       # Logging
