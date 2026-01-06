@@ -309,8 +309,149 @@ describe('IngestionHandler', () => {
             expect(result).toBe('abcdef123456');
         });
 
+        it('should strip 0x prefix from hex string', () => {
+            const result = ingestionHandler.normalizeHash('0xABCDEF123456');
+            expect(result).toBe('abcdef123456');
+        });
+
+        it('should strip 0x prefix from object hex field', () => {
+            const result = ingestionHandler.normalizeHash({ hex: '0xABCDEF123456' });
+            expect(result).toBe('abcdef123456');
+        });
+
         it('should throw on invalid format', () => {
             expect(() => ingestionHandler.normalizeHash(12345)).toThrow('Invalid hash format');
+        });
+    });
+
+    describe('processAnchoredEvent hash format handling', () => {
+        let baseAnchoredEvent;
+
+        beforeEach(() => {
+            // Base anchored event structure
+            baseAnchoredEvent = {
+                event_hash: 'event_hash_123',
+                payload: JSON.stringify({
+                    author: 'testuser1234',
+                    type: 21,
+                    hash: 'abc123def456',
+                    ts: Math.floor(Date.now() / 1000),
+                    tags: ['test']
+                }),
+                block_num: 12345,
+                block_id: 'block_id_123',
+                trx_id: 'trx_id_123',
+                action_ordinal: 0,
+                timestamp: Date.now(),
+                source: 'substreams-test',
+                contract_account: 'polaris',
+                action_name: 'put'
+            };
+
+            // Mock successful event retrieval
+            mockEventStore.retrieveEvent.mockResolvedValue(mockEvent);
+            mockEventStore.calculateHash.mockReturnValue('abc123def456');
+        });
+
+        it('should handle content_hash as hex string', async () => {
+            // Arrange: content_hash is a hex string (most common format)
+            const anchoredEvent = {
+                ...baseAnchoredEvent,
+                content_hash: 'abc123def456' // Hex string
+            };
+
+            // Act
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            // Assert: Should process successfully
+            expect(result.status).toBe('success');
+            expect(result.contentHash).toBe('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+        });
+
+        it('should handle content_hash as byte array', async () => {
+            // Arrange: content_hash is a byte array (common in protobuf JSON)
+            const anchoredEvent = {
+                ...baseAnchoredEvent,
+                content_hash: [171, 193, 35, 222, 244, 86] // Byte array
+            };
+
+            // Act
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            // Assert: Should convert to hex string and process
+            expect(result.status).toBe('success');
+            expect(result.contentHash).toBe('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+        });
+
+        it('should handle content_hash as object with hex field', async () => {
+            // Arrange: content_hash is an object with hex field
+            const anchoredEvent = {
+                ...baseAnchoredEvent,
+                content_hash: { hex: 'abc123def456' } // Object
+            };
+
+            // Act
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            // Assert: Should extract hex and process
+            expect(result.status).toBe('success');
+            expect(result.contentHash).toBe('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+        });
+
+        it('should handle content_hash with 0x prefix', async () => {
+            // Arrange: content_hash has 0x prefix
+            const anchoredEvent = {
+                ...baseAnchoredEvent,
+                content_hash: '0xabc123def456'
+            };
+
+            // Act
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            // Assert: Should strip 0x prefix and process
+            expect(result.status).toBe('success');
+            expect(result.contentHash).toBe('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+        });
+
+        it('should handle uppercase hex and normalize to lowercase', async () => {
+            // Arrange: content_hash is uppercase
+            const anchoredEvent = {
+                ...baseAnchoredEvent,
+                content_hash: 'ABC123DEF456'
+            };
+
+            // Act
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            // Assert: Should normalize to lowercase
+            expect(result.status).toBe('success');
+            expect(result.contentHash).toBe('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+        });
+
+        it('should deduplicate using normalized hash', async () => {
+            // Arrange: Two events with same hash in different formats
+            const event1 = {
+                ...baseAnchoredEvent,
+                content_hash: 'abc123def456' // String
+            };
+            const event2 = {
+                ...baseAnchoredEvent,
+                content_hash: [171, 193, 35, 222, 244, 86] // Array (same hash)
+            };
+
+            // Act: Process both
+            const result1 = await ingestionHandler.processAnchoredEvent(event1);
+            const result2 = await ingestionHandler.processAnchoredEvent(event2);
+
+            // Assert: First succeeds, second is duplicate
+            expect(result1.status).toBe('success');
+            expect(result2.status).toBe('duplicate');
+            expect(ingestionHandler.stats.eventsDuplicate).toBe(1);
         });
     });
 

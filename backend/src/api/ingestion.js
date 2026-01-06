@@ -247,18 +247,23 @@ export class IngestionHandler {
             throw new Error('Missing required field: payload');
         }
 
+        // CRITICAL: Normalize content_hash early to handle different formats
+        // Substreams may send checksum256 as: string, byte array, or { hex: "..." }
+        // This prevents crashes on .substring() and ensures correct deduplication
+        const contentHash = this.normalizeHash(content_hash);
+
         console.log(`\nProcessing anchored event from ${source}:`);
-        console.log(`  Content Hash: ${content_hash.substring(0, 12)}...`);
+        console.log(`  Content Hash: ${contentHash.substring(0, 12)}...`);
         console.log(`  Action: ${action_name}`);
         console.log(`  Block: ${block_num}`);
 
         // Step 2: Check for duplicates by content_hash
-        if (this.processedHashes.has(content_hash)) {
+        if (this.processedHashes.has(contentHash)) {
             console.log(`   Duplicate event (already processed)`);
             this.stats.eventsDuplicate++;
             return {
                 status: 'duplicate',
-                contentHash: content_hash,
+                contentHash: contentHash,
                 message: 'Event already processed'
             };
         }
@@ -281,9 +286,12 @@ export class IngestionHandler {
             // Step 5: Extract action metadata from payload
             const { author, type, hash, parent, ts, tags = [] } = actionData;
 
-            // Verify payload hash matches content_hash
-            if (hash && hash !== content_hash) {
-                console.warn(`  Warning: payload.hash (${hash}) != content_hash (${content_hash})`);
+            // Verify payload hash matches content_hash (normalize both for comparison)
+            if (hash) {
+                const payloadHash = this.normalizeHash(hash);
+                if (payloadHash !== contentHash) {
+                    console.warn(`  Warning: payload.hash (${payloadHash}) != content_hash (${contentHash})`);
+                }
             }
 
             // Step 6: Use processPutAction for the actual processing
@@ -300,7 +308,7 @@ export class IngestionHandler {
             const putActionData = {
                 author,
                 type,
-                hash: content_hash, // Use content_hash from anchored event
+                hash: contentHash, // Use normalized content_hash from anchored event
                 parent,
                 ts,
                 tags
@@ -315,7 +323,7 @@ export class IngestionHandler {
 
             return {
                 status: 'failed',
-                contentHash: content_hash,
+                contentHash: contentHash,
                 error: error.message
             };
         }
@@ -347,18 +355,21 @@ export class IngestionHandler {
      * Normalize hash to lowercase hex string
      *
      * Handles different hash formats:
-     * - Hex string: "abc123..."
+     * - Hex string: "abc123..." or "0xabc123..."
      * - Checksum256 array: [1, 2, 3, ...]
-     * - Object with hex field: { hex: "abc123..." }
+     * - Object with hex field: { hex: "abc123..." } or { hex: "0xabc123..." }
+     *
+     * Always strips 0x prefix and returns lowercase hex.
      *
      * @private
      * @param {string|Array|Object} hash - Hash in any format
-     * @returns {string} Lowercase hex string
+     * @returns {string} Lowercase hex string (without 0x prefix)
      */
     normalizeHash(hash) {
         // Already a hex string
         if (typeof hash === 'string') {
-            return hash.toLowerCase();
+            // Strip 0x prefix if present, then lowercase
+            return hash.startsWith('0x') ? hash.slice(2).toLowerCase() : hash.toLowerCase();
         }
 
         // Checksum256 array (convert to hex)
@@ -368,7 +379,8 @@ export class IngestionHandler {
 
         // Object with hex field
         if (hash && typeof hash === 'object' && hash.hex) {
-            return hash.hex.toLowerCase();
+            const hexStr = hash.hex;
+            return hexStr.startsWith('0x') ? hexStr.slice(2).toLowerCase() : hexStr.toLowerCase();
         }
 
         throw new Error(`Invalid hash format: ${JSON.stringify(hash)}`);
