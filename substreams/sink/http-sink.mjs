@@ -153,6 +153,60 @@ const stats = {
 };
 
 /**
+ * Normalize hash value to string (defensive)
+ * Handles: string, byte array, object with hex field, null, undefined
+ *
+ * @param {string|Array|Object|null|undefined} value - Hash in various formats
+ * @returns {string|null} Normalized hash string or null if invalid
+ */
+function normalizeHashString(value) {
+    if (!value) {
+        return null;
+    }
+
+    if (typeof value === 'string') {
+        return value;
+    }
+
+    if (Array.isArray(value)) {
+        // Byte array
+        try {
+            return Buffer.from(value).toString('hex');
+        } catch (error) {
+            return null;
+        }
+    }
+
+    if (typeof value === 'object' && value.hex) {
+        return typeof value.hex === 'string' ? value.hex : null;
+    }
+
+    return null;
+}
+
+/**
+ * Safe hash preview for logging (never throws)
+ * Returns a truncated preview or placeholder for missing hashes
+ *
+ * @param {string|Array|Object|null|undefined} value - Hash in various formats
+ * @param {number} n - Number of characters to show (default: 8)
+ * @returns {string} Preview string like "abcd1234..." or "<no-hash>"
+ */
+function safeHashPreview(value, n = 8) {
+    const normalized = normalizeHashString(value);
+
+    if (!normalized) {
+        return '<no-hash>';
+    }
+
+    if (normalized.length <= n) {
+        return normalized;
+    }
+
+    return normalized.substring(0, n) + '...';
+}
+
+/**
  * Post anchored event to backend with retry logic
  *
  * Uses AbortController for timeout (Node 18+ compatible)
@@ -181,7 +235,7 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
         if (response.ok) {
             const result = await response.json();
             console.log(
-                `✓ Posted event ${anchoredEvent.content_hash ? anchoredEvent.content_hash.substring(0, 8) : anchoredEvent.event_hash.substring(0, 8)}... ` +
+                `✓ Posted event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)} ` +
                 `(block ${anchoredEvent.block_num}, action: ${anchoredEvent.action_name})`
             );
             stats.eventsPosted++;
@@ -189,7 +243,7 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
         } else {
             const errorText = await response.text();
             console.error(
-                `✗ Failed to post event ${anchoredEvent.content_hash ? anchoredEvent.content_hash.substring(0, 8) : anchoredEvent.event_hash.substring(0, 8)}...`,
+                `✗ Failed to post event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)}`,
                 `HTTP ${response.status}: ${errorText}`
             );
 
@@ -211,12 +265,12 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
         // Handle AbortController timeout
         if (error.name === 'AbortError') {
             console.error(
-                `✗ Timeout posting event ${anchoredEvent.content_hash ? anchoredEvent.content_hash.substring(0, 8) : anchoredEvent.event_hash.substring(0, 8)}... ` +
+                `✗ Timeout posting event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)} ` +
                 `(exceeded ${config.requestTimeoutMs}ms)`
             );
         } else {
             console.error(
-                `✗ Network error posting event ${anchoredEvent.content_hash ? anchoredEvent.content_hash.substring(0, 8) : anchoredEvent.event_hash.substring(0, 8)}...:`,
+                `✗ Network error posting event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)}:`,
                 error.message
             );
         }
@@ -322,7 +376,7 @@ async function processAnchoredEventsOutput(data) {
 
         console.log(
             `  Received ${postableEvent.action_name} event: ` +
-            `${postableEvent.content_hash.substring(0, 12)}... ` +
+            `${safeHashPreview(postableEvent.content_hash, 12)} ` +
             `(block ${postableEvent.block_num})`
         );
 
