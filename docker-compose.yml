@@ -267,24 +267,25 @@ services:
       - START_BLOCK=${START_BLOCK:-0}
 
       # Substreams package configuration
-      # Option 1 (Recommended): Local package with embedded contract ABI
-      #   - Build: cd substreams && make package
-      #   - Package: /app/substreams/polaris_music_substreams.spkg
+      # DEFAULT: Local package with embedded contract ABI (no Pinax dependency)
+      #   - Package: /app/substreams/polaris_music_substreams-v0.1.0.spkg (built in Docker image)
       #   - Module: map_anchored_events
       #   - Params: map_anchored_events=polaris (module-keyed, no inner quotes)
+      #   - Advantage: Works even if Pinax doesn't have our contract ABI
       #
-      # Option 2: Pinax foundational modules (requires Pinax to have your contract ABI)
+      # FALLBACK: Pinax foundational modules (requires Pinax to have your contract ABI)
       #   - Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg
       #   - Module: filtered_actions
       #   - Params: filtered_actions=code:polaris && action:put (module-keyed, no inner quotes)
+      #   - Warning: May fail silently if Pinax cannot decode contract actions
       #
       # CRITICAL: Params MUST be in module-keyed format: <module_name>=<value>
       # NOTE: Do NOT use inner quotes in params - spawn() passes them literally
-      # Good: filtered_actions=code:polaris && action:put
-      # Bad:  filtered_actions="code:polaris && action:put" (quotes passed to CLI)
-      - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg}
-      - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-filtered_actions}
-      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-filtered_actions=code:polaris && action:put}
+      # Good: map_anchored_events=polaris
+      # Bad:  map_anchored_events="polaris" (quotes passed to CLI)
+      - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-/app/substreams/polaris_music_substreams-v0.1.0.spkg}
+      - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-map_anchored_events}
+      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-map_anchored_events=polaris}
       - CONTRACT_ACCOUNT=polaris
 
       # Logging

@@ -136,6 +136,22 @@ const providerHost = config.substreamsEndpoint.split(':')[0];
 const isPinax = providerHost.includes('pinax.network');
 console.log(`Provider:            ${isPinax ? 'Pinax' : 'Custom'} (${providerHost})`);
 console.log(`API Token:           ${config.apiToken ? '✓ Configured' : '✗ Missing'}`);
+console.log('');
+
+// Detect ingestion mode (local vs Pinax)
+const isLocalPackage = config.substreamsPackage.includes('polaris_music_substreams');
+const isLocalModule = config.substreamsModule === 'map_anchored_events';
+
+if (isLocalPackage && isLocalModule) {
+    console.log('Mode:                Local (map_anchored_events with embedded ABI)');
+    console.log('                     ✓ No dependency on Pinax ABI availability');
+} else if (config.substreamsModule === 'filtered_actions') {
+    console.log('Mode:                Pinax (filtered_actions)');
+    console.log('                     ⚠ Requires Pinax to have contract ABI for decoding');
+} else {
+    console.log('Mode:                Custom');
+}
+console.log('');
 
 console.log(`Substreams Package:  ${config.substreamsPackage}`);
 console.log(`Substreams Module:   ${config.substreamsModule}`);
