@@ -38,6 +38,16 @@ const config = {
 
     // Substreams package configuration (Pinax Antelope foundational modules)
     // Using stable .spkg URL (more reliable than shorthand registry ref)
+    //
+    // IMPORTANT: Action decoding (jsonData) requires contract ABI availability
+    // - Pinax may not have ABIs for custom contracts by default
+    // - If action.jsonData is empty, the sink cannot extract the 'hash' field
+    // - This will cause ingestion to fail with clear error messages
+    //
+    // Current package: antelope-common with filtered_actions module
+    // - Outputs: sf.antelope.type.v1.ActionTrace with decoded actions (if ABI available)
+    // - Alternative: Consider Pinax packages with ABI resolution if decoding fails
+    //
     substreamsPackage: process.env.SUBSTREAMS_PACKAGE || 'https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg',
     substreamsModule: process.env.SUBSTREAMS_MODULE || 'filtered_actions',
     substreamsParams: process.env.SUBSTREAMS_PARAMS || '', // Will be set from contractAccount if empty
@@ -252,28 +262,46 @@ async function processLine(line) {
 
                 // Extract the 'put' action data (our contract's anchoring action)
                 // jsonData field from proto is json_data → jsonData in JSON
+                // CRITICAL: jsonData is only populated if Pinax has the contract ABI for decoding
                 // Handle three cases: string (needs parsing), object (already parsed), or undefined
                 let actionData;
+                const actionName = action.name || 'unknown';
+                const actionAccount = action.account || 'unknown';
+
                 if (typeof action.jsonData === 'string') {
                     try {
                         actionData = JSON.parse(action.jsonData);
                     } catch (error) {
-                        console.warn('  Skipping action with invalid JSON data:', error.message);
+                        console.error(`✗ Failed to parse jsonData for ${actionAccount}::${actionName}:`, error.message);
+                        console.error(`  This may indicate corrupted Substreams output or encoding issues`);
                         continue;
                     }
                 } else if (typeof action.jsonData === 'object' && action.jsonData !== null) {
                     actionData = action.jsonData;
                 } else if (action.data) {
                     // Fallback to raw data if jsonData is not available
+                    // NOTE: This likely means the contract ABI is not available to Pinax
+                    console.warn(`⚠ No jsonData for ${actionAccount}::${actionName}, using raw action.data`);
+                    console.warn(`  Raw data cannot be reliably decoded without ABI - will likely fail hash extraction`);
                     actionData = action.data;
                 } else {
-                    console.warn('  Skipping action without parseable data');
+                    console.error(`✗ No parseable data for ${actionAccount}::${actionName}`);
+                    console.error(`  Neither action.jsonData nor action.data are available`);
                     continue;
                 }
 
-                // Ensure we have a content hash (required field)
+                // Ensure we have a content hash (required field for backend ingestion)
+                // This field comes from the decoded 'put' action payload
                 if (!actionData.hash) {
-                    console.warn('  Skipping action without hash field in payload');
+                    console.error(`✗ Missing required 'hash' field in action data`);
+                    console.error(`  Action: ${actionAccount}::${actionName}`);
+                    console.error(`  Block: ${actionTrace.blockNum}, Tx: ${actionTrace.transactionId || 'unknown'}`);
+                    console.error(`  Data keys available: ${Object.keys(actionData).join(', ') || 'none'}`);
+                    console.error(`  `);
+                    console.error(`  LIKELY CAUSE: Contract ABI not available to Pinax for action decoding`);
+                    console.error(`  SOLUTION: Ensure '${actionAccount}' contract ABI is published or available to Pinax`);
+                    console.error(`  Alternatively, consider using a Pinax package with ABI resolution support`);
+                    stats.eventsFailed++;
                     continue;
                 }
 

@@ -264,6 +264,7 @@ services:
 
       # Substreams package configuration (Pinax foundational modules)
       # Uses stable .spkg URL (more reliable than shorthand registry ref)
+      # NOTE: Action decoding requires contract ABI availability to Pinax
       - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg}
       - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-filtered_actions}
       - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-code:polaris && action:put}
