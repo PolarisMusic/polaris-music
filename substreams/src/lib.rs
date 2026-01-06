@@ -140,37 +140,89 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
                 _ => continue, // Skip other actions for now
             }
 
-            // Extract JSON payload
-            let json_data = match action.json_data.as_ref() {
-                Some(data) => data.to_string(),
-                None => continue,
+            // Extract JSON payload and content hash
+            // CRITICAL: Try json_data first, but fallback to raw decoding if missing
+            // This ensures we don't skip actions when upstream doesn't provide decoded JSON
+            let (json_data, content_hash) = match action.json_data.as_ref() {
+                // Path 1: json_data exists (preferred, use as-is)
+                Some(data) => {
+                    let json_str = data.to_string();
+
+                    // Extract content_hash from put.hash if this is a put action
+                    let content_hash = if action.name == "put" {
+                        match data.parse_json::<Put>() {
+                            Ok(put_action) => hex::encode(put_action.hash),
+                            Err(_) => {
+                                log::warn!("Failed to parse put action from json_data");
+                                // Fallback to hash of action payload
+                                let mut hasher = Sha256::new();
+                                hasher.update(json_str.as_bytes());
+                                hex::encode(hasher.finalize())
+                            }
+                        }
+                    } else {
+                        // For non-put actions, hash the JSON payload
+                        let mut hasher = Sha256::new();
+                        hasher.update(json_str.as_bytes());
+                        hex::encode(hasher.finalize())
+                    };
+
+                    (json_str, content_hash)
+                }
+
+                // Path 2: json_data missing, decode from raw bytes (fallback for ABI unavailability)
+                None => {
+                    log::info!(
+                        "json_data missing for action {}, decoding from raw bytes using embedded ABI",
+                        action.name
+                    );
+
+                    // Only handle put action for now (primary ingestion path)
+                    // vote/finalize can be added later if needed
+                    if action.name != "put" {
+                        log::warn!("Skipping non-put action without json_data: {}", action.name);
+                        continue;
+                    }
+
+                    // Deserialize Put action from raw bytes using ABI bindings
+                    let put_action = match abi::polaris_music::actions::Put::try_from(action.data.as_slice()) {
+                        Ok(put) => put,
+                        Err(e) => {
+                            log::error!("Failed to deserialize put action from raw bytes: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    // Extract content_hash from decoded put.hash
+                    let content_hash = hex::encode(&put_action.hash);
+
+                    // Construct canonical JSON payload for backend ingestion
+                    // Must match format expected by backend/src/api/ingestion.js
+                    let json_payload = serde_json::json!({
+                        "author": put_action.author.to_string(),
+                        "type": put_action.r#type,
+                        "hash": hex::encode(&put_action.hash),
+                        "parent": put_action.parent.as_ref().map(|p| hex::encode(p)),
+                        "ts": put_action.ts,
+                        "tags": put_action.tags.iter().map(|t| t.to_string()).collect::<Vec<String>>(),
+                    });
+
+                    let json_str = json_payload.to_string();
+
+                    log::info!(
+                        "Decoded put action from raw bytes: content_hash={}, author={}",
+                        &content_hash[..12],
+                        put_action.author.to_string()
+                    );
+
+                    (json_str, content_hash)
+                }
             };
 
             // Compute event hash from action payload (for debugging/trace identity)
             let mut hasher = Sha256::new();
             hasher.update(json_data.as_bytes());
             let event_hash = hex::encode(hasher.finalize());
-
-            // Extract content_hash from put.hash (canonical identifier)
-            // This is the SHA256 of the off-chain event JSON, anchored on-chain
-            let content_hash = if action.name == "put" {
-                // Parse put action to extract hash field
-                match action.json_data.as_ref() {
-                    Some(data) => {
-                        match data.parse_json::<Put>() {
-                            Ok(put_action) => hex::encode(put_action.hash),
-                            Err(_) => {
-                                log::warn!("Failed to parse put action, using event_hash as fallback");
-                                event_hash.clone()
-                            }
-                        }
-                    }
-                    None => event_hash.clone(),
-                }
-            } else {
-                // For non-put actions (vote, finalize), use action payload hash
-                event_hash.clone()
-            };
 
             // Create anchored event
             let anchored_event = AnchoredEvent {
