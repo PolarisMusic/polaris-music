@@ -487,6 +487,19 @@ class PolarisApp {
             console.log('Getting canonical hash from server...');
             const prepareResult = await api.prepareEvent(this.currentTransaction.event);
 
+            // Validate that we received the normalized event (guardrail)
+            if (!prepareResult.normalizedEvent) {
+                throw new Error(
+                    'Backend /api/events/prepare did not return normalizedEvent. ' +
+                    'This is required for pipeline integrity.'
+                );
+            }
+
+            // CRITICAL: Replace event with normalized version from server
+            // This ensures the stored event matches the hash-canonical event
+            // Without this, the signed/stored event could drift from the hashed event
+            this.currentTransaction.event = prepareResult.normalizedEvent;
+
             // Store the canonical hash and build blockchain action
             this.currentTransaction.eventHash = prepareResult.hash;
             this.currentTransaction.action = this.transactionBuilder.buildActionFromHash(
