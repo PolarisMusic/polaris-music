@@ -109,7 +109,7 @@ describe('ReleaseBundle Normalization', () => {
                 // Missing tracks
             };
 
-            expect(() => normalizeReleaseBundle(bundle)).toThrow(/tracks.*required/i);
+            expect(() => normalizeReleaseBundle(bundle)).toThrow(/tracks: Must have at least one valid track/i);
         });
 
         test('Throws error if tracklist array is missing', () => {
@@ -120,7 +120,7 @@ describe('ReleaseBundle Normalization', () => {
                 // Missing tracklist
             };
 
-            expect(() => normalizeReleaseBundle(bundle)).toThrow(/tracklist.*required/i);
+            expect(() => normalizeReleaseBundle(bundle)).toThrow(/tracklist: Must have at least one valid item/i);
         });
 
         test('Throws error if track is missing title', () => {
@@ -287,9 +287,9 @@ describe('ReleaseBundle Normalization', () => {
             }
 
             expect(errorMessage).toMatch(/validation failed/);
-            expect(errorMessage).toMatch(/release:.*name is required/);
-            expect(errorMessage).toMatch(/tracks\[1\]:.*title is required/);
-            expect(errorMessage).toMatch(/tracklist.*required/i);
+            expect(errorMessage).toContain('release: name is required and cannot be empty');
+            expect(errorMessage).toContain('tracks[1]: title is required and cannot be empty');
+            expect(errorMessage).toMatch(/tracklist: Must have at least one valid item/i);
         });
     });
 

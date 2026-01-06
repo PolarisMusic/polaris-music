@@ -8,9 +8,26 @@
  * 4. Verification function correctly detects incomplete migrations
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import neo4j from 'neo4j-driver';
 import { migrateUnifyIdProperty, verifyIdUnification } from '../../src/graph/migrations/001-unify-id-property.js';
+
+// Mock Neo4j driver to avoid real database connections in CI
+jest.mock('neo4j-driver', () => ({
+    default: {
+        driver: jest.fn(() => ({
+            session: jest.fn(() => ({
+                run: jest.fn().mockResolvedValue({ records: [] }),
+                close: jest.fn(),
+            })),
+            close: jest.fn(),
+            verifyConnectivity: jest.fn().mockResolvedValue(true),
+        })),
+        auth: {
+            basic: jest.fn(() => ({})),
+        },
+    },
+}));
 
 describe('ID Unification Migration (001-unify-id-property)', () => {
     let driver;

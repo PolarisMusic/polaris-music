@@ -110,14 +110,20 @@ class EventStore {
                 });
 
                 this.redis.on('error', (error) => {
-                    console.warn('� Redis error:', error.message);
+                    if (process.env.NODE_ENV !== 'test') {
+                        console.warn('� Redis error:', error.message);
+                    }
                 });
             } catch (error) {
-                console.warn('� Redis initialization failed:', error.message);
+                if (process.env.NODE_ENV !== 'test') {
+                    console.warn('� Redis initialization failed:', error.message);
+                }
                 this.redisEnabled = false;
             }
         } else {
-            console.warn('� Redis not configured');
+            if (process.env.NODE_ENV !== 'test') {
+                console.warn('� Redis not configured');
+            }
             this.redisEnabled = false;
         }
 

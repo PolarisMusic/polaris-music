@@ -8,12 +8,15 @@
  * - Source switching with dedupe
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import { ShipEventSource } from '../../src/indexer/shipEventSource.js';
 import { IngestionHandler } from '../../src/api/ingestion.js';
 import { EventStore } from '../../src/storage/eventStore.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
 import neo4j from 'neo4j-driver';
+
+// Mock ws module to prevent actual WebSocket connections in tests
+jest.mock('ws');
 
 describe('SHiP Event Source (T6)', () => {
     let driver;
@@ -537,4 +540,14 @@ describe('SHiP Event Source (T6)', () => {
             }
         });
     });
+});
+
+// Cleanup mocks after each test to prevent leaks
+afterEach(() => {
+    jest.clearAllMocks();
+});
+
+// Restore all mocks after all tests complete
+afterAll(() => {
+    jest.restoreAllMocks();
 });

@@ -142,8 +142,10 @@ function normalizeTrackCatalog(trackDefs, errors) {
 
             // Deduplicate by track_id
             if (seenIds.has(normalized.track_id)) {
-                // Skip duplicate, but note it in console (not an error)
-                console.log(`Note: Skipping duplicate track_id: ${normalized.track_id}`);
+                // Skip duplicate, but note it in console (not an error) - suppress in tests
+                if (process.env.NODE_ENV !== 'test') {
+                    console.log(`Note: Skipping duplicate track_id: ${normalized.track_id}`);
+                }
                 continue;
             }
 

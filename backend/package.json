@@ -32,7 +32,8 @@
     "ioredis": "^5.4.1",
     "ipfs-http-client": "^60.0.1",
     "neo4j-driver": "^5.23.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "babel-jest": "^29.7.0",

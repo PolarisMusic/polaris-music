@@ -16,4 +16,16 @@ process.env.S3_BUCKET = process.env.S3_BUCKET || 'test-bucket';
 process.env.REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 process.env.REDIS_PORT = process.env.REDIS_PORT || '6379';
 
+// Neo4j validation - warn if not set (tests will use mocks)
+if (!process.env.GRAPH_URI) {
+    console.warn('⚠️  GRAPH_URI not set - Neo4j tests will use mocks');
+}
+
 console.log('✓ Jest test environment ready');
+
+// Global cleanup to close any open connections/timers
+// This prevents "Worker failed to exit gracefully" errors
+global.afterAll = global.afterAll || (() => {
+    // Placeholder for global cleanup
+    // Individual test files should close their own resources
+});

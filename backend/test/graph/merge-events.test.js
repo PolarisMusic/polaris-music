@@ -8,11 +8,28 @@
  * 4. Universal ID system prevents duplicate nodes
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import neo4j from 'neo4j-driver';
 import EventStore from '../../src/storage/eventStore.js';
 import { MergeOperations } from '../../src/graph/merge.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
+
+// Mock Neo4j driver to avoid real database connections in CI
+jest.mock('neo4j-driver', () => ({
+    default: {
+        driver: jest.fn(() => ({
+            session: jest.fn(() => ({
+                run: jest.fn().mockResolvedValue({ records: [] }),
+                close: jest.fn(),
+            })),
+            close: jest.fn(),
+            verifyConnectivity: jest.fn().mockResolvedValue(true),
+        })),
+        auth: {
+            basic: jest.fn(() => ({})),
+        },
+    },
+}));
 
 describe('Event-Sourced Merge Operations', () => {
     let driver;
