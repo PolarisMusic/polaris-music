@@ -161,7 +161,11 @@ services:
     command: npm run dev:docker
 
   # Event Processor (Blockchain → Graph)
+  # NOTE: This is the LEGACY processor that polls blockchain directly via SHiP/History API
+  # By default this service is DISABLED to avoid double-ingestion with Substreams
+  # To enable: docker compose --profile legacy up
   processor:
+    profiles: ["legacy"]  # Only runs when explicitly enabled with --profile legacy
     build:
       context: ./backend
       dockerfile: Dockerfile

@@ -72,7 +72,7 @@ npm install
 cp .env.example .env.local
 
 # Start services with Docker Compose
-docker-compose up -d
+docker compose up -d
 
 # Initialize database
 npm run init:db
@@ -117,11 +117,28 @@ VITE_GRAPHQL_URL=http://localhost:3000/graphql
 
 ### Chain Ingestion (Blockchain Events)
 
-The system supports automated chain ingestion via Substreams, which monitors the blockchain for anchored events and automatically ingests them into the graph database.
+The system supports automated chain ingestion via **Substreams** (recommended), which monitors the blockchain for anchored events and automatically ingests them into the graph database.
 
-#### Substreams HTTP Sink
+#### Ingestion Modes
 
-The `substreams-sink` service consumes events from the blockchain via Pinax Firehose and posts them to the backend ingestion endpoint. This service is included in `docker-compose.yml` but requires a Pinax API token to run.
+**Default Mode: Substreams (Recommended)**
+
+The `substreams-sink` service consumes events from the blockchain via Pinax Firehose and posts them to the backend ingestion endpoint. This is the modern, reliable ingestion method that uses Substreams to stream blockchain data in real-time.
+
+**Legacy Mode: Direct Blockchain Polling**
+
+A legacy `processor` service is available that directly polls the blockchain via SHiP/History API. This service is **disabled by default** to prevent double-ingestion conflicts. To enable it:
+
+```bash
+# Run with legacy processor instead of Substreams
+docker compose --profile legacy up
+```
+
+⚠️ **Warning**: Do not run both ingestion methods simultaneously, as this will cause duplicate event processing and graph inconsistencies.
+
+#### Substreams HTTP Sink (Default)
+
+This service is included in `docker-compose.yml` but requires a Pinax API token to run.
 
 **Setup**:
 
@@ -143,16 +160,18 @@ The `substreams-sink` service consumes events from the blockchain via Pinax Fire
    - SUBSTREAMS_API_TOKEN=your_token_here
    ```
 
-3. **Start the stack** (including chain ingestion):
+3. **Start the stack** (including Substreams chain ingestion):
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
    The `substreams-sink` service will automatically start and begin ingesting blockchain events.
 
+   **Note**: The legacy `processor` service is disabled by default. Only Substreams ingestion runs to prevent double-ingestion.
+
 4. **Verify ingestion** (check logs):
    ```bash
-   docker-compose logs -f substreams-sink
+   docker compose logs -f substreams-sink
    ```
 
    You should see events being posted to `/api/ingest/anchored-event`.
@@ -160,7 +179,7 @@ The `substreams-sink` service consumes events from the blockchain via Pinax Fire
 **Running without chain ingestion** (if you don't have a Pinax token):
 ```bash
 # Start only core services (excludes substreams-sink)
-docker-compose up -d neo4j redis ipfs minio api frontend
+docker compose up -d neo4j redis ipfs minio api frontend
 ```
 
 **Configuration Options**:
