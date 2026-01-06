@@ -278,7 +278,7 @@ export class IngestionHandler {
                 console.log(`  Skipping non-put action: ${action_name}`);
                 return {
                     status: 'skipped',
-                    contentHash: content_hash,
+                    contentHash,  // Use normalized contentHash
                     message: `Action ${action_name} not supported yet`
                 };
             }

@@ -154,13 +154,16 @@ class EventStore {
         // Validate event structure
         this.validateEvent(event);
 
+        // Normalize expected hash if provided (defensive)
+        const normalizedExpectedHash = expectedHash !== null ? this.normalizeHash(expectedHash) : null;
+
         // Calculate deterministic hash
         const hash = this.calculateHash(event);
 
         // Enforce hash match if expected hash is provided
-        if (expectedHash !== null && expectedHash !== hash) {
+        if (normalizedExpectedHash !== null && normalizedExpectedHash !== hash) {
             throw new Error(
-                `Hash mismatch: expected ${expectedHash}, but computed ${hash}. ` +
+                `Hash mismatch: expected ${normalizedExpectedHash}, but computed ${hash}. ` +
                 `This indicates the event content doesn't match the blockchain anchor.`
             );
         }
@@ -257,7 +260,10 @@ class EventStore {
      * @throws {Error} If event not found in any storage
      */
     async retrieveEvent(hash) {
-        console.log(`Retrieving event ${hash.substring(0, 12)}...`);
+        // Normalize hash to handle different input formats (defensive)
+        const normalizedHash = this.normalizeHash(hash);
+
+        console.log(`Retrieving event ${normalizedHash.substring(0, 12)}...`);
 
         let event = null;
         let source = null;
@@ -265,7 +271,7 @@ class EventStore {
         // 1. Try Redis cache first (fastest)
         if (this.redisEnabled) {
             try {
-                const cached = await this.retrieveFromRedis(hash);
+                const cached = await this.retrieveFromRedis(normalizedHash);
                 if (cached) {
                     event = JSON.parse(cached);
                     source = 'redis';
@@ -280,7 +286,7 @@ class EventStore {
         // 2. Try IPFS if not in cache
         if (!event && this.ipfsEnabled) {
             try {
-                const data = await this.retrieveFromIPFS(hash);
+                const data = await this.retrieveFromIPFS(normalizedHash);
                 if (data) {
                     event = JSON.parse(data.toString('utf-8'));
                     source = 'ipfs';
@@ -289,7 +295,7 @@ class EventStore {
 
                     // Populate Redis cache for future requests
                     if (this.redisEnabled) {
-                        await this.storeToRedis(JSON.stringify(event), hash)
+                        await this.storeToRedis(JSON.stringify(event), normalizedHash)
                             .catch(err => console.warn(`  � Failed to cache: ${err.message}`));
                     }
                 }
@@ -301,7 +307,7 @@ class EventStore {
         // 3. Try S3 as last resort
         if (!event && this.s3Enabled) {
             try {
-                const data = await this.retrieveFromS3(hash);
+                const data = await this.retrieveFromS3(normalizedHash);
                 if (data) {
                     event = JSON.parse(data.toString('utf-8'));
                     source = 's3';
@@ -310,7 +316,7 @@ class EventStore {
 
                     // Populate Redis cache for future requests
                     if (this.redisEnabled) {
-                        await this.storeToRedis(JSON.stringify(event), hash)
+                        await this.storeToRedis(JSON.stringify(event), normalizedHash)
                             .catch(err => console.warn(`  � Failed to cache: ${err.message}`));
                     }
                 }
@@ -321,13 +327,13 @@ class EventStore {
 
         if (!event) {
             this.stats.errors++;
-            throw new Error(`Event not found: ${hash}`);
+            throw new Error(`Event not found: ${normalizedHash}`);
         }
 
         // Verify hash matches
         const computedHash = this.calculateHash(event);
-        if (computedHash !== hash) {
-            throw new Error(`Hash mismatch: expected ${hash}, got ${computedHash}`);
+        if (computedHash !== normalizedHash) {
+            throw new Error(`Hash mismatch: expected ${normalizedHash}, got ${computedHash}`);
         }
 
         this.stats.retrieved++;
@@ -662,6 +668,38 @@ class EventStore {
         return createHash('sha256')
             .update(canonical)
             .digest('hex');
+    }
+
+    /**
+     * Normalize hash to lowercase hex string (defensive)
+     * Handles various input formats from blockchain/Substreams sources
+     *
+     * @param {string|Array|Object} hash - Hash in various formats
+     * @returns {string} Normalized lowercase hex string
+     * @throws {Error} If hash format is invalid
+     */
+    normalizeHash(hash) {
+        // String format (most common)
+        if (typeof hash === 'string') {
+            // Strip 0x prefix if present, then lowercase
+            return hash.startsWith('0x') ? hash.slice(2).toLowerCase() : hash.toLowerCase();
+        }
+
+        // Byte array format (from Substreams checksum256)
+        if (Array.isArray(hash)) {
+            return Buffer.from(hash).toString('hex').toLowerCase();
+        }
+
+        // Object format with hex field (from some Substreams outputs)
+        if (hash && typeof hash === 'object' && hash.hex) {
+            const hexStr = hash.hex;
+            if (typeof hexStr !== 'string') {
+                throw new Error(`Invalid hash format: hash.hex is not a string`);
+            }
+            return hexStr.startsWith('0x') ? hexStr.slice(2).toLowerCase() : hexStr.toLowerCase();
+        }
+
+        throw new Error(`Invalid hash format: ${JSON.stringify(hash)}`);
     }
 
     /**
