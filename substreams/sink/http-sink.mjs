@@ -36,7 +36,7 @@ const config = {
     contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
 
     // Substreams package configuration (Pinax Antelope foundational modules)
-    substreamsPackage: process.env.SUBSTREAMS_PACKAGE || 'antelope_common@v0.4.0',
+    substreamsPackage: process.env.SUBSTREAMS_PACKAGE || 'antelope-common@v0.4.0',
     substreamsModule: process.env.SUBSTREAMS_MODULE || 'filtered_actions',
     substreamsParams: process.env.SUBSTREAMS_PARAMS || '', // Will be set from contractAccount if empty
 
@@ -77,7 +77,7 @@ Environment Variables:
   BACKEND_URL            Backend base URL (without /api suffix)
   SUBSTREAMS_ENDPOINT    Firehose endpoint (default: eos.firehose.pinax.network:443)
   SUBSTREAMS_API_TOKEN   Pinax API token (REQUIRED - get from https://app.pinax.network)
-  SUBSTREAMS_PACKAGE     Substreams package (default: antelope_common@v0.4.0)
+  SUBSTREAMS_PACKAGE     Substreams package (default: antelope-common@v0.4.0)
   SUBSTREAMS_MODULE      Module to run (default: filtered_actions)
   SUBSTREAMS_PARAMS      Filter params (default: code:CONTRACT_ACCOUNT && action:put)
   START_BLOCK            Starting block number
@@ -234,26 +234,53 @@ async function processLine(line) {
 
                 // Extract action data from ActionTrace format
                 // filtered_actions returns sf.antelope.type.v1.ActionTrace
-                const action = actionTrace.action || actionTrace.receipt?.receiver;
+                const action = actionTrace.action;
                 if (!action) {
                     console.warn('  Skipping action trace without action data');
                     continue;
                 }
 
                 // Extract the 'put' action data (our contract's anchoring action)
-                const actionData = action.jsonData ? JSON.parse(action.jsonData) : action.data;
+                // jsonData field from proto is json_data → jsonData in JSON
+                // Handle three cases: string (needs parsing), object (already parsed), or undefined
+                let actionData;
+                if (typeof action.jsonData === 'string') {
+                    try {
+                        actionData = JSON.parse(action.jsonData);
+                    } catch (error) {
+                        console.warn('  Skipping action with invalid JSON data:', error.message);
+                        continue;
+                    }
+                } else if (typeof action.jsonData === 'object' && action.jsonData !== null) {
+                    actionData = action.jsonData;
+                } else if (action.data) {
+                    // Fallback to raw data if jsonData is not available
+                    actionData = action.data;
+                } else {
+                    console.warn('  Skipping action without parseable data');
+                    continue;
+                }
+
+                // Ensure we have a content hash (required field)
+                if (!actionData.hash) {
+                    console.warn('  Skipping action without hash field in payload');
+                    continue;
+                }
 
                 // Build AnchoredEvent structure expected by backend
-                // Maps from Antelope action to our ingestion format
+                // Maps from Antelope ActionTrace to our ingestion format
+                // CRITICAL: Use correct proto JSON field names:
+                //   - transaction_id → transactionId (NOT trxId)
+                //   - producer_block_id → producerBlockId (NOT blockId)
                 const postableEvent = {
                     content_hash: actionData.hash,  // The content hash from put action
                     event_hash: actionData.hash,    // Use same for now (can derive from action data if needed)
                     payload: JSON.stringify(actionData), // The full action data
-                    block_num: actionTrace.blockNum || actionTrace.block_num,
-                    block_id: actionTrace.blockId || actionTrace.block_id,
-                    trx_id: actionTrace.trxId || actionTrace.receipt?.trxId,
+                    block_num: actionTrace.blockNum,
+                    block_id: actionTrace.producerBlockId,
+                    trx_id: actionTrace.transactionId,
                     action_ordinal: actionTrace.actionOrdinal || actionTrace.executionIndex,
-                    timestamp: actionTrace.blockTime || actionTrace.block_time,
+                    timestamp: actionTrace.blockTime,
                     source: 'substreams',
                     contract_account: action.account,
                     action_name: action.name,
