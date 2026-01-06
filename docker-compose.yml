@@ -241,7 +241,7 @@ services:
   # IMPORTANT: SUBSTREAMS_ENDPOINT must match the chain used by frontend/backend
   #   - Jungle4 (default): jungle4.substreams.pinax.network:443
   #   - EOS Mainnet: eos.substreams.pinax.network:443
-  # NEW: Uses Pinax Antelope foundational modules (antelope-common@v0.4.0)
+  # NEW: Uses Pinax Antelope foundational modules (.spkg URL for reliability)
   #   - No local build artifacts needed
   #   - Filters by: code:CONTRACT_ACCOUNT && action:put
   substreams-sink:
@@ -263,8 +263,8 @@ services:
       - START_BLOCK=${START_BLOCK:-0}
 
       # Substreams package configuration (Pinax foundational modules)
-      # Uses published antelope-common package instead of custom parsing
-      - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-antelope-common@v0.4.0}
+      # Uses stable .spkg URL (more reliable than shorthand registry ref)
+      - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg}
       - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-filtered_actions}
       - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-code:polaris && action:put}
       - CONTRACT_ACCOUNT=polaris

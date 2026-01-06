@@ -37,7 +37,8 @@ const config = {
     contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
 
     // Substreams package configuration (Pinax Antelope foundational modules)
-    substreamsPackage: process.env.SUBSTREAMS_PACKAGE || 'antelope-common@v0.4.0',
+    // Using stable .spkg URL (more reliable than shorthand registry ref)
+    substreamsPackage: process.env.SUBSTREAMS_PACKAGE || 'https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg',
     substreamsModule: process.env.SUBSTREAMS_MODULE || 'filtered_actions',
     substreamsParams: process.env.SUBSTREAMS_PARAMS || '', // Will be set from contractAccount if empty
 
@@ -79,7 +80,7 @@ Environment Variables:
   SUBSTREAMS_ENDPOINT    Substreams endpoint (default: jungle4.substreams.pinax.network:443)
   SUBSTREAMS_API_TOKEN   Pinax API token (REQUIRED - get from https://app.pinax.network)
   SUBSTREAMS_API_KEY     Alias for SUBSTREAMS_API_TOKEN (either works)
-  SUBSTREAMS_PACKAGE     Substreams package (default: antelope-common@v0.4.0)
+  SUBSTREAMS_PACKAGE     Substreams package (default: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg)
   SUBSTREAMS_MODULE      Module to run (default: filtered_actions)
   SUBSTREAMS_PARAMS      Filter params (default: code:CONTRACT_ACCOUNT && action:put)
   START_BLOCK            Starting block number
@@ -345,7 +346,7 @@ async function main() {
     console.log('');
 
     // Build substreams command using Pinax Antelope foundational modules
-    // Package: antelope-common@v0.4.0 (published by Pinax)
+    // Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg (stable .spkg URL)
     // Module: filtered_actions (filters by code/action/data predicates)
     // Params: code:CONTRACT_ACCOUNT && action:put
     const substreamsArgs = [
