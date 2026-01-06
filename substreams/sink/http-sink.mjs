@@ -558,15 +558,30 @@ async function processActionTracesOutput(data) {
 }
 
 /**
- * Check if substreams binary is available
+ * Check if substreams binary is available (portable, no dependency on 'which')
  * @returns {Promise<boolean>} True if available
  */
 async function checkSubstreamsBinary() {
     return new Promise((resolve) => {
-        const checkProcess = spawn('which', ['substreams']);
+        // Probe with --version instead of 'which' for better portability
+        // Works on slim images where 'which' might be missing
+        const checkProcess = spawn('substreams', ['--version']);
+
+        let versionOutput = '';
+
+        checkProcess.stdout.on('data', (data) => {
+            versionOutput += data.toString();
+        });
+
         checkProcess.on('close', (code) => {
+            if (code === 0 && versionOutput) {
+                // Log version for visibility at startup
+                const versionLine = versionOutput.split('\n')[0].trim();
+                console.log(`Found ${versionLine}`);
+            }
             resolve(code === 0);
         });
+
         checkProcess.on('error', () => {
             resolve(false);
         });
