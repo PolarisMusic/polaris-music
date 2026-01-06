@@ -30,8 +30,9 @@ const __dirname = dirname(__filename);
 // Configuration
 const config = {
     backendUrl: process.env.BACKEND_URL || 'http://localhost:3000',
-    substreamsEndpoint: process.env.SUBSTREAMS_ENDPOINT || 'eos.firehose.pinax.network:443',
-    apiToken: process.env.SUBSTREAMS_API_TOKEN || '',
+    substreamsEndpoint: process.env.SUBSTREAMS_ENDPOINT || 'jungle4.substreams.pinax.network:443',
+    // Accept either SUBSTREAMS_API_TOKEN or SUBSTREAMS_API_KEY (TOKEN preferred)
+    apiToken: process.env.SUBSTREAMS_API_TOKEN || process.env.SUBSTREAMS_API_KEY || '',
     startBlock: process.env.START_BLOCK || '0',
     contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
 
@@ -75,8 +76,9 @@ Options:
 
 Environment Variables:
   BACKEND_URL            Backend base URL (without /api suffix)
-  SUBSTREAMS_ENDPOINT    Firehose endpoint (default: eos.firehose.pinax.network:443)
+  SUBSTREAMS_ENDPOINT    Substreams endpoint (default: jungle4.substreams.pinax.network:443)
   SUBSTREAMS_API_TOKEN   Pinax API token (REQUIRED - get from https://app.pinax.network)
+  SUBSTREAMS_API_KEY     Alias for SUBSTREAMS_API_TOKEN (either works)
   SUBSTREAMS_PACKAGE     Substreams package (default: antelope-common@v0.4.0)
   SUBSTREAMS_MODULE      Module to run (default: filtered_actions)
   SUBSTREAMS_PARAMS      Filter params (default: code:CONTRACT_ACCOUNT && action:put)
@@ -106,7 +108,7 @@ if (!config.substreamsParams) {
 
 // Validation
 if (!config.apiToken) {
-    console.error('ERROR: SUBSTREAMS_API_TOKEN environment variable is required');
+    console.error('ERROR: SUBSTREAMS_API_TOKEN (or SUBSTREAMS_API_KEY) environment variable is required');
     console.error('Get your API key from https://app.pinax.network');
     console.error('');
     console.error('Run "node http-sink.mjs --help" for usage information');
@@ -117,6 +119,13 @@ console.log('Polaris Substreams HTTP Sink');
 console.log('============================');
 console.log(`Backend URL:         ${config.backendUrl}`);
 console.log(`Substreams Endpoint: ${config.substreamsEndpoint}`);
+
+// Extract provider from endpoint for logging
+const providerHost = config.substreamsEndpoint.split(':')[0];
+const isPinax = providerHost.includes('pinax.network');
+console.log(`Provider:            ${isPinax ? 'Pinax' : 'Custom'} (${providerHost})`);
+console.log(`API Token:           ${config.apiToken ? '✓ Configured' : '✗ Missing'}`);
+
 console.log(`Substreams Package:  ${config.substreamsPackage}`);
 console.log(`Substreams Module:   ${config.substreamsModule}`);
 console.log(`Filter Params:       ${config.substreamsParams}`);
@@ -336,7 +345,7 @@ async function main() {
     console.log('');
 
     // Build substreams command using Pinax Antelope foundational modules
-    // Package: antelope_common@v0.4.0 (published by Pinax)
+    // Package: antelope-common@v0.4.0 (published by Pinax)
     // Module: filtered_actions (filters by code/action/data predicates)
     // Params: code:CONTRACT_ACCOUNT && action:put
     const substreamsArgs = [

@@ -236,11 +236,11 @@ services:
       - api
 
   # Substreams HTTP Sink (Chain Ingestion)
-  # NOTE: Requires SUBSTREAMS_API_TOKEN to be set in .env file
+  # NOTE: Requires SUBSTREAMS_API_TOKEN (or SUBSTREAMS_API_KEY) to be set in .env file
   # Get your token from https://app.pinax.network
   # IMPORTANT: SUBSTREAMS_ENDPOINT must match the chain used by frontend/backend
-  #   - Jungle4: jungle4.eos.firehose.eosnation.io:9001 (testnet)
-  #   - EOS Mainnet: eos.firehose.pinax.network:443
+  #   - Jungle4 (default): jungle4.substreams.pinax.network:443
+  #   - EOS Mainnet: eos.substreams.pinax.network:443
   # NEW: Uses Pinax Antelope foundational modules (antelope-common@v0.4.0)
   #   - No local build artifacts needed
   #   - Filters by: code:CONTRACT_ACCOUNT && action:put
@@ -255,9 +255,11 @@ services:
       - BACKEND_URL=http://api:3000
 
       # Substreams connection (reads from .env file)
-      # Default to Jungle4 testnet for development
+      # Default to Pinax Jungle4 Substreams endpoint for development
+      # Accepts either SUBSTREAMS_API_TOKEN or SUBSTREAMS_API_KEY
       - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN}
-      - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.eos.firehose.eosnation.io:9001}
+      - SUBSTREAMS_API_KEY=${SUBSTREAMS_API_KEY}
+      - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.substreams.pinax.network:443}
       - START_BLOCK=${START_BLOCK:-0}
 
       # Substreams package configuration (Pinax foundational modules)
