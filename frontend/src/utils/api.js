@@ -108,7 +108,18 @@ class APIClient {
             throw new Error(error.message || 'Failed to retrieve event');
         }
 
-        return response.json();
+        const data = await response.json();
+
+        // Unwrap event from response wrapper { success, event }
+        if (data && typeof data === 'object' && 'event' in data) {
+            if (data.success === false) {
+                throw new Error(data.error || 'retrieveEvent failed');
+            }
+            return data.event;
+        }
+
+        // Backward compatibility: if backend returns event directly
+        return data;
     }
 
     /**

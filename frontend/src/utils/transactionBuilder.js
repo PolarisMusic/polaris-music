@@ -6,13 +6,12 @@
  */
 
 import CryptoJS from 'crypto-js';
+import { CONTRACT_ACCOUNT } from '../config/chain.js';
 
 export class TransactionBuilder {
     constructor(config = {}) {
-        // Read from environment variables with 'polaris' as default
-        const contractAccount = config.contractAccount
-            || import.meta.env.VITE_CONTRACT_ACCOUNT
-            || 'polaris';
+        // Use centralized chain config (prevents config drift with WalletManager)
+        const contractAccount = config.contractAccount || CONTRACT_ACCOUNT;
 
         this.config = {
             contractAccount,
@@ -110,24 +109,29 @@ export class TransactionBuilder {
 
     /**
      * Convert tag strings to valid blockchain name types
-     * Names must be 12 characters or less, lowercase a-z, 1-5, and dots
+     * Names must be 3-12 characters, lowercase a-z, 1-5, and dots
      * @param {Array<string>} tags - Tag strings
-     * @returns {Array<string>} Valid blockchain names
+     * @returns {Array<string>} Valid blockchain names (deduplicated)
      */
     sanitizeTags(tags) {
-        return tags.map(tag => {
-            // Convert to lowercase, remove invalid characters
-            let name = tag.toLowerCase()
+        const sanitized = tags.map(tag => {
+            // Convert to lowercase, remove invalid characters, truncate to 12
+            const cleaned = tag
+                .toLowerCase()
                 .replace(/[^a-z1-5.]/g, '')
-                .substring(0, 12);
+                .slice(0, 12);
 
-            // Ensure not empty
-            if (!name) {
-                name = 'tag';
+            // Enforce minimum length of 3 to prevent contract rejection
+            // Replace invalid/too-short tags with 'tag' (deterministic)
+            if (cleaned.length < 3) {
+                return 'tag';
             }
 
-            return name;
-        });
+            return cleaned;
+        }).filter(tag => tag.length >= 3 && tag.length <= 12);
+
+        // Deduplicate and return
+        return Array.from(new Set(sanitized));
     }
 
     /**

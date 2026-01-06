@@ -8,28 +8,30 @@ import { SessionKit } from '@wharfkit/session';
 import { WebRenderer } from '@wharfkit/web-renderer';
 import { WalletPluginAnchor } from '@wharfkit/wallet-plugin-anchor';
 import { WalletPluginCloudWallet } from '@wharfkit/wallet-plugin-cloudwallet';
-import { POLARIS_ABI } from '../contracts/polarisAbi.js';
+import { POLARIS_ABI } from '../contracts/polarisAbi.js'; // Local ABI fallback for test/dev only
+import { CHAIN_ID, RPC_URL, CONTRACT_ACCOUNT, USE_LOCAL_ABI } from '../config/chain.js';
 
 export class WalletManager {
     constructor(config = {}) {
-        // Read from environment variables with Jungle4 testnet as default
-        const chainId = config.chainId
-            || import.meta.env.VITE_CHAIN_ID
-            || '73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d'; // Jungle4 testnet
+        // Use centralized chain config (prevents config drift between components)
+        const chainId = config.chainId || CHAIN_ID;
+        const rpcUrl = config.rpcUrl || RPC_URL;
+        const contractAccount = config.contractAccount || CONTRACT_ACCOUNT;
 
-        const rpcUrl = config.rpcUrl
-            || import.meta.env.VITE_RPC_URL
-            || 'https://jungle4.greymass.com';
-
-        const contractAccount = config.contractAccount
-            || import.meta.env.VITE_CONTRACT_ACCOUNT
-            || 'polaris';
+        // Runtime guard: ensure config is present when not using local ABI fallback
+        if (!USE_LOCAL_ABI && !contractAccount) {
+            throw new Error(
+                'CONTRACT_ACCOUNT must be set when USE_LOCAL_ABI is false. ' +
+                'Set VITE_CONTRACT_ACCOUNT in .env or docker-compose.yml'
+            );
+        }
 
         this.config = {
             appName: config.appName || 'Polaris Music Registry',
             chainId,
             rpcUrl,
             contractAccount,
+            useLocalAbi: config.useLocalAbi !== undefined ? config.useLocalAbi : USE_LOCAL_ABI,
             ...config
         };
 
@@ -197,21 +199,27 @@ export class WalletManager {
         }
 
         try {
-            // Provide the ABI directly in the transaction
-            const result = await this.session.transact({
-                action
-            }, {
-                abiProvider: {
-                    getAbi: async (account) => {
-                        // Provide Polaris ABI if requested for configured contract account
-                        if (account === this.config.contractAccount) {
-                            return POLARIS_ABI;
+            // Conditionally provide ABI based on USE_LOCAL_ABI flag
+            // Production: WharfKit fetches ABI from deployed contract (no abiProvider)
+            // Dev/Test: Use local ABI fallback for resilience
+            const transactOptions = this.config.useLocalAbi
+                ? {
+                    abiProvider: {
+                        getAbi: async (account) => {
+                            // Provide Polaris ABI if requested for configured contract account
+                            if (account === this.config.contractAccount) {
+                                return POLARIS_ABI;
+                            }
+                            // Otherwise fetch from blockchain
+                            return null;
                         }
-                        // Otherwise fetch from blockchain
-                        return null;
                     }
                 }
-            });
+                : {}; // No abiProvider - WharfKit fetches from chain
+
+            const result = await this.session.transact({
+                action
+            }, transactOptions);
 
             console.log('Transaction successful:', result);
             return result;

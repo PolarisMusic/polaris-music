@@ -436,7 +436,13 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleReleaseBundle(event, actionData) {
-        console.log(`  Processing release bundle: ${event.body.release?.name || 'Unknown'}`);
+        // Use correct release_name field with fallbacks
+        const releaseTitle =
+            event?.body?.release?.release_name ||
+            event?.body?.release?.name ||
+            event?.body?.release_name ||
+            'Unknown';
+        console.log(`  Processing release bundle: ${releaseTitle}`);
 
         const result = await this.db.processReleaseBundle(
             actionData.hash,

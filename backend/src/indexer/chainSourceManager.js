@@ -127,7 +127,7 @@ export class ChainSourceManager {
      */
     async startSubstreamsSource() {
         console.log('Substreams mode: Events will be received via HTTP sink');
-        console.log('Run: cd substreams/sink && node http-sink.js');
+        console.log('Run: node substreams/sink/http-sink.mjs');
 
         // For Substreams, we just log instructions
         // The HTTP sink POSTs directly to the ingestion endpoint

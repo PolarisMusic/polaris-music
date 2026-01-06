@@ -289,15 +289,24 @@ class APIServer {
      */
     setupMiddleware() {
         // CORS - Enable cross-origin requests from frontend
-        // Uses CORS_ORIGIN env var from docker-compose or defaults to Vite dev server
-        const corsOrigin = this.config.corsOrigin || process.env.CORS_ORIGIN || 'http://localhost:5173';
+        // Supports comma-separated list of origins for multiple dev environments
+        // Example: CORS_ORIGIN=http://localhost:5173,http://localhost:4173
+        const corsOriginEnv = this.config.corsOrigin || process.env.CORS_ORIGIN || 'http://localhost:5173';
+        const origins = corsOriginEnv
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        // Pass single string or array to cors() depending on count
+        const corsOrigin = origins.length === 1 ? origins[0] : origins;
+
         this.app.use(cors({
             origin: corsOrigin,
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
             allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
             credentials: false
         }));
-        console.log(` CORS enabled for origin: ${corsOrigin}`);
+        console.log(` CORS enabled for origin(s): ${origins.join(', ')}`);
 
         // Parse JSON bodies
         this.app.use(express.json({ limit: '10mb' }));

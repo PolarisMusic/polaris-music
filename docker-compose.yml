@@ -227,8 +227,15 @@ services:
     ports:
       - "5173:5173"
     environment:
+      # API endpoints (internal Docker network)
       - VITE_API_URL=http://localhost:3000/api
       - VITE_GRAPHQL_URL=http://localhost:3000/graphql
+
+      # Blockchain configuration (explicit values to avoid relying on code defaults)
+      - VITE_CHAIN_ID=${VITE_CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
+      - VITE_RPC_URL=${VITE_RPC_URL:-https://jungle4.greymass.com}
+      - VITE_CONTRACT_ACCOUNT=${VITE_CONTRACT_ACCOUNT:-polaris}
+      - VITE_USE_LOCAL_ABI=${VITE_USE_LOCAL_ABI:-true}
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
