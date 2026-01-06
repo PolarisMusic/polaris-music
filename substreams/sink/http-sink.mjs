@@ -339,9 +339,13 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
 /**
  * Process Substreams output line by line
  *
- * Handles two output formats:
- * 1. ActionTraces from Pinax filtered_actions module (sf.antelope.type.v1.ActionTraces)
- * 2. AnchoredEvents from local map_anchored_events module (polaris.v1.AnchoredEvents)
+ * Handles two output format variants:
+ * 1. Wrapped format (default): { "@module": "...", "@type": "...", "@data": { ... } }
+ * 2. Plain format (with --plain-output flag): { "events": [...] } or { "actionTraces": [...] }
+ *
+ * Supports two module types:
+ * - ActionTraces from Pinax filtered_actions module (sf.antelope.type.v1.ActionTraces)
+ * - AnchoredEvents from local map_anchored_events module (polaris.v1.AnchoredEvents)
  *
  * @param {string} line - JSON line from Substreams output
  */
@@ -349,21 +353,48 @@ async function processLine(line) {
     try {
         const data = JSON.parse(line);
 
-        if (!data['@module'] || !data['@data']) {
-            return; // Skip non-module output lines
+        // Support two output formats to prevent silent ingestion failure:
+        // 1. Wrapped: { "@module": "...", "@type": "...", "@data": { ... } }
+        // 2. Plain: { "events": [...] } or { "actionTraces": [...] } (from --plain-output)
+
+        let dataPayload;
+        let moduleName;
+        let typeName;
+
+        if (data['@data']) {
+            // Wrapped format (standard Substreams output)
+            dataPayload = data['@data'];
+            moduleName = data['@module'];
+            typeName = data['@type'];
+        } else if (data.events || data.actionTraces) {
+            // Plain format - treat object itself as payload
+            // This happens when --plain-output strips wrapper keys
+            dataPayload = data;
+            // Infer module/type from payload structure
+            if (data.events) {
+                moduleName = 'map_anchored_events';
+                typeName = 'polaris.v1.AnchoredEvents';
+            } else if (data.actionTraces) {
+                moduleName = 'filtered_actions';
+                typeName = 'sf.antelope.type.v1.ActionTraces';
+            }
+        } else {
+            // Neither wrapped nor recognized plain format - skip
+            return;
         }
 
-        // Detect output format by @type or @module
+        // Detect output format by type or module name or payload structure
         const isAnchoredEvents =
-            data['@type'] === 'polaris.v1.AnchoredEvents' ||
-            data['@module'] === 'map_anchored_events';
+            typeName === 'polaris.v1.AnchoredEvents' ||
+            moduleName === 'map_anchored_events' ||
+            dataPayload.events;
 
         if (isAnchoredEvents) {
-            // Format: { "@module": "map_anchored_events", "@type": "polaris.v1.AnchoredEvents", "@data": { "events": [...] } }
-            await processAnchoredEventsOutput(data['@data']);
-        } else if (data['@module'] === config.substreamsModule) {
-            // Format: { "@module": "filtered_actions", "@type": "sf.antelope.type.v1.ActionTraces", "@data": { "actionTraces": [...] } }
-            await processActionTracesOutput(data['@data']);
+            // Format: { "events": [...] }
+            await processAnchoredEventsOutput(dataPayload);
+        } else if (moduleName === config.substreamsModule || dataPayload.actionTraces) {
+            // Format: { "actionTraces": [...] }
+            await processActionTracesOutput(dataPayload);
         }
     } catch (error) {
         // Ignore parse errors for progress messages and other non-JSON lines
