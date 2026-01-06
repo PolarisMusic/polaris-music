@@ -112,9 +112,35 @@ Example:
 // Sanitize backendUrl from environment variable
 config.backendUrl = sanitizeBackendUrl(config.backendUrl);
 
-// Set default substreams params if not provided
+// Set default substreams params if not provided (derive from CONTRACT_ACCOUNT)
 if (!config.substreamsParams) {
-    config.substreamsParams = `code:${config.contractAccount} && action:put`;
+    // Format depends on which module is being used
+    if (config.substreamsModule === 'map_anchored_events') {
+        // Local module format: map_anchored_events=<contract_account>
+        config.substreamsParams = `map_anchored_events=${config.contractAccount}`;
+    } else if (config.substreamsModule === 'filtered_actions') {
+        // Pinax module format: filtered_actions=code:<contract_account> && action:put
+        config.substreamsParams = `filtered_actions=code:${config.contractAccount} && action:put`;
+    } else {
+        // Generic fallback: <module>=<contract_account>
+        config.substreamsParams = `${config.substreamsModule}=${config.contractAccount}`;
+    }
+    console.log(`Derived params from CONTRACT_ACCOUNT: ${config.substreamsParams}`);
+} else {
+    // Both CONTRACT_ACCOUNT and SUBSTREAMS_PARAMS are set - warn about potential mismatch
+    // Extract contract account from params to check for drift
+    const paramsMatch = config.substreamsParams.match(/(?:code:)?(\w+)/);
+    const paramsAccount = paramsMatch ? paramsMatch[1] : null;
+
+    if (paramsAccount && paramsAccount !== config.contractAccount) {
+        console.warn('');
+        console.warn('⚠ WARNING: CONTRACT_ACCOUNT and SUBSTREAMS_PARAMS mismatch detected!');
+        console.warn(`  CONTRACT_ACCOUNT:    ${config.contractAccount}`);
+        console.warn(`  Params filter on:    ${paramsAccount}`);
+        console.warn('  This can cause silent indexing failures (sink runs but indexes nothing).');
+        console.warn('  Recommendation: Remove SUBSTREAMS_PARAMS and let it derive from CONTRACT_ACCOUNT.');
+        console.warn('');
+    }
 }
 
 // Validation

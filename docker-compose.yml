@@ -279,14 +279,19 @@ services:
       #   - Params: filtered_actions=code:polaris && action:put (module-keyed, no inner quotes)
       #   - Warning: May fail silently if Pinax cannot decode contract actions
       #
+      # SINGLE SOURCE OF TRUTH: Set CONTRACT_ACCOUNT only
+      #   - http-sink.mjs derives SUBSTREAMS_PARAMS from CONTRACT_ACCOUNT when empty
+      #   - Format depends on module: map_anchored_events=<account> or filtered_actions=code:<account>
+      #   - This prevents config drift where you change account but forget to update params
+      #
       # CRITICAL: Params MUST be in module-keyed format: <module_name>=<value>
       # NOTE: Do NOT use inner quotes in params - spawn() passes them literally
       # Good: map_anchored_events=polaris
       # Bad:  map_anchored_events="polaris" (quotes passed to CLI)
       - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-/app/substreams/polaris_music_substreams-v0.1.0.spkg}
       - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-map_anchored_events}
-      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-map_anchored_events=polaris}
-      - CONTRACT_ACCOUNT=polaris
+      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-}  # Empty by default - derived from CONTRACT_ACCOUNT
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polaris}
 
       # Logging
       - NODE_ENV=development
