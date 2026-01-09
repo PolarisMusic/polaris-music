@@ -1524,6 +1524,36 @@ class APIServer {
         }
         console.log(' Database connected');
 
+        // Initialize database schema (constraints, indexes)
+        // Controlled by GRAPH_INIT_SCHEMA env var (default: true in dev, configurable in prod)
+        const shouldInitSchema = process.env.GRAPH_INIT_SCHEMA !== 'false';
+        if (shouldInitSchema) {
+            try {
+                await this.db.initializeSchema();
+                console.log(' Database schema initialized');
+            } catch (error) {
+                console.error(' Schema initialization failed:', error.message);
+                // Don't throw - allow server to start even if schema init fails
+                // This is safe because queries will still work, just without constraints
+                console.warn('  Continuing without schema initialization');
+            }
+        } else {
+            console.log(' Schema initialization skipped (GRAPH_INIT_SCHEMA=false)');
+        }
+
+        // Run pending migrations (optional, controlled by env var)
+        const shouldRunMigrations = process.env.GRAPH_RUN_MIGRATIONS === 'true';
+        if (shouldRunMigrations) {
+            try {
+                const { runPendingMigrations } = await import('../graph/migrationRunner.js');
+                await runPendingMigrations(this.db.driver);
+                console.log(' Migrations completed');
+            } catch (error) {
+                console.error(' Migration failed:', error.message);
+                console.warn('  Continuing despite migration failure');
+            }
+        }
+
         // Test storage connectivity
         const storageStatus = await this.store.testConnectivity();
         console.log(' Storage status:', storageStatus);
