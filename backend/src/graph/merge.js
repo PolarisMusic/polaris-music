@@ -122,7 +122,7 @@ export class MergeOperations {
                          CREATE (source)-[r2:TEMP]->(survivor)
                          SET r2 = props
                          WITH r2, relType
-                         CALL apoc.refactor.rename.type(relType, 'TEMP', [r2])
+                         CALL apoc.refactor.rename.type('TEMP', relType, [r2])
                          RETURN count(*) as rewired`,
                         { absorbedId, survivorId }
                     );
@@ -142,7 +142,7 @@ export class MergeOperations {
                          CREATE (survivor)-[r2:TEMP]->(target)
                          SET r2 = props
                          WITH r2, relType
-                         CALL apoc.refactor.rename.type(relType, 'TEMP', [r2])
+                         CALL apoc.refactor.rename.type('TEMP', relType, [r2])
                          RETURN count(*) as rewired`,
                         { absorbedId, survivorId }
                     );
@@ -209,6 +209,18 @@ export class MergeOperations {
                      survivor.absorbed_count = coalesce(survivor.absorbed_count, 0) + $absorbedCount`,
                 { survivorId, absorbedCount: absorbedIds.length }
             );
+
+            // 9. Safety check: Ensure no TEMP relationships remain
+            const tempCheckResult = await tx.run(
+                `MATCH ()-[r:TEMP]->()
+                 RETURN count(r) as tempCount`
+            );
+            const tempCount = tempCheckResult.records[0]?.get('tempCount').toNumber() || 0;
+            if (tempCount > 0) {
+                console.error(`⚠️  ERROR: ${tempCount} TEMP relationships remain after merge!`);
+                console.error('   This indicates the APOC rename failed - rolling back to prevent corruption');
+                throw new Error(`Merge failed: ${tempCount} TEMP relationships remain (APOC rename failed)`);
+            }
 
             // Commit transaction
             await tx.commit();
