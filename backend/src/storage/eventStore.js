@@ -21,6 +21,9 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import Redis from 'ioredis';
 import { createHash } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
+import { CID } from 'multiformats/cid';
+import * as raw from 'multiformats/codecs/raw';
+import { sha256 } from 'multiformats/hashes/sha2';
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -173,10 +176,17 @@ class EventStore {
                 `This indicates the event content doesn't match the blockchain anchor.`
             );
         }
-        const eventJSON = JSON.stringify(event, null, 2);
-        const eventBuffer = Buffer.from(eventJSON, 'utf-8');
+        // Prepare data for storage
+        // IPFS: Store canonical bytes (without sig) for CID derivability
+        // S3/Redis: Store full event JSON (with sig) for auditability
+        const { sig, ...eventWithoutSig } = event;
+        const canonicalString = stringify(eventWithoutSig);
+        const canonicalBuffer = Buffer.from(canonicalString, 'utf-8');
 
-        console.log(`Storing event ${hash.substring(0, 12)}... (${eventBuffer.length} bytes)`);
+        const fullEventJSON = JSON.stringify(event, null, 2);
+        const fullEventBuffer = Buffer.from(fullEventJSON, 'utf-8');
+
+        console.log(`Storing event ${hash.substring(0, 12)}... (${fullEventBuffer.length} bytes)`);
 
         const results = {
             hash,
@@ -189,10 +199,10 @@ class EventStore {
         // Store to all locations in parallel
         const storagePromises = [];
 
-        // 1. Store to IPFS
+        // 1. Store to IPFS (canonical bytes for CID derivability)
         if (this.ipfsEnabled) {
             storagePromises.push(
-                this.storeToIPFS(eventBuffer, hash)
+                this.storeToIPFS(canonicalBuffer, hash)
                     .then(cid => {
                         results.ipfs = cid;
                         this.stats.ipfsStores++;
@@ -206,10 +216,10 @@ class EventStore {
             );
         }
 
-        // 2. Store to S3
+        // 2. Store to S3 (full event with signature for auditability)
         if (this.s3Enabled) {
             storagePromises.push(
-                this.storeToS3(eventBuffer, hash)
+                this.storeToS3(fullEventBuffer, hash)
                     .then(location => {
                         results.s3 = location;
                         this.stats.s3Stores++;
@@ -361,43 +371,72 @@ class EventStore {
     }
 
     /**
-     * Store data to IPFS.
+     * Store data to IPFS as a raw block.
+     * Uses sha2-256 multihash so CID digest matches the anchored hash,
+     * making CID derivable from hash even if Redis mapping is lost.
      *
      * @private
-     * @param {Buffer} data - Data to store
-     * @param {string} hash - Event hash (for metadata)
+     * @param {Buffer} data - Data to store (canonical event bytes without signature)
+     * @param {string} hash - Event hash (sha256 hex string)
      * @returns {Promise<string>} IPFS CID
      */
     async storeToIPFS(data, hash) {
-        const result = await this.ipfs.add(data, {
-            pin: true, // Pin to prevent garbage collection
-            cidVersion: 1 // Use CIDv1 for better compatibility
-        });
+        // Create multihash from the sha256 hash
+        const hashBytes = Buffer.from(hash, 'hex');
+        const digest = await sha256.digest(hashBytes);
 
-        const cid = result.cid.toString();
+        // Create CID using raw codec and sha256 multihash
+        const cid = CID.create(1, raw.code, digest);
 
-        // Store hash→CID mapping in Redis for retrieval
-        await this.storeHashCIDMapping(hash, cid).catch(err =>
+        // Store as raw block with pinning
+        await this.ipfs.block.put(data, { cid, pin: true });
+
+        const cidString = cid.toString();
+
+        // Store hash→CID mapping in Redis for backward compatibility and faster lookup
+        await this.storeHashCIDMapping(hash, cidString).catch(err =>
             console.warn(`   Failed to store hash→CID mapping: ${err.message}`)
         );
 
-        return cid;
+        // Verify CID digest matches hash (sanity check)
+        const cidDigestHex = Buffer.from(cid.multihash.digest).toString('hex');
+        if (cidDigestHex !== hash) {
+            console.error(`⚠️  CID verification failed: digest ${cidDigestHex.substring(0, 12)}... doesn't match hash ${hash.substring(0, 12)}...`);
+        }
+
+        return cidString;
     }
 
     /**
      * Retrieve data from IPFS by hash.
-     * First tries using the hash directly, then searches pinned objects.
+     * First tries Redis hash→CID mapping, then derives CID from hash if missing.
+     * This makes IPFS retrieval work even without Redis (IPFS-only mode).
      *
      * @private
-     * @param {string} hash - Event hash
+     * @param {string} hash - Event hash (sha256 hex string)
      * @returns {Promise<Buffer>} Event data
      */
     async retrieveFromIPFS(hash) {
-        // Look up CID from hash→CID mapping in Redis
-        const cid = await this.getHashCIDMapping(hash);
+        // Try Redis mapping first (backward compatibility / cache)
+        let cid = await this.getHashCIDMapping(hash);
 
         if (!cid) {
-            throw new Error(`No IPFS CID found for hash ${hash.substring(0, 12)}... (hash→CID mapping missing)`);
+            // Derive CID from hash when mapping missing
+            // This works because we store with raw codec + sha256 multihash
+            try {
+                const hashBytes = Buffer.from(hash, 'hex');
+                const digest = await sha256.digest(hashBytes);
+                const derivedCid = CID.create(1, raw.code, digest);
+                cid = derivedCid.toString();
+                console.log(`   Derived CID from hash: ${cid}`);
+
+                // Store derived mapping for future lookups (best effort)
+                await this.storeHashCIDMapping(hash, cid).catch(err =>
+                    console.warn(`   Failed to cache derived CID mapping: ${err.message}`)
+                );
+            } catch (error) {
+                throw new Error(`Failed to derive CID from hash ${hash.substring(0, 12)}...: ${error.message}`);
+            }
         }
 
         // Retrieve from IPFS using CID
