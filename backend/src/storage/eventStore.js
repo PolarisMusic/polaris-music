@@ -30,6 +30,7 @@ import stringify from 'fast-json-stable-stringify';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { sha256 } from 'multiformats/hashes/sha2';
+import { create as createDigest } from 'multiformats/hashes/digest';
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -381,38 +382,63 @@ class EventStore {
     }
 
     /**
+     * Derive CID from hash bytes without re-hashing.
+     * Wraps existing hash bytes in multihash format and creates CIDv1.
+     *
+     * CRITICAL: This does NOT hash the input - it wraps already-hashed bytes.
+     * The input should be the raw sha256 digest bytes (32 bytes).
+     *
+     * @param {string} hash - SHA256 hash as hex string
+     * @returns {string} CID string
+     */
+    deriveCidFromHash(hash) {
+        const hashBytes = Buffer.from(hash, 'hex');
+        // Wrap existing hash bytes as multihash digest (DON'T hash again!)
+        const digest = createDigest(sha256.code, hashBytes);
+        // Create CIDv1 with raw codec
+        const cid = CID.create(1, raw.code, digest);
+        return cid.toString();
+    }
+
+    /**
      * Store data to IPFS as a raw block.
-     * Uses sha2-256 multihash so CID digest matches the anchored hash,
-     * making CID derivable from hash even if Redis mapping is lost.
+     * Lets IPFS compute the CID from the data, then verifies it matches the anchored hash.
+     * This ensures true content-addressing: CID is derived from the data, not from hashing the hash.
      *
      * @private
      * @param {Buffer} data - Data to store (canonical event bytes without signature)
-     * @param {string} hash - Event hash (sha256 hex string)
+     * @param {string} hash - Event hash (sha256 hex string) - used for verification
      * @returns {Promise<string>} IPFS CID
      */
     async storeToIPFS(data, hash) {
-        // Create multihash from the sha256 hash
-        const hashBytes = Buffer.from(hash, 'hex');
-        const digest = await sha256.digest(hashBytes);
+        // Let IPFS compute the CID from the actual data bytes
+        // This ensures the CID is truly content-addressed
+        const result = await this.ipfs.block.put(data, {
+            format: 'raw',
+            mhtype: 'sha2-256',
+            version: 1,
+            pin: true
+        });
 
-        // Create CID using raw codec and sha256 multihash
-        const cid = CID.create(1, raw.code, digest);
-
-        // Store as raw block with pinning
-        await this.ipfs.block.put(data, { cid, pin: true });
-
+        const cid = result.cid;
         const cidString = cid.toString();
 
-        // Store hash→CID mapping in Redis for backward compatibility and faster lookup
+        // CRITICAL: Verify the CID's digest matches our anchored hash
+        // If this fails, it means our canonicalization or hash calculation is wrong
+        const cidDigestHex = Buffer.from(cid.multihash.digest).toString('hex');
+        if (cidDigestHex !== hash) {
+            throw new Error(
+                `IPFS CID verification failed: ` +
+                `CID digest ${cidDigestHex.substring(0, 12)}... ` +
+                `doesn't match anchored hash ${hash.substring(0, 12)}... ` +
+                `This indicates broken canonicalization or hash mismatch.`
+            );
+        }
+
+        // Store hash→CID mapping in Redis for faster lookup (optional optimization)
         await this.storeHashCIDMapping(hash, cidString).catch(err =>
             console.warn(`   Failed to store hash→CID mapping: ${err.message}`)
         );
-
-        // Verify CID digest matches hash (sanity check)
-        const cidDigestHex = Buffer.from(cid.multihash.digest).toString('hex');
-        if (cidDigestHex !== hash) {
-            console.error(`⚠️  CID verification failed: digest ${cidDigestHex.substring(0, 12)}... doesn't match hash ${hash.substring(0, 12)}...`);
-        }
 
         return cidString;
     }
@@ -434,10 +460,7 @@ class EventStore {
             // Derive CID from hash when mapping missing
             // This works because we store with raw codec + sha256 multihash
             try {
-                const hashBytes = Buffer.from(hash, 'hex');
-                const digest = await sha256.digest(hashBytes);
-                const derivedCid = CID.create(1, raw.code, digest);
-                cid = derivedCid.toString();
+                cid = this.deriveCidFromHash(hash);
                 console.log(`   Derived CID from hash: ${cid}`);
 
                 // Store derived mapping for future lookups (best effort)
