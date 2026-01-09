@@ -59,9 +59,25 @@ export class ShipEventSource extends EventEmitter {
             throw new Error('ShipEventSource is already running');
         }
 
-        this.isRunning = true;
-        console.log(`Starting SHiP event source from block ${this.currentBlock}`);
-        await this.connect();
+        // CRITICAL LIMITATION: SHiP binary deserialization not implemented
+        // SHiP streams binary frames that require Antelope ABI deserialization
+        // Current implementation drops binary messages (see handleMessage)
+        // Recommended: Use CHAIN_SOURCE=substreams instead
+        // If SHiP support needed: Use library like eosio-ship-reader or @greymass/eosio
+        console.error('═════════════════════════════════════════════════════════════');
+        console.error('ERROR: SHiP event source is not fully implemented');
+        console.error('');
+        console.error('SHiP streams binary frames that require ABI deserialization.');
+        console.error('Current implementation drops binary messages (non-functional).');
+        console.error('');
+        console.error('Recommended: Set CHAIN_SOURCE=substreams in .env');
+        console.error('');
+        console.error('If SHiP support is required, binary deserialization must be');
+        console.error('implemented using a library like:');
+        console.error('  - eosio-ship-reader (TypeScript)');
+        console.error('  - @greymass/eosio (JavaScript)');
+        console.error('═════════════════════════════════════════════════════════════');
+        throw new Error('SHiP event source not implemented (binary deserialization required). Use CHAIN_SOURCE=substreams instead.');
     }
 
     /**
@@ -139,6 +155,17 @@ export class ShipEventSource extends EventEmitter {
 
     /**
      * Handle incoming message from SHiP
+     *
+     * NOTE: This method is non-functional for production use.
+     * SHiP normally streams binary frames that require Antelope ABI deserialization.
+     * This code attempts JSON parsing and drops all binary messages.
+     *
+     * To implement properly:
+     * 1. Use library like eosio-ship-reader or @greymass/eosio
+     * 2. Deserialize binary frames using Antelope ABI
+     * 3. Extract action traces from get_blocks_result_v0 messages
+     *
+     * Current recommendation: Use CHAIN_SOURCE=substreams instead
      */
     async handleMessage(data) {
         try {
@@ -148,8 +175,10 @@ export class ShipEventSource extends EventEmitter {
                 const text = data.toString('utf-8');
                 message = JSON.parse(text);
             } catch (error) {
-                // Binary format - skip for now (would need Antelope serialization)
-                console.warn('Received binary message, skipping (implement ABI deserialization)');
+                // Binary format (normal SHiP behavior) - drops message (NON-FUNCTIONAL)
+                // This causes SHiP mode to ingest almost nothing
+                console.warn('Received binary SHiP message, dropping (ABI deserialization not implemented)');
+                this.stats.errors++;
                 return;
             }
 
