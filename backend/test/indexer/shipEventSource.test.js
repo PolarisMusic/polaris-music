@@ -57,7 +57,10 @@ jest.mock('neo4j-driver', () => ({
     },
 }));
 
-describe('SHiP Event Source (T6)', () => {
+// Skip these integration tests if no database is configured
+const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
+
+describeOrSkip('SHiP Event Source (T6)', () => {
     let driver;
     let eventStore;
     let eventProcessor;
