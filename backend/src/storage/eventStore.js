@@ -10,8 +10,14 @@
  * ensures redundancy and fast retrieval with automatic fallback chains.
  *
  * Storage Flow:
- * 1. Store event � IPFS, S3, Redis (parallel)
- * 2. Retrieve event � Redis � IPFS � S3 (fallback chain)
+ * 1. Store event → IPFS (canonical bytes), S3 (full event), Redis (full event) - parallel
+ * 2. Retrieve event → Redis → IPFS → S3 (fallback chain)
+ *
+ * IPFS CID Derivation:
+ * - Events stored as raw IPFS blocks with sha2-256 multihash
+ * - CID digest matches the anchored SHA256 hash exactly
+ * - Can derive CID from hash even if Redis mapping is lost (IPFS-only mode)
+ * - Makes IPFS retrieval resilient to cache failures
  *
  * @module storage/eventStore
  */
@@ -534,6 +540,10 @@ class EventStore {
      * Store hash→CID mapping in Redis AND S3 for durable retrieval.
      * S3 sidecar file provides fallback if Redis cache is cleared.
      *
+     * NOTE: This mapping is now OPTIONAL for performance (not required for correctness).
+     * With CID derivation (raw blocks + sha2-256), CID can be derived from hash directly.
+     * This mapping just speeds up retrieval by avoiding CID derivation step.
+     *
      * @private
      * @param {string} hash - Event hash
      * @param {string} cid - IPFS CID
@@ -588,9 +598,12 @@ class EventStore {
      * Retrieve IPFS CID from hash mapping in Redis.
      * Falls back to S3 metadata if Redis cache miss.
      *
+     * NOTE: Returns null if mapping not found, which triggers CID derivation.
+     * This is now the expected behavior (not an error) when using IPFS-only mode.
+     *
      * @private
      * @param {string} hash - Event hash
-     * @returns {Promise<string|null>} IPFS CID or null if not found
+     * @returns {Promise<string|null>} IPFS CID or null if not found (triggers derivation)
      */
     async getHashCIDMapping(hash) {
         // Try Redis cache first (fast)

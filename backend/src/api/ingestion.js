@@ -63,6 +63,10 @@ export class IngestionHandler {
         this.processor = eventProcessor;
 
         // In-memory deduplication cache
+        // LIMITATION: Lost on restart - Substreams replays will reprocess events
+        // This is safe (Cypher uses MERGE for idempotency) but wastes work
+        // If this becomes a problem: persist processed hashes in Redis/Neo4j with TTL
+        // Example: MATCH (m:ProcessedHash {hash: $hash}) to check before processing
         this.processedHashes = new Set();
 
         // Statistics
