@@ -11,12 +11,51 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import { ShipEventSource } from '../../src/indexer/shipEventSource.js';
 import { IngestionHandler } from '../../src/api/ingestion.js';
-import { EventStore } from '../../src/storage/eventStore.js';
+import EventStore from '../../src/storage/eventStore.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
 import neo4j from 'neo4j-driver';
 
 // Mock ws module to prevent actual WebSocket connections in tests
 jest.mock('ws');
+
+// Mock Neo4j driver to avoid real database connections in CI
+jest.mock('neo4j-driver', () => ({
+    default: {
+        driver: jest.fn(() => ({
+            session: jest.fn(() => ({
+                run: jest.fn().mockResolvedValue({ records: [] }),
+                close: jest.fn(),
+                beginTransaction: jest.fn(() => ({
+                    run: jest.fn().mockResolvedValue({ records: [] }),
+                    commit: jest.fn().mockResolvedValue(undefined),
+                    rollback: jest.fn().mockResolvedValue(undefined),
+                })),
+            })),
+            close: jest.fn(),
+            verifyConnectivity: jest.fn().mockResolvedValue(true),
+        })),
+        auth: {
+            basic: jest.fn(() => ({})),
+        },
+    },
+    // Also export the mocks directly for default import syntax
+    driver: jest.fn(() => ({
+        session: jest.fn(() => ({
+            run: jest.fn().mockResolvedValue({ records: [] }),
+            close: jest.fn(),
+            beginTransaction: jest.fn(() => ({
+                run: jest.fn().mockResolvedValue({ records: [] }),
+                commit: jest.fn().mockResolvedValue(undefined),
+                rollback: jest.fn().mockResolvedValue(undefined),
+            })),
+        })),
+        close: jest.fn(),
+        verifyConnectivity: jest.fn().mockResolvedValue(true),
+    })),
+    auth: {
+        basic: jest.fn(() => ({})),
+    },
+}));
 
 describe('SHiP Event Source (T6)', () => {
     let driver;

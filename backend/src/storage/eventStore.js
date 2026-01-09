@@ -71,7 +71,9 @@ class EventStore {
                 this.ipfsEnabled = false;
             }
         } else {
-            console.warn('� IPFS not configured');
+            if (process.env.NODE_ENV !== 'test') {
+                console.warn('� IPFS not configured');
+            }
             this.ipfsEnabled = false;
         }
 
@@ -95,7 +97,9 @@ class EventStore {
                 this.s3Enabled = false;
             }
         } else {
-            console.warn('� S3 not configured');
+            if (process.env.NODE_ENV !== 'test') {
+                console.warn('� S3 not configured');
+            }
             this.s3Enabled = false;
         }
 

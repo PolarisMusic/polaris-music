@@ -19,6 +19,11 @@ jest.mock('neo4j-driver', () => ({
             session: jest.fn(() => ({
                 run: jest.fn().mockResolvedValue({ records: [] }),
                 close: jest.fn(),
+                beginTransaction: jest.fn(() => ({
+                    run: jest.fn().mockResolvedValue({ records: [] }),
+                    commit: jest.fn().mockResolvedValue(undefined),
+                    rollback: jest.fn().mockResolvedValue(undefined),
+                })),
             })),
             close: jest.fn(),
             verifyConnectivity: jest.fn().mockResolvedValue(true),
@@ -26,6 +31,23 @@ jest.mock('neo4j-driver', () => ({
         auth: {
             basic: jest.fn(() => ({})),
         },
+    },
+    // Also export the mocks directly for default import syntax
+    driver: jest.fn(() => ({
+        session: jest.fn(() => ({
+            run: jest.fn().mockResolvedValue({ records: [] }),
+            close: jest.fn(),
+            beginTransaction: jest.fn(() => ({
+                run: jest.fn().mockResolvedValue({ records: [] }),
+                commit: jest.fn().mockResolvedValue(undefined),
+                rollback: jest.fn().mockResolvedValue(undefined),
+            })),
+        })),
+        close: jest.fn(),
+        verifyConnectivity: jest.fn().mockResolvedValue(true),
+    })),
+    auth: {
+        basic: jest.fn(() => ({})),
     },
 }));
 
@@ -47,6 +69,7 @@ describe('ID Unification Migration (001-unify-id-property)', () => {
 
     afterAll(async () => {
         await driver.close();
+        jest.restoreAllMocks();
     });
 
     beforeEach(async () => {
