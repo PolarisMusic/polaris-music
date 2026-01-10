@@ -997,9 +997,20 @@ class MusicGraphDatabase {
                 author
             });
 
-            // Create claim record
+            // Create claim record (idempotent via MERGE)
             await this.createClaim(tx, claimId, node.type, node.id,
                                  field, value, eventHash);
+
+            // Link claim to target node (using validated label and idField from whitelist)
+            // This creates the CLAIMS_ABOUT relationship for audit trail
+            await tx.run(`
+                MATCH (c:Claim {claim_id: $claimId})
+                MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
+                MERGE (c)-[:CLAIMS_ABOUT]->(n)
+            `, {
+                claimId,
+                nodeId: node.id
+            });
 
             // Link source if provided
             if (source && source.url) {
@@ -1266,6 +1277,7 @@ class MusicGraphDatabase {
     /**
      * Create an audit trail claim for data changes.
      * Every modification is tracked with source and timestamp.
+     * Idempotent: replaying the same claim is a no-op.
      *
      * @private
      * @param {Transaction} tx - Active Neo4j transaction
@@ -1278,15 +1290,14 @@ class MusicGraphDatabase {
      */
     async createClaim(tx, claimId, nodeType, nodeId, field, value, eventHash) {
         await tx.run(`
-            CREATE (c:Claim {
-                claim_id: $claimId,
-                node_type: $nodeType,
-                node_id: $nodeId,
-                field: $field,
-                value: $value,
-                event_hash: $eventHash,
-                created_at: datetime()
-            })
+            MERGE (c:Claim {claim_id: $claimId})
+            ON CREATE SET
+                c.node_type = $nodeType,
+                c.node_id = $nodeId,
+                c.field = $field,
+                c.value = $value,
+                c.event_hash = $eventHash,
+                c.created_at = datetime()
         `, {
             claimId,
             nodeType,
