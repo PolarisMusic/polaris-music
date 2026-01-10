@@ -464,7 +464,7 @@ class EventProcessor {
         const result = await this.db.processReleaseBundle(
             actionData.hash,
             event.body,
-            event.author_pubkey
+            actionData.author  // Use chain account as submitter-of-record
         );
 
         console.log(`   Created: ${result.stats.groups_created} groups, ${result.stats.tracks_created} tracks`);
@@ -483,7 +483,7 @@ class EventProcessor {
         await this.db.processAddClaim(
             actionData.hash,
             event.body,
-            event.author_pubkey
+            actionData.author  // Use chain account as submitter-of-record
         );
 
         console.log(`   Claim added`);
@@ -503,7 +503,7 @@ class EventProcessor {
         await this.db.processAddClaim(
             actionData.hash,
             event.body,
-            event.author_pubkey
+            actionData.author  // Use chain account as submitter-of-record
         );
 
         console.log(`   Claim edited`);
