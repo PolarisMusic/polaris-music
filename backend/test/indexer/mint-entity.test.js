@@ -203,31 +203,74 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         expect(JSON.parse(record.get('value'))).toBe('Test Person');
     });
 
-    test('Constraint violation prevented by setting entity-specific ID', async () => {
-        // Create first person
-        const event1 = {
+    test('MINT_ENTITY is idempotent - replay does not error or duplicate', async () => {
+        const event = {
             body: {
                 entity_type: 'person',
                 canonical_id: 'polaris:person:test-mint-5',
-                initial_claims: [],
-                provenance: {}
+                initial_claims: [
+                    {
+                        property: 'name',
+                        value: 'Replay Test Person',
+                        confidence: 1.0
+                    },
+                    {
+                        property: 'birth_year',
+                        value: 1990,
+                        confidence: 0.9
+                    }
+                ],
+                provenance: {
+                    submitter: 'test-user',
+                    source: 'test'
+                }
             }
         };
 
-        await eventProcessor.handleMintEntity(event1, { hash: 'hash1', author: 'test' });
-
-        // Try to create duplicate - should fail due to person_id uniqueness constraint
-        const event2 = {
-            body: {
-                entity_type: 'person',
-                canonical_id: 'polaris:person:test-mint-5', // Same ID
-                initial_claims: [],
-                provenance: {}
-            }
+        const actionData = {
+            hash: 'test-hash-replay-123',
+            author: 'test-user'
         };
 
-        await expect(
-            eventProcessor.handleMintEntity(event2, { hash: 'hash2', author: 'test' })
-        ).rejects.toThrow(); // Should throw constraint violation
+        // Process event first time
+        await eventProcessor.handleMintEntity(event, actionData);
+
+        // Verify entity and claims exist
+        const result1 = await session.run(`
+            MATCH (p:Person {id: $id})
+            OPTIONAL MATCH (p)<-[:CLAIMS_ABOUT]-(c:Claim)
+            RETURN p.id as id, count(c) as claimCount
+        `, { id: 'polaris:person:test-mint-5' });
+
+        expect(result1.records.length).toBe(1);
+        expect(result1.records[0].get('claimCount').toNumber()).toBe(2);
+
+        // Process EXACT SAME event again (replay scenario)
+        // This should NOT throw an error and should NOT duplicate claims
+        await eventProcessor.handleMintEntity(event, actionData);
+
+        // Verify still only one entity and two claims (no duplication)
+        const result2 = await session.run(`
+            MATCH (p:Person {id: $id})
+            OPTIONAL MATCH (p)<-[:CLAIMS_ABOUT]-(c:Claim)
+            RETURN p.id as id, count(c) as claimCount
+        `, { id: 'polaris:person:test-mint-5' });
+
+        expect(result2.records.length).toBe(1);
+        expect(result2.records[0].get('claimCount').toNumber()).toBe(2); // Still 2, not 4
+
+        // Verify the claims have deterministic IDs based on event hash
+        const claimResult = await session.run(`
+            MATCH (:Person {id: $id})<-[:CLAIMS_ABOUT]-(c:Claim)
+            RETURN c.claim_id as claimId, c.property as property
+            ORDER BY c.property
+        `, { id: 'polaris:person:test-mint-5' });
+
+        expect(claimResult.records.length).toBe(2);
+
+        // Verify claim IDs are deterministic (not random UUIDs)
+        const claimIds = claimResult.records.map(r => r.get('claimId'));
+        expect(claimIds[0]).toMatch(/^[0-9a-f]{64}$/); // SHA256 hash format
+        expect(claimIds[1]).toMatch(/^[0-9a-f]{64}$/);
     });
 });

@@ -13,6 +13,7 @@
  * @module indexer/eventProcessor
  */
 
+import crypto from 'crypto';
 import { Api, JsonRpc } from 'eosjs';
 import { JsSignatureProvider } from 'eosjs/dist/eosjs-jssig.js';
 import fetch from 'node-fetch';
@@ -613,20 +614,22 @@ class EventProcessor {
                 throw new Error(`No ID field mapping for entity_type: ${entity_type}`);
             }
 
-            // Create the entity node with minimal fields
+            // Create the entity node with minimal fields (idempotent via MERGE)
             // CRITICAL: Must set both 'id' (universal) and entity-specific field (person_id, group_id, etc.)
             // to satisfy Neo4j uniqueness constraints (e.g., REQUIRE p.person_id IS UNIQUE)
-            await session.run(
-                `CREATE (n:${nodeLabel} {
-                    id: $id,
-                    ${idField}: $id,
-                    status: 'ACTIVE',
-                    created_at: datetime(),
-                    created_by: $createdBy,
-                    creation_source: $source,
-                    event_hash: $eventHash
-                })
-                RETURN n.id as id`,
+            // Uses MERGE to handle replays: if entity exists, do nothing (idempotent)
+            const entityResult = await session.run(
+                `MERGE (n:${nodeLabel} {id: $id})
+                ON CREATE SET
+                    n.${idField} = $id,
+                    n.status = 'ACTIVE',
+                    n.created_at = datetime(),
+                    n.created_by = $createdBy,
+                    n.creation_source = $source,
+                    n.event_hash = $eventHash
+                ON MATCH SET
+                    n.last_seen_at = datetime()
+                RETURN n.id as id, n.created_at as created_at`,
                 {
                     id: cid,
                     createdBy: provenance.submitter || actionData.author,
@@ -636,21 +639,29 @@ class EventProcessor {
             );
 
             // Add initial claims if provided
-            for (const claim of initial_claims) {
+            // Claims use deterministic IDs to handle replays idempotently
+            for (let i = 0; i < initial_claims.length; i++) {
+                const claim = initial_claims[i];
+
+                // Generate deterministic claim ID from event hash + index
+                // This ensures replaying the same event produces the same claim IDs
+                const claimIdInput = `${actionData.hash}:mint_claim:${i}`;
+                const claimId = crypto.createHash('sha256').update(claimIdInput).digest('hex');
+
                 await session.run(
                     `MATCH (n {id: $entityId})
-                     CREATE (c:Claim {
-                         claim_id: randomUUID(),
-                         property: $property,
-                         value: $value,
-                         confidence: $confidence,
-                         created_at: datetime(),
-                         created_by: $submitter,
-                         event_hash: $eventHash
-                     })
-                     CREATE (c)-[:CLAIMS_ABOUT]->(n)`,
+                     MERGE (c:Claim {claim_id: $claimId})
+                     ON CREATE SET
+                         c.property = $property,
+                         c.value = $value,
+                         c.confidence = $confidence,
+                         c.created_at = datetime(),
+                         c.created_by = $submitter,
+                         c.event_hash = $eventHash
+                     MERGE (c)-[:CLAIMS_ABOUT]->(n)`,
                     {
                         entityId: cid,
+                        claimId: claimId,
                         property: claim.property,
                         value: JSON.stringify(claim.value),
                         confidence: claim.confidence || 1.0,
@@ -660,7 +671,10 @@ class EventProcessor {
                 );
             }
 
-            console.log(`   Created ${entity_type} ${cid.substring(0, 24)}... with ${initial_claims.length} claims`);
+            // Check if entity was newly created or already existed
+            const wasCreated = entityResult.records[0]?.get('created_at') !== null;
+            const action = wasCreated ? 'Created' : 'Found existing';
+            console.log(`   ${action} ${entity_type} ${cid.substring(0, 24)}... with ${initial_claims.length} claims`);
 
         } catch (error) {
             console.error(`   Failed to mint entity:`, error.message);
