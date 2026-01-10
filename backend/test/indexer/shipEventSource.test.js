@@ -60,6 +60,65 @@ jest.mock('neo4j-driver', () => ({
 // Skip these integration tests if no database is configured
 const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
 
+describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
+    describe('Fail-Fast Safeguard', () => {
+        test('should throw clear error when start() is called (SHiP not implemented)', async () => {
+            const ship = new ShipEventSource({
+                shipUrl: 'ws://localhost:8080',
+                contractAccount: 'polaris'
+            });
+
+            // Act & Assert: start() should throw with clear error message
+            await expect(ship.start()).rejects.toThrow(
+                'SHiP event source not implemented (binary deserialization required). Use CHAIN_SOURCE=substreams instead.'
+            );
+        });
+
+        test('should display clear error banner before throwing', async () => {
+            const ship = new ShipEventSource({
+                shipUrl: 'ws://localhost:8080',
+                contractAccount: 'polaris'
+            });
+
+            // Capture console.error output
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            // Act: Try to start (will throw)
+            try {
+                await ship.start();
+            } catch (error) {
+                // Expected to throw
+            }
+
+            // Assert: Should have logged error banner
+            expect(consoleErrorSpy).toHaveBeenCalledWith('═════════════════════════════════════════════════════════════');
+            expect(consoleErrorSpy).toHaveBeenCalledWith('ERROR: SHiP event source is not fully implemented');
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Recommended: Set CHAIN_SOURCE=substreams'));
+
+            // Cleanup
+            consoleErrorSpy.mockRestore();
+        });
+
+        test('should not connect to WebSocket when start() fails', async () => {
+            const ship = new ShipEventSource({
+                shipUrl: 'ws://localhost:8080',
+                contractAccount: 'polaris'
+            });
+
+            // Act: Try to start (will throw)
+            try {
+                await ship.start();
+            } catch (error) {
+                // Expected to throw
+            }
+
+            // Assert: Should NOT have created WebSocket connection
+            expect(ship.ws).toBeNull();
+            expect(ship.isRunning).toBe(false);
+        });
+    });
+});
+
 describeOrSkip('SHiP Event Source (T6)', () => {
     let driver;
     let eventStore;
