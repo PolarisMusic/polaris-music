@@ -627,6 +627,7 @@ class EventProcessor {
                     n.created_by = $createdBy,
                     n.creation_source = $source,
                     n.event_hash = $eventHash,
+                    n.provenance_submitter = $provenanceSubmitter,
                     n._just_created = true
                 ON MATCH SET
                     n.last_seen_at = datetime()
@@ -635,9 +636,10 @@ class EventProcessor {
                 RETURN n.id as id, wasCreated`,
                 {
                     id: cid,
-                    createdBy: provenance.submitter || actionData.author,
+                    createdBy: actionData.author,  // Always use chain account as submitter-of-record
                     source: provenance.source || 'manual',
-                    eventHash: actionData.hash
+                    eventHash: actionData.hash,
+                    provenanceSubmitter: provenance.submitter || null  // Preserve original if provided
                 }
             );
 
@@ -660,6 +662,7 @@ class EventProcessor {
                          c.confidence = $confidence,
                          c.created_at = datetime(),
                          c.created_by = $submitter,
+                         c.provenance_submitter = $provenanceSubmitter,
                          c.event_hash = $eventHash
                      MERGE (c)-[:CLAIMS_ABOUT]->(n)`,
                     {
@@ -668,7 +671,8 @@ class EventProcessor {
                         property: claim.property,
                         value: JSON.stringify(claim.value),
                         confidence: claim.confidence || 1.0,
-                        submitter: provenance.submitter || actionData.author,
+                        submitter: actionData.author,  // Always use chain account as submitter-of-record
+                        provenanceSubmitter: provenance.submitter || null,  // Preserve original if provided
                         eventHash: actionData.hash
                     }
                 );
