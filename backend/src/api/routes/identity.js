@@ -211,7 +211,11 @@ export function createIdentityRoutes(db, store) {
 
                 // If subject is provisional, create ALIAS_OF relationship
                 if (subjectParsed.kind === IDKind.PROVISIONAL) {
-                    await MergeOperations.createAlias(session, subject_id, canonical_id);
+                    await MergeOperations.createAlias(session, subject_id, canonical_id, {
+                        createdBy: submitter,
+                        aliasKind: 'provisional',
+                        method
+                    });
 
                     mapping = {
                         key: subject_id,

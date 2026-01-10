@@ -359,20 +359,36 @@ export class MergeOperations {
     }
 
     /**
-     * Create an ALIAS_OF relationship from provisional/external ID to canonical
+     * Create an ALIAS_OF relationship from provisional/external ID to canonical.
+     * Creates the alias node if it doesn't exist (prevents silent failure).
      *
      * @param {Object} session - Neo4j session
      * @param {string} aliasId - Provisional or external ID
      * @param {string} canonicalId - Canonical ID
+     * @param {Object} [metadata] - Optional metadata for alias node
+     * @param {string} [metadata.createdBy] - Account creating the alias
+     * @param {string} [metadata.aliasKind] - Kind of alias (provisional, external)
+     * @param {string} [metadata.method] - Resolution method (manual, import, etc.)
      * @returns {Promise<void>}
      */
-    static async createAlias(session, aliasId, canonicalId) {
+    static async createAlias(session, aliasId, canonicalId, metadata = {}) {
+        const {
+            createdBy = 'system',
+            aliasKind = 'provisional',
+            method = 'manual'
+        } = metadata;
+
         await session.run(
-            `MATCH (alias {id: $aliasId})
+            `MERGE (alias:Alias {id: $aliasId})
+             ON CREATE SET
+                alias.created_at = datetime(),
+                alias.created_by = $createdBy,
+                alias.alias_kind = $aliasKind,
+                alias.resolution_method = $method
              MATCH (canonical {id: $canonicalId})
              MERGE (alias)-[r:ALIAS_OF]->(canonical)
              SET r.created_at = coalesce(r.created_at, datetime())`,
-            { aliasId, canonicalId }
+            { aliasId, canonicalId, createdBy, aliasKind, method }
         );
 
         console.log(`Created alias: ${aliasId} → ${canonicalId}`);

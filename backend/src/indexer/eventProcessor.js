@@ -738,7 +738,12 @@ class EventProcessor {
 
             if (subjectParsed.kind === IDKind.PROVISIONAL) {
                 // Create ALIAS_OF relationship
-                await MergeOperations.createAlias(session, subject_id, canonical_id);
+                // Pass metadata so alias node gets created even if provisional node doesn't exist yet
+                await MergeOperations.createAlias(session, subject_id, canonical_id, {
+                    createdBy: actionData.author,
+                    aliasKind: 'provisional',
+                    method
+                });
 
                 console.log(`   Created alias: ${subject_id} -> ${canonical_id}`);
             }
