@@ -53,6 +53,26 @@ import stringify from 'fast-json-stable-stringify';
 const MAX_PROCESSED_HASHES = 10000;
 
 /**
+ * Mapping of numeric type codes to event type strings.
+ * Used to validate that on-chain type matches off-chain event.type.
+ * This prevents bugs, data corruption, or malicious mismatches where
+ * the blockchain type code doesn't match the actual event content.
+ *
+ * Must match EVENT_TYPES in eventProcessor.js
+ */
+const TYPE_CODE_TO_EVENT_TYPE = {
+    21: 'CREATE_RELEASE_BUNDLE',
+    22: 'MINT_ENTITY',
+    23: 'RESOLVE_ID',
+    30: 'ADD_CLAIM',
+    31: 'EDIT_CLAIM',
+    40: 'VOTE',
+    41: 'LIKE',
+    50: 'FINALIZE',
+    60: 'MERGE_ENTITY'
+};
+
+/**
  * Ingestion handler for blockchain events
  *
  * Processes `put` actions by fetching off-chain event content and
@@ -159,6 +179,29 @@ export class IngestionHandler {
                 throw new Error(
                     `Hash mismatch: action hash ${content_hash} != computed hash ${computedHash}`
                 );
+            }
+
+            // Step 4.5: Verify on-chain type matches off-chain event.type
+            // This prevents bugs/attacks where blockchain type doesn't match event content
+            const expectedTypeString = TYPE_CODE_TO_EVENT_TYPE[type];
+            if (expectedTypeString) {
+                // Allow both string type and numeric type in event
+                const eventType = event.type;
+                const typeMatches = eventType === expectedTypeString || eventType === type;
+
+                if (!typeMatches) {
+                    const errorMsg = `Type mismatch: on-chain type ${type} (${expectedTypeString}) != off-chain event.type ${eventType}`;
+                    console.error(`   ${errorMsg}`);
+                    this.stats.eventsFailed++;
+                    return {
+                        status: 'failed',
+                        contentHash: content_hash,
+                        error: errorMsg
+                    };
+                }
+            } else {
+                // Unknown type code - warn but allow (for backward compatibility)
+                console.warn(`  Warning: Unknown event type code ${type} - cannot verify type match`);
             }
 
             // Step 5: Attach blockchain metadata to event

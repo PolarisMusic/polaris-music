@@ -172,6 +172,76 @@ describe('IngestionHandler', () => {
             expect(ingestionHandler.stats.eventsFailed).toBe(1);
         });
 
+        it('should reject event when on-chain type does not match off-chain event.type', async () => {
+            // Setup: On-chain says type 22 (MINT_ENTITY) but event says 'ADD_CLAIM'
+            const wrongTypeEvent = {
+                ...mockEvent,
+                type: 'ADD_CLAIM' // Wrong type!
+            };
+
+            const mintEntityAction = {
+                author: 'testuser1234',
+                type: 22, // MINT_ENTITY
+                hash: 'abc123def456',
+                ts: Math.floor(Date.now() / 1000)
+            };
+
+            mockEventStore.retrieveEvent.mockResolvedValue(wrongTypeEvent);
+            mockEventStore.calculateHash.mockReturnValue('abc123def456');
+
+            // Mock handler for type 22
+            mockEventProcessor.eventHandlers[22] = jest.fn();
+
+            // Act
+            const result = await ingestionHandler.processPutAction(mintEntityAction);
+
+            // Assert: Should fail with type mismatch error
+            expect(result.status).toBe('failed');
+            expect(result.error).toContain('Type mismatch');
+            expect(result.error).toContain('on-chain type 22 (MINT_ENTITY)');
+            expect(result.error).toContain('ADD_CLAIM');
+            expect(ingestionHandler.stats.eventsFailed).toBe(1);
+
+            // Assert: Handler should NOT be called
+            expect(mockEventProcessor.eventHandlers[22]).not.toHaveBeenCalled();
+        });
+
+        it('should accept event when on-chain type matches off-chain event.type (string)', async () => {
+            // Setup: Both agree it's CREATE_RELEASE_BUNDLE
+            const correctEvent = {
+                ...mockEvent,
+                type: 'CREATE_RELEASE_BUNDLE' // Matches type code 21
+            };
+
+            mockEventStore.retrieveEvent.mockResolvedValue(correctEvent);
+            mockEventStore.calculateHash.mockReturnValue('abc123def456');
+
+            // Act
+            const result = await ingestionHandler.processPutAction(mockActionData);
+
+            // Assert: Should succeed
+            expect(result.status).toBe('success');
+            expect(mockEventProcessor.eventHandlers[21]).toHaveBeenCalled();
+        });
+
+        it('should accept event when off-chain event.type is numeric', async () => {
+            // Setup: Event uses numeric type (backward compatibility)
+            const numericTypeEvent = {
+                ...mockEvent,
+                type: 21 // Numeric instead of string
+            };
+
+            mockEventStore.retrieveEvent.mockResolvedValue(numericTypeEvent);
+            mockEventStore.calculateHash.mockReturnValue('abc123def456');
+
+            // Act
+            const result = await ingestionHandler.processPutAction(mockActionData);
+
+            // Assert: Should succeed (allows numeric types)
+            expect(result.status).toBe('success');
+            expect(mockEventProcessor.eventHandlers[21]).toHaveBeenCalled();
+        });
+
         it('should deduplicate events', async () => {
             // Setup
             mockEventStore.retrieveEvent.mockResolvedValue(mockEvent);
