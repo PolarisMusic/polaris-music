@@ -46,6 +46,13 @@ import { createHash } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
 
 /**
+ * Maximum size of in-memory dedup cache before clearing.
+ * Prevents unbounded memory growth on long-running ingestion.
+ * Set to ~10K hashes (each hash is 64 chars = ~64 bytes, so ~640KB total).
+ */
+const MAX_PROCESSED_HASHES = 10000;
+
+/**
  * Ingestion handler for blockchain events
  *
  * Processes `put` actions by fetching off-chain event content and
@@ -65,6 +72,7 @@ export class IngestionHandler {
         // In-memory deduplication cache
         // LIMITATION: Lost on restart - Substreams replays will reprocess events
         // This is safe (Cypher uses MERGE for idempotency) but wastes work
+        // MEMORY BOUND: Cleared when exceeds MAX_PROCESSED_HASHES to prevent memory leak
         // If this becomes a problem: persist processed hashes in Redis/Neo4j with TTL
         // Example: MATCH (m:ProcessedHash {hash: $hash}) to check before processing
         this.processedHashes = new Set();
@@ -75,7 +83,8 @@ export class IngestionHandler {
             eventsDuplicate: 0,
             eventsNotFound: 0,
             eventsFailed: 0,
-            lastProcessedTime: null
+            lastProcessedTime: null,
+            cacheClears: 0
         };
     }
 
@@ -183,6 +192,17 @@ export class IngestionHandler {
 
             // Mark as processed
             this.processedHashes.add(content_hash);
+
+            // Prevent unbounded memory growth on long-running ingestion
+            if (this.processedHashes.size > MAX_PROCESSED_HASHES) {
+                console.warn(
+                    `Dedup cache exceeded ${MAX_PROCESSED_HASHES} entries, clearing. ` +
+                    `This is safe (events still deduplicated by Neo4j MERGE).`
+                );
+                this.processedHashes.clear();
+                this.stats.cacheClears++;
+            }
+
             this.stats.eventsProcessed++;
             this.stats.lastProcessedTime = new Date();
 
