@@ -318,4 +318,205 @@ describeOrSkip('ADD_CLAIM Event Processing', () => {
             ).rejects.toThrow('Invalid node.type: InvalidType');
         });
     });
+
+    describe('Protected Field Validation', () => {
+        test('should reject claim attempting to modify universal ID field', async () => {
+            // Arrange - Trying to overwrite 'id' field
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'id',
+                value: 'malicious-new-id'
+            };
+
+            // Act & Assert
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "id" is protected');
+        });
+
+        test('should reject claim attempting to modify entity-specific ID field', async () => {
+            // Arrange - Trying to overwrite 'person_id' field
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'person_id',
+                value: 'malicious-person-id'
+            };
+
+            // Act & Assert
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "person_id" is protected');
+        });
+
+        test('should reject claim attempting to modify audit fields (created_at)', async () => {
+            // Arrange - Trying to overwrite audit trail
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'created_at',
+                value: '2000-01-01T00:00:00Z'
+            };
+
+            // Act & Assert
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "created_at" is protected');
+        });
+
+        test('should reject claim attempting to modify audit fields (created_by)', async () => {
+            // Arrange - Trying to fake authorship
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'created_by',
+                value: 'fake-author'
+            };
+
+            // Act & Assert
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "created_by" is protected');
+        });
+
+        test('should reject claim attempting to modify system status field', async () => {
+            // Arrange - Trying to manipulate status
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'status',
+                value: 'DELETED'
+            };
+
+            // Act & Assert
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "status" is protected');
+        });
+
+        test('should reject claim attempting to modify event_hash field', async () => {
+            // Arrange - Trying to corrupt provenance
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'event_hash',
+                value: 'fake-hash-123'
+            };
+
+            // Act & Assert
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "event_hash" is protected');
+        });
+
+        test('should normalize field name (trim whitespace) before validation', async () => {
+            // Arrange - Trying to bypass protection with whitespace
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: '  id  ',  // Whitespace padding
+                value: 'malicious-id'
+            };
+
+            // Act & Assert - Should still be rejected after normalization
+            await expect(
+                graphDb.processAddClaim(
+                    testEventHash,
+                    claimData,
+                    'test-author'
+                )
+            ).rejects.toThrow('Invalid claim field: "id" is protected');
+        });
+
+        test('should allow claim on non-protected field (bio)', async () => {
+            // Arrange - Valid claim on allowed field
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'bio',
+                value: 'This is a valid biography'
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash,
+                claimData,
+                'test-author'
+            );
+
+            // Assert - Should succeed
+            expect(result.success).toBe(true);
+
+            // Verify field was set
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.bio as bio
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('bio')).toBe('This is a valid biography');
+        });
+
+        test('should allow claim on non-protected field (website)', async () => {
+            // Arrange - Valid claim on allowed field
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'website',
+                value: 'https://example.com'
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-website',
+                claimData,
+                'test-author'
+            );
+
+            // Assert - Should succeed
+            expect(result.success).toBe(true);
+
+            // Verify field was set
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.website as website
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('website')).toBe('https://example.com');
+        });
+
+        test('should allow claim on non-protected field (alt_names)', async () => {
+            // Arrange - Valid claim on allowed field
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'alt_names',
+                value: ['Alias 1', 'Alias 2']
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-altnames',
+                claimData,
+                'test-author'
+            );
+
+            // Assert - Should succeed
+            expect(result.success).toBe(true);
+        });
+    });
 });

@@ -42,6 +42,51 @@ const SAFE_NODE_TYPES = {
 };
 
 /**
+ * Protected fields that cannot be modified via ADD_CLAIM events.
+ * Prevents graph corruption by protecting identity, audit, and system fields.
+ *
+ * SECURITY: Claims trying to set these fields will be rejected with an error.
+ * This prevents both malicious attacks and accidental bugs from corrupting core data.
+ *
+ * @constant {Set<string>} PROTECTED_FIELDS
+ */
+const PROTECTED_FIELDS = new Set([
+    // Universal ID field
+    'id',
+
+    // Entity-specific ID fields (constraint keys)
+    'person_id',
+    'group_id',
+    'song_id',
+    'track_id',
+    'release_id',
+    'master_id',
+    'label_id',
+    'city_id',
+    'claim_id',
+    'source_id',
+
+    // Audit trail fields
+    'created_at',
+    'created_by',
+    'creation_source',
+    'event_hash',
+    'updated_at',
+    'updated_by',
+    'last_updated',
+    'last_updated_by',
+    'last_seen_at',
+
+    // System status fields
+    'status',
+    'blockchain_verified',
+
+    // Internal tracking fields
+    '_just_created',
+    '_merged_into'
+]);
+
+/**
  * Main class for interacting with the Neo4j graph database.
  * Handles schema initialization, event processing, and data queries.
  *
@@ -981,7 +1026,17 @@ class MusicGraphDatabase {
                 throw new Error(`Invalid node.type: ${node.type}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
             }
 
-            console.log(`Adding claim to ${mapping.label} ${node.id}: ${field}`);
+            // Validate field name to prevent corruption of protected/system fields
+            // Normalize field name (trim whitespace) for consistent checking
+            const normalizedField = String(field).trim();
+            if (PROTECTED_FIELDS.has(normalizedField)) {
+                throw new Error(
+                    `Invalid claim field: "${normalizedField}" is protected. ` +
+                    `Protected fields cannot be modified via claims (IDs, audit fields, status, etc.).`
+                );
+            }
+
+            console.log(`Adding claim to ${mapping.label} ${node.id}: ${normalizedField}`);
 
             // Update the target node using validated label and idField from whitelist
             await tx.run(`
@@ -992,14 +1047,14 @@ class MusicGraphDatabase {
                 RETURN n
             `, {
                 nodeId: node.id,
-                field,
+                field: normalizedField,
                 value,
                 author
             });
 
             // Create claim record (idempotent via MERGE)
             await this.createClaim(tx, claimId, node.type, node.id,
-                                 field, value, eventHash);
+                                 normalizedField, value, eventHash);
 
             // Link claim to target node (using validated label and idField from whitelist)
             // This creates the CLAIMS_ABOUT relationship for audit trail
