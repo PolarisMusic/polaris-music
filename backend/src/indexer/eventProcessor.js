@@ -626,10 +626,13 @@ class EventProcessor {
                     n.created_at = datetime(),
                     n.created_by = $createdBy,
                     n.creation_source = $source,
-                    n.event_hash = $eventHash
+                    n.event_hash = $eventHash,
+                    n._just_created = true
                 ON MATCH SET
                     n.last_seen_at = datetime()
-                RETURN n.id as id, n.created_at as created_at`,
+                WITH n, COALESCE(n._just_created, false) as wasCreated
+                REMOVE n._just_created
+                RETURN n.id as id, wasCreated`,
                 {
                     id: cid,
                     createdBy: provenance.submitter || actionData.author,
@@ -672,7 +675,8 @@ class EventProcessor {
             }
 
             // Check if entity was newly created or already existed
-            const wasCreated = entityResult.records[0]?.get('created_at') !== null;
+            // wasCreated is a boolean from Cypher: true if ON CREATE fired, false if ON MATCH
+            const wasCreated = entityResult.records[0]?.get('wasCreated') === true;
             const action = wasCreated ? 'Created' : 'Found existing';
             console.log(`   ${action} ${entity_type} ${cid.substring(0, 24)}... with ${initial_claims.length} claims`);
 

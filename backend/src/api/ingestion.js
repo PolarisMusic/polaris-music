@@ -251,7 +251,7 @@ export class IngestionHandler {
             this.stats.eventsProcessed++;
             this.stats.lastProcessedTime = new Date();
 
-            console.log(` Event processed successfully`);
+            console.log(`   ✓ Event processed successfully`);
 
             return {
                 status: 'success',
@@ -260,7 +260,7 @@ export class IngestionHandler {
             };
 
         } catch (error) {
-            console.error(` Failed to process event:`, error.message);
+            console.error(`   Failed to process event:`, error.message);
             this.stats.eventsFailed++;
 
             return {
@@ -387,7 +387,7 @@ export class IngestionHandler {
             return await this.processPutAction(putActionData, blockchainMetadata);
 
         } catch (error) {
-            console.error(` Failed to process anchored event:`, error.message);
+            console.error(`   Failed to process anchored event:`, error.message);
             this.stats.eventsFailed++;
 
             return {
