@@ -1101,6 +1101,147 @@ class MusicGraphDatabase {
     }
 
     /**
+     * Process an EDIT_CLAIM event to modify an existing claim.
+     * Implements immutable claim semantics: creates new claim that supersedes old one.
+     *
+     * @param {string} eventHash - Hash of the edit event
+     * @param {Object} editData - The edit details
+     * @param {string} editData.claim_id - ID of claim being edited (required)
+     * @param {*} editData.value - New value for the claim
+     * @param {Object} [editData.source] - Optional source reference
+     * @param {string} author - Account making the edit
+     * @returns {Promise<Object>} Result with newClaimId and oldClaimId
+     */
+    async processEditClaim(eventHash, editData, author) {
+        const session = this.driver.session();
+        const tx = session.beginTransaction();
+
+        try {
+            const { claim_id: oldClaimId, value, source } = editData;
+
+            if (!oldClaimId) {
+                throw new Error('Invalid edit data: missing claim_id');
+            }
+
+            if (value === undefined) {
+                throw new Error('Invalid edit data: missing value');
+            }
+
+            console.log(`Editing claim ${oldClaimId.substring(0, 12)}...`);
+
+            // Load the old claim to get node type, node ID, and field name
+            const oldClaimResult = await tx.run(`
+                MATCH (old:Claim {claim_id: $oldClaimId})
+                RETURN old.node_type as nodeType,
+                       old.node_id as nodeId,
+                       old.field as field,
+                       old.value as oldValue
+            `, { oldClaimId });
+
+            if (oldClaimResult.records.length === 0) {
+                throw new Error(`Claim not found: ${oldClaimId}`);
+            }
+
+            const oldClaim = oldClaimResult.records[0];
+            const nodeType = oldClaim.get('nodeType');
+            const nodeId = oldClaim.get('nodeId');
+            const field = oldClaim.get('field');
+
+            // Validate node.type against whitelist to prevent Cypher injection
+            const key = String(nodeType).toLowerCase();
+            const mapping = SAFE_NODE_TYPES[key];
+            if (!mapping) {
+                throw new Error(`Invalid node.type from old claim: ${nodeType}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
+            }
+
+            // Validate field name to prevent corruption of protected/system fields
+            const normalizedField = String(field).trim();
+            if (PROTECTED_FIELDS.has(normalizedField)) {
+                throw new Error(
+                    `Invalid edit: field "${normalizedField}" is protected. ` +
+                    `Protected fields cannot be edited via claims (IDs, audit fields, status, etc.).`
+                );
+            }
+
+            // Generate deterministic new claim ID from edit event hash
+            const newClaimId = this.generateOpId(eventHash, 0);
+
+            console.log(`Creating new claim ${newClaimId.substring(0, 12)}... superseding ${oldClaimId.substring(0, 12)}...`);
+
+            // Create new claim (idempotent via MERGE)
+            await this.createClaim(tx, newClaimId, nodeType, nodeId,
+                                 normalizedField, value, eventHash);
+
+            // Link new claim to target node
+            await tx.run(`
+                MATCH (newClaim:Claim {claim_id: $newClaimId})
+                MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
+                MERGE (newClaim)-[:CLAIMS_ABOUT]->(n)
+            `, {
+                newClaimId,
+                nodeId
+            });
+
+            // Create SUPERSEDES relationship and mark old claim as superseded
+            await tx.run(`
+                MATCH (newClaim:Claim {claim_id: $newClaimId})
+                MATCH (oldClaim:Claim {claim_id: $oldClaimId})
+                MERGE (newClaim)-[:SUPERSEDES]->(oldClaim)
+                SET oldClaim.superseded_by = $newClaimId,
+                    oldClaim.superseded_at = datetime()
+            `, {
+                newClaimId,
+                oldClaimId
+            });
+
+            // Update the target node's current value
+            await tx.run(`
+                MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
+                SET n[$field] = $value,
+                    n.last_updated = datetime(),
+                    n.last_updated_by = $author
+                RETURN n
+            `, {
+                nodeId,
+                field: normalizedField,
+                value,
+                author
+            });
+
+            // Link source if provided
+            if (source && source.url) {
+                const sourceId = await this.resolveEntityId(tx, 'source', source);
+                await tx.run(`
+                    MERGE (s:Source {source_id: $sourceId})
+                    SET s.url = $url,
+                        s.type = $type
+
+                    WITH s
+                    MATCH (c:Claim {claim_id: $newClaimId})
+                    MERGE (c)-[:SOURCED_FROM]->(s)
+                `, {
+                    sourceId,
+                    url: source.url,
+                    type: source.type || 'web',
+                    newClaimId
+                });
+            }
+
+            await tx.commit();
+            console.log(` Edited claim: ${oldClaimId.substring(0, 12)}... → ${newClaimId.substring(0, 12)}...`);
+
+            return { success: true, newClaimId, oldClaimId };
+
+        } catch (error) {
+            await tx.rollback();
+            console.error(' Failed to process edit claim:', error.message);
+            throw error;
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
      * Calculate group member participation percentages.
      * Used for the RGraph visualization around Group nodes.
      * Shows what percentage of tracks each member performed on.

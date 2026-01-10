@@ -499,8 +499,8 @@ class EventProcessor {
     async handleEditClaim(event, actionData) {
         console.log(`  Editing claim: ${event.body.claim_id}`);
 
-        // Similar to ADD_CLAIM but modifies existing claim
-        await this.db.processAddClaim(
+        // Edit creates a new claim that supersedes the old one (immutable claims)
+        await this.db.processEditClaim(
             actionData.hash,
             event.body,
             actionData.author  // Use chain account as submitter-of-record
