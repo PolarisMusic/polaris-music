@@ -378,14 +378,16 @@ export class MergeOperations {
             method = 'manual'
         } = metadata;
 
+        // CRITICAL: MATCH canonical FIRST to prevent creating orphan alias nodes
+        // If canonical doesn't exist, query fails before creating alias (good!)
         await session.run(
-            `MERGE (alias:Alias {id: $aliasId})
+            `MATCH (canonical {id: $canonicalId})
+             MERGE (alias:Alias {id: $aliasId})
              ON CREATE SET
                 alias.created_at = datetime(),
                 alias.created_by = $createdBy,
                 alias.alias_kind = $aliasKind,
                 alias.resolution_method = $method
-             MATCH (canonical {id: $canonicalId})
              MERGE (alias)-[r:ALIAS_OF]->(canonical)
              SET r.created_at = coalesce(r.created_at, datetime())`,
             { aliasId, canonicalId, createdBy, aliasKind, method }
