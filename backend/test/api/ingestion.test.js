@@ -90,7 +90,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: retrieveEvent was called with correct hash
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe('abc123def456');
         });
@@ -289,7 +289,7 @@ describe('IngestionHandler', () => {
 
             // Assert: Hash normalized to lowercase
             expect(result.status).toBe('success');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
         it('should handle array hash format (checksum256)', async () => {
@@ -307,7 +307,7 @@ describe('IngestionHandler', () => {
 
             // Assert
             expect(result.status).toBe('success');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('0102030405');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('0102030405', { requireSig: true });
         });
 
         it('should update statistics on success', async () => {
@@ -436,7 +436,7 @@ describe('IngestionHandler', () => {
             // Assert: Should process successfully
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe('abc123def456');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
         it('should handle content_hash as byte array', async () => {
@@ -452,7 +452,7 @@ describe('IngestionHandler', () => {
             // Assert: Should convert to hex string and process
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe('abc123def456');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
         it('should handle content_hash as object with hex field', async () => {
@@ -468,7 +468,7 @@ describe('IngestionHandler', () => {
             // Assert: Should extract hex and process
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe('abc123def456');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
         it('should handle content_hash with 0x prefix', async () => {
@@ -484,7 +484,7 @@ describe('IngestionHandler', () => {
             // Assert: Should strip 0x prefix and process
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe('abc123def456');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
         it('should handle uppercase hex and normalize to lowercase', async () => {
@@ -500,7 +500,7 @@ describe('IngestionHandler', () => {
             // Assert: Should normalize to lowercase
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe('abc123def456');
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456');
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
         it('should deduplicate using normalized hash', async () => {

@@ -142,8 +142,8 @@ describe('EventStore Hash Enforcement', () => {
             // Act: Call getEvent
             const result = await store.getEvent(testHash);
 
-            // Assert: Should call retrieveEvent with same hash
-            expect(store.retrieveEvent).toHaveBeenCalledWith(testHash);
+            // Assert: Should call retrieveEvent with same hash and options passthrough
+            expect(store.retrieveEvent).toHaveBeenCalledWith(testHash, undefined);
             expect(result).toBe(mockRetrievedEvent);
         });
 

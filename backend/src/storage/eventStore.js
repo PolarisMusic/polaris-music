@@ -286,7 +286,26 @@ class EventStore {
      * @returns {Promise<Object>} The event object
      * @throws {Error} If event not found in any storage
      */
-    async retrieveEvent(hash) {
+    /**
+     * Retrieve an event from storage by its hash
+     *
+     * Retrieval order: Redis (cache) → IPFS (canonical) → S3 (full backup)
+     *
+     * CRITICAL: IPFS stores canonical event WITHOUT signature (for CID derivability).
+     * S3/Redis store full event WITH signature (for auditability and verification).
+     *
+     * To prevent Redis cache poisoning with signature-less events:
+     * - If requireSig=true and IPFS returns canonical (no sig), fallback to S3
+     * - Only cache full events (with sig) to Redis under event:${hash}
+     * - This ensures signature verification can be enabled reliably
+     *
+     * @param {string} hash - SHA256 hash of the event
+     * @param {Object} options - Retrieval options
+     * @param {boolean} options.requireSig - If true, require event to have signature (default: false)
+     * @returns {Promise<Object>} The event object
+     * @throws {Error} If event not found, or requireSig=true but only canonical exists
+     */
+    async retrieveEvent(hash, { requireSig = false } = {}) {
         // Normalize hash to handle different input formats (defensive)
         const normalizedHash = this.normalizeHash(hash);
 
@@ -315,15 +334,27 @@ class EventStore {
             try {
                 const data = await this.retrieveFromIPFS(normalizedHash);
                 if (data) {
-                    event = JSON.parse(data.toString('utf-8'));
-                    source = 'ipfs';
-                    this.stats.cacheMisses++;
-                    console.log(`   Retrieved from IPFS`);
+                    const ipfsEvent = JSON.parse(data.toString('utf-8'));
 
-                    // Populate Redis cache for future requests
-                    if (this.redisEnabled) {
-                        await this.storeToRedis(JSON.stringify(event), normalizedHash)
-                            .catch(err => console.warn(`  � Failed to cache: ${err.message}`));
+                    // CRITICAL: IPFS stores canonical (no sig) for CID derivability
+                    // If requireSig=true and IPFS event lacks sig, fallback to S3
+                    if (requireSig && !ipfsEvent.sig) {
+                        console.log(`   Retrieved canonical from IPFS (no sig), falling back to S3 for full event`);
+                        // Don't set event yet, let S3 section handle it
+                    } else {
+                        event = ipfsEvent;
+                        source = 'ipfs';
+                        this.stats.cacheMisses++;
+                        console.log(`   Retrieved from IPFS`);
+
+                        // Only cache to Redis if event has signature
+                        // This prevents Redis cache poisoning with signature-less events
+                        if (this.redisEnabled && event.sig) {
+                            await this.storeToRedis(JSON.stringify(event), normalizedHash)
+                                .catch(err => console.warn(`   Failed to cache: ${err.message}`));
+                        } else if (this.redisEnabled && !event.sig) {
+                            console.log(`   Not caching canonical event to Redis (no signature)`);
+                        }
                     }
                 }
             } catch (error) {
@@ -354,7 +385,24 @@ class EventStore {
 
         if (!event) {
             this.stats.errors++;
+
+            // Provide helpful error message if requireSig but only canonical available
+            if (requireSig && this.ipfsEnabled && !this.s3Enabled) {
+                throw new Error(
+                    `Full event with signature required but only canonical exists in IPFS. ` +
+                    `Enable S3 storage or set requireSig=false. Hash: ${normalizedHash}`
+                );
+            }
+
             throw new Error(`Event not found: ${normalizedHash}`);
+        }
+
+        // Verify signature requirement is met
+        if (requireSig && !event.sig) {
+            throw new Error(
+                `Event signature required but event at ${normalizedHash} has no signature. ` +
+                `This should not happen - please check storage integrity.`
+            );
         }
 
         // Verify hash matches
@@ -374,11 +422,12 @@ class EventStore {
      * Provided for API compatibility with code that expects getEvent().
      *
      * @param {string} hash - SHA256 hash of the event
+     * @param {Object} options - Retrieval options (see retrieveEvent)
      * @returns {Promise<Object>} The event object
      * @throws {Error} If event not found in any storage
      */
-    async getEvent(hash) {
-        return this.retrieveEvent(hash);
+    async getEvent(hash, options) {
+        return this.retrieveEvent(hash, options);
     }
 
     /**

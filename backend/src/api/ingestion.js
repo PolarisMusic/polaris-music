@@ -160,8 +160,10 @@ export class IngestionHandler {
 
         try {
             // Step 3: Fetch full event from off-chain storage
+            // CRITICAL: Use requireSig=true to ensure we get full event with signature
+            // This prevents Redis cache poisoning from IPFS canonical events
             console.log(`  Fetching event from storage...`);
-            const event = await this.store.retrieveEvent(content_hash);
+            const event = await this.store.retrieveEvent(content_hash, { requireSig: true });
 
             if (!event) {
                 console.error(`   Event not found in storage: ${content_hash}`);

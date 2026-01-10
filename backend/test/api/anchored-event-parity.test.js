@@ -86,7 +86,7 @@ describe('SHiP and Substreams Output Parity', () => {
             // Verify success
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe(testContentHash);
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash);
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
         });
 
         it('should process anchored event from SHiP', async () => {
@@ -117,7 +117,7 @@ describe('SHiP and Substreams Output Parity', () => {
             // Verify success
             expect(result.status).toBe('success');
             expect(result.contentHash).toBe(testContentHash);
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash);
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
         });
 
         it('should produce identical content_hash from both sources', () => {
