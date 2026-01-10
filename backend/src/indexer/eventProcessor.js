@@ -50,6 +50,22 @@ const NODE_LABELS = {
 };
 
 /**
+ * Mapping from entity type to the entity-specific ID field required by Neo4j constraints.
+ * These fields are required by uniqueness constraints in the schema (e.g., REQUIRE p.person_id IS UNIQUE).
+ * When creating nodes via MINT_ENTITY, we must set both 'id' (universal) and the entity-specific field.
+ */
+const ENTITY_ID_FIELD = {
+    'person': 'person_id',
+    'group': 'group_id',
+    'song': 'song_id',
+    'track': 'track_id',
+    'release': 'release_id',
+    'master': 'master_id',
+    'label': 'label_id',
+    'city': 'city_id'
+};
+
+/**
  * Event Processor that syncs blockchain events to graph database
  */
 class EventProcessor {
@@ -591,10 +607,19 @@ class EventProcessor {
                 throw new Error(`No node label mapping for entity_type: ${entity_type}`);
             }
 
+            // Get entity-specific ID field required by Neo4j constraints
+            const idField = ENTITY_ID_FIELD[entity_type];
+            if (!idField) {
+                throw new Error(`No ID field mapping for entity_type: ${entity_type}`);
+            }
+
             // Create the entity node with minimal fields
+            // CRITICAL: Must set both 'id' (universal) and entity-specific field (person_id, group_id, etc.)
+            // to satisfy Neo4j uniqueness constraints (e.g., REQUIRE p.person_id IS UNIQUE)
             await session.run(
                 `CREATE (n:${nodeLabel} {
                     id: $id,
+                    ${idField}: $id,
                     status: 'ACTIVE',
                     created_at: datetime(),
                     created_by: $createdBy,
