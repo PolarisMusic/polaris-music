@@ -22,6 +22,26 @@ import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 
 /**
+ * Whitelist mapping for safe node type validation.
+ * Prevents Cypher injection by validating node.type against known entity types.
+ *
+ * SECURITY: Always use this mapping when interpolating node types into Cypher queries.
+ * Accepts both lowercase ("person") and capitalized ("Person") inputs.
+ *
+ * @constant {Object} SAFE_NODE_TYPES
+ */
+const SAFE_NODE_TYPES = {
+    'person': { label: 'Person', idField: 'person_id' },
+    'group': { label: 'Group', idField: 'group_id' },
+    'song': { label: 'Song', idField: 'song_id' },
+    'track': { label: 'Track', idField: 'track_id' },
+    'release': { label: 'Release', idField: 'release_id' },
+    'master': { label: 'Master', idField: 'master_id' },
+    'label': { label: 'Label', idField: 'label_id' },
+    'city': { label: 'City', idField: 'city_id' }
+};
+
+/**
  * Main class for interacting with the Neo4j graph database.
  * Handles schema initialization, event processing, and data queries.
  *
@@ -954,12 +974,18 @@ class MusicGraphDatabase {
                 throw new Error('Invalid claim data: missing required fields');
             }
 
-            console.log(`Adding claim to ${node.type} ${node.id}: ${field}`);
+            // Validate node.type against whitelist to prevent Cypher injection
+            const key = String(node.type).toLowerCase();
+            const mapping = SAFE_NODE_TYPES[key];
+            if (!mapping) {
+                throw new Error(`Invalid node.type: ${node.type}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
+            }
 
-            // Update the target node
-            const idField = `${node.type.toLowerCase()}_id`;
+            console.log(`Adding claim to ${mapping.label} ${node.id}: ${field}`);
+
+            // Update the target node using validated label and idField from whitelist
             await tx.run(`
-                MATCH (n:${node.type} {${idField}: $nodeId})
+                MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
                 SET n[$field] = $value,
                     n.last_updated = datetime(),
                     n.last_updated_by = $author
@@ -1086,17 +1112,22 @@ class MusicGraphDatabase {
         const session = this.driver.session();
 
         try {
-            console.log(`Searching for duplicates of ${type}: ${name}`);
+            // Validate type against whitelist to prevent Cypher injection
+            const key = String(type).toLowerCase();
+            const mapping = SAFE_NODE_TYPES[key];
+            if (!mapping) {
+                throw new Error(`Invalid type: ${type}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
+            }
+
+            console.log(`Searching for duplicates of ${mapping.label}: ${name}`);
 
             // Simple string matching (Levenshtein requires APOC plugin)
             // In production, you'd use apoc.text.levenshteinDistance
-            const idField = `${type.toLowerCase()}_id`;
-
             const result = await session.run(`
-                MATCH (n:${type})
+                MATCH (n:${mapping.label})
                 WHERE toLower(n.name) CONTAINS toLower($name)
                    OR ANY(alt IN n.alt_names WHERE toLower(alt) CONTAINS toLower($name))
-                RETURN n.${idField} as id,
+                RETURN n.${mapping.idField} as id,
                        n.name as name,
                        n.alt_names as altNames,
                        n.status as status
@@ -1137,14 +1168,19 @@ class MusicGraphDatabase {
         const tx = session.beginTransaction();
 
         try {
-            console.log(`Merging ${nodeType} ${sourceId.substring(0, 12)}... into ${targetId.substring(0, 12)}...`);
+            // Validate nodeType against whitelist to prevent Cypher injection
+            const key = String(nodeType).toLowerCase();
+            const mapping = SAFE_NODE_TYPES[key];
+            if (!mapping) {
+                throw new Error(`Invalid nodeType: ${nodeType}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
+            }
 
-            const idField = `${nodeType.toLowerCase()}_id`;
+            console.log(`Merging ${mapping.label} ${sourceId.substring(0, 12)}... into ${targetId.substring(0, 12)}...`);
 
             // Copy properties from source to target (if not already set)
             await tx.run(`
-                MATCH (source:${nodeType} {${idField}: $sourceId})
-                MATCH (target:${nodeType} {${idField}: $targetId})
+                MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
+                MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
 
                 // Combine alt_names
                 SET target.alt_names = target.alt_names +
@@ -1163,8 +1199,8 @@ class MusicGraphDatabase {
 
             // Transfer all incoming relationships
             await tx.run(`
-                MATCH (source:${nodeType} {${idField}: $sourceId})
-                MATCH (target:${nodeType} {${idField}: $targetId})
+                MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
+                MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
                 MATCH (other)-[r]->(source)
 
                 WITH other, type(r) as relType, properties(r) as props, target
@@ -1175,8 +1211,8 @@ class MusicGraphDatabase {
 
             // Transfer all outgoing relationships
             await tx.run(`
-                MATCH (source:${nodeType} {${idField}: $sourceId})
-                MATCH (target:${nodeType} {${idField}: $targetId})
+                MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
+                MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
                 MATCH (source)-[r]->(other)
 
                 WITH target, type(r) as relType, properties(r) as props, other
@@ -1187,7 +1223,7 @@ class MusicGraphDatabase {
 
             // Delete the source node
             await tx.run(`
-                MATCH (source:${nodeType} {${idField}: $sourceId})
+                MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
                 DETACH DELETE source
             `, { sourceId });
 
