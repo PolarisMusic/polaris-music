@@ -793,7 +793,8 @@ class APIServer {
                     success: true,
                     hash: result.hash,
                     stored: {
-                        ipfs: result.ipfs,
+                        canonical_cid: result.canonical_cid,
+                        event_cid: result.event_cid,
                         s3: result.s3,
                         redis: result.redis
                     },

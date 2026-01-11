@@ -131,7 +131,7 @@ export class IngestionHandler {
      * @returns {Promise<Object>} Processing result
      */
     async processPutAction(actionData, blockchainMetadata = {}) {
-        const { author, type, hash, parent, ts, tags = [] } = actionData;
+        const { author, type, hash, event_cid, parent, ts, tags = [] } = actionData;
 
         // Step 1: Validate required fields
         if (!hash) {
@@ -160,10 +160,18 @@ export class IngestionHandler {
 
         try {
             // Step 3: Fetch full event from off-chain storage
-            // CRITICAL: Use requireSig=true to ensure we get full event with signature
-            // This prevents Redis cache poisoning from IPFS canonical events
+            // Prefer event_cid for faster IPFS retrieval (skips CID derivation)
+            // Fall back to hash-based retrieval for backward compatibility
             console.log(`  Fetching event from storage...`);
-            const event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+            let event;
+            if (event_cid) {
+                console.log(`  Using event_cid: ${event_cid.substring(0, 20)}...`);
+                event = await this.store.retrieveByEventCid(event_cid);
+            } else {
+                // Legacy path: derive CID from hash or use S3 fallback
+                console.log(`  Using hash (no event_cid provided)`);
+                event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+            }
 
             if (!event) {
                 console.error(`   Event not found in storage: ${content_hash}`);

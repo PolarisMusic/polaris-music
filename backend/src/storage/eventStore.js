@@ -201,7 +201,8 @@ class EventStore {
 
         const results = {
             hash,
-            ipfs: null,
+            canonical_cid: null,
+            event_cid: null,
             s3: null,
             redis: null,
             errors: []
@@ -215,14 +216,29 @@ class EventStore {
             storagePromises.push(
                 this.storeToIPFS(canonicalBuffer, hash)
                     .then(cid => {
-                        results.ipfs = cid;
+                        results.canonical_cid = cid;
                         this.stats.ipfsStores++;
-                        console.log(`   IPFS: ${cid}`);
+                        console.log(`   IPFS canonical: ${cid}`);
                     })
                     .catch(error => {
-                        const err = `IPFS storage failed: ${error.message}`;
+                        const err = `IPFS canonical storage failed: ${error.message}`;
                         results.errors.push(err);
                         console.warn(`   ${err}`);
+                    })
+            );
+
+            // Store full event JSON (with signature for auditability and retrieval)
+            storagePromises.push(
+                this.storeFullEventToIPFS(fullEventBuffer)
+                    .then(cid => {
+                        results.event_cid = cid;
+                        this.stats.ipfsStores++;
+                        console.log(`   IPFS full event: ${cid}`);
+                    })
+                    .catch(error => {
+                        const err = `IPFS full event storage failed: ${error.message}`;
+                        results.errors.push(err);
+                        console.warn(`   ${err}`);
                     })
             );
         }
@@ -247,7 +263,7 @@ class EventStore {
         // 3. Store to Redis cache
         if (this.redisEnabled) {
             storagePromises.push(
-                this.storeToRedis(eventJSON, hash)
+                this.storeToRedis(fullEventJSON, hash)
                     .then(() => {
                         results.redis = true;
                         console.log(`   Redis (TTL: ${this.redisTTL}s)`);
@@ -264,7 +280,7 @@ class EventStore {
         await Promise.allSettled(storagePromises);
 
         // Check if at least one storage succeeded
-        const successCount = [results.ipfs, results.s3, results.redis].filter(Boolean).length;
+        const successCount = [results.canonical_cid, results.event_cid, results.s3, results.redis].filter(Boolean).length;
 
         if (successCount === 0) {
             this.stats.errors++;
@@ -431,6 +447,41 @@ class EventStore {
     }
 
     /**
+     * Retrieve event directly by event_cid (IPFS CID of full event).
+     * This is faster than hash-based retrieval as it skips CID derivation.
+     *
+     * @param {string} event_cid - IPFS CID of the full event JSON
+     * @returns {Promise<Object>} The event object
+     * @throws {Error} If event not found or invalid
+     */
+    async retrieveByEventCid(event_cid) {
+        console.log(`Retrieving event by CID ${event_cid.substring(0, 20)}...`);
+
+        try {
+            // Retrieve directly from IPFS using CID
+            const chunks = [];
+            for await (const chunk of this.ipfs.cat(event_cid)) {
+                chunks.push(chunk);
+            }
+            const data = Buffer.concat(chunks);
+            const event = JSON.parse(data.toString('utf-8'));
+
+            // Verify event structure
+            this.validateEvent(event);
+
+            // Verify hash matches
+            const computedHash = this.calculateHash(event);
+            console.log(` Event retrieved successfully from IPFS (hash: ${computedHash.substring(0, 12)}...)`);
+
+            this.stats.retrieved++;
+            return event;
+        } catch (error) {
+            this.stats.errors++;
+            throw new Error(`Failed to retrieve event by CID ${event_cid}: ${error.message}`);
+        }
+    }
+
+    /**
      * Derive CID from hash bytes without re-hashing.
      * Wraps existing hash bytes in multihash format and creates CIDv1.
      *
@@ -490,6 +541,27 @@ class EventStore {
         );
 
         return cidString;
+    }
+
+    /**
+     * Store full event JSON to IPFS.
+     * Unlike storeToIPFS which stores canonical bytes for verification,
+     * this stores the complete event with signature for retrieval.
+     *
+     * @private
+     * @param {Buffer} data - Full event JSON buffer (with signature)
+     * @returns {Promise<string>} IPFS CID
+     */
+    async storeFullEventToIPFS(data) {
+        // Store as raw block with SHA256 multihash
+        const result = await this.ipfs.block.put(data, {
+            format: 'raw',
+            mhtype: 'sha2-256',
+            version: 1,
+            pin: true
+        });
+
+        return result.cid.toString();
     }
 
     /**

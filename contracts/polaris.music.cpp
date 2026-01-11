@@ -59,11 +59,12 @@ public:
      *   50 = FINALIZE (finalize voting and distribute rewards)
      *   60 = MERGE_ENTITY (merge duplicate entities, preserving provenance)
      * @param hash - SHA256 hash of the canonical off-chain event body
+     * @param event_cid - IPFS CIDv1 of the full event JSON (for retrieval)
      * @param parent - Optional parent event hash for threading (discussions)
      * @param ts - Unix timestamp when event was created off-chain
      * @param tags - Searchable tags for discovery (e.g., ["rock", "1970s"])
      */
-    ACTION put(name author, uint8_t type, checksum256 hash,
+    ACTION put(name author, uint8_t type, checksum256 hash, std::string event_cid,
                std::optional<checksum256> parent, uint32_t ts,
                std::vector<name> tags) {
         require_auth(author);
@@ -75,6 +76,8 @@ public:
         // Validate inputs
         check(type >= MIN_EVENT_TYPE && type <= MAX_EVENT_TYPE, "Invalid event type");
         check(ts >= MIN_VALID_TIMESTAMP, "Timestamp too far in past (minimum 2023-01-01)");
+        check(!event_cid.empty(), "Event CID is required");
+        check(event_cid.length() < 200, "Event CID too long (max 200 chars)");
         check(tags.size() <= 10, "Too many tags (max 10)");
 
         // Validate each tag format and length
@@ -142,6 +145,7 @@ public:
             a.author = author;
             a.type = type;
             a.hash = hash;
+            a.event_cid = event_cid;
             a.parent = parent;
             a.ts = ts;
             a.tags = tags;
@@ -1129,6 +1133,7 @@ private:
         name        author;          // Account that submitted
         uint8_t     type;           // Event type code
         checksum256 hash;           // SHA256 of canonical event
+        std::string event_cid;      // IPFS CIDv1 of full event JSON
         std::optional<checksum256> parent; // Parent for threading
         uint32_t    ts;             // Original timestamp
         std::vector<name> tags;     // Searchable tags
@@ -1141,7 +1146,7 @@ private:
         checksum256 by_hash() const { return hash; }
         uint64_t by_author() const { return author.value; }
 
-        EOSLIB_SERIALIZE(anchor, (id)(author)(type)(hash)(parent)
+        EOSLIB_SERIALIZE(anchor, (id)(author)(type)(hash)(event_cid)(parent)
                                  (ts)(tags)(expires_at)(finalized)
                                  (escrowed_amount)(submission_x))
     };

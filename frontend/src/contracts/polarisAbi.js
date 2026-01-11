@@ -14,6 +14,7 @@ export const POLARIS_ABI = {
                 { name: 'author', type: 'name' },
                 { name: 'type', type: 'uint8' },
                 { name: 'hash', type: 'checksum256' },
+                { name: 'event_cid', type: 'string' },
                 { name: 'parent', type: 'checksum256?' },
                 { name: 'ts', type: 'uint32' },
                 { name: 'tags', type: 'name[]' }
