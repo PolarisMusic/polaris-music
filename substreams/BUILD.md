@@ -49,15 +49,25 @@ Output: `polaris_music_substreams-v0.1.0.spkg`
 If you need to build manually:
 
 ```bash
-# 1. Generate protobuf bindings
+# 1. Generate protobuf bindings (REQUIRED before cargo build)
 substreams protogen ./substreams.yaml --exclude-paths="sf/substreams,google"
 
-# 2. Build WASM
+# 2. Build WASM (this also regenerates ABI bindings via build.rs)
 cargo build --target wasm32-unknown-unknown --release
 
 # 3. Pack .spkg
 substreams pack ./substreams.yaml
 ```
+
+**CRITICAL**: Step 1 (protogen) MUST be run before Step 2 (cargo build):
+- Protogen generates `src/pb/polaris.v1.rs` from protobuf definitions
+- Cargo build.rs generates `src/abi/polaris_music.rs` from `abi/polaris.music.json`
+- Both generated files are required for compilation
+
+**After ABI Changes**: If the contract ABI changes (e.g., adding `event_cid` field):
+1. Update `abi/polaris.music.json` with new field
+2. Run full clean build: `make clean && make package`
+3. The build.rs will regenerate bindings with the new field automatically
 
 ## Using the Local Module
 

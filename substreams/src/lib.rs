@@ -198,10 +198,12 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
 
                     // Construct canonical JSON payload for backend ingestion
                     // Must match format expected by backend/src/api/ingestion.js
+                    // CRITICAL: Must include event_cid for IPFS-only ingestion mode
                     let json_payload = serde_json::json!({
                         "author": put_action.author.to_string(),
                         "type": put_action.r#type,
                         "hash": hex::encode(&put_action.hash),
+                        "event_cid": put_action.event_cid,
                         "parent": put_action.parent.as_ref().map(|p| hex::encode(p)),
                         "ts": put_action.ts,
                         "tags": put_action.tags.iter().map(|t| t.to_string()).collect::<Vec<String>>(),
