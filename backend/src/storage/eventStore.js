@@ -66,14 +66,14 @@ class EventStore {
             try {
                 this.ipfs = createIPFS({ url: config.ipfs.url });
                 this.ipfsEnabled = true;
-                console.log(` IPFS client initialized: ${config.ipfs.url}`);
+                console.log(`✓ IPFS client initialized: ${config.ipfs.url}`);
             } catch (error) {
-                console.warn('� IPFS initialization failed:', error.message);
+                console.warn('⚠ IPFS initialization failed:', error.message);
                 this.ipfsEnabled = false;
             }
         } else {
             if (process.env.NODE_ENV !== 'test') {
-                console.warn('� IPFS not configured');
+                console.warn('⚠ IPFS not configured');
             }
             this.ipfsEnabled = false;
         }
@@ -92,14 +92,14 @@ class EventStore {
                 });
                 this.s3Bucket = config.s3.bucket;
                 this.s3Enabled = true;
-                console.log(` S3 client initialized: ${config.s3.endpoint}/${config.s3.bucket}`);
+                console.log(`✓ S3 client initialized: ${config.s3.endpoint}/${config.s3.bucket}`);
             } catch (error) {
-                console.warn('� S3 initialization failed:', error.message);
+                console.warn('⚠ S3 initialization failed:', error.message);
                 this.s3Enabled = false;
             }
         } else {
             if (process.env.NODE_ENV !== 'test') {
-                console.warn('� S3 not configured');
+                console.warn('⚠ S3 not configured');
             }
             this.s3Enabled = false;
         }
@@ -120,23 +120,23 @@ class EventStore {
                 this.redisEnabled = true;
 
                 this.redis.on('connect', () => {
-                    console.log(' Redis connected');
+                    console.log('✓ Redis connected');
                 });
 
                 this.redis.on('error', (error) => {
                     if (process.env.NODE_ENV !== 'test') {
-                        console.warn('� Redis error:', error.message);
+                        console.warn('⚠ Redis error:', error.message);
                     }
                 });
             } catch (error) {
                 if (process.env.NODE_ENV !== 'test') {
-                    console.warn('� Redis initialization failed:', error.message);
+                    console.warn('⚠ Redis initialization failed:', error.message);
                 }
                 this.redisEnabled = false;
             }
         } else {
             if (process.env.NODE_ENV !== 'test') {
-                console.warn('� Redis not configured');
+                console.warn('⚠ Redis not configured');
             }
             this.redisEnabled = false;
         }
@@ -218,12 +218,12 @@ class EventStore {
                     .then(cid => {
                         results.canonical_cid = cid;
                         this.stats.ipfsStores++;
-                        console.log(`   IPFS canonical: ${cid}`);
+                        console.log(`  ✓ IPFS canonical: ${cid}`);
                     })
                     .catch(error => {
                         const err = `IPFS canonical storage failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`   ${err}`);
+                        console.warn(`  ✗ ${err}`);
                     })
             );
 
@@ -250,12 +250,12 @@ class EventStore {
                     .then(location => {
                         results.s3 = location;
                         this.stats.s3Stores++;
-                        console.log(`   S3: ${location}`);
+                        console.log(`  ✓ S3: ${location}`);
                     })
                     .catch(error => {
                         const err = `S3 storage failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`   ${err}`);
+                        console.warn(`  ✗ ${err}`);
                     })
             );
         }
@@ -266,12 +266,12 @@ class EventStore {
                 this.storeToRedis(fullEventJSON, hash)
                     .then(() => {
                         results.redis = true;
-                        console.log(`   Redis (TTL: ${this.redisTTL}s)`);
+                        console.log(`  ✓ Redis (TTL: ${this.redisTTL}s)`);
                     })
                     .catch(error => {
                         const err = `Redis cache failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`   ${err}`);
+                        console.warn(`  ✗ ${err}`);
                     })
             );
         }
@@ -309,14 +309,14 @@ class EventStore {
         }
 
         this.stats.stored++;
-        console.log(` Event stored successfully (${successCount}/${storagePromises.length} locations)`);
+        console.log(`✓ Event stored successfully (${successCount}/${storagePromises.length} locations)`);
 
         return results;
     }
 
     /**
      * Retrieve an event by its hash.
-     * Uses fallback chain: Redis � IPFS � S3
+     * Uses fallback chain: Redis ⚠ IPFS ⚠ S3
      * Automatically populates cache on retrieval from slower storage.
      *
      * @param {string} hash - SHA256 hash of the event
@@ -359,10 +359,10 @@ class EventStore {
                     event = JSON.parse(cached);
                     source = 'redis';
                     this.stats.cacheHits++;
-                    console.log(`   Retrieved from Redis (cache hit)`);
+                    console.log(`  ✓ Retrieved from Redis (cache hit)`);
                 }
             } catch (error) {
-                console.warn(`   Redis retrieval failed: ${error.message}`);
+                console.warn(`  ✗ Redis retrieval failed: ${error.message}`);
             }
         }
 
@@ -395,7 +395,7 @@ class EventStore {
                     }
                 }
             } catch (error) {
-                console.warn(`   IPFS retrieval failed: ${error.message}`);
+                console.warn(`  ✗ IPFS retrieval failed: ${error.message}`);
             }
         }
 
@@ -407,16 +407,16 @@ class EventStore {
                     event = JSON.parse(data.toString('utf-8'));
                     source = 's3';
                     this.stats.cacheMisses++;
-                    console.log(`   Retrieved from S3`);
+                    console.log(`  ✓ Retrieved from S3`);
 
                     // Populate Redis cache for future requests
                     if (this.redisEnabled) {
                         await this.storeToRedis(JSON.stringify(event), normalizedHash)
-                            .catch(err => console.warn(`  � Failed to cache: ${err.message}`));
+                            .catch(err => console.warn(`  ⚠ Failed to cache: ${err.message}`));
                     }
                 }
             } catch (error) {
-                console.warn(`   S3 retrieval failed: ${error.message}`);
+                console.warn(`  ✗ S3 retrieval failed: ${error.message}`);
             }
         }
 
@@ -449,7 +449,7 @@ class EventStore {
         }
 
         this.stats.retrieved++;
-        console.log(` Event retrieved successfully from ${source}`);
+        console.log(`✓ Event retrieved successfully from ${source}`);
 
         return event;
     }
@@ -1001,7 +1001,7 @@ class EventStore {
         }
 
         await this.ipfs.pin.add(cid);
-        console.log(` Pinned to IPFS: ${cid}`);
+        console.log(`✓ Pinned to IPFS: ${cid}`);
     }
 
     /**
@@ -1016,7 +1016,7 @@ class EventStore {
         }
 
         await this.ipfs.pin.rm(cid);
-        console.log(` Unpinned from IPFS: ${cid}`);
+        console.log(`✓ Unpinned from IPFS: ${cid}`);
     }
 
     /**
@@ -1053,7 +1053,7 @@ class EventStore {
             const eventKey = `event:${hash}`;
             const mappingKey = `ipfs:hash:${hash}`;
             const result = await this.redis.del(eventKey, mappingKey);
-            console.log(` Cleared cache for ${hash}: ${result} key(s)`);
+            console.log(`✓ Cleared cache for ${hash}: ${result} key(s)`);
             return result;
         } else {
             // Clear all event keys and hash→CID mappings
@@ -1063,7 +1063,7 @@ class EventStore {
 
             if (allKeys.length > 0) {
                 const result = await this.redis.del(...allKeys);
-                console.log(` Cleared cache: ${result} key(s) (${eventKeys.length} events, ${mappingKeys.length} mappings)`);
+                console.log(`✓ Cleared cache: ${result} key(s) (${eventKeys.length} events, ${mappingKeys.length} mappings)`);
                 return result;
             }
             return 0;
@@ -1150,15 +1150,15 @@ class EventStore {
         if (this.redisEnabled) {
             closePromises.push(
                 this.redis.quit()
-                    .then(() => console.log('   Redis connection closed'))
-                    .catch(err => console.warn('  � Redis close error:', err.message))
+                    .then(() => console.log('  ✓ Redis connection closed'))
+                    .catch(err => console.warn('  ⚠ Redis close error:', err.message))
             );
         }
 
         // IPFS and S3 clients don't need explicit closing
 
         await Promise.allSettled(closePromises);
-        console.log(' Storage connections closed');
+        console.log('✓ Storage connections closed');
     }
 }
 
