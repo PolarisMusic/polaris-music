@@ -450,9 +450,13 @@ class EventStore {
      * Retrieve event directly by event_cid (IPFS CID of full event).
      * This is faster than hash-based retrieval as it skips CID derivation.
      *
+     * Supports both UnixFS (new, stored via ipfs.add) and raw blocks (old, for backward compat).
+     * Tries cat() first (UnixFS), falls back to block.get() (raw blocks).
+     *
      * Graceful degradation:
-     * 1. Try IPFS (fast, decentralized)
-     * 2. If IPFS fails, return helpful error (no fallback without hash)
+     * 1. Try IPFS cat() for UnixFS files (new format, gateway-compatible)
+     * 2. If that fails, try block.get() for raw blocks (old format, backward compat)
+     * 3. If both fail, return helpful error
      *
      * @param {string} event_cid - IPFS CID of the full event JSON
      * @returns {Promise<Object>} The event object
@@ -470,13 +474,26 @@ class EventStore {
             );
         }
 
+        let data;
+        let retrievalMethod;
+
         try {
-            // Retrieve directly from IPFS using CID
-            const chunks = [];
-            for await (const chunk of this.ipfs.cat(event_cid)) {
-                chunks.push(chunk);
+            // Path 1: Try UnixFS cat() first (new format, works with gateways)
+            try {
+                const chunks = [];
+                for await (const chunk of this.ipfs.cat(event_cid)) {
+                    chunks.push(chunk);
+                }
+                data = Buffer.concat(chunks);
+                retrievalMethod = 'UnixFS (cat)';
+            } catch (catError) {
+                // Path 2: Fallback to raw block.get() for backward compatibility
+                console.log(`   cat() failed, trying block.get() for backward compatibility...`);
+                const block = await this.ipfs.block.get(event_cid);
+                data = Buffer.from(block);
+                retrievalMethod = 'raw block (block.get)';
             }
-            const data = Buffer.concat(chunks);
+
             const event = JSON.parse(data.toString('utf-8'));
 
             // Verify event structure
@@ -484,7 +501,7 @@ class EventStore {
 
             // Verify hash matches (important for integrity)
             const computedHash = this.calculateHash(event);
-            console.log(` Event retrieved successfully from IPFS (hash: ${computedHash.substring(0, 12)}...)`);
+            console.log(` Event retrieved successfully from IPFS via ${retrievalMethod} (hash: ${computedHash.substring(0, 12)}...)`);
 
             this.stats.retrieved++;
             return event;
@@ -582,21 +599,28 @@ class EventStore {
 
     /**
      * Store full event JSON to IPFS.
-     * Unlike storeToIPFS which stores canonical bytes for verification,
-     * this stores the complete event with signature for retrieval.
+     * Unlike storeToIPFS which stores canonical bytes as raw blocks for verification,
+     * this stores the complete event with signature as UnixFS for easy retrieval.
+     *
+     * Uses UnixFS (ipfs.add) instead of raw blocks because:
+     * - Works with ipfs.cat() for retrieval
+     * - Compatible with IPFS gateways
+     * - Standard IPFS file format
      *
      * @private
      * @param {Buffer} data - Full event JSON buffer (with signature)
      * @returns {Promise<string>} IPFS CID
      */
     async storeFullEventToIPFS(data) {
-        // Store as raw block with SHA256 multihash
-        const result = await this.ipfs.block.put(data, {
-            format: 'raw',
-            mhtype: 'sha2-256',
-            version: 1,
-            pin: true
-        });
+        // Store as UnixFS file (not raw block) for gateway compatibility
+        const result = await this.ipfs.add(
+            { content: data },
+            {
+                pin: true,
+                cidVersion: 1,
+                hashAlg: 'sha2-256'
+            }
+        );
 
         return result.cid.toString();
     }
@@ -605,6 +629,8 @@ class EventStore {
      * Retrieve data from IPFS by hash.
      * First tries Redis hash→CID mapping, then derives CID from hash if missing.
      * This makes IPFS retrieval work even without Redis (IPFS-only mode).
+     *
+     * CRITICAL: Canonical blocks are stored as raw blocks, so use block.get() not cat()
      *
      * @private
      * @param {string} hash - Event hash (sha256 hex string)
@@ -630,13 +656,10 @@ class EventStore {
             }
         }
 
-        // Retrieve from IPFS using CID
+        // Retrieve from IPFS using block.get() for raw blocks
         try {
-            const chunks = [];
-            for await (const chunk of this.ipfs.cat(cid)) {
-                chunks.push(chunk);
-            }
-            return Buffer.concat(chunks);
+            const block = await this.ipfs.block.get(cid);
+            return Buffer.from(block);
         } catch (error) {
             throw new Error(`IPFS retrieval failed for CID ${cid}: ${error.message}`);
         }
