@@ -87,6 +87,52 @@ const PROTECTED_FIELDS = new Set([
 ]);
 
 /**
+ * Normalize a value for safe Neo4j property storage.
+ * Neo4j supports primitives and homogeneous lists, but not arbitrary nested objects.
+ *
+ * @param {*} value - Value to normalize
+ * @returns {*} Neo4j-compatible value (primitive, list of primitives, or JSON string)
+ */
+function normalizeValueForNeo4j(value) {
+    // Null/undefined are fine
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    // Primitives are fine (string, number, boolean)
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return value;
+    }
+
+    // Arrays need special handling
+    if (Array.isArray(value)) {
+        // Empty array is fine
+        if (value.length === 0) {
+            return value;
+        }
+
+        // Check if all elements are primitives (homogeneous list)
+        const allPrimitives = value.every(item =>
+            item === null ||
+            typeof item === 'string' ||
+            typeof item === 'number' ||
+            typeof item === 'boolean'
+        );
+
+        if (allPrimitives) {
+            return value;  // Neo4j can store homogeneous primitive lists
+        }
+
+        // Complex array (objects, nested arrays, mixed types) -> JSON stringify
+        return JSON.stringify(value);
+    }
+
+    // Objects (including Date, etc.) -> JSON stringify
+    // Neo4j maps have limitations (flat only), so safer to JSON-stringify
+    return JSON.stringify(value);
+}
+
+/**
  * Main class for interacting with the Neo4j graph database.
  * Handles schema initialization, event processing, and data queries.
  *
@@ -1038,6 +1084,9 @@ class MusicGraphDatabase {
 
             console.log(`Adding claim to ${mapping.label} ${node.id}: ${normalizedField}`);
 
+            // Normalize value for Neo4j storage (handle objects/complex types)
+            const normalizedValue = normalizeValueForNeo4j(value);
+
             // Update the target node using validated label and idField from whitelist
             await tx.run(`
                 MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
@@ -1048,7 +1097,7 @@ class MusicGraphDatabase {
             `, {
                 nodeId: node.id,
                 field: normalizedField,
-                value,
+                value: normalizedValue,
                 author
             });
 
@@ -1194,6 +1243,9 @@ class MusicGraphDatabase {
                 oldClaimId
             });
 
+            // Normalize value for Neo4j storage (handle objects/complex types)
+            const normalizedValue = normalizeValueForNeo4j(value);
+
             // Update the target node's current value
             await tx.run(`
                 MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
@@ -1204,7 +1256,7 @@ class MusicGraphDatabase {
             `, {
                 nodeId,
                 field: normalizedField,
-                value,
+                value: normalizedValue,
                 author
             });
 

@@ -519,4 +519,215 @@ describeOrSkip('ADD_CLAIM Event Processing', () => {
             expect(result.success).toBe(true);
         });
     });
+
+    describe('Neo4j Value Normalization', () => {
+        test('should handle string values (primitives)', async () => {
+            // Arrange
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'bio',
+                value: 'Simple string value'
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-string',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value stored correctly
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.bio as bio
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('bio')).toBe('Simple string value');
+        });
+
+        test('should handle number values (primitives)', async () => {
+            // Arrange
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'birth_year',
+                value: 1980
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-number',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value stored correctly
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.birth_year as birthYear
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('birthYear').toNumber()).toBe(1980);
+        });
+
+        test('should handle boolean values (primitives)', async () => {
+            // Arrange
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'is_verified',
+                value: true
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-boolean',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value stored correctly
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.is_verified as isVerified
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('isVerified')).toBe(true);
+        });
+
+        test('should handle homogeneous string arrays (Neo4j-compatible)', async () => {
+            // Arrange
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'genres',
+                value: ['Rock', 'Pop', 'Jazz']
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-string-array',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value stored correctly as array
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.genres as genres
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('genres')).toEqual(['Rock', 'Pop', 'Jazz']);
+        });
+
+        test('should JSON-stringify complex objects (not Neo4j primitives)', async () => {
+            // Arrange - Complex object that Neo4j can't store directly
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'address',
+                value: {
+                    street: '123 Main St',
+                    city: 'Liverpool',
+                    country: 'UK',
+                    postalCode: 'L1 1AA'
+                }
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-object',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value stored as JSON string
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.address as address
+            `, { personId: testPersonId });
+
+            const storedValue = nodeResult.records[0].get('address');
+            expect(typeof storedValue).toBe('string');
+            expect(JSON.parse(storedValue)).toEqual({
+                street: '123 Main St',
+                city: 'Liverpool',
+                country: 'UK',
+                postalCode: 'L1 1AA'
+            });
+        });
+
+        test('should JSON-stringify nested arrays (not Neo4j primitives)', async () => {
+            // Arrange - Nested array that Neo4j can't store directly
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'discography',
+                value: [
+                    { album: 'Album 1', year: 2000 },
+                    { album: 'Album 2', year: 2005 }
+                ]
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-nested-array',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value stored as JSON string
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.discography as discography
+            `, { personId: testPersonId });
+
+            const storedValue = nodeResult.records[0].get('discography');
+            expect(typeof storedValue).toBe('string');
+            expect(JSON.parse(storedValue)).toEqual([
+                { album: 'Album 1', year: 2000 },
+                { album: 'Album 2', year: 2005 }
+            ]);
+        });
+
+        test('should handle null values gracefully', async () => {
+            // Arrange
+            const claimData = {
+                node: { type: 'person', id: testPersonId },
+                field: 'middle_name',
+                value: null
+            };
+
+            // Act
+            const result = await graphDb.processAddClaim(
+                testEventHash + '-null',
+                claimData,
+                'test-author'
+            );
+
+            // Assert
+            expect(result.success).toBe(true);
+
+            // Verify value is null
+            const nodeResult = await session.run(`
+                MATCH (p:Person {id: $personId})
+                RETURN p.middle_name as middleName
+            `, { personId: testPersonId });
+
+            expect(nodeResult.records[0].get('middleName')).toBeNull();
+        });
+    });
 });
