@@ -500,25 +500,18 @@ class PolarisApp {
             // Without this, the signed/stored event could drift from the hashed event
             this.currentTransaction.event = prepareResult.normalizedEvent;
 
-            // Store the canonical hash and build blockchain action
+            // Store the canonical hash (action will be built after storage to include event_cid)
             this.currentTransaction.eventHash = prepareResult.hash;
-            this.currentTransaction.action = this.transactionBuilder.buildActionFromHash(
-                prepareResult.hash,
-                sessionInfo.accountName
-            );
-            this.currentTransaction.transaction = {
-                actions: [this.currentTransaction.action]
-            };
+            this.currentTransaction.authorAccount = sessionInfo.accountName;
 
             console.log('Canonical hash:', prepareResult.hash);
 
-            // Show preview with both event and transaction data
+            // Show preview with event data (action will be built after storage)
             const jsonPreview = document.getElementById('json-preview');
             jsonPreview.textContent = JSON.stringify({
                 event: this.currentTransaction.event,
                 eventHash: this.currentTransaction.eventHash,
-                action: this.currentTransaction.action,
-                transaction: this.currentTransaction.transaction
+                note: 'Blockchain action will be built after storage to include event_cid'
             }, null, 2);
 
             document.getElementById('json-modal').classList.add('show');
@@ -586,10 +579,22 @@ class PolarisApp {
                 );
             }
 
+            // Extract event_cid from storage result (required for blockchain action)
+            const eventCid = storageResult?.stored?.event_cid;
+            if (!eventCid) {
+                throw new Error(
+                    'Missing stored.event_cid from /api/events/create response. ' +
+                    'Cannot submit to blockchain without event_cid.'
+                );
+            }
+
             // Show storage locations
             const storageInfo = [];
-            if (storageResult.stored.ipfs) {
-                storageInfo.push(`IPFS: ${storageResult.stored.ipfs}`);
+            if (storageResult.stored.canonical_cid) {
+                storageInfo.push(`IPFS canonical CID: ${storageResult.stored.canonical_cid}`);
+            }
+            if (storageResult.stored.event_cid) {
+                storageInfo.push(`IPFS full event CID: ${storageResult.stored.event_cid}`);
             }
             if (storageResult.stored.s3) {
                 storageInfo.push(`S3: ${storageResult.stored.s3}`);
@@ -600,10 +605,16 @@ class PolarisApp {
 
             console.log('Event stored:', storageInfo.join(', '));
 
-            console.log('\n=== STEP 2: Anchor hash on blockchain ===');
+            console.log('\n=== STEP 2: Build blockchain action with event_cid ===');
 
-            // Get the transaction action
-            const action = this.currentTransaction.action;
+            // Build the blockchain action now that we have event_cid
+            const action = this.transactionBuilder.buildActionFromHash(
+                this.currentTransaction.eventHash,
+                this.currentTransaction.authorAccount,
+                eventCid
+            );
+
+            console.log('\n=== STEP 3: Anchor hash on blockchain ===');
 
             console.log('Submitting blockchain transaction:', action);
 
@@ -629,7 +640,8 @@ class PolarisApp {
 
             console.log('\n=== SUBMISSION COMPLETE ===');
             console.log('Event hash:', this.currentTransaction.eventHash);
-            console.log('IPFS CID:', storageResult.stored.ipfs);
+            console.log('IPFS canonical CID:', storageResult.stored.canonical_cid);
+            console.log('IPFS full event CID:', storageResult.stored.event_cid);
             console.log('S3 location:', storageResult.stored.s3);
             console.log('Blockchain TX:', txResult.resolved?.transaction?.id);
 

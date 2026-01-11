@@ -138,10 +138,11 @@ export class TransactionBuilder {
      * Build blockchain transaction action for anchoring event
      * @param {string} eventHash - SHA-256 hash of event
      * @param {string} authorAccount - Author's blockchain account name
+     * @param {string} eventCid - IPFS CID of full event JSON
      * @param {Object} metadata - Additional metadata
      * @returns {Object} Transaction action for WharfKit
      */
-    buildAnchorAction(eventHash, authorAccount, metadata = {}) {
+    buildAnchorAction(eventHash, authorAccount, eventCid, metadata = {}) {
         // Convert hash to proper checksum256 format
         const hash = this.hexToChecksum256(eventHash);
 
@@ -159,6 +160,7 @@ export class TransactionBuilder {
                 author: authorAccount,
                 type: 21, // CREATE_RELEASE_BUNDLE event type
                 hash: hash,
+                event_cid: eventCid,
                 parent: metadata.parent || null, // Use null for optional, not empty string
                 ts: metadata.timestamp || Math.floor(Date.now() / 1000),
                 tags: tags
@@ -195,13 +197,14 @@ export class TransactionBuilder {
     }
 
     /**
-     * Build blockchain action after receiving canonical hash from server
-     * @param {string} eventHash - Canonical hash from /api/events/prepare
+     * Build blockchain action after receiving canonical hash and CID from server
+     * @param {string} eventHash - Canonical hash from /api/events/create
      * @param {string} authorAccount - Author's blockchain account
+     * @param {string} eventCid - IPFS CID from /api/events/create
      * @returns {Object} Blockchain action for anchoring
      */
-    buildActionFromHash(eventHash, authorAccount) {
-        return this.buildAnchorAction(eventHash, authorAccount, {
+    buildActionFromHash(eventHash, authorAccount, eventCid) {
+        return this.buildAnchorAction(eventHash, authorAccount, eventCid, {
             tags: ['release', 'submission']
         });
     }
