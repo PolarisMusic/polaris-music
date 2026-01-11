@@ -450,12 +450,25 @@ class EventStore {
      * Retrieve event directly by event_cid (IPFS CID of full event).
      * This is faster than hash-based retrieval as it skips CID derivation.
      *
+     * Graceful degradation:
+     * 1. Try IPFS (fast, decentralized)
+     * 2. If IPFS fails, return helpful error (no fallback without hash)
+     *
      * @param {string} event_cid - IPFS CID of the full event JSON
      * @returns {Promise<Object>} The event object
-     * @throws {Error} If event not found or invalid
+     * @throws {Error} If event not found, IPFS unavailable, or event invalid
      */
     async retrieveByEventCid(event_cid) {
         console.log(`Retrieving event by CID ${event_cid.substring(0, 20)}...`);
+
+        // Check if IPFS is enabled
+        if (!this.ipfsEnabled) {
+            this.stats.errors++;
+            throw new Error(
+                `Cannot retrieve by event_cid: IPFS not configured. ` +
+                `Event CID: ${event_cid}`
+            );
+        }
 
         try {
             // Retrieve directly from IPFS using CID
@@ -469,7 +482,7 @@ class EventStore {
             // Verify event structure
             this.validateEvent(event);
 
-            // Verify hash matches
+            // Verify hash matches (important for integrity)
             const computedHash = this.calculateHash(event);
             console.log(` Event retrieved successfully from IPFS (hash: ${computedHash.substring(0, 12)}...)`);
 
@@ -477,6 +490,30 @@ class EventStore {
             return event;
         } catch (error) {
             this.stats.errors++;
+
+            // Provide specific error messages for common failure modes
+            if (error.message.includes('Not found') || error.message.includes('no link')) {
+                throw new Error(
+                    `Event not found in IPFS. CID: ${event_cid}. ` +
+                    `The event may not be pinned or IPFS node may be out of sync.`
+                );
+            }
+
+            if (error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
+                throw new Error(
+                    `IPFS retrieval timeout for CID: ${event_cid}. ` +
+                    `IPFS node may be slow or unavailable. Try again later.`
+                );
+            }
+
+            if (error.message.includes('ECONNREFUSED')) {
+                throw new Error(
+                    `IPFS node unavailable (connection refused). CID: ${event_cid}. ` +
+                    `Check that IPFS daemon is running at ${this.config.ipfs?.url || 'configured URL'}.`
+                );
+            }
+
+            // Generic error with CID for debugging
             throw new Error(`Failed to retrieve event by CID ${event_cid}: ${error.message}`);
         }
     }

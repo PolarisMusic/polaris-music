@@ -166,7 +166,14 @@ export class IngestionHandler {
             let event;
             if (event_cid) {
                 console.log(`  Using event_cid: ${event_cid.substring(0, 20)}...`);
-                event = await this.store.retrieveByEventCid(event_cid);
+                try {
+                    event = await this.store.retrieveByEventCid(event_cid);
+                } catch (ipfsError) {
+                    // If IPFS retrieval fails (node down, not pinned, etc.), fall back to hash
+                    console.warn(`  IPFS retrieval failed: ${ipfsError.message}`);
+                    console.log(`  Falling back to hash-based retrieval...`);
+                    event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+                }
             } else {
                 // Legacy path: derive CID from hash or use S3 fallback
                 console.log(`  Using hash (no event_cid provided)`);
