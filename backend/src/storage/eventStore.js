@@ -279,12 +279,33 @@ class EventStore {
         // Wait for all storage operations
         await Promise.allSettled(storagePromises);
 
+        // CRITICAL: event_cid is REQUIRED for blockchain anchoring
+        // If IPFS is enabled but event_cid is missing, the entire pipeline will fail
+        // when the smart contract checks !event_cid.empty()
+        if (this.ipfsEnabled && !results.event_cid) {
+            this.stats.errors++;
+            throw new Error(
+                `IPFS full event storage failed: event_cid is required to anchor on-chain. ` +
+                `Errors: ${results.errors.join(', ') || 'Unknown IPFS failure'}. ` +
+                `Check that IPFS daemon is running and accessible.`
+            );
+        }
+
         // Check if at least one storage succeeded
         const successCount = [results.canonical_cid, results.event_cid, results.s3, results.redis].filter(Boolean).length;
 
         if (successCount === 0) {
             this.stats.errors++;
             throw new Error(`Failed to store event: ${results.errors.join(', ')}`);
+        }
+
+        // IMPORTANT: If IPFS is disabled in non-test environments, warn loudly
+        // The system cannot function without event_cid for blockchain anchoring
+        if (!this.ipfsEnabled && process.env.NODE_ENV !== 'test') {
+            console.error(
+                '⚠️  WARNING: IPFS is disabled but required for blockchain anchoring. ' +
+                'Event stored to fallback storage only. Cannot submit to blockchain without event_cid.'
+            );
         }
 
         this.stats.stored++;

@@ -789,6 +789,26 @@ class APIServer {
                 // Store validated event (pass expectedHash for verification)
                 const result = await this.store.storeEvent(event, expected_hash || null);
 
+                // CRITICAL: event_cid is REQUIRED for blockchain anchoring
+                // If storage succeeded but event_cid is missing, return 503 (Service Unavailable)
+                // This prevents the frontend from attempting blockchain submission with null event_cid
+                if (!result.event_cid) {
+                    console.error('Event storage incomplete: missing event_cid');
+                    return res.status(503).json({
+                        success: false,
+                        error: 'IPFS required: could not produce event_cid for blockchain anchoring',
+                        hash: result.hash,
+                        stored: {
+                            canonical_cid: result.canonical_cid,
+                            event_cid: result.event_cid,
+                            s3: result.s3,
+                            redis: result.redis
+                        },
+                        errors: result.errors,
+                        message: 'Event stored to fallback storage but cannot be anchored on blockchain without IPFS event_cid. Check IPFS daemon status.'
+                    });
+                }
+
                 res.status(201).json({
                     success: true,
                     hash: result.hash,
