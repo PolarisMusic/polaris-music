@@ -164,20 +164,31 @@ export class IngestionHandler {
             // Fall back to hash-based retrieval for backward compatibility
             console.log(`  Fetching event from storage...`);
             let event;
+            let source; // Track which retrieval path was used
+
             if (event_cid) {
                 console.log(`  Using event_cid: ${event_cid.substring(0, 20)}...`);
                 try {
                     event = await this.store.retrieveByEventCid(event_cid);
+                    source = 'ipfs_cid';
                 } catch (ipfsError) {
-                    // If IPFS retrieval fails (node down, not pinned, etc.), fall back to hash
-                    console.warn(`  IPFS retrieval failed: ${ipfsError.message}`);
-                    console.log(`  Falling back to hash-based retrieval...`);
+                    // CRITICAL: If IPFS retrieval fails (node down, not pinned, timeout, etc.),
+                    // fall back to hash-based retrieval which can use S3 or other storage.
+                    // This makes ingestion resilient to temporary IPFS unavailability.
+                    console.warn(
+                        `  ⚠️  IPFS CID retrieval failed, falling back to hash-based retrieval:\n` +
+                        `      event_cid: ${event_cid}\n` +
+                        `      content_hash: ${content_hash.substring(0, 12)}...\n` +
+                        `      error: ${ipfsError.message}`
+                    );
                     event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+                    source = 'hash_fallback';
                 }
             } else {
                 // Legacy path: derive CID from hash or use S3 fallback
                 console.log(`  Using hash (no event_cid provided)`);
                 event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+                source = 'hash_legacy';
             }
 
             if (!event) {
@@ -189,6 +200,8 @@ export class IngestionHandler {
                     message: 'Event not found in storage'
                 };
             }
+
+            console.log(`   Retrieved via ${source}`);
 
             // Step 4: Verify the fetched event hash matches
             const computedHash = this.store.calculateHash(event);
@@ -233,6 +246,7 @@ export class IngestionHandler {
                     trx_id: blockchainMetadata.trx_id,
                     action_ordinal: blockchainMetadata.action_ordinal,
                     source: blockchainMetadata.source || 'unknown',
+                    retrieval_source: source, // Track which storage path was used
                     ingested_at: new Date().toISOString()
                 }
             };
