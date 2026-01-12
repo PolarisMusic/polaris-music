@@ -3,9 +3,12 @@
  *
  * Tests the ingestion of blockchain `put` actions that anchor content hashes
  * and require fetching full event data from off-chain storage.
+ *
+ * Note: Tests use unsigned events (no sig field) which are allowed in devMode
+ * when NODE_ENV=test. This avoids needing to generate valid EOSIO signatures.
  */
 
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterAll, jest } from '@jest/globals';
 import IngestionHandler from '../../src/api/ingestion.js';
 import EventStore from '../../src/storage/eventStore.js';
 
@@ -49,8 +52,8 @@ describe('IngestionHandler', () => {
             },
             proofs: {
                 source_links: []
-            },
-            sig: 'mock_signature'
+            }
+            // Note: No sig field - devMode allows unsigned events in tests
         };
 
         // Mock EventStore
@@ -582,5 +585,10 @@ describe('IngestionHandler', () => {
             expect(stats.eventsFailed).toBe(1);
             expect(stats.successRate).toBe('66.67%');
         });
+    });
+
+    // Cleanup to prevent worker exit issues
+    afterAll(async () => {
+        jest.restoreAllMocks();
     });
 });

@@ -5,9 +5,12 @@
  * and that deduplication works correctly across sources.
  *
  * Stage 4: SHiP fallback compatibility
+ *
+ * Note: Tests use unsigned events (no sig field) which are allowed in devMode
+ * when NODE_ENV=test. This avoids needing to generate valid EOSIO signatures.
  */
 
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterAll, jest } from '@jest/globals';
 import IngestionHandler from '../../src/api/ingestion.js';
 import EventStore from '../../src/storage/eventStore.js';
 import crypto from 'crypto';
@@ -35,8 +38,8 @@ describe('SHiP and Substreams Output Parity', () => {
             },
             proofs: {
                 source_links: []
-            },
-            sig: 'SIG_K1_test456'
+            }
+            // Note: No sig field - devMode allows unsigned events in tests
         };
 
         // Mock EventStore
@@ -351,5 +354,10 @@ describe('SHiP and Substreams Output Parity', () => {
             // Deduplication happened based on content_hash, not event_hash
             expect(result2.contentHash).toBe(testContentHash);
         });
+    });
+
+    // Cleanup to prevent worker exit issues
+    afterAll(async () => {
+        jest.restoreAllMocks();
     });
 });
