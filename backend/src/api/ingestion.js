@@ -44,6 +44,7 @@
 
 import { createHash } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
+import { verifyEventSignature } from '../crypto/verifyEventSignature.js';
 
 /**
  * Maximum size of in-memory dedup cache before clearing.
@@ -84,10 +85,13 @@ export class IngestionHandler {
      *
      * @param {EventStore} eventStore - Event storage instance
      * @param {EventProcessor} eventProcessor - Event processor instance
+     * @param {Object} config - Configuration options
+     * @param {string} config.rpcUrl - Blockchain RPC endpoint for account verification
      */
-    constructor(eventStore, eventProcessor) {
+    constructor(eventStore, eventProcessor, config = {}) {
         this.store = eventStore;
         this.processor = eventProcessor;
+        this.config = config;
 
         // In-memory deduplication cache
         // LIMITATION: Lost on restart - Substreams replays will reprocess events
@@ -97,15 +101,82 @@ export class IngestionHandler {
         // Example: MATCH (m:ProcessedHash {hash: $hash}) to check before processing
         this.processedHashes = new Set();
 
+        // Cache for account public keys (reduces RPC calls)
+        // Format: "accountname@permission" -> Set of authorized public keys
+        this.accountKeyCache = new Map();
+
         // Statistics
         this.stats = {
             eventsProcessed: 0,
             eventsDuplicate: 0,
             eventsNotFound: 0,
             eventsFailed: 0,
+            eventsInvalidSignature: 0,
+            eventsUnauthorizedKey: 0,
             lastProcessedTime: null,
             cacheClears: 0
         };
+    }
+
+    /**
+     * Verify that a public key is authorized for a given account and permission.
+     * This binds the event signer to the chain author for universal verifiability.
+     *
+     * @param {string} accountName - Account name that anchored the event
+     * @param {string} permission - Permission used (usually "active")
+     * @param {string} publicKey - Public key that signed the event
+     * @returns {Promise<boolean>} True if key is authorized
+     */
+    async isKeyAuthorizedForAccount(accountName, permission, publicKey) {
+        // Skip verification if no RPC URL configured
+        if (!this.config.rpcUrl) {
+            console.warn('⚠ RPC URL not configured - skipping account key verification');
+            return true; // Allow if we can't verify
+        }
+
+        const cacheKey = `${accountName}@${permission}`;
+
+        // Check cache first
+        if (this.accountKeyCache.has(cacheKey)) {
+            const authorizedKeys = this.accountKeyCache.get(cacheKey);
+            return authorizedKeys.has(publicKey);
+        }
+
+        try {
+            // Fetch account permissions from blockchain
+            const response = await fetch(`${this.config.rpcUrl}/v1/chain/get_account`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account_name: accountName })
+            });
+
+            if (!response.ok) {
+                console.warn(`⚠ Failed to fetch account ${accountName}: ${response.status}`);
+                return true; // Allow if we can't verify (graceful degradation)
+            }
+
+            const accountData = await response.json();
+
+            // Find matching permission
+            const perm = accountData.permissions?.find(p => p.perm_name === permission);
+            if (!perm) {
+                console.warn(`⚠ Permission '${permission}' not found for ${accountName}`);
+                return true; // Allow if permission not found
+            }
+
+            // Extract all authorized keys
+            const authorizedKeys = new Set(
+                (perm.required_auth?.keys || []).map(k => k.key)
+            );
+
+            // Cache for future lookups (no TTL - assumes permissions are stable)
+            this.accountKeyCache.set(cacheKey, authorizedKeys);
+
+            return authorizedKeys.has(publicKey);
+        } catch (error) {
+            console.warn(`⚠ Error verifying key authorization for ${accountName}:`, error.message);
+            return true; // Allow on error (graceful degradation)
+        }
     }
 
     /**
@@ -210,6 +281,54 @@ export class IngestionHandler {
                     `Hash mismatch: action hash ${content_hash} != computed hash ${computedHash}`
                 );
             }
+
+            // Step 4.1: CRITICAL - Verify cryptographic signature
+            // This ensures the event was actually signed by the claimed author_pubkey
+            console.log(`  Verifying event signature...`);
+            const sigResult = verifyEventSignature(event, {
+                requireSignature: true,
+                devMode: process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+            });
+
+            if (!sigResult.valid) {
+                const errorMsg = `Invalid signature: ${sigResult.reason}`;
+                console.error(`   ${errorMsg}`);
+                this.stats.eventsInvalidSignature++;
+                return {
+                    status: 'invalid_signature',
+                    contentHash: content_hash,
+                    error: errorMsg,
+                    reason: sigResult.reason
+                };
+            }
+
+            console.log(`   Signature valid`);
+
+            // Step 4.2: Verify signing key is authorized for chain author
+            // This binds the event signer to the account that anchored it
+            // Provides universal verifiability: "this key was authorized for that account"
+            const permission = 'active'; // Assume active permission (can be passed in metadata)
+            const isAuthorized = await this.isKeyAuthorizedForAccount(
+                author,
+                permission,
+                event.author_pubkey
+            );
+
+            if (!isAuthorized) {
+                const errorMsg = `Unauthorized key: ${event.author_pubkey} not authorized for ${author}@${permission}`;
+                console.error(`   ${errorMsg}`);
+                this.stats.eventsUnauthorizedKey++;
+                return {
+                    status: 'unauthorized_key',
+                    contentHash: content_hash,
+                    error: errorMsg,
+                    account: author,
+                    permission,
+                    publicKey: event.author_pubkey
+                };
+            }
+
+            console.log(`   Key authorized for ${author}@${permission}`);
 
             // Step 4.5: Verify on-chain type matches off-chain event.type
             // This prevents bugs/attacks where blockchain type doesn't match event content

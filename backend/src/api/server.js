@@ -275,7 +275,9 @@ class APIServer {
             db: this.db,
             store: this.store
         });
-        this.ingestionHandler = new IngestionHandler(this.store, this.eventProcessor);
+        this.ingestionHandler = new IngestionHandler(this.store, this.eventProcessor, {
+            rpcUrl: process.env.RPC_URL || config.rpcUrl
+        });
 
         // Setup middleware and routes
         this.setupMiddleware();
