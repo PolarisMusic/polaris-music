@@ -19,20 +19,22 @@ import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
  * @param {Object} event - Event to verify
  * @param {Object} options - Verification options
  * @param {boolean} options.requireSignature - If true, reject unsigned events (default: true)
- * @param {boolean} options.devMode - If true, allow unsigned events (default: false)
+ * @param {boolean} options.allowUnsigned - If true, allow unsigned events (default: false, only for testing)
  * @returns {Object} Verification result { valid: boolean, reason?: string }
  */
 export function verifyEventSignature(event, options = {}) {
     const {
         requireSignature = true,
-        devMode = false
+        allowUnsigned = false
     } = options;
 
-    // Dev mode: allow unsigned events (ONLY for development/testing)
-    if (devMode && !event.sig) {
+    // Explicit bypass: allow unsigned events ONLY when explicitly enabled
+    // This requires setting ALLOW_UNSIGNED_EVENTS=true environment variable
+    // DO NOT use in production - undermines verifiability guarantees
+    if (allowUnsigned && (!event.sig || !event.author_pubkey)) {
         return {
             valid: true,
-            reason: 'DEV_MODE: Unsigned event accepted (not for production!)'
+            reason: 'UNSIGNED_EVENT_ALLOWED: Bypassing signature verification (testing only!)'
         };
     }
 

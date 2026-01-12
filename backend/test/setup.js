@@ -16,6 +16,10 @@ process.env.S3_BUCKET = process.env.S3_BUCKET || 'test-bucket';
 process.env.REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 process.env.REDIS_PORT = process.env.REDIS_PORT || '6379';
 
+// Security: Allow unsigned events in tests (avoids needing valid EOSIO signatures)
+// This is ONLY for testing - production code enforces signature verification
+process.env.ALLOW_UNSIGNED_EVENTS = 'true';
+
 // Neo4j validation - warn if not set (tests will use mocks)
 if (!process.env.GRAPH_URI) {
     console.warn('⚠️  GRAPH_URI not set - Neo4j tests will use mocks');

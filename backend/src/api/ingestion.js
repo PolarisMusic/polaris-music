@@ -284,10 +284,11 @@ export class IngestionHandler {
 
             // Step 4.1: CRITICAL - Verify cryptographic signature
             // This ensures the event was actually signed by the claimed author_pubkey
+            // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
             console.log(`  Verifying event signature...`);
             const sigResult = verifyEventSignature(event, {
                 requireSignature: true,
-                devMode: process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+                allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
             });
 
             if (!sigResult.valid) {

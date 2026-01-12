@@ -118,6 +118,12 @@ services:
       - NODE_ENV=development
       - PORT=3000
 
+      # Security: Signature Verification
+      # ALLOW_UNSIGNED_EVENTS=true bypasses cryptographic signature verification
+      # WARNING: DO NOT enable in production - undermines verifiability guarantees
+      # Only use for isolated testing with mock data
+      # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
+
       # Blockchain (Jungle4 testnet for development)
       - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
       - RPC_URL=https://jungle4.greymass.com
@@ -172,6 +178,9 @@ services:
     container_name: polaris-processor
     environment:
       - NODE_ENV=development
+
+      # Security: Signature Verification
+      # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
 
       # Blockchain (Jungle4 testnet for development)
       - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d

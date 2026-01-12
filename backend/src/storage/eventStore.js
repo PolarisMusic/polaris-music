@@ -178,9 +178,10 @@ class EventStore {
         // CRITICAL: Verify cryptographic signature
         // This prevents anchoring unsigned or tampered events
         // Signature must be over sha256(stable_stringify(event_without_sig))
+        // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
         verifyEventSignatureOrThrow(event, {
             requireSignature: true,
-            devMode: process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+            allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
         });
 
         // Normalize expected hash if provided (defensive)
@@ -919,10 +920,10 @@ class EventStore {
             throw new Error('Event must be an object');
         }
 
-        // In dev/test mode, sig is optional (allows unsigned test events)
-        // In production, sig is always required
-        const isDev = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
-        const required = isDev
+        // By default, sig is ALWAYS required
+        // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
+        const allowUnsigned = process.env.ALLOW_UNSIGNED_EVENTS === 'true';
+        const required = allowUnsigned
             ? ['v', 'type', 'author_pubkey', 'created_at', 'body']
             : ['v', 'type', 'author_pubkey', 'created_at', 'body', 'sig'];
 

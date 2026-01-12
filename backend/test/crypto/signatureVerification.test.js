@@ -213,8 +213,8 @@ describe('Event Signature Verification', () => {
         });
     });
 
-    describe('Dev Mode', () => {
-        test('Accepts unsigned event in dev mode', () => {
+    describe('Unsigned Event Handling', () => {
+        test('Accepts unsigned event when allowUnsigned is true', () => {
             const event = {
                 v: 1,
                 type: 'TEST_EVENT',
@@ -224,13 +224,13 @@ describe('Event Signature Verification', () => {
                 // No signature
             };
 
-            const result = verifyEventSignature(event, { devMode: true });
+            const result = verifyEventSignature(event, { allowUnsigned: true });
 
             expect(result.valid).toBe(true);
-            expect(result.reason).toContain('DEV_MODE');
+            expect(result.reason).toContain('UNSIGNED_EVENT_ALLOWED');
         });
 
-        test('Rejects unsigned event when dev mode is false (default)', () => {
+        test('Rejects unsigned event when allowUnsigned is false (default)', () => {
             const event = {
                 v: 1,
                 type: 'TEST_EVENT',
@@ -246,14 +246,14 @@ describe('Event Signature Verification', () => {
             expect(result.reason).toBe('Event signature missing');
         });
 
-        test('Dev mode does not bypass signature verification for signed events', () => {
+        test('allowUnsigned does not bypass signature verification for signed events', () => {
             const event = createSignedEvent({ test: 'data' });
 
             // Tamper with event
             event.body.test = 'tampered';
 
-            // Dev mode should not accept invalid signature
-            const result = verifyEventSignature(event, { devMode: true });
+            // allowUnsigned should not accept invalid signature (only missing signatures)
+            const result = verifyEventSignature(event, { allowUnsigned: true });
 
             expect(result.valid).toBe(false);
             expect(result.reason).toBe('Signature verification failed');
