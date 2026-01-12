@@ -249,7 +249,7 @@ export class IngestionHandler {
                     console.warn(
                         `  ⚠️  IPFS CID retrieval failed, falling back to hash-based retrieval:\n` +
                         `      event_cid: ${event_cid}\n` +
-                        `      content_hash: ${content_hash.substring(0, 12)}...\n` +
+                        `      content_hash: ${content_hash}\n` +
                         `      error: ${ipfsError.message}`
                     );
                     event = await this.store.retrieveEvent(content_hash, { requireSig: true });

@@ -59,7 +59,8 @@ describe.skip('API Server Integration Tests', () => {
         mockStore = {
             storeEvent: jest.fn().mockResolvedValue({
                 hash: 'abc123',
-                ipfs: 'QmTest',
+                canonical_cid: 'bafkreitest123',
+                event_cid: 'bafkreitest456',
                 s3: 's3://bucket/test',
                 redis: true,
                 errors: []
@@ -271,7 +272,8 @@ describe.skip('API Server Integration Tests', () => {
 
             expect(response.body.success).toBe(true);
             expect(response.body.hash).toBe('abc123');
-            expect(response.body.stored.ipfs).toBe('QmTest');
+            expect(response.body.stored.canonical_cid).toBe('bafkreitest123');
+            expect(response.body.stored.event_cid).toBe('bafkreitest456');
             expect(mockStore.storeEvent).toHaveBeenCalledWith(event);
         });
 

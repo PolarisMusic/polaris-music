@@ -227,7 +227,8 @@ describe.skip('EventStore', () => {
             const result = await store.storeEvent(mockEvent);
 
             expect(result.hash).toBeDefined();
-            expect(result.ipfs).toBe('QmTest123');
+            expect(result.canonical_cid).toBe('QmTest123'); // Canonical CID for verification
+            expect(result.event_cid).toBeDefined(); // Full event CID for retrieval
             expect(result.s3).toContain('s3://test-bucket/events/');
             expect(result.redis).toBe(true);
             expect(result.errors).toHaveLength(0);
@@ -243,7 +244,8 @@ describe.skip('EventStore', () => {
             const result = await store.storeEvent(mockEvent);
 
             expect(result.hash).toBeDefined();
-            expect(result.ipfs).toBeNull();
+            expect(result.canonical_cid).toBeNull(); // IPFS failed
+            expect(result.event_cid).toBeNull(); // IPFS failed
             expect(result.s3).toBeDefined();
             expect(result.redis).toBe(true);
             expect(result.errors.length).toBeGreaterThan(0);

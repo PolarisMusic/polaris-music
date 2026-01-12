@@ -121,7 +121,7 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
             // Verify sidecar file content
             const sidecarData = JSON.parse(s3Storage.get(sidcarKey));
             expect(sidecarData.hash).toBe(result.hash);
-            expect(sidecarData.cid).toBe(result.ipfs);
+            expect(sidecarData.cid).toBe(result.event_cid); // Full event CID for retrieval
             expect(sidecarData.stored_at).toBeDefined();
         });
 
@@ -139,7 +139,7 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
             // Store event (creates S3 sidecar and stores in IPFS)
             const storeResult = await eventStore.storeEvent(event);
             const hash = storeResult.hash;
-            const cid = storeResult.ipfs;
+            const cid = storeResult.event_cid; // Full event CID for retrieval
 
             // Verify sidecar was created
             const sidecarKey = `mappings/${hash.substring(0, 2)}/${hash}.json`;
@@ -178,7 +178,7 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
             // Store event
             const storeResult = await eventStore.storeEvent(event);
             const hash = storeResult.hash;
-            const cid = storeResult.ipfs;
+            const cid = storeResult.event_cid; // Full event CID for retrieval
 
             // Clear Redis
             mockRedis.get = jest.fn(async () => null);
@@ -223,7 +223,7 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
             // Store event
             const storeResult = await eventStore.storeEvent(event);
             const hash = storeResult.hash;
-            const cid = storeResult.ipfs;
+            const cid = storeResult.event_cid; // Full event CID for retrieval
 
             // Test 1: Redis has CID (fast path)
             mockRedis.get = jest.fn(async (key) => {
@@ -300,7 +300,7 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
 
             // Verify values
             expect(sidecarData.hash).toBe(result.hash);
-            expect(sidecarData.cid).toBe(result.ipfs);
+            expect(sidecarData.cid).toBe(result.event_cid); // Full event CID for retrieval
             expect(new Date(sidecarData.stored_at)).toBeInstanceOf(Date);
         });
 
