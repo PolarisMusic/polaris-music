@@ -479,7 +479,7 @@ class PolarisApp {
             this.currentTransaction = this.transactionBuilder.buildReleaseTransaction(
                 releaseData,
                 sessionInfo.accountName,
-                sessionInfo.accountName, // Will be replaced with actual pubkey from session
+                sessionInfo.publicKey, // Real public key from blockchain (e.g., "EOS6...")
                 sourceLinks
             );
 

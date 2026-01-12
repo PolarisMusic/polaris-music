@@ -37,6 +37,7 @@ export class WalletManager {
 
         this.sessionKit = null;
         this.session = null;
+        this.publicKey = null; // Cached public key from blockchain
         this.listeners = {
             onConnect: [],
             onDisconnect: [],
@@ -78,6 +79,48 @@ export class WalletManager {
     }
 
     /**
+     * Fetch public key from blockchain for the given account and permission
+     * @param {string} accountName - Account name
+     * @param {string} permission - Permission name (e.g., "active")
+     * @returns {Promise<string>} Public key (e.g., "EOS6...")
+     * @throws {Error} If account not found or permission not found
+     */
+    async fetchPublicKey(accountName, permission) {
+        try {
+            const response = await fetch(`${this.config.rpcUrl}/v1/chain/get_account`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account_name: accountName })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch account: ${response.status} ${response.statusText}`);
+            }
+
+            const accountData = await response.json();
+
+            // Find the matching permission
+            const perm = accountData.permissions.find(p => p.perm_name === permission);
+            if (!perm) {
+                throw new Error(`Permission '${permission}' not found for account '${accountName}'`);
+            }
+
+            // Get the first key from required_auth
+            if (!perm.required_auth?.keys?.length) {
+                throw new Error(`No keys found in permission '${permission}' for account '${accountName}'`);
+            }
+
+            const publicKey = perm.required_auth.keys[0].key;
+            console.log(`Fetched public key for ${accountName}@${permission}:`, publicKey);
+
+            return publicKey;
+        } catch (error) {
+            console.error('Failed to fetch public key:', error);
+            throw new Error(`Cannot fetch public key for ${accountName}@${permission}: ${error.message}`);
+        }
+    }
+
+    /**
      * Connect wallet (login)
      * @returns {Promise<Object>} Session information
      */
@@ -89,10 +132,19 @@ export class WalletManager {
             if (response && response.session) {
                 this.session = response.session;
 
+                const accountName = this.session.actor.toString();
+                const permission = this.session.permission.toString();
+                const chainId = this.session.chain.id.toString();
+
+                // CRITICAL: Fetch the actual public key from the blockchain
+                // This is required for cryptographic signature verification
+                this.publicKey = await this.fetchPublicKey(accountName, permission);
+
                 const accountInfo = {
-                    accountName: this.session.actor.toString(),
-                    permission: this.session.permission.toString(),
-                    chainId: this.session.chain.id.toString()
+                    accountName,
+                    permission,
+                    chainId,
+                    publicKey: this.publicKey  // Real public key, not account name
                 };
 
                 console.log('Wallet connected:', accountInfo);
@@ -115,6 +167,7 @@ export class WalletManager {
             if (this.session) {
                 await this.sessionKit.logout(this.session);
                 this.session = null;
+                this.publicKey = null;
                 console.log('Wallet disconnected');
                 this.emit('onDisconnect');
             }
@@ -136,10 +189,19 @@ export class WalletManager {
             if (response) {
                 this.session = response;
 
+                const accountName = this.session.actor.toString();
+                const permission = this.session.permission.toString();
+                const chainId = this.session.chain.id.toString();
+
+                // CRITICAL: Fetch the actual public key from the blockchain
+                // This is required for cryptographic signature verification
+                this.publicKey = await this.fetchPublicKey(accountName, permission);
+
                 const accountInfo = {
-                    accountName: this.session.actor.toString(),
-                    permission: this.session.permission.toString(),
-                    chainId: this.session.chain.id.toString()
+                    accountName,
+                    permission,
+                    chainId,
+                    publicKey: this.publicKey  // Real public key, not account name
                 };
 
                 console.log('Session restored:', accountInfo);
@@ -168,7 +230,8 @@ export class WalletManager {
         return {
             accountName: this.session.actor.toString(),
             permission: this.session.permission.toString(),
-            chainId: this.session.chain.id.toString()
+            chainId: this.session.chain.id.toString(),
+            publicKey: this.publicKey  // Real public key from blockchain
         };
     }
 
