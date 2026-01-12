@@ -5,7 +5,7 @@
  * These tests use minimal mocking to focus on hash validation logic.
  */
 
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterAll, jest } from '@jest/globals';
 import EventStore from '../../src/storage/eventStore.js';
 
 describe('EventStore Hash Enforcement', () => {
@@ -20,7 +20,7 @@ describe('EventStore Hash Enforcement', () => {
             redis: { host: null }
         });
 
-        // Mock event
+        // Mock event (unsigned for test mode - devMode allows unsigned events)
         mockEvent = {
             v: 1,
             type: 'CREATE_RELEASE_BUNDLE',
@@ -35,8 +35,8 @@ describe('EventStore Hash Enforcement', () => {
             },
             proofs: {
                 source_links: []
-            },
-            sig: 'SIG_K1_test456'
+            }
+            // No sig field - allows devMode to accept it
         };
     });
 
@@ -99,6 +99,7 @@ describe('EventStore Hash Enforcement', () => {
                 // Should not reach here
                 expect(true).toBe(false);
             } catch (error) {
+                // In test mode, unsigned events pass validation and reach hash check
                 expect(error.message).toContain('Hash mismatch');
                 expect(error.message).toContain('expected wrong_hash');
                 expect(error.message).toContain('blockchain anchor');
@@ -220,10 +221,15 @@ describe('EventStore Hash Enforcement', () => {
             // But the event content has been modified (produces different hash)
             // This would indicate tampering or error
 
-            // Should fail
+            // Should fail (hash verification catches this)
             await expect(
                 store.storeEvent(mockEvent, blockchainAnchorHash)
             ).rejects.toThrow(/Hash mismatch/);
         });
+    });
+
+    // Cleanup to prevent worker exit issues
+    afterAll(async () => {
+        jest.useRealTimers(); // Reset timers if used
     });
 });

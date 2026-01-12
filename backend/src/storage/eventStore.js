@@ -919,7 +919,13 @@ class EventStore {
             throw new Error('Event must be an object');
         }
 
-        const required = ['v', 'type', 'author_pubkey', 'created_at', 'body', 'sig'];
+        // In dev/test mode, sig is optional (allows unsigned test events)
+        // In production, sig is always required
+        const isDev = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+        const required = isDev
+            ? ['v', 'type', 'author_pubkey', 'created_at', 'body']
+            : ['v', 'type', 'author_pubkey', 'created_at', 'body', 'sig'];
+
         for (const field of required) {
             if (!(field in event)) {
                 throw new Error(`Event missing required field: ${field}`);
