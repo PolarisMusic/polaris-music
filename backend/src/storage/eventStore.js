@@ -31,6 +31,7 @@ import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { sha256 } from 'multiformats/hashes/sha2';
 import { create as createDigest } from 'multiformats/hashes/digest';
+import { verifyEventSignatureOrThrow } from '../crypto/verifyEventSignature.js';
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -173,6 +174,14 @@ class EventStore {
     async storeEvent(event, expectedHash = null) {
         // Validate event structure
         this.validateEvent(event);
+
+        // CRITICAL: Verify cryptographic signature
+        // This prevents anchoring unsigned or tampered events
+        // Signature must be over sha256(stable_stringify(event_without_sig))
+        verifyEventSignatureOrThrow(event, {
+            requireSignature: true,
+            devMode: process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+        });
 
         // Normalize expected hash if provided (defensive)
         const normalizedExpectedHash = expectedHash !== null ? this.normalizeHash(expectedHash) : null;
@@ -955,6 +964,18 @@ class EventStore {
         return createHash('sha256')
             .update(canonical)
             .digest('hex');
+    }
+
+    /**
+     * Get canonical payload string for signing.
+     * This is the exact string that will be hashed for verification.
+     *
+     * @param {Object} event - Event to get canonical payload from
+     * @returns {string} Canonical payload string (stable JSON without sig)
+     */
+    getCanonicalPayload(event) {
+        const { sig, ...eventWithoutSig } = event;
+        return stringify(eventWithoutSig);
     }
 
     /**

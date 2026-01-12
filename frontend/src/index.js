@@ -502,6 +502,12 @@ class PolarisApp {
 
             // Store the canonical hash (action will be built after storage to include event_cid)
             this.currentTransaction.eventHash = prepareResult.hash;
+
+            // CRITICAL: Store canonical payload for signing
+            // Frontend must sign this exact payload, not the hash
+            // This ensures signature verification succeeds in backend
+            this.currentTransaction.canonicalPayload = prepareResult.canonical_payload;
+
             this.currentTransaction.authorAccount = sessionInfo.accountName;
 
             console.log('Canonical hash:', prepareResult.hash);
@@ -551,9 +557,11 @@ class PolarisApp {
         try {
             console.log('=== STEP 0: Sign event with wallet ===');
 
-            // Sign the event hash with wallet private key
-            console.log('Signing event hash:', this.currentTransaction.eventHash);
-            const signature = await this.walletManager.signMessage(this.currentTransaction.eventHash);
+            // CRITICAL: Sign the canonical payload, NOT the hash
+            // The backend verifies signatures against sha256(canonical_payload)
+            // Signing the hash string would produce an invalid signature
+            console.log('Signing canonical payload (length: ' + this.currentTransaction.canonicalPayload.length + ' bytes)');
+            const signature = await this.walletManager.signMessage(this.currentTransaction.canonicalPayload);
             console.log('Signature:', signature);
 
             // Create signed event

@@ -745,10 +745,16 @@ class APIServer {
                 // Exclude sig field to match storage hash calculation
                 const hash = this.store.calculateHash(preparedEvent);
 
+                // CRITICAL: Get canonical payload for signing
+                // Frontend must sign this exact string, not the hash
+                // This ensures signature verification will succeed in backend
+                const canonical_payload = this.store.getCanonicalPayload(preparedEvent);
+
                 res.json({
                     success: true,
                     hash,
-                    normalizedEvent: preparedEvent
+                    normalizedEvent: preparedEvent,
+                    canonical_payload
                 });
             } catch (error) {
                 console.error('Event preparation failed:', error);
