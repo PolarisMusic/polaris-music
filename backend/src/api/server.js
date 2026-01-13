@@ -27,6 +27,7 @@ import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js
 import { MergeOperations } from '../graph/merge.js';
 import { IngestionHandler } from './ingestion.js';
 import { getDevSigner } from '../crypto/devSigner.js';
+import { getStatus } from './status.js';
 
 /**
  * GraphQL Schema Definition
@@ -710,99 +711,54 @@ class APIServer {
          * GET /api/status
          * Comprehensive system status check for smoke testing and monitoring
          *
-         * Checks:
-         * - Overall system health (ok: true/false)
-         * - IPFS nodes reachability (primary + secondary)
-         * - Neo4j database connectivity
-         * - Redis cache connectivity
-         * - S3/MinIO storage
+         * Checks all critical pipeline services and returns detailed health information.
          *
-         * Returns 200 with ok:true if all critical services are healthy
-         * Returns 503 with ok:false if any critical service is down
-         *
-         * Response:
+         * Response format:
          * {
-         *   "ok": boolean,
+         *   "ok": boolean,              // true if all critical services are healthy
          *   "timestamp": "ISO8601",
          *   "services": {
-         *     "ipfs": { "primary": true/false, "secondary": true/false },
-         *     "neo4j": true/false,
-         *     "redis": true/false,
-         *     "s3": true/false
+         *     "ipfs": [                 // Array of IPFS nodes with details
+         *       {
+         *         "url": "http://ipfs:5001",
+         *         "ok": true,
+         *         "id": "QmXxxx...",    // IPFS peer ID
+         *         "version": "0.24.0"    // IPFS version
+         *       }
+         *     ],
+         *     "neo4j": { "ok": true },
+         *     "redis": { "ok": true },
+         *     "pinning_provider": {
+         *       "enabled": false,
+         *       "provider": "none"
+         *     }
          *   }
          * }
+         *
+         * Returns:
+         * - 200 with ok:true if all critical services are healthy
+         * - 503 with ok:false if any critical service is down
          */
         this.app.get('/api/status', async (req, res) => {
-            const status = {
-                ok: true,
-                timestamp: new Date().toISOString(),
-                services: {
-                    ipfs: {},
-                    neo4j: false,
-                    redis: false,
-                    s3: false
-                }
-            };
-
-            // Check IPFS nodes
-            if (this.store.ipfsClients && this.store.ipfsClients.length > 0) {
-                for (let i = 0; i < this.store.ipfsClients.length; i++) {
-                    const { client, isPrimary, url } = this.store.ipfsClients[i];
-                    const label = isPrimary ? 'primary' : `secondary${i}`;
-
-                    try {
-                        // Try to get node ID (quick health check)
-                        await client.id();
-                        status.services.ipfs[label] = true;
-                    } catch (error) {
-                        console.warn(`⚠️  IPFS node ${url} unreachable: ${error.message}`);
-                        status.services.ipfs[label] = false;
-                        status.ok = false;
-                    }
-                }
-            } else {
-                status.services.ipfs.primary = false;
-                status.ok = false;
-            }
-
-            // Check Neo4j
             try {
-                const session = this.graph.driver.session();
-                try {
-                    await session.run('RETURN 1');
-                    status.services.neo4j = true;
-                } finally {
-                    await session.close();
-                }
-            } catch (error) {
-                console.warn(`⚠️  Neo4j unreachable: ${error.message}`);
-                status.services.neo4j = false;
-                status.ok = false;
-            }
+                const status = await getStatus({
+                    eventStore: this.store,
+                    neo4jDriver: this.graph.driver,
+                    redisClient: this.store.redis,
+                    pinningProvider: this.store.pinningProvider
+                });
 
-            // Check Redis
-            try {
-                await this.store.redis.ping();
-                status.services.redis = true;
+                // Return 503 if any service is down, 200 if all OK
+                const httpStatus = status.ok ? 200 : 503;
+                res.status(httpStatus).json(status);
             } catch (error) {
-                console.warn(`⚠️  Redis unreachable: ${error.message}`);
-                status.services.redis = false;
-                status.ok = false;
+                console.error('Status check failed:', error);
+                res.status(500).json({
+                    ok: false,
+                    timestamp: new Date().toISOString(),
+                    error: error.message
+                });
             }
-
-            // Check S3/MinIO
-            try {
-                await this.store.s3.headBucket({ Bucket: this.store.s3Bucket });
-                status.services.s3 = true;
-            } catch (error) {
-                console.warn(`⚠️  S3/MinIO unreachable: ${error.message}`);
-                status.services.s3 = false;
-                status.ok = false;
-            }
-
-            // Return 503 if any service is down, 200 if all OK
-            const httpStatus = status.ok ? 200 : 503;
-            res.status(httpStatus).json(status);
         });
 
         // ========== EVENT ENDPOINTS ==========
