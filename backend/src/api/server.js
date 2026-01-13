@@ -812,6 +812,8 @@ class APIServer {
                             s3: result.s3,
                             redis: result.redis
                         },
+                        replication: result.replication || { canonical: {}, event: {} },
+                        pinning: result.pinning || { attempted: false, success: false },
                         errors: result.errors,
                         message: 'Event stored to fallback storage but cannot be anchored on blockchain without IPFS event_cid. Check IPFS daemon status.'
                     });
@@ -826,6 +828,8 @@ class APIServer {
                         s3: result.s3,
                         redis: result.redis
                     },
+                    replication: result.replication || { canonical: {}, event: {} },
+                    pinning: result.pinning || { attempted: false, success: false },
                     errors: result.errors
                 });
             } catch (error) {

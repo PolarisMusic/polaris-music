@@ -21,6 +21,10 @@ const config = {
 
     storage: {
         ipfs: {
+            // Support both IPFS_URLS (multi-node, preferred) and IPFS_URL (single node, legacy)
+            urls: process.env.IPFS_URLS
+                ? process.env.IPFS_URLS.split(',').map(url => url.trim())
+                : null,
             url: process.env.IPFS_URL || 'http://localhost:5001',
             gateway: process.env.IPFS_GATEWAY || 'https://ipfs.io/ipfs/'
         },
@@ -36,6 +40,12 @@ const config = {
             port: parseInt(process.env.REDIS_PORT || '6379'),
             password: process.env.REDIS_PASSWORD,
             ttl: parseInt(process.env.REDIS_TTL || '86400') // 24 hours default
+        },
+        pinning: {
+            provider: process.env.PIN_PROVIDER || 'none',
+            token: process.env.PIN_PROVIDER_TOKEN,
+            endpoint: process.env.PIN_PROVIDER_ENDPOINT,
+            timeout: parseInt(process.env.PIN_PROVIDER_TIMEOUT_MS || '8000')
         }
     }
 };
