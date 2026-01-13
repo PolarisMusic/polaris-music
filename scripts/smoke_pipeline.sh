@@ -138,11 +138,13 @@ wait_for_health() {
                 ipfs_secondary_total=$(echo "$response" | jq -r '.summary.ipfs.secondary_total // 0')
                 neo4j=$(echo "$response" | jq -r '.services.neo4j.ok // false')
                 redis=$(echo "$response" | jq -r '.services.redis.ok // false')
+                s3=$(echo "$response" | jq -r '.services.s3.ok // false')
 
                 log_info "  IPFS primary: $ipfs_primary"
                 log_info "  IPFS secondary: $ipfs_secondary_ok/$ipfs_secondary_total healthy"
                 log_info "  Neo4j: $neo4j"
                 log_info "  Redis: $redis"
+                log_info "  S3/MinIO: $s3"
 
                 return 0
             else
@@ -246,9 +248,15 @@ process_event() {
     # Step 5: Store event (POST /api/events/create)
     log_info "Step 5: Storing event (POST /api/events/create)..."
 
+    # Build create payload properly using jq (not fragile string splicing)
+    local create_payload=$(jq -n \
+        --arg hash "$hash" \
+        --argjson event "$signed_event" \
+        '{expected_hash: $hash} + $event')
+
     local create_response=$(curl -s -X POST "${API_BASE}/api/events/create" \
         -H "Content-Type: application/json" \
-        -d "{\"expected_hash\": \"$hash\", $(echo "$signed_event" | jq -c '. | to_entries | map(select(.key != "expected_hash")) | from_entries' | sed 's/^{//' | sed 's/}$//')}")
+        -d "$create_payload")
 
     local create_success=$(echo "$create_response" | jq -r '.success // false')
     if [ "$create_success" != "true" ]; then

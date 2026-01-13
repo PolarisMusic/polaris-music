@@ -19,6 +19,7 @@
  * Non-critical services (reported but don't affect ok):
  * - Secondary IPFS nodes (best-effort redundancy)
  * - Redis cache (optional)
+ * - S3/MinIO storage (optional)
  * - Pinning provider (optional)
  *
  * @param {Object} options - Service instances
@@ -51,6 +52,7 @@
  *     ],
  *     neo4j: { ok: boolean, error?: string },
  *     redis: { ok: boolean, error?: string },
+ *     s3: { ok: boolean, error?: string },
  *     pinning_provider: {
  *       enabled: boolean,
  *       provider: string      // "none" | "pinata" | "web3storage" | "custom"
@@ -75,6 +77,7 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
             ipfs: [],
             neo4j: { ok: false },
             redis: { ok: false },
+            s3: { ok: false },
             pinning_provider: {
                 enabled: false,
                 provider: 'none'
@@ -178,6 +181,24 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
         status.services.redis.error = 'Redis not configured';
     }
 
+    // ========== S3/MinIO Check ==========
+    // NON-CRITICAL: Optional, doesn't affect ok:true
+    if (eventStore?.s3 && eventStore?.s3Bucket) {
+        try {
+            // Check if bucket exists and is accessible
+            const { HeadBucketCommand } = await import('@aws-sdk/client-s3');
+            await eventStore.s3.send(new HeadBucketCommand({ Bucket: eventStore.s3Bucket }));
+            status.services.s3.ok = true;
+        } catch (error) {
+            status.services.s3.error = error.message;
+            // S3 failure is non-critical - don't set status.ok = false
+        }
+    } else {
+        // S3 not configured - this is OK (though unusual for production)
+        status.services.s3.ok = false;
+        status.services.s3.error = 'S3 not configured';
+    }
+
     // ========== Pinning Provider Check ==========
     // NON-CRITICAL: Optional, doesn't affect ok:true
     if (pinningProvider) {
@@ -193,6 +214,7 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
     // Non-critical services (don't affect ok):
     // - Secondary IPFS nodes (best-effort redundancy)
     // - Redis cache (improves performance but optional)
+    // - S3/MinIO storage (optional, provides backup to IPFS)
     // - Pinning provider (best-effort external backup)
     //
     // status.ok is already set correctly above
