@@ -51,10 +51,10 @@ services:
     container_name: polaris-ipfs
     restart: unless-stopped
     ports:
-      - "4001:4001"     # P2P (TCP)
-      - "4001:4001/udp" # P2P (UDP for QUIC)
-      - "5001:5001"     # API
-      - "8080:8080"     # Gateway
+      - "4001:4001"     # P2P (TCP) - public swarm
+      - "4001:4001/udp" # P2P (UDP for QUIC) - public swarm
+      - "127.0.0.1:5001:5001"     # API - localhost only (security)
+      - "127.0.0.1:8080:8080"     # Gateway - localhost only (security)
     environment:
       - IPFS_PROFILE=server
     volumes:
