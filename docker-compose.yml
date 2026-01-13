@@ -50,7 +50,8 @@ services:
     image: ipfs/kubo:v0.24.0
     container_name: polaris-ipfs
     ports:
-      - "4001:4001"     # P2P
+      - "4001:4001"     # P2P (TCP)
+      - "4001:4001/udp" # P2P (UDP for QUIC)
       - "5001:5001"     # API
       - "8080:8080"     # Gateway
     environment:
@@ -72,7 +73,8 @@ services:
     container_name: polaris-ipfs2
     restart: unless-stopped
     ports:
-      - "4002:4001"     # P2P (different host port)
+      - "4002:4001"     # P2P TCP (different host port)
+      - "4002:4001/udp" # P2P UDP for QUIC (different host port)
       - "5002:5001"     # API (different host port)
       - "8081:8080"     # Gateway (different host port)
     environment:
