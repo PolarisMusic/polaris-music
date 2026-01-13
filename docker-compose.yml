@@ -158,8 +158,7 @@ services:
       - GRAPH_PASSWORD=polarisdev
 
       # Storage
-      - IPFS_URL=http://ipfs:5001  # Legacy single-node (kept for backward compat)
-      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy (primary + internal backup)
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=polaris
       - S3_SECRET_KEY=polarisdev123
@@ -225,8 +224,7 @@ services:
       - GRAPH_PASSWORD=polarisdev
 
       # Storage
-      - IPFS_URL=http://ipfs:5001  # Legacy single-node (kept for backward compat)
-      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy (primary + internal backup)
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=polaris
       - S3_SECRET_KEY=polarisdev123
