@@ -867,6 +867,18 @@ class APIServer {
          */
         this.app.post('/api/merge', async (req, res) => {
             try {
+                // CRITICAL: This endpoint creates unsigned events (sig: '', invalid author_pubkey)
+                // It will fail with strict signature verification unless explicitly allowed
+                // TODO: Implement proper signature flow for merge events
+                if (process.env.ALLOW_UNSIGNED_EVENTS !== 'true') {
+                    return res.status(501).json({
+                        success: false,
+                        error: 'This endpoint requires proper event signatures. ' +
+                               'Set ALLOW_UNSIGNED_EVENTS=true for testing only, ' +
+                               'or implement proper signature flow for merge events.'
+                    });
+                }
+
                 const { survivorId, absorbedIds, evidence, submitter } = req.body;
 
                 // Validate inputs

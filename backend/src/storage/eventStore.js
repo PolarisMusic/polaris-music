@@ -346,6 +346,13 @@ class EventStore {
      * - Only cache full events (with sig) to Redis under event:${hash}
      * - This ensures signature verification can be enabled reliably
      *
+     * LEGACY COMPATIBILITY NOTE:
+     * For older on-chain anchors without event_cid (pre-IPFS migration), hash-based
+     * retrieval can only return canonical (unsigned) payload from IPFS raw blocks.
+     * If running in IPFS-only mode (S3 disabled) with requireSig=true, retrieval
+     * will fail for these legacy anchors. This is acceptable if you enforce
+     * "legacy anchors require S3" as a deployment requirement.
+     *
      * @param {string} hash - SHA256 hash of the event
      * @param {Object} options - Retrieval options
      * @param {boolean} options.requireSig - If true, require event to have signature (default: false)
