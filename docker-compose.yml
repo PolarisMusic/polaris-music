@@ -49,6 +49,7 @@ services:
   ipfs:
     image: ipfs/kubo:v0.24.0
     container_name: polaris-ipfs
+    restart: unless-stopped
     ports:
       - "4001:4001"     # P2P (TCP)
       - "4001:4001/udp" # P2P (UDP for QUIC)
