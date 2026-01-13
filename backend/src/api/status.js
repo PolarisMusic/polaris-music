@@ -12,6 +12,15 @@
  *
  * Checks all critical services and returns detailed health information.
  *
+ * Critical services (required for ok:true):
+ * - Primary IPFS node
+ * - Neo4j database
+ *
+ * Non-critical services (reported but don't affect ok):
+ * - Secondary IPFS nodes (best-effort redundancy)
+ * - Redis cache (optional)
+ * - Pinning provider (optional)
+ *
  * @param {Object} options - Service instances
  * @param {EventStore} options.eventStore - Event store with IPFS clients
  * @param {neo4j.Driver} options.neo4jDriver - Neo4j driver instance
@@ -21,8 +30,15 @@
  *
  * Response format:
  * {
- *   ok: boolean,              // true if all critical services are healthy
+ *   ok: boolean,              // true if all CRITICAL services are healthy
  *   timestamp: string,         // ISO8601 timestamp
+ *   summary: {                // Quick health summary
+ *     ipfs: {
+ *       primary_ok: boolean,
+ *       secondary_ok: number, // Count of healthy secondary nodes
+ *       secondary_total: number
+ *     }
+ *   },
  *   services: {
  *     ipfs: [                 // Array of IPFS nodes
  *       {
@@ -48,6 +64,13 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
     const status = {
         ok: true,
         timestamp,
+        summary: {
+            ipfs: {
+                primary_ok: false,
+                secondary_ok: 0,
+                secondary_total: 0
+            }
+        },
         services: {
             ipfs: [],
             neo4j: { ok: false },
@@ -61,8 +84,10 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
 
     // ========== IPFS Node Checks ==========
     // Check all configured IPFS nodes (primary + secondary)
+    // Only primary is critical for ok:true
     if (eventStore?.ipfsClients && eventStore.ipfsClients.length > 0) {
-        for (const { client, url } of eventStore.ipfsClients) {
+        for (let i = 0; i < eventStore.ipfsClients.length; i++) {
+            const { client, url } = eventStore.ipfsClients[i];
             const ipfsStatus = {
                 url,
                 ok: false
@@ -80,10 +105,25 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
                 ipfsStatus.version = versionResult.version;
             } catch (error) {
                 ipfsStatus.error = error.message;
-                status.ok = false;  // Any IPFS node failure = pipeline unhealthy
+                // Don't set status.ok = false here - we'll compute it after the loop
             }
 
             status.services.ipfs.push(ipfsStatus);
+        }
+
+        // Compute IPFS summary
+        const primaryOk = status.services.ipfs[0]?.ok === true;
+        const secondaryNodes = status.services.ipfs.slice(1);
+        const secondaryOkCount = secondaryNodes.filter(n => n.ok).length;
+        const secondaryTotal = secondaryNodes.length;
+
+        status.summary.ipfs.primary_ok = primaryOk;
+        status.summary.ipfs.secondary_ok = secondaryOkCount;
+        status.summary.ipfs.secondary_total = secondaryTotal;
+
+        // CRITICAL: Only primary IPFS node is required for ok:true
+        if (!primaryOk) {
+            status.ok = false;
         }
     } else {
         // No IPFS clients configured - pipeline cannot function
@@ -96,6 +136,7 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
     }
 
     // ========== Neo4j Check ==========
+    // CRITICAL: Required for ok:true
     if (neo4jDriver) {
         try {
             // Use verifyConnectivity (recommended) or fallback to simple query
@@ -114,46 +155,47 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
             }
         } catch (error) {
             status.services.neo4j.error = error.message;
-            status.ok = false;
+            status.ok = false;  // CRITICAL failure
         }
     } else {
         status.services.neo4j.error = 'Neo4j driver not configured';
-        status.ok = false;
+        status.ok = false;  // CRITICAL failure
     }
 
     // ========== Redis Check ==========
+    // NON-CRITICAL: Optional, doesn't affect ok:true
     if (redisClient) {
         try {
             await redisClient.ping();
             status.services.redis.ok = true;
         } catch (error) {
             status.services.redis.error = error.message;
-            status.ok = false;
+            // Redis failure is non-critical - don't set status.ok = false
         }
     } else {
-        // Redis is optional in some configurations (e.g., tests)
-        // Don't fail overall status if Redis is not configured
+        // Redis not configured - this is OK
         status.services.redis.ok = false;
         status.services.redis.error = 'Redis not configured';
     }
 
     // ========== Pinning Provider Check ==========
+    // NON-CRITICAL: Optional, doesn't affect ok:true
     if (pinningProvider) {
         status.services.pinning_provider.enabled = pinningProvider.isEnabled();
         status.services.pinning_provider.provider = pinningProvider.provider || 'none';
     }
 
     // ========== Final OK Computation ==========
-    // Pipeline requires:
-    // - At least one IPFS node (ideally all configured nodes should be healthy)
-    // - Neo4j database
-    // - Redis (optional but recommended)
+    // Pipeline is healthy (ok: true) when:
+    // - Primary IPFS node is reachable (CRITICAL)
+    // - Neo4j database is reachable (CRITICAL)
     //
-    // We already set status.ok = false above for any critical failures
-    // Double-check: require at least primary IPFS node healthy
-    if (status.services.ipfs.length === 0 || !status.services.ipfs[0]?.ok) {
-        status.ok = false;
-    }
+    // Non-critical services (don't affect ok):
+    // - Secondary IPFS nodes (best-effort redundancy)
+    // - Redis cache (improves performance but optional)
+    // - Pinning provider (best-effort external backup)
+    //
+    // status.ok is already set correctly above
 
     return status;
 }

@@ -132,18 +132,17 @@ wait_for_health() {
             if [ "$ok" = "true" ]; then
                 log_success "All services healthy"
 
-                # Log service status
-                ipfs_primary=$(echo "$response" | jq -r '.services.ipfs.primary // false')
-                ipfs_secondary=$(echo "$response" | jq -r '.services.ipfs.secondary1 // false')
-                neo4j=$(echo "$response" | jq -r '.services.neo4j // false')
-                redis=$(echo "$response" | jq -r '.services.redis // false')
-                s3=$(echo "$response" | jq -r '.services.s3 // false')
+                # Log service status (using new summary structure)
+                ipfs_primary=$(echo "$response" | jq -r '.summary.ipfs.primary_ok // false')
+                ipfs_secondary_ok=$(echo "$response" | jq -r '.summary.ipfs.secondary_ok // 0')
+                ipfs_secondary_total=$(echo "$response" | jq -r '.summary.ipfs.secondary_total // 0')
+                neo4j=$(echo "$response" | jq -r '.services.neo4j.ok // false')
+                redis=$(echo "$response" | jq -r '.services.redis.ok // false')
 
                 log_info "  IPFS primary: $ipfs_primary"
-                log_info "  IPFS secondary: $ipfs_secondary"
+                log_info "  IPFS secondary: $ipfs_secondary_ok/$ipfs_secondary_total healthy"
                 log_info "  Neo4j: $neo4j"
                 log_info "  Redis: $redis"
-                log_info "  S3/MinIO: $s3"
 
                 return 0
             else
