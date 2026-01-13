@@ -170,6 +170,12 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=polarisdev
 
+      # External Pinning Provider (optional, best-effort)
+      - PIN_PROVIDER=${PIN_PROVIDER:-none}
+      - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
+      - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
+      - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
+
       # API Configuration
       - CORS_ORIGIN=http://localhost:5173
       - LOG_LEVEL=debug
@@ -228,6 +234,12 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=polarisdev
+
+      # External Pinning Provider (optional, best-effort)
+      - PIN_PROVIDER=${PIN_PROVIDER:-none}
+      - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
+      - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
+      - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
 
       # Processor Configuration
       - START_BLOCK=0
