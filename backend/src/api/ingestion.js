@@ -101,9 +101,11 @@ export class IngestionHandler {
         // Example: MATCH (m:ProcessedHash {hash: $hash}) to check before processing
         this.processedHashes = new Set();
 
-        // Cache for account public keys (reduces RPC calls)
-        // Format: "accountname@permission" -> Set of authorized public keys
-        this.accountKeyCache = new Map();
+        // Cache for account permission data (reduces RPC calls)
+        // Format: { cacheKey: { data: accountData, expires: timestamp } }
+        // TTL: 5 minutes (permissions can change, multisig rotations, etc.)
+        this.accountPermissionCache = new Map();
+        this.accountPermissionCacheTTL = 5 * 60 * 1000; // 5 minutes
 
         // Statistics
         this.stats = {
@@ -119,31 +121,27 @@ export class IngestionHandler {
     }
 
     /**
-     * Verify that a public key is authorized for a given account and permission.
-     * This binds the event signer to the chain author for universal verifiability.
+     * Fetch account data from blockchain with caching (helper method)
      *
-     * @param {string} accountName - Account name that anchored the event
-     * @param {string} permission - Permission used (usually "active")
-     * @param {string} publicKey - Public key that signed the event
-     * @returns {Promise<boolean>} True if key is authorized
+     * @private
+     * @param {string} accountName - Account name to fetch
+     * @returns {Promise<Object|null>} Account data or null on error
      */
-    async isKeyAuthorizedForAccount(accountName, permission, publicKey) {
-        // Skip verification if no RPC URL configured
-        if (!this.config.rpcUrl) {
-            console.warn('⚠ RPC URL not configured - skipping account key verification');
-            return true; // Allow if we can't verify
-        }
+    async fetchAccountData(accountName) {
+        const cacheKey = accountName;
+        const now = Date.now();
 
-        const cacheKey = `${accountName}@${permission}`;
-
-        // Check cache first
-        if (this.accountKeyCache.has(cacheKey)) {
-            const authorizedKeys = this.accountKeyCache.get(cacheKey);
-            return authorizedKeys.has(publicKey);
+        // Check cache with TTL
+        if (this.accountPermissionCache.has(cacheKey)) {
+            const cached = this.accountPermissionCache.get(cacheKey);
+            if (cached.expires > now) {
+                return cached.data;
+            }
+            // Expired - remove from cache
+            this.accountPermissionCache.delete(cacheKey);
         }
 
         try {
-            // Fetch account permissions from blockchain
             const response = await fetch(`${this.config.rpcUrl}/v1/chain/get_account`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -152,31 +150,124 @@ export class IngestionHandler {
 
             if (!response.ok) {
                 console.warn(`⚠ Failed to fetch account ${accountName}: ${response.status}`);
-                return true; // Allow if we can't verify (graceful degradation)
+                return null;
             }
 
             const accountData = await response.json();
 
-            // Find matching permission
-            const perm = accountData.permissions?.find(p => p.perm_name === permission);
-            if (!perm) {
-                console.warn(`⚠ Permission '${permission}' not found for ${accountName}`);
-                return true; // Allow if permission not found
+            // Cache with TTL
+            this.accountPermissionCache.set(cacheKey, {
+                data: accountData,
+                expires: now + this.accountPermissionCacheTTL
+            });
+
+            return accountData;
+        } catch (error) {
+            console.warn(`⚠ Error fetching account ${accountName}:`, error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Verify that a public key is authorized for a given account and permission,
+     * including recursive resolution of delegated authorities.
+     *
+     * This handles:
+     * - Direct keys in required_auth.keys
+     * - Delegated permissions via required_auth.accounts (e.g., multisig)
+     * - Prevents infinite loops with visited tracking
+     * - Limits recursion depth to prevent abuse
+     *
+     * @param {string} accountName - Account name that anchored the event
+     * @param {string} permissionName - Permission to check (usually "active")
+     * @param {string} publicKey - Public key that signed the event
+     * @param {number} depth - Current recursion depth (internal)
+     * @param {Set<string>} visited - Visited permissions to prevent loops (internal)
+     * @returns {Promise<boolean>} True if key is authorized
+     */
+    async isKeyAuthorizedForPermission(accountName, permissionName, publicKey, depth = 0, visited = new Set()) {
+        // Skip verification if no RPC URL configured
+        if (!this.config.rpcUrl) {
+            console.warn('⚠ RPC URL not configured - skipping account key verification');
+            return true; // Allow if we can't verify
+        }
+
+        // Hard limit: prevent excessive recursion (cycles, abuse)
+        const MAX_DEPTH = 5;
+        if (depth > MAX_DEPTH) {
+            console.warn(`⚠ Max recursion depth ${MAX_DEPTH} exceeded for ${accountName}@${permissionName}`);
+            return false;
+        }
+
+        // Track visited permissions to prevent infinite loops
+        const permKey = `${accountName}@${permissionName}`;
+        if (visited.has(permKey)) {
+            console.warn(`⚠ Loop detected: ${permKey} already visited`);
+            return false;
+        }
+        visited.add(permKey);
+
+        // Fetch account data
+        const accountData = await this.fetchAccountData(accountName);
+        if (!accountData) {
+            // Graceful degradation: allow if we can't verify
+            return true;
+        }
+
+        // Find the permission
+        const perm = accountData.permissions?.find(p => p.perm_name === permissionName);
+        if (!perm) {
+            console.warn(`⚠ Permission '${permissionName}' not found for ${accountName}`);
+            return true; // Allow if permission not found (graceful degradation)
+        }
+
+        // Check 1: Direct keys in required_auth.keys
+        const directKeys = perm.required_auth?.keys || [];
+        for (const keyEntry of directKeys) {
+            if (keyEntry.key === publicKey) {
+                return true; // Found!
+            }
+        }
+
+        // Check 2: Delegated permissions in required_auth.accounts
+        // Example: { permission: { actor: "multisig", permission: "active" }, weight: 1 }
+        const delegatedAccounts = perm.required_auth?.accounts || [];
+        for (const accountAuth of delegatedAccounts) {
+            const delegatedActor = accountAuth.permission?.actor;
+            const delegatedPerm = accountAuth.permission?.permission;
+
+            if (!delegatedActor || !delegatedPerm) {
+                continue; // Skip malformed entries
             }
 
-            // Extract all authorized keys
-            const authorizedKeys = new Set(
-                (perm.required_auth?.keys || []).map(k => k.key)
+            // Recursively check the delegated permission
+            const found = await this.isKeyAuthorizedForPermission(
+                delegatedActor,
+                delegatedPerm,
+                publicKey,
+                depth + 1,
+                visited
             );
 
-            // Cache for future lookups (no TTL - assumes permissions are stable)
-            this.accountKeyCache.set(cacheKey, authorizedKeys);
-
-            return authorizedKeys.has(publicKey);
-        } catch (error) {
-            console.warn(`⚠ Error verifying key authorization for ${accountName}:`, error.message);
-            return true; // Allow on error (graceful degradation)
+            if (found) {
+                return true; // Found via delegation!
+            }
         }
+
+        // Check 3: Waits (time-delayed permissions)
+        // NOTE: Waits can't be verified against event signatures (no key involved)
+        // We ignore them for message-signature auth (off-chain events)
+
+        // Not found in direct keys or delegated authorities
+        return false;
+    }
+
+    /**
+     * Legacy wrapper for backward compatibility
+     * @deprecated Use isKeyAuthorizedForPermission instead
+     */
+    async isKeyAuthorizedForAccount(accountName, permission, publicKey) {
+        return this.isKeyAuthorizedForPermission(accountName, permission, publicKey);
     }
 
     /**
