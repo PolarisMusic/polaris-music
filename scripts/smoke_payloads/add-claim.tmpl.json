@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "ADD_CLAIM",
+  "created_at": "__TIMESTAMP__",
+  "parents": [],
+  "body": {
+    "node": {
+      "type": "person",
+      "id": "__ENTITY_ID__"
+    },
+    "field": "name",
+    "value": "Smoke Test Person __RUN_ID__",
+    "provenance": {
+      "submitter": "smoke-test",
+      "source": "smoke_pipeline"
+    }
+  }
+}

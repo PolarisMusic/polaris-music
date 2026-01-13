@@ -399,28 +399,35 @@ export class IngestionHandler {
             // Step 4.2: Verify signing key is authorized for chain author
             // This binds the event signer to the account that anchored it
             // Provides universal verifiability: "this key was authorized for that account"
-            const permission = 'active'; // Assume active permission (can be passed in metadata)
-            const isAuthorized = await this.isKeyAuthorizedForAccount(
-                author,
-                permission,
-                event.author_pubkey
-            );
-
-            if (!isAuthorized) {
-                const errorMsg = `Unauthorized key: ${event.author_pubkey} not authorized for ${author}@${permission}`;
-                console.error(`   ${errorMsg}`);
-                this.stats.eventsUnauthorizedKey++;
-                return {
-                    status: 'unauthorized_key',
-                    contentHash: content_hash,
-                    error: errorMsg,
-                    account: author,
+            //
+            // Can be disabled for smoke testing / development by setting REQUIRE_ACCOUNT_AUTH=false
+            // WARNING: Default is true (secure). Only disable for smoke tests.
+            if (process.env.REQUIRE_ACCOUNT_AUTH !== 'false') {
+                const permission = 'active'; // Assume active permission (can be passed in metadata)
+                const isAuthorized = await this.isKeyAuthorizedForAccount(
+                    author,
                     permission,
-                    publicKey: event.author_pubkey
-                };
-            }
+                    event.author_pubkey
+                );
 
-            console.log(`   Key authorized for ${author}@${permission}`);
+                if (!isAuthorized) {
+                    const errorMsg = `Unauthorized key: ${event.author_pubkey} not authorized for ${author}@${permission}`;
+                    console.error(`   ${errorMsg}`);
+                    this.stats.eventsUnauthorizedKey++;
+                    return {
+                        status: 'unauthorized_key',
+                        contentHash: content_hash,
+                        error: errorMsg,
+                        account: author,
+                        permission,
+                        publicKey: event.author_pubkey
+                    };
+                }
+
+                console.log(`   Key authorized for ${author}@${permission}`);
+            } else {
+                console.log(`   ⚠️  Account authorization check skipped (REQUIRE_ACCOUNT_AUTH=false)`);
+            }
 
             // Step 4.5: Verify on-chain type matches off-chain event.type
             // This prevents bugs/attacks where blockchain type doesn't match event content
