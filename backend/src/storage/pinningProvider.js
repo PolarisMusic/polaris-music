@@ -49,6 +49,14 @@ export class PinningProvider {
     }
 
     /**
+     * Check if external pinning is enabled
+     * @returns {boolean} True if provider is not 'none'
+     */
+    isEnabled() {
+        return this.provider !== 'none';
+    }
+
+    /**
      * Pin a CID to the configured external provider (best-effort)
      *
      * @param {string} cid - IPFS CID to pin

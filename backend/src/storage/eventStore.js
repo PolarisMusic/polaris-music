@@ -763,7 +763,8 @@ class EventStore {
         }
 
         // Pin to external provider (best-effort, after local replication)
-        if (this.pinningProvider) {
+        // Only attempt if provider is enabled (not 'none')
+        if (this.pinningProvider?.isEnabled()) {
             this.stats.externalPinAttempts++;
             provider.attempted = true;
 

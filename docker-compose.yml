@@ -186,6 +186,8 @@ services:
         condition: service_healthy
       ipfs:
         condition: service_healthy
+      ipfs2:
+        condition: service_healthy
       minio:
         condition: service_healthy
     volumes:
@@ -252,6 +254,8 @@ services:
       redis:
         condition: service_healthy
       ipfs:
+        condition: service_healthy
+      ipfs2:
         condition: service_healthy
       minio:
         condition: service_healthy
