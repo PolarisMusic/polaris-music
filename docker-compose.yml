@@ -68,8 +68,10 @@ services:
       timeout: 10s
       retries: 3
 
-  # IPFS Node (Secondary - internal redundancy only, no public swarm)
+  # IPFS Node (Secondary - internal redundancy, no inbound swarm connections)
   # Note: No host port mappings - reachable only via Docker network at http://ipfs2:5001
+  # Can make outbound swarm connections (useful for content discovery) but cannot accept
+  # inbound connections from external peers (no exposed ports).
   # This provides local redundancy without the complexity of multi-port swarm announce.
   # Public availability is provided by the primary ipfs node + optional external pinning.
   ipfs2:
