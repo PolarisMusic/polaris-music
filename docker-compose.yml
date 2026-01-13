@@ -45,7 +45,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # IPFS Node
+  # IPFS Node (Primary)
   ipfs:
     image: ipfs/kubo:v0.24.0
     container_name: polaris-ipfs
@@ -58,6 +58,28 @@ services:
     volumes:
       - ipfs-staging:/export
       - ipfs-data:/data/ipfs
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs id || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # IPFS Node (Secondary - for redundancy)
+  ipfs2:
+    image: ipfs/kubo:v0.24.0
+    container_name: polaris-ipfs2
+    restart: unless-stopped
+    ports:
+      - "4002:4001"     # P2P (different host port)
+      - "5002:5001"     # API (different host port)
+      - "8081:8080"     # Gateway (different host port)
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ipfs2-staging:/export
+      - ipfs2-data:/data/ipfs
     networks:
       - polaris-network
     healthcheck:
@@ -135,7 +157,8 @@ services:
       - GRAPH_PASSWORD=polarisdev
 
       # Storage
-      - IPFS_URL=http://ipfs:5001
+      - IPFS_URL=http://ipfs:5001  # Legacy single-node (kept for backward compat)
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=polaris
       - S3_SECRET_KEY=polarisdev123
@@ -193,7 +216,8 @@ services:
       - GRAPH_PASSWORD=polarisdev
 
       # Storage
-      - IPFS_URL=http://ipfs:5001
+      - IPFS_URL=http://ipfs:5001  # Legacy single-node (kept for backward compat)
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=polaris
       - S3_SECRET_KEY=polarisdev123
@@ -329,6 +353,8 @@ volumes:
   redis-data:
   ipfs-staging:
   ipfs-data:
+  ipfs2-staging:
+  ipfs2-data:
   minio-data:
 
 networks:
