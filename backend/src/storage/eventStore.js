@@ -32,6 +32,7 @@ import * as raw from 'multiformats/codecs/raw';
 import { sha256 } from 'multiformats/hashes/sha2';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { verifyEventSignatureOrThrow } from '../crypto/verifyEventSignature.js';
+import { PinningProvider } from './pinningProvider.js';
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -62,14 +63,31 @@ class EventStore {
     constructor(config) {
         this.config = config;
 
-        // Initialize IPFS client
-        if (config.ipfs?.url) {
-            try {
-                this.ipfs = createIPFS({ url: config.ipfs.url });
+        // Initialize IPFS client(s) - supports multiple nodes for redundancy
+        // Priority: config.ipfs.urls > config.ipfs.url (backward compat)
+        this.ipfsClients = [];
+        this.ipfsEnabled = false;
+
+        const ipfsUrls = config.ipfs?.urls || (config.ipfs?.url ? [config.ipfs.url] : []);
+
+        if (ipfsUrls.length > 0) {
+            for (let i = 0; i < ipfsUrls.length; i++) {
+                const url = ipfsUrls[i];
+                try {
+                    const client = createIPFS({ url });
+                    this.ipfsClients.push({ url, client, isPrimary: i === 0 });
+                    console.log(`✓ IPFS client ${i + 1} initialized: ${url}${i === 0 ? ' (primary)' : ' (secondary)'}`);
+                } catch (error) {
+                    console.warn(`⚠ IPFS client ${i + 1} initialization failed (${url}):`, error.message);
+                }
+            }
+
+            if (this.ipfsClients.length > 0) {
                 this.ipfsEnabled = true;
-                console.log(`✓ IPFS client initialized: ${config.ipfs.url}`);
-            } catch (error) {
-                console.warn('⚠ IPFS initialization failed:', error.message);
+                // Maintain backward compatibility: this.ipfs points to primary client
+                this.ipfs = this.ipfsClients[0].client;
+            } else {
+                console.warn('⚠ All IPFS clients failed to initialize');
                 this.ipfsEnabled = false;
             }
         } else {
@@ -142,6 +160,9 @@ class EventStore {
             this.redisEnabled = false;
         }
 
+        // Initialize external pinning provider (best-effort)
+        this.pinningProvider = new PinningProvider(config.pinning || {});
+
         // Statistics tracking
         this.stats = {
             stored: 0,
@@ -150,7 +171,11 @@ class EventStore {
             cacheMisses: 0,
             ipfsStores: 0,
             s3Stores: 0,
-            errors: 0
+            errors: 0,
+            ipfsReplicationAttempts: 0,
+            ipfsReplicationSuccesses: 0,
+            externalPinAttempts: 0,
+            externalPinSuccesses: 0
         };
     }
 
@@ -225,10 +250,13 @@ class EventStore {
         if (this.ipfsEnabled) {
             storagePromises.push(
                 this.storeToIPFS(canonicalBuffer, hash)
-                    .then(cid => {
-                        results.canonical_cid = cid;
+                    .then(result => {
+                        results.canonical_cid = result.cid;
+                        results.replication = results.replication || { canonical: {}, event: {} };
+                        results.replication.canonical = result.replication;
                         this.stats.ipfsStores++;
-                        console.log(`  ✓ IPFS canonical: ${cid}`);
+                        const secondaryCount = result.replication.secondary.filter(x => x).length;
+                        console.log(`  ✓ IPFS canonical: ${result.cid} (${secondaryCount}/${result.replication.secondary.length} secondary)`);
                     })
                     .catch(error => {
                         const err = `IPFS canonical storage failed: ${error.message}`;
@@ -240,10 +268,15 @@ class EventStore {
             // Store full event JSON (with signature for auditability and retrieval)
             storagePromises.push(
                 this.storeFullEventToIPFS(fullEventBuffer)
-                    .then(cid => {
-                        results.event_cid = cid;
+                    .then(result => {
+                        results.event_cid = result.cid;
+                        results.replication = results.replication || { canonical: {}, event: {} };
+                        results.replication.event = result.replication;
+                        results.pinning = result.provider;
                         this.stats.ipfsStores++;
-                        console.log(`   IPFS full event: ${cid}`);
+                        const secondaryCount = result.replication.secondary.filter(x => x).length;
+                        const pinStatus = result.provider.success ? '✓ pinned' : (result.provider.attempted ? '✗ pin failed' : '');
+                        console.log(`  ✓ IPFS full event: ${result.cid} (${secondaryCount}/${result.replication.secondary.length} secondary) ${pinStatus}`);
                     })
                     .catch(error => {
                         const err = `IPFS full event storage failed: ${error.message}`;
@@ -512,65 +545,53 @@ class EventStore {
             );
         }
 
-        let data;
-        let retrievalMethod;
+        // Try each IPFS client in order (primary first, then secondary nodes)
+        const errors = [];
+        for (const { client, url, isPrimary } of this.ipfsClients) {
+            let data;
+            let retrievalMethod;
 
-        try {
-            // Path 1: Try UnixFS cat() first (new format, works with gateways)
             try {
-                const chunks = [];
-                for await (const chunk of this.ipfs.cat(event_cid)) {
-                    chunks.push(chunk);
+                // Path 1: Try UnixFS cat() first (new format, works with gateways)
+                try {
+                    const chunks = [];
+                    for await (const chunk of client.cat(event_cid)) {
+                        chunks.push(chunk);
+                    }
+                    data = Buffer.concat(chunks);
+                    retrievalMethod = 'UnixFS (cat)';
+                } catch (catError) {
+                    // Path 2: Fallback to raw block.get() for backward compatibility
+                    const block = await client.block.get(event_cid);
+                    data = Buffer.from(block);
+                    retrievalMethod = 'raw block (block.get)';
                 }
-                data = Buffer.concat(chunks);
-                retrievalMethod = 'UnixFS (cat)';
-            } catch (catError) {
-                // Path 2: Fallback to raw block.get() for backward compatibility
-                console.log(`   cat() failed, trying block.get() for backward compatibility...`);
-                const block = await this.ipfs.block.get(event_cid);
-                data = Buffer.from(block);
-                retrievalMethod = 'raw block (block.get)';
+
+                const event = JSON.parse(data.toString('utf-8'));
+
+                // Verify event structure
+                this.validateEvent(event);
+
+                // Verify hash matches (important for integrity)
+                const computedHash = this.calculateHash(event);
+                const nodeInfo = !isPrimary ? ` from secondary node ${url}` : '';
+                console.log(` Event retrieved successfully from IPFS via ${retrievalMethod}${nodeInfo} (hash: ${computedHash.substring(0, 12)}...)`);
+
+                this.stats.retrieved++;
+                return event;
+            } catch (error) {
+                errors.push(`${url}: ${error.message}`);
+                console.warn(`   Failed to retrieve from IPFS node ${url}: ${error.message}`);
             }
-
-            const event = JSON.parse(data.toString('utf-8'));
-
-            // Verify event structure
-            this.validateEvent(event);
-
-            // Verify hash matches (important for integrity)
-            const computedHash = this.calculateHash(event);
-            console.log(` Event retrieved successfully from IPFS via ${retrievalMethod} (hash: ${computedHash.substring(0, 12)}...)`);
-
-            this.stats.retrieved++;
-            return event;
-        } catch (error) {
-            this.stats.errors++;
-
-            // Provide specific error messages for common failure modes
-            if (error.message.includes('Not found') || error.message.includes('no link')) {
-                throw new Error(
-                    `Event not found in IPFS. CID: ${event_cid}. ` +
-                    `The event may not be pinned or IPFS node may be out of sync.`
-                );
-            }
-
-            if (error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
-                throw new Error(
-                    `IPFS retrieval timeout for CID: ${event_cid}. ` +
-                    `IPFS node may be slow or unavailable. Try again later.`
-                );
-            }
-
-            if (error.message.includes('ECONNREFUSED')) {
-                throw new Error(
-                    `IPFS node unavailable (connection refused). CID: ${event_cid}. ` +
-                    `Check that IPFS daemon is running at ${this.config.ipfs?.url || 'configured URL'}.`
-                );
-            }
-
-            // Generic error with CID for debugging
-            throw new Error(`Failed to retrieve event by CID ${event_cid}: ${error.message}`);
         }
+
+        // All nodes failed
+        this.stats.errors++;
+        throw new Error(
+            `Event not found in IPFS from any node. CID: ${event_cid}. ` +
+            `Errors: ${errors.join('; ')}. ` +
+            `The event may not be pinned or all IPFS nodes may be out of sync.`
+        );
     }
 
     /**
@@ -594,18 +615,24 @@ class EventStore {
 
     /**
      * Store data to IPFS as a raw block.
+     * Stores on primary node, then replicates to secondary nodes (best-effort).
      * Lets IPFS compute the CID from the data, then verifies it matches the anchored hash.
      * This ensures true content-addressing: CID is derived from the data, not from hashing the hash.
      *
      * @private
      * @param {Buffer} data - Data to store (canonical event bytes without signature)
      * @param {string} hash - Event hash (sha256 hex string) - used for verification
-     * @returns {Promise<string>} IPFS CID
+     * @returns {Promise<Object>} { cid: string, replication: { primary: boolean, secondary: boolean[] } }
      */
     async storeToIPFS(data, hash) {
-        // Let IPFS compute the CID from the actual data bytes
-        // This ensures the CID is truly content-addressed
-        const result = await this.ipfs.block.put(data, {
+        const replication = {
+            primary: false,
+            secondary: []
+        };
+
+        // Store on primary IPFS node
+        const primaryClient = this.ipfsClients[0].client;
+        const result = await primaryClient.block.put(data, {
             format: 'raw',
             mhtype: 'sha2-256',
             version: 1,
@@ -614,6 +641,7 @@ class EventStore {
 
         const cid = result.cid;
         const cidString = cid.toString();
+        replication.primary = true;
 
         // CRITICAL: Verify the CID's digest matches our anchored hash
         // If this fails, it means our canonicalization or hash calculation is wrong
@@ -632,11 +660,41 @@ class EventStore {
             console.warn(`   Failed to store hash→CID mapping: ${err.message}`)
         );
 
-        return cidString;
+        // Replicate to secondary IPFS nodes (best-effort, don't fail if replication fails)
+        for (let i = 1; i < this.ipfsClients.length; i++) {
+            this.stats.ipfsReplicationAttempts++;
+            const secondaryClient = this.ipfsClients[i].client;
+            const url = this.ipfsClients[i].url;
+
+            try {
+                const secondaryResult = await secondaryClient.block.put(data, {
+                    format: 'raw',
+                    mhtype: 'sha2-256',
+                    version: 1,
+                    pin: true
+                });
+
+                // Verify CID matches (should always be identical for same data)
+                const secondaryCid = secondaryResult.cid.toString();
+                if (secondaryCid !== cidString) {
+                    console.warn(`⚠️  Secondary IPFS node ${url} produced different CID: ${secondaryCid} vs ${cidString}`);
+                    replication.secondary.push(false);
+                } else {
+                    replication.secondary.push(true);
+                    this.stats.ipfsReplicationSuccesses++;
+                }
+            } catch (error) {
+                console.warn(`⚠️  Failed to replicate canonical block to secondary IPFS node ${url}:`, error.message);
+                replication.secondary.push(false);
+            }
+        }
+
+        return { cid: cidString, replication };
     }
 
     /**
-     * Store full event JSON to IPFS.
+     * Store full event JSON to IPFS with redundancy.
+     * Stores on primary node, replicates to secondary nodes, and pins to external provider.
      * Unlike storeToIPFS which stores canonical bytes as raw blocks for verification,
      * this stores the complete event with signature as UnixFS for easy retrieval.
      *
@@ -647,11 +705,21 @@ class EventStore {
      *
      * @private
      * @param {Buffer} data - Full event JSON buffer (with signature)
-     * @returns {Promise<string>} IPFS CID
+     * @returns {Promise<Object>} { cid: string, replication: {...}, provider: {...} }
      */
     async storeFullEventToIPFS(data) {
-        // Store as UnixFS file (not raw block) for gateway compatibility
-        const result = await this.ipfs.add(
+        const replication = {
+            primary: false,
+            secondary: []
+        };
+        const provider = {
+            attempted: false,
+            success: false
+        };
+
+        // Store on primary IPFS node
+        const primaryClient = this.ipfsClients[0].client;
+        const result = await primaryClient.add(
             { content: data },
             {
                 pin: true,
@@ -660,11 +728,67 @@ class EventStore {
             }
         );
 
-        return result.cid.toString();
+        const cidString = result.cid.toString();
+        replication.primary = true;
+
+        // Replicate to secondary IPFS nodes (best-effort)
+        for (let i = 1; i < this.ipfsClients.length; i++) {
+            this.stats.ipfsReplicationAttempts++;
+            const secondaryClient = this.ipfsClients[i].client;
+            const url = this.ipfsClients[i].url;
+
+            try {
+                const secondaryResult = await secondaryClient.add(
+                    { content: data },
+                    {
+                        pin: true,
+                        cidVersion: 1,
+                        hashAlg: 'sha2-256'
+                    }
+                );
+
+                // Verify CID matches
+                const secondaryCid = secondaryResult.cid.toString();
+                if (secondaryCid !== cidString) {
+                    console.warn(`⚠️  Secondary IPFS node ${url} produced different CID: ${secondaryCid} vs ${cidString}`);
+                    replication.secondary.push(false);
+                } else {
+                    replication.secondary.push(true);
+                    this.stats.ipfsReplicationSuccesses++;
+                }
+            } catch (error) {
+                console.warn(`⚠️  Failed to replicate full event to secondary IPFS node ${url}:`, error.message);
+                replication.secondary.push(false);
+            }
+        }
+
+        // Pin to external provider (best-effort, after local replication)
+        if (this.pinningProvider) {
+            this.stats.externalPinAttempts++;
+            provider.attempted = true;
+
+            try {
+                const pinned = await this.pinningProvider.pinCid(cidString, {
+                    name: `polaris-event-${cidString}`,
+                    type: 'full_event'
+                });
+
+                if (pinned) {
+                    provider.success = true;
+                    this.stats.externalPinSuccesses++;
+                }
+            } catch (error) {
+                // Silently catch - external pinning is best-effort only
+                console.warn(`⚠️  External pinning failed for ${cidString}:`, error.message);
+            }
+        }
+
+        return { cid: cidString, replication, provider };
     }
 
     /**
-     * Retrieve data from IPFS by hash.
+     * Retrieve data from IPFS by hash with multi-node fallback.
+     * Tries all IPFS nodes in order until one succeeds.
      * First tries Redis hash→CID mapping, then derives CID from hash if missing.
      * This makes IPFS retrieval work even without Redis (IPFS-only mode).
      *
@@ -694,13 +818,23 @@ class EventStore {
             }
         }
 
-        // Retrieve from IPFS using block.get() for raw blocks
-        try {
-            const block = await this.ipfs.block.get(cid);
-            return Buffer.from(block);
-        } catch (error) {
-            throw new Error(`IPFS retrieval failed for CID ${cid}: ${error.message}`);
+        // Try each IPFS client in order (primary first, then secondary nodes)
+        const errors = [];
+        for (const { client, url, isPrimary } of this.ipfsClients) {
+            try {
+                const block = await client.block.get(cid);
+                if (!isPrimary) {
+                    console.log(`   Retrieved from secondary IPFS node: ${url}`);
+                }
+                return Buffer.from(block);
+            } catch (error) {
+                errors.push(`${url}: ${error.message}`);
+                console.warn(`   Failed to retrieve from IPFS node ${url}: ${error.message}`);
+            }
         }
+
+        // All nodes failed
+        throw new Error(`IPFS retrieval failed for CID ${cid} from all nodes: ${errors.join('; ')}`);
     }
 
     /**
