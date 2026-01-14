@@ -289,25 +289,25 @@ process_event() {
     esac
 
     # Build action payload (simulates what comes from blockchain)
+    # CRITICAL: Include event_cid in payload to test CID-based retrieval path
     local action_payload=$(jq -n \
         --arg author "$SMOKE_AUTHOR" \
         --argjson type "$type_code" \
         --arg hash "$hash" \
+        --arg event_cid "$event_cid" \
         --argjson ts "$timestamp" \
-        '{author: $author, type: $type, hash: $hash, ts: $ts, tags: []}')
+        '{author: $author, type: $type, hash: $hash, event_cid: $event_cid, ts: $ts, tags: []}')
 
     # Build anchored event
     local anchored_event=$(jq -n \
         --arg content_hash "$hash" \
         --arg payload "$action_payload" \
-        --arg event_cid "$event_cid" \
         --argjson block_num "$RUN_ID" \
         --arg trx_id "smoke-test-trx-$RUN_ID" \
         --arg source "smoke-test" \
         '{
             content_hash: $content_hash,
             payload: $payload,
-            event_cid: $event_cid,
             block_num: $block_num,
             trx_id: $trx_id,
             source: $source,
