@@ -38,6 +38,9 @@ export default {
     // Setup files
     setupFilesAfterEnv: ['<rootDir>/setup.js'],
 
+    // Global teardown - close all registered handles
+    globalTeardown: '<rootDir>/teardown.js',
+
     // Module paths
     modulePaths: ['<rootDir>/../src'],
 

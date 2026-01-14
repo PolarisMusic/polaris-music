@@ -2,7 +2,14 @@
  * Jest setup file - runs before all tests
  *
  * Sets up test environment, loads env vars, and configures global test utilities.
+ *
+ * For resource cleanup (Neo4j drivers, Redis clients, HTTP servers):
+ *   import { registerHandle } from './test/handles.js';
+ *   registerHandle('Resource name', () => resource.close());
  */
+
+// Import and re-export handle registration utilities
+export { registerHandle, clearHandles, getHandleCount } from './handles.js';
 
 // Note: jest global is not available in ES modules setup
 // Timeout is configured in jest.config.js instead
@@ -27,9 +34,5 @@ if (!process.env.GRAPH_URI) {
 
 console.log('✓ Jest test environment ready');
 
-// Global cleanup to close any open connections/timers
-// This prevents "Worker failed to exit gracefully" errors
-global.afterAll = global.afterAll || (() => {
-    // Placeholder for global cleanup
-    // Individual test files should close their own resources
-});
+// Global cleanup handled by globalTeardown in jest.config.js
+// Individual test files should register resources via registerHandle()
