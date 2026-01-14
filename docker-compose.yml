@@ -178,6 +178,10 @@ services:
       - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
       - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
 
+      # Development/Testing: Smoke Test Support
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-}
+      - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
+
       # API Configuration
       - CORS_ORIGIN=http://localhost:5173
       - LOG_LEVEL=debug
@@ -243,6 +247,10 @@ services:
       - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
       - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
       - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
+
+      # Development/Testing: Smoke Test Support
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-}
+      - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
 
       # Processor Configuration
       - START_BLOCK=0
