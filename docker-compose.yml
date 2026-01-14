@@ -316,7 +316,12 @@ services:
   # NEW: Uses Pinax Antelope foundational modules (.spkg URL for reliability)
   #   - No local build artifacts needed
   #   - Filters by: code:CONTRACT_ACCOUNT && action:put
+  # Substreams Sink (Blockchain → API ingestion)
+  # NOTE: This service requires SUBSTREAMS_API_TOKEN to be set
+  # By default this service is DISABLED to avoid restart loops when token is missing
+  # To enable: docker compose --profile chain up
   substreams-sink:
+    profiles: ["chain"]  # Only runs when explicitly enabled with --profile chain
     build:
       context: ./substreams
       dockerfile: Dockerfile
@@ -370,8 +375,6 @@ services:
       api:
         condition: service_started
     restart: unless-stopped
-    # This service will exit immediately if SUBSTREAMS_API_TOKEN is not set
-    # To run without chain ingestion: docker-compose up -d neo4j redis ipfs minio api frontend
 
 volumes:
   neo4j-data:

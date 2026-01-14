@@ -160,14 +160,22 @@ This service is included in `docker-compose.yml` but requires a Pinax API token 
    - SUBSTREAMS_API_TOKEN=your_token_here
    ```
 
-3. **Start the stack** (including Substreams chain ingestion):
+3. **Start the stack**:
+
+   **With blockchain ingestion** (requires Pinax token):
    ```bash
-   docker compose up -d
+   docker compose --profile chain up -d
    ```
 
    The `substreams-sink` service will automatically start and begin ingesting blockchain events.
 
-   **Note**: The legacy `processor` service is disabled by default. Only Substreams ingestion runs to prevent double-ingestion.
+   **Without blockchain ingestion** (if you don't have a Pinax token):
+   ```bash
+   # Start only core services (excludes substreams-sink)
+   docker compose up -d
+   ```
+
+   **Note**: The `substreams-sink` service is behind the `chain` profile to avoid restart loops when token is missing. The legacy `processor` service is behind the `legacy` profile.
 
 4. **Verify ingestion** (check logs):
    ```bash
@@ -175,12 +183,6 @@ This service is included in `docker-compose.yml` but requires a Pinax API token 
    ```
 
    You should see events being posted to `/api/ingest/anchored-event`.
-
-**Running without chain ingestion** (if you don't have a Pinax token):
-```bash
-# Start only core services (excludes substreams-sink)
-docker compose up -d neo4j redis ipfs minio api frontend
-```
 
 **Configuration Options**:
 - `START_BLOCK`: Block number to start ingestion from (default: 0)
