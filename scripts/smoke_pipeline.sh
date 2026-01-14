@@ -11,7 +11,7 @@
 # 6. Data verification
 #
 # Prerequisites:
-# - Docker and docker-compose installed
+# - Docker and docker compose installed
 # - jq installed for JSON processing
 # - DEV_SIGNER_PRIVATE_KEY environment variable set (or use default test key)
 # - REQUIRE_ACCOUNT_AUTH=false (to skip blockchain account verification)
@@ -31,7 +31,7 @@ set -e  # Exit on first error
 # Configuration
 # ============================================================================
 
-# API endpoint (default: docker-compose exposed port)
+# API endpoint (default: docker compose exposed port)
 API_PORT="${1:-3000}"
 API_BASE="http://localhost:${API_PORT}"
 
@@ -90,8 +90,9 @@ check_prerequisites() {
         fail "docker is not installed"
     fi
 
-    if ! command -v docker-compose &> /dev/null && ! command -v docker &> /dev/null; then
-        fail "docker-compose is not installed"
+    # Check if docker compose is available (modern standard)
+    if ! docker compose version &> /dev/null; then
+        fail "docker compose is not available (install Docker Compose v2)"
     fi
 
     if ! command -v jq &> /dev/null; then
@@ -109,11 +110,11 @@ check_prerequisites() {
 start_stack() {
     log_info "Starting Docker Compose stack..."
 
-    # Export environment variables for docker-compose
+    # Export environment variables for docker compose
     export DEV_SIGNER_PRIVATE_KEY
     export REQUIRE_ACCOUNT_AUTH=false  # Disable account auth check for smoke test
 
-    docker-compose up -d
+    docker compose up -d
 
     log_success "Stack started"
 }
