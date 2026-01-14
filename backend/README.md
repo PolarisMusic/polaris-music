@@ -311,7 +311,37 @@ npm run test:coverage
 
 # Watch mode during development
 npm run test:watch
+
+# Load testing with Artillery
+npm run test:load
 ```
+
+### Load Testing
+
+Load tests use [Artillery](https://www.artillery.io/) to simulate realistic traffic against the full pipeline:
+- **prepare** → **dev-sign** → **create** → **ingest anchored event**
+
+**Prerequisites:**
+- API server running locally: `docker compose up -d` or `npm run dev`
+- Dev signer enabled: `DEV_SIGNER_PRIVATE_KEY` set in API container
+- Account auth disabled: `REQUIRE_ACCOUNT_AUTH=false` in API container
+
+**Run load test:**
+```bash
+npm run test:load
+```
+
+**Load test profile:**
+- **Phase 1**: Ramp from 1 to 10 requests/second over 30 seconds
+- **Phase 2**: Sustain 10 requests/second for 60 seconds
+- **Total duration**: 90 seconds
+
+Artillery will report:
+- Request latency (p50, p95, p99)
+- Throughput (requests/second)
+- Error rate (4xx/5xx responses)
+
+**Safety:** Load tests refuse to run if `NODE_ENV=production`. Only run against development/test environments.
 
 ### Test Data
 
