@@ -68,12 +68,13 @@ services:
       timeout: 10s
       retries: 3
 
-  # IPFS Node (Secondary - internal redundancy, no inbound swarm connections)
-  # Note: No host port mappings - reachable only via Docker network at http://ipfs2:5001
-  # Can make outbound swarm connections (useful for content discovery) but cannot accept
-  # inbound connections from external peers (no exposed ports).
-  # This provides local redundancy without the complexity of multi-port swarm announce.
-  # Public availability is provided by the primary ipfs node + optional external pinning.
+  # IPFS Node (Secondary - OPTIONAL internal redundancy)
+  # Purpose: Best-effort replication for local redundancy
+  # - Not required for startup (api/processor will start without it)
+  # - Reachable only via Docker network at http://ipfs2:5001 (no host ports)
+  # - Can make outbound swarm connections (content discovery) but no inbound (no exposed ports)
+  # - To disable: Set IPFS_URLS=http://ipfs:5001 (single node)
+  # - Public availability: primary ipfs node + optional external pinning
   ipfs2:
     image: ipfs/kubo:v0.24.0
     container_name: polaris-ipfs2
@@ -159,8 +160,10 @@ services:
       - GRAPH_USER=neo4j
       - GRAPH_PASSWORD=polarisdev
 
-      # Storage
-      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy (primary + internal backup)
+      # Storage (IPFS)
+      # Minimal mode (single node): IPFS_URLS=http://ipfs:5001
+      # Redundant mode (multi-node): IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
+      - IPFS_URLS=${IPFS_URLS:-http://ipfs:5001,http://ipfs2:5001}
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=polaris
       - S3_SECRET_KEY=polarisdev123
@@ -192,10 +195,9 @@ services:
         condition: service_healthy
       ipfs:
         condition: service_healthy
-      ipfs2:
-        condition: service_healthy
       minio:
         condition: service_healthy
+      # ipfs2 is optional - best-effort redundancy, not required for startup
     volumes:
       - ./backend/src:/app/src
       - ./backend/test:/app/test
@@ -229,8 +231,10 @@ services:
       - GRAPH_USER=neo4j
       - GRAPH_PASSWORD=polarisdev
 
-      # Storage
-      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001  # Multi-node redundancy (primary + internal backup)
+      # Storage (IPFS)
+      # Minimal mode (single node): IPFS_URLS=http://ipfs:5001
+      # Redundant mode (multi-node): IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
+      - IPFS_URLS=${IPFS_URLS:-http://ipfs:5001,http://ipfs2:5001}
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=polaris
       - S3_SECRET_KEY=polarisdev123
@@ -264,12 +268,11 @@ services:
         condition: service_healthy
       ipfs:
         condition: service_healthy
-      ipfs2:
-        condition: service_healthy
       minio:
         condition: service_healthy
       api:
         condition: service_started
+      # ipfs2 is optional - best-effort redundancy, not required for startup
     volumes:
       - ./backend/src:/app/src
     networks:
