@@ -5,7 +5,12 @@
  * Load tests should only run against development/test environments with:
  * - DEV_SIGNER_PRIVATE_KEY set in API container
  * - REQUIRE_ACCOUNT_AUTH=false
+ *
+ * IMPORTANT: This processor uses smoke payload templates to ensure schema consistency.
+ * Templates are loaded from scripts/smoke_payloads/*.tmpl.json
  */
+
+const { renderTemplateFile } = require('./template.js');
 
 // Production safety check
 if (process.env.NODE_ENV === 'production') {
@@ -16,35 +21,40 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 /**
- * Generate unique IDs and create MINT_ENTITY event payload
+ * Generate unique IDs and create MINT_ENTITY event payload using template
  * Sets context.vars.mintEvent for use in prepare request
  */
 function makeIds(context, events, done) {
   // Generate unique entity ID for this virtual user
-  const entityId = `load_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const runId = Date.now().toString();
+  const entityId = `load_${runId}_${Math.random().toString(16).slice(2)}`;
+  const timestamp = new Date().toISOString();
 
-  // Create MINT_ENTITY event matching smoke_payloads/mint-entity.tmpl.json schema
-  const mintEvent = {
-    v: 1,
-    type: 'MINT_ENTITY',
-    created_at: new Date().toISOString(),
-    parents: [],
-    body: {
-      entity_type: 'person',
-      canonical_id: entityId,
-      initial_claims: [],
-      provenance: {
-        submitter: 'artillery-load-test',
-        source: 'load_test_harness'
+  // Render MINT_ENTITY event from template
+  // This ensures the load test uses the same schema as smoke tests
+  try {
+    const mintEvent = renderTemplateFile(
+      'scripts/smoke_payloads/mint-entity.tmpl.json',
+      {
+        ENTITY_ID: entityId,
+        TIMESTAMP: timestamp
       }
-    }
-  };
+    );
 
-  // Store in context for use in Artillery scenario
-  context.vars.mintEvent = mintEvent;
-  context.vars.entityId = entityId;
+    // Override provenance to identify load test events
+    mintEvent.body.provenance.submitter = 'artillery-load-test';
+    mintEvent.body.provenance.source = 'load_test_harness';
 
-  return done();
+    // Store in context for use in Artillery scenario
+    context.vars.mintEvent = mintEvent;
+    context.vars.entityId = entityId;
+    context.vars.runId = runId;
+
+    return done();
+  } catch (error) {
+    console.error('Template rendering failed:', error.message);
+    return done(error);
+  }
 }
 
 /**
