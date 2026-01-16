@@ -1153,6 +1153,16 @@ CALL dbms.components() YIELD name, versions;
 MATCH (n) WHERE n.status = 'test' DETACH DELETE n;
 ```
 
+**Neo4j Password/Volume Issues:**
+
+If Neo4j healthcheck fails with authentication errors after changing the password in `docker-compose.yml`, you need to remove the old volume:
+
+```bash
+docker compose down -v
+```
+
+This is necessary because Neo4j only applies `NEO4J_AUTH` on first initialization of the database volume. No compose change can retroactively change the password inside an existing Neo4j data volume.
+
 #### Storage Issues
 ```bash
 # Test IPFS

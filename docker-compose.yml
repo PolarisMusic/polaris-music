@@ -9,7 +9,8 @@ services:
       - "7474:7474"  # HTTP
       - "7687:7687"  # Bolt
     environment:
-      - NEO4J_AUTH=neo4j/polarisdev
+      - NEO4J_PASSWORD=polarisdev
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
       - NEO4J_dbms_memory_heap_initial__size=512m
@@ -23,10 +24,11 @@ services:
     networks:
       - polaris-network
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p polarisdev 'RETURN 1'"]
-      interval: 10s
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD} 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 30
+      start_period: 30s
 
   # Redis Cache
   redis:
@@ -108,26 +110,37 @@ services:
       - minio-data:/data
     networks:
       - polaris-network
+
+  # MinIO Health Check (uses curl to check MinIO readiness)
+  # Separate service because MinIO image doesn't include curl
+  minio-health:
+    image: curlimages/curl:8.6.0
+    container_name: polaris-minio-health
+    depends_on:
+      - minio
+    networks:
+      - polaris-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      test: ["CMD", "curl", "-fsS", "http://minio:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
   # MinIO Client - Create bucket on startup
   minio-init:
     image: minio/mc:RELEASE.2024-01-18T07-03-39Z
     container_name: polaris-minio-init
     depends_on:
-      minio:
+      minio-health:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
+      set -e;
       /usr/bin/mc alias set polaris http://minio:9000 polaris polarisdev123;
-      /usr/bin/mc mb polaris/polaris-events --ignore-existing;
+      /usr/bin/mc mb -p polaris/polaris-events || true;
       /usr/bin/mc anonymous set download polaris/polaris-events;
-      exit 0;
+      echo 'MinIO init complete';
       "
     networks:
       - polaris-network
@@ -196,7 +209,9 @@ services:
       ipfs:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
       # ipfs2 is optional - best-effort redundancy, not required for startup
     volumes:
       - ./backend/src:/app/src
@@ -269,7 +284,9 @@ services:
       ipfs:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
       api:
         condition: service_started
       # ipfs2 is optional - best-effort redundancy, not required for startup
