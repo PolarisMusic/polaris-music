@@ -743,9 +743,9 @@ class APIServer {
             try {
                 const status = await getStatus({
                     eventStore: this.store,
-                    neo4jDriver: this.graph.driver,
-                    redisClient: this.store.redis,
-                    pinningProvider: this.store.pinningProvider
+                    neo4jDriver: this.db?.driver,
+                    redisClient: this.store?.redis,
+                    pinningProvider: this.store?.pinningProvider
                 });
 
                 // Return 503 if any service is down, 200 if all OK
