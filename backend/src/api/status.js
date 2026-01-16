@@ -7,6 +7,31 @@
  * @module api/status
  */
 
+import fetch from 'node-fetch';
+
+/**
+ * Make a POST request to IPFS HTTP API and parse JSON response
+ * Bypasses ipfs-http-client to avoid multiaddr parsing issues
+ *
+ * @param {string} baseUrl - IPFS API base URL (e.g., "http://ipfs:5001")
+ * @param {string} path - API path without leading slash (e.g., "version", "id")
+ * @returns {Promise<Object>} Parsed JSON response
+ * @throws {Error} If request fails or response is not ok
+ */
+async function ipfsPostJson(baseUrl, path) {
+    const res = await fetch(`${baseUrl}/api/v0/${path}`, { method: 'POST' });
+    const text = await res.text();
+    if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    }
+    try {
+        return JSON.parse(text);
+    } catch {
+        // In case IPFS returns non-JSON (rare), still surface it
+        return { raw: text };
+    }
+}
+
 /**
  * Get comprehensive system status
  *
@@ -97,16 +122,18 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
             };
 
             try {
-                // Get node ID and version (fast health check)
-                const [idResult, versionResult] = await Promise.all([
-                    client.id(),
-                    client.version()
-                ]);
+                // Get node ID and version via raw HTTP POST (avoids multiaddr parsing issues)
+                // This bypasses ipfs-http-client's client.id() which fails on newer multiaddr
+                // protocols like /webrtc-direct that the library doesn't recognize
+                const versionJson = await ipfsPostJson(url, 'version');
+                const idJson = await ipfsPostJson(url, 'id');
 
                 ipfsStatus.ok = true;
-                ipfsStatus.id = idResult.id;
-                ipfsStatus.version = versionResult.version;
+                ipfsStatus.version = versionJson.Version ?? versionJson.version ?? 'unknown';
+                ipfsStatus.id = idJson.ID ?? idJson.id ?? 'unknown';
+                // Don't parse or touch idJson.Addresses - that's what causes multiaddr errors
             } catch (error) {
+                ipfsStatus.ok = false;
                 ipfsStatus.error = error.message;
                 // Don't set status.ok = false here - we'll compute it after the loop
             }
