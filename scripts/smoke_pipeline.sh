@@ -171,6 +171,28 @@ generate_test_ids() {
     log_info "  AUTHOR: $SMOKE_AUTHOR"
 }
 
+# Fetch dev signer public key
+get_dev_pubkey() {
+    log_info "Fetching dev signer public key (GET /api/events/dev-pubkey)..."
+
+    local resp=$(curl -s -f "${API_BASE}/api/events/dev-pubkey" 2>/dev/null) \
+        || fail "Could not fetch dev pubkey. Is DEV_SIGNER_PRIVATE_KEY set for the api container?"
+
+    local ok=$(echo "$resp" | jq -r '.success // false')
+    if [ "$ok" != "true" ]; then
+        log_error "Dev pubkey endpoint error:"
+        echo "$resp" | jq '.'
+        fail "Dev signer pubkey unavailable"
+    fi
+
+    DEV_AUTHOR_PUBKEY=$(echo "$resp" | jq -r '.author_pubkey')
+    if [ -z "$DEV_AUTHOR_PUBKEY" ] || [ "$DEV_AUTHOR_PUBKEY" = "null" ]; then
+        fail "Dev signer pubkey was empty"
+    fi
+
+    log_success "Dev pubkey acquired: ${DEV_AUTHOR_PUBKEY:0:20}..."
+}
+
 # Process a single event through the pipeline
 # Args: event_file_template, event_name
 process_event() {
@@ -194,7 +216,11 @@ process_event() {
     echo "$event_json" | jq -e '.created_at | (type=="number") and (. > 0)' >/dev/null \
         || fail "Template produced invalid created_at (must be a positive number). Check __TIMESTAMP__ quoting."
 
-    log_success "Event built"
+    # Inject author_pubkey BEFORE prepare so canonical payload/hash include it
+    # This ensures signature verification will succeed (verifier includes author_pubkey in hash)
+    event_json=$(echo "$event_json" | jq --arg pub "$DEV_AUTHOR_PUBKEY" '. + {author_pubkey: $pub}')
+
+    log_success "Event built with author_pubkey"
 
     # Step 2: Prepare event (get canonical hash and payload)
     log_info "Step 2: Preparing event (POST /api/events/prepare)..."
@@ -241,10 +267,13 @@ process_event() {
     # Step 4: Add signature to event
     log_info "Step 4: Adding signature to event..."
 
-    local signed_event=$(echo "$event_json" | jq \
-        --arg sig "$sig" \
-        --arg pubkey "$author_pubkey" \
-        '. + {sig: $sig, author_pubkey: $pubkey}')
+    # Only add sig (author_pubkey was already added before prepare)
+    local signed_event=$(echo "$event_json" | jq --arg sig "$sig" '. + {sig: $sig}')
+
+    # Verify pubkey from /dev-sign matches what we injected earlier
+    if [ "$author_pubkey" != "$DEV_AUTHOR_PUBKEY" ]; then
+        log_warning "Pubkey mismatch: got $author_pubkey, expected $DEV_AUTHOR_PUBKEY"
+    fi
 
     log_success "Signature added to event"
 
@@ -438,6 +467,10 @@ main() {
 
     # Wait for health
     wait_for_health
+    echo ""
+
+    # Fetch dev signer pubkey (required for correct signing)
+    get_dev_pubkey
     echo ""
 
     # Generate test IDs

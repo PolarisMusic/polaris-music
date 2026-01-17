@@ -778,6 +778,11 @@ class APIServer {
          * 4. Adds sig to event
          * 5. Calls /api/events/create to store
          *
+         * IMPORTANT: The event passed to /prepare must include author_pubkey.
+         * If you prepare without author_pubkey and add it later, the canonical
+         * payload/hash will not match what the verifier hashes (which includes
+         * author_pubkey), causing signature verification to fail.
+         *
          * @returns {Object} { success: true, hash, normalizedEvent }
          */
         this.app.post('/api/events/prepare', async (req, res) => {
@@ -817,6 +822,46 @@ class APIServer {
             } catch (error) {
                 console.error('Event preparation failed:', error);
                 res.status(400).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/events/dev-pubkey
+         * Development-only endpoint for getting the dev signer public key
+         *
+         * WARNING: DEV/TEST ONLY!
+         * - Only enabled when DEV_SIGNER_PRIVATE_KEY is set
+         * - Disabled in production (NODE_ENV=production)
+         * - Returns 403 if not enabled
+         *
+         * This allows smoke tests to know the author_pubkey before calling
+         * /api/events/prepare, ensuring the canonical payload includes it.
+         *
+         * Response:
+         * {
+         *   "success": true,
+         *   "author_pubkey": "EOS..."
+         * }
+         */
+        this.app.get('/api/events/dev-pubkey', (req, res) => {
+            try {
+                const devSigner = getDevSigner();
+                if (!devSigner?.isEnabled?.() || !devSigner.getPublicKey?.()) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY and ensure NODE_ENV !== production'
+                    });
+                }
+
+                return res.json({
+                    success: true,
+                    author_pubkey: devSigner.getPublicKey()
+                });
+            } catch (error) {
+                return res.status(500).json({
                     success: false,
                     error: error.message
                 });
