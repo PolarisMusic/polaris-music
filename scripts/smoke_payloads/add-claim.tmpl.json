@@ -5,11 +5,11 @@
   "parents": [],
   "body": {
     "node": {
-      "type": "person",
-      "id": "__ENTITY_ID__"
+      "type": "release",
+      "id": "__RELEASE_ID__"
     },
-    "field": "name",
-    "value": "Smoke Test Person __RUN_ID__",
+    "field": "catalog_number",
+    "value": "SMOKE-__RUN_ID__",
     "provenance": {
       "submitter": "smoke-test",
       "source": "smoke_pipeline"
