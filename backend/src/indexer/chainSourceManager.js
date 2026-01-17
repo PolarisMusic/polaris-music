@@ -148,12 +148,12 @@ export class ChainSourceManager {
             const result = await this.ingestionHandler.processAnchoredEvent(anchoredEvent);
 
             // Track stats based on actual ingestion return values
-            // IngestionHandler returns: 'success', 'duplicate', 'failed', or 'not_found'
-            if (result.status === 'success') {
+            // IngestionHandler returns: 'processed', 'duplicate', 'error', or 'not_found'
+            if (result.status === 'processed') {
                 this.stats.eventsIngested++;
             } else if (result.status === 'duplicate') {
                 this.stats.eventsDeduped++;
-            } else if (result.status === 'failed' || result.status === 'not_found') {
+            } else if (result.status === 'error' || result.status === 'not_found') {
                 this.stats.errors++;
             }
 
