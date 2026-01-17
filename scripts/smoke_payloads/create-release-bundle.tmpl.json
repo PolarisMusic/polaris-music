@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": "__TIMESTAMP__",
+  "parents": [],
+  "body": {
+    "release": {
+      "name": "Smoke Test Release __RUN_ID__"
+    },
+    "tracks": [
+      {
+        "title": "Smoke Track __RUN_ID__"
+      }
+    ],
+    "tracklist": [
+      {
+        "position": "A1",
+        "track_title": "Smoke Track __RUN_ID__"
+      }
+    ],
+    "provenance": {
+      "submitter": "smoketest",
+      "source": "smoke_pipeline",
+      "submitted_at": "__TIMESTAMP__"
+    }
+  },
+  "proofs": {
+    "source_links": []
+  }
+}

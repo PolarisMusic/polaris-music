@@ -6,10 +6,14 @@
  */
 
 export class GraphAPI {
-    constructor(baseUrl = 'http://localhost:3001/api') {
-        this.baseUrl = baseUrl;
+    constructor(baseUrl = null) {
+        // Use env var or default to port 3000 (correct API port)
+        // Previously defaulted to 3001 which caused silent fallback to mock data
+        this.baseUrl = baseUrl || import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
         this.cache = new Map();
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+        // Only use mock fallback when explicitly enabled
+        this.useMockFallback = import.meta.env.VITE_USE_GRAPH_MOCK === 'true';
     }
 
     /**
@@ -26,8 +30,12 @@ export class GraphAPI {
             return this.transformToJIT(data);
         } catch (error) {
             console.error('Error fetching initial graph:', error);
-            // Return mock data for development
-            return this.getMockInitialGraph();
+            // Only use mock data if explicitly enabled (prevents silent failures)
+            if (this.useMockFallback) {
+                console.warn('Using mock graph data (VITE_USE_GRAPH_MOCK=true)');
+                return this.getMockInitialGraph();
+            }
+            throw error;
         }
     }
 
@@ -65,7 +73,11 @@ export class GraphAPI {
             return data;
         } catch (error) {
             console.error(`Error fetching ${nodeType} details:`, error);
-            return this.getMockNodeDetails(nodeId, nodeType);
+            // Only use mock data if explicitly enabled
+            if (this.useMockFallback) {
+                return this.getMockNodeDetails(nodeId, nodeType);
+            }
+            return null;
         }
     }
 

@@ -285,6 +285,7 @@ process_event() {
     case "$event_name" in
         "MINT_ENTITY") type_code=22 ;;
         "ADD_CLAIM") type_code=30 ;;
+        "CREATE_RELEASE_BUNDLE") type_code=21 ;;
         *) fail "Unknown event type: $event_name" ;;
     esac
 
@@ -346,34 +347,78 @@ verify_neo4j() {
     # Give Neo4j a moment to complete writes
     sleep 2
 
-    # Check if entity exists
-    log_info "Checking if entity exists: $ENTITY_ID"
+    # Check what event types were processed
+    local has_release=false
+    local has_entity=false
 
-    # Use Neo4j HTTP API to verify
-    local neo4j_response=$(curl -s -X POST "http://localhost:7474/db/neo4j/tx/commit" \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Basic $(echo -n 'neo4j:polarisdev' | base64)" \
-        -d "{\"statements\": [{\"statement\": \"MATCH (p:Person {id: \\\"${ENTITY_ID}\\\"}) RETURN p.id as id, p.name as name\"}]}" 2>/dev/null)
+    for event_name in "${EVENT_NAMES[@]}"; do
+        if [ "$event_name" == "CREATE_RELEASE_BUNDLE" ]; then
+            has_release=true
+        elif [ "$event_name" == "MINT_ENTITY" ]; then
+            has_entity=true
+        fi
+    done
 
-    if [ $? -ne 0 ]; then
-        log_warning "Neo4j HTTP API not available (this is OK if Neo4j browser is disabled)"
-        log_warning "Skipping Neo4j verification"
-        return 0
+    # Verify release if CREATE_RELEASE_BUNDLE was processed
+    if [ "$has_release" == "true" ]; then
+        log_info "Checking if release exists (name contains: $RUN_ID)"
+
+        local neo4j_response=$(curl -s -X POST "http://localhost:7474/db/neo4j/tx/commit" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Basic $(echo -n 'neo4j:polarisdev' | base64)" \
+            -d "{\"statements\": [{\"statement\": \"MATCH (r:Release) WHERE r.name CONTAINS \\\"${RUN_ID}\\\" RETURN r.release_id AS id, r.name AS name LIMIT 5\"}]}" 2>/dev/null)
+
+        if [ $? -ne 0 ]; then
+            log_warning "Neo4j HTTP API not available (this is OK if Neo4j browser is disabled)"
+            log_warning "Skipping Neo4j verification"
+            return 0
+        fi
+
+        local result_count=$(echo "$neo4j_response" | jq -r '.results[0].data | length')
+
+        if [ "$result_count" -eq "0" ]; then
+            log_error "Release not found in Neo4j"
+            log_error "Query result: $neo4j_response"
+            fail "Neo4j verification failed: release not found"
+        fi
+
+        local release_name=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[1]')
+        local release_id=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[0]')
+
+        log_success "Release found in Neo4j"
+        log_info "  ID: $release_id"
+        log_info "  Name: $release_name"
     fi
 
-    local result_count=$(echo "$neo4j_response" | jq -r '.results[0].data | length')
+    # Verify entity if MINT_ENTITY was processed
+    if [ "$has_entity" == "true" ]; then
+        log_info "Checking if entity exists: $ENTITY_ID"
 
-    if [ "$result_count" -eq "0" ]; then
-        log_error "Entity not found in Neo4j"
-        log_error "Query result: $neo4j_response"
-        fail "Neo4j verification failed: entity not found"
+        local neo4j_response=$(curl -s -X POST "http://localhost:7474/db/neo4j/tx/commit" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Basic $(echo -n 'neo4j:polarisdev' | base64)" \
+            -d "{\"statements\": [{\"statement\": \"MATCH (p:Person {id: \\\"${ENTITY_ID}\\\"}) RETURN p.id as id, p.name as name\"}]}" 2>/dev/null)
+
+        if [ $? -ne 0 ]; then
+            log_warning "Neo4j HTTP API not available (this is OK if Neo4j browser is disabled)"
+            log_warning "Skipping Neo4j verification"
+            return 0
+        fi
+
+        local result_count=$(echo "$neo4j_response" | jq -r '.results[0].data | length')
+
+        if [ "$result_count" -eq "0" ]; then
+            log_error "Entity not found in Neo4j"
+            log_error "Query result: $neo4j_response"
+            fail "Neo4j verification failed: entity not found"
+        fi
+
+        local entity_name=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[1]')
+
+        log_success "Entity found in Neo4j"
+        log_info "  ID: $ENTITY_ID"
+        log_info "  Name: $entity_name"
     fi
-
-    local entity_name=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[1]')
-
-    log_success "Entity found in Neo4j"
-    log_info "  ID: $ENTITY_ID"
-    log_info "  Name: $entity_name"
 
     log_success "Neo4j verification complete"
 }
@@ -439,6 +484,9 @@ main() {
     # Generate test IDs
     generate_test_ids
     echo ""
+
+    # Process CREATE_RELEASE_BUNDLE event
+    process_event "${PAYLOAD_DIR}/create-release-bundle.tmpl.json" "CREATE_RELEASE_BUNDLE"
 
     # Process MINT_ENTITY event
     process_event "${PAYLOAD_DIR}/mint-entity.tmpl.json" "MINT_ENTITY"
