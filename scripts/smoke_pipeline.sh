@@ -299,8 +299,8 @@ process_event() {
 
     local canonical_cid=$(echo "$create_response" | jq -r '.stored.canonical_cid')
     local event_cid=$(echo "$create_response" | jq -r '.stored.event_cid')
-    local replication_primary=$(echo "$create_response" | jq -r '.replication.canonical.primary // false')
-    local replication_secondary=$(echo "$create_response" | jq -r '.replication.canonical.secondary[0] // false')
+    local replication_primary=$(echo "$create_response" | jq -r '.replication.event.primary // false')
+    local replication_secondary=$(echo "$create_response" | jq -r '.replication.event.secondary[0] // false')
 
     log_success "Event stored"
     log_info "  Canonical CID: ${canonical_cid:0:20}..."

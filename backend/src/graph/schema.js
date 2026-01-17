@@ -87,6 +87,67 @@ const PROTECTED_FIELDS = new Set([
 ]);
 
 /**
+ * Derive track placement (disc, side, track number) from position string.
+ * Handles common formats like "A1", "B2", "2-A3", or plain numbers "1", "02".
+ *
+ * @param {string|number} positionRaw - Position string from tracklist (e.g., "A1", "B12", "2-A3")
+ * @param {number} index - Zero-based index in tracklist (used as fallback)
+ * @returns {Object} { position, disc, side, trackNo }
+ */
+function deriveTrackPlacement(positionRaw, index) {
+    const position = String(positionRaw ?? '').trim();
+
+    let disc = 1;
+    let side = null;
+    let trackNo = null;
+
+    // Common vinyl-ish forms: "A1", "B2", "C10"
+    let m = position.match(/^([A-Za-z])\s*([0-9]+)$/);
+    if (m) {
+        side = m[1].toUpperCase();
+        trackNo = parseInt(m[2], 10);
+    }
+
+    // Numeric-only: "1", "02"
+    if (!m) {
+        m = position.match(/^([0-9]+)$/);
+        if (m) trackNo = parseInt(m[1], 10);
+    }
+
+    // Disc + side + track: "2-A3" or "2 A3"
+    if (!m) {
+        m = position.match(/^([0-9]+)\s*[- ]\s*([A-Za-z])\s*([0-9]+)$/);
+        if (m) {
+            disc = parseInt(m[1], 10);
+            side = m[2].toUpperCase();
+            trackNo = parseInt(m[3], 10);
+        }
+    }
+
+    // Deterministic fallback
+    if (!Number.isInteger(trackNo) || trackNo <= 0) trackNo = index + 1;
+    if (!Number.isInteger(disc) || disc <= 0) disc = 1;
+
+    return {
+        position: position || String(index + 1),
+        disc,
+        side,
+        trackNo
+    };
+}
+
+/**
+ * Convert a value to a positive integer or null.
+ *
+ * @param {*} v - Value to convert
+ * @returns {number|null} Positive integer or null
+ */
+function toPositiveIntOrNull(v) {
+    const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
  * Normalize a value for safe Neo4j property storage.
  * Neo4j supports primitives and homogeneous lists, but not arbitrary nested objects.
  *
@@ -909,22 +970,42 @@ class MusicGraphDatabase {
 
             console.log(`  Linking ${normalizedBundle.tracklist?.length || 0} tracks to release...`);
 
-            for (const item of normalizedBundle.tracklist || []) {
+            const tracklist = Array.isArray(normalizedBundle.tracklist) ? normalizedBundle.tracklist : [];
+            for (let idx = 0; idx < tracklist.length; idx++) {
+                const item = tracklist[idx];
+
+                if (!item.track_id) {
+                    throw new Error(
+                        `Tracklist item missing track_id after normalization (index=${idx}, position=${item.position}, title=${item.track_title})`
+                    );
+                }
+
+                // Derive track placement from position string (e.g., "A1" → track 1, side "A")
+                const derived = deriveTrackPlacement(item.position, idx);
+
+                // Use explicit values if provided, otherwise use derived values
+                const disc = toPositiveIntOrNull(item.disc_number) ?? derived.disc;
+                const trackNo = toPositiveIntOrNull(item.track_number) ?? derived.trackNo;
+                const side = (item.side ?? derived.side) ?? null;
+                const isBonus = Boolean(item.is_bonus);
+
                 await tx.run(`
                     MATCH (t:Track {track_id: $trackId})
                     MATCH (r:Release {release_id: $releaseId})
                     MERGE (t)-[i:IN_RELEASE]->(r)
-                    SET i.disc_number = $disc,
+                    SET i.position = $position,
+                        i.disc_number = $disc,
                         i.track_number = $trackNo,
                         i.side = $side,
                         i.is_bonus = $isBonus
                 `, {
                     trackId: item.track_id,
                     releaseId,
-                    disc: item.disc_number || 1,
-                    trackNo: item.track_number,
-                    side: item.side || null,
-                    isBonus: item.is_bonus || false
+                    position: derived.position,
+                    disc,
+                    trackNo,
+                    side,
+                    isBonus
                 });
             }
 
