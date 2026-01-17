@@ -1783,6 +1783,16 @@ class APIServer {
                 console.log(`   GraphQL: http://localhost:${this.port}/graphql`);
                 console.log(`   REST:    http://localhost:${this.port}/api`);
                 console.log(`   Health:  http://localhost:${this.port}/health`);
+
+                // Log DevSigner status for development visibility
+                const devSigner = getDevSigner();
+                const devSignerEnabled = devSigner?.isEnabled?.() || false;
+                const hasDevKey = !!process.env.DEV_SIGNER_PRIVATE_KEY;
+                const nodeEnv = process.env.NODE_ENV || 'development';
+                console.log(`\n   DevSigner: ${devSignerEnabled ? '✓ enabled' : '✗ disabled'}`);
+                console.log(`     NODE_ENV: ${nodeEnv}`);
+                console.log(`     DEV_SIGNER_PRIVATE_KEY: ${hasDevKey ? 'set' : 'not set'}`);
+
                 console.log(`\n Server ready\n`);
                 resolve();
             });

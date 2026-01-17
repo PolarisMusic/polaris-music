@@ -196,7 +196,8 @@ services:
       - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
 
       # Development/Testing: Smoke Test Support
-      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-}
+      # DevSigner uses well-known EOSIO dev key (safe: disabled in production via NODE_ENV check)
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
       - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
 
       # API Configuration
@@ -270,7 +271,8 @@ services:
       - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
 
       # Development/Testing: Smoke Test Support
-      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-}
+      # DevSigner uses well-known EOSIO dev key (safe: disabled in production via NODE_ENV check)
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
       - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
 
       # Processor Configuration
