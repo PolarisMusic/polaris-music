@@ -1,7 +1,7 @@
 {
   "v": 1,
   "type": "ADD_CLAIM",
-  "created_at": "__TIMESTAMP__",
+  "created_at": __TIMESTAMP__,
   "parents": [],
   "body": {
     "node": {

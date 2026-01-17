@@ -192,6 +192,10 @@ process_event() {
         sed "s/__RUN_ID__/${RUN_ID}/g" | \
         sed "s/__TIMESTAMP__/${timestamp}/g")
 
+    # Sanity check: created_at must be a number (not a quoted string)
+    echo "$event_json" | jq -e '.created_at | (type=="number") and (. > 0)' >/dev/null \
+        || fail "Template produced invalid created_at (must be a positive number). Check __TIMESTAMP__ quoting."
+
     log_success "Event built"
 
     # Step 2: Prepare event (get canonical hash and payload)

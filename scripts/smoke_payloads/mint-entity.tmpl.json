@@ -1,7 +1,7 @@
 {
   "v": 1,
   "type": "MINT_ENTITY",
-  "created_at": "__TIMESTAMP__",
+  "created_at": __TIMESTAMP__,
   "parents": [],
   "body": {
     "entity_type": "person",
