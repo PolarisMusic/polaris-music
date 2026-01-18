@@ -442,7 +442,7 @@ export class IngestionHandler {
                     console.error(`   ${errorMsg}`);
                     this.stats.eventsFailed++;
                     return {
-                        status: 'failed',
+                        status: 'error',
                         contentHash: content_hash,
                         error: errorMsg
                     };
@@ -501,7 +501,7 @@ export class IngestionHandler {
             console.log(`   ✓ Event processed successfully`);
 
             return {
-                status: 'success',
+                status: 'processed',
                 contentHash: content_hash,
                 eventType: type
             };
@@ -511,7 +511,7 @@ export class IngestionHandler {
             this.stats.eventsFailed++;
 
             return {
-                status: 'failed',
+                status: 'error',
                 contentHash: content_hash,
                 error: error.message
             };
@@ -638,7 +638,7 @@ export class IngestionHandler {
             this.stats.eventsFailed++;
 
             return {
-                status: 'failed',
+                status: 'error',
                 contentHash: contentHash,
                 error: error.message
             };

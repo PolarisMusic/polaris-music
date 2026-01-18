@@ -87,7 +87,7 @@ describe('SHiP and Substreams Output Parity', () => {
             const result = await ingestionHandler.processAnchoredEvent(substreamsEvent);
 
             // Verify success
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe(testContentHash);
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
         });
@@ -118,7 +118,7 @@ describe('SHiP and Substreams Output Parity', () => {
             const result = await ingestionHandler.processAnchoredEvent(shipEvent);
 
             // Verify success
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe(testContentHash);
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
         });
@@ -199,7 +199,7 @@ describe('SHiP and Substreams Output Parity', () => {
 
             // Process Substreams event first
             const result1 = await ingestionHandler.processAnchoredEvent(substreamsEvent);
-            expect(result1.status).toBe('success');
+            expect(result1.status).toBe('processed');
 
             // Process SHiP event (same content_hash)
             const result2 = await ingestionHandler.processAnchoredEvent(shipEvent);
@@ -285,10 +285,10 @@ describe('SHiP and Substreams Output Parity', () => {
             }
 
             // Verify results
-            expect(results[0].status).toBe('success'); // hash1 from Substreams
-            expect(results[1].status).toBe('success'); // hash2 from Substreams
+            expect(results[0].status).toBe('processed'); // hash1 from Substreams
+            expect(results[1].status).toBe('processed'); // hash2 from Substreams
             expect(results[2].status).toBe('duplicate'); // hash2 from SHiP (deduplicated!)
-            expect(results[3].status).toBe('success'); // hash3 from SHiP
+            expect(results[3].status).toBe('processed'); // hash3 from SHiP
 
             // Only 3 unique events should be retrieved (hash1, hash2, hash3)
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledTimes(3);
@@ -348,7 +348,7 @@ describe('SHiP and Substreams Output Parity', () => {
             const result2 = await ingestionHandler.processAnchoredEvent(event2);
 
             // First succeeds, second is deduplicated
-            expect(result1.status).toBe('success');
+            expect(result1.status).toBe('processed');
             expect(result2.status).toBe('duplicate');
 
             // Deduplication happened based on content_hash, not event_hash

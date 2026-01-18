@@ -94,7 +94,7 @@ describe('IngestionHandler', () => {
 
             // Assert: retrieveEvent was called with correct hash
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe('abc123def456');
         });
 
@@ -170,7 +170,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: Should fail with hash mismatch
-            expect(result.status).toBe('failed');
+            expect(result.status).toBe('error');
             expect(result.error).toContain('Hash mismatch');
             expect(ingestionHandler.stats.eventsFailed).toBe(1);
         });
@@ -199,7 +199,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mintEntityAction);
 
             // Assert: Should fail with type mismatch error
-            expect(result.status).toBe('failed');
+            expect(result.status).toBe('error');
             expect(result.error).toContain('Type mismatch');
             expect(result.error).toContain('on-chain type 22 (MINT_ENTITY)');
             expect(result.error).toContain('ADD_CLAIM');
@@ -223,7 +223,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: Should succeed
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(mockEventProcessor.eventHandlers[21]).toHaveBeenCalled();
         });
 
@@ -241,7 +241,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: Should succeed (allows numeric types)
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(mockEventProcessor.eventHandlers[21]).toHaveBeenCalled();
         });
 
@@ -255,7 +255,7 @@ describe('IngestionHandler', () => {
             const result2 = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: First succeeds, second is duplicate
-            expect(result1.status).toBe('success');
+            expect(result1.status).toBe('processed');
             expect(result2.status).toBe('duplicate');
             expect(ingestionHandler.stats.eventsDuplicate).toBe(1);
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledTimes(1);
@@ -291,7 +291,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(actionWithUpperHash);
 
             // Assert: Hash normalized to lowercase
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
 
@@ -309,7 +309,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(actionWithArrayHash);
 
             // Assert
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('0102030405', { requireSig: true });
         });
 
@@ -337,8 +337,8 @@ describe('IngestionHandler', () => {
             // Act
             const result = await ingestionHandler.processPutAction(mockActionData);
 
-            // Assert: Should return failed status, not throw
-            expect(result.status).toBe('failed');
+            // Assert: Should return error status, not throw
+            expect(result.status).toBe('error');
             expect(result.error).toContain('Storage connection failed');
             expect(ingestionHandler.stats.eventsFailed).toBe(1);
         });
@@ -352,7 +352,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: Should succeed with default metadata
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(mockEventProcessor.eventHandlers[21]).toHaveBeenCalledWith(
                 expect.objectContaining({
                     blockchain_verified: true,
@@ -437,7 +437,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
 
             // Assert: Should process successfully
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe('abc123def456');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
@@ -453,7 +453,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
 
             // Assert: Should convert to hex string and process
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe('abc123def456');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
@@ -469,7 +469,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
 
             // Assert: Should extract hex and process
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe('abc123def456');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
@@ -485,7 +485,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
 
             // Assert: Should strip 0x prefix and process
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe('abc123def456');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
@@ -501,7 +501,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
 
             // Assert: Should normalize to lowercase
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(result.contentHash).toBe('abc123def456');
             expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith('abc123def456', { requireSig: true });
         });
@@ -522,7 +522,7 @@ describe('IngestionHandler', () => {
             const result2 = await ingestionHandler.processAnchoredEvent(event2);
 
             // Assert: First succeeds, second is duplicate
-            expect(result1.status).toBe('success');
+            expect(result1.status).toBe('processed');
             expect(result2.status).toBe('duplicate');
             expect(ingestionHandler.stats.eventsDuplicate).toBe(1);
         });
@@ -556,7 +556,7 @@ describe('IngestionHandler', () => {
             const result = await ingestionHandler.processPutAction(mockActionData);
 
             // Assert: Should process again (not duplicate)
-            expect(result.status).toBe('success');
+            expect(result.status).toBe('processed');
             expect(ingestionHandler.stats.eventsProcessed).toBe(2);
             expect(ingestionHandler.stats.eventsDuplicate).toBe(0);
         });
