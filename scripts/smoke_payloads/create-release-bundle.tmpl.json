@@ -7,9 +7,29 @@
     "release": {
       "name": "Smoke Test Release __RUN_ID__"
     },
+    "groups": [
+      {
+        "name": "Smoke Test Band __RUN_ID__",
+        "members": [
+          {
+            "name": "Smoke Artist One __RUN_ID__",
+            "role": "Vocals"
+          },
+          {
+            "name": "Smoke Artist Two __RUN_ID__",
+            "role": "Guitar"
+          }
+        ]
+      }
+    ],
     "tracks": [
       {
-        "title": "Smoke Track __RUN_ID__"
+        "title": "Smoke Track __RUN_ID__",
+        "groups": [
+          {
+            "name": "Smoke Test Band __RUN_ID__"
+          }
+        ]
       }
     ],
     "tracklist": [
