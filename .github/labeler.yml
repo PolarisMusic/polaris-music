@@ -1,26 +1,37 @@
 # Auto-labeling configuration for PRs
+# Format for actions/labeler@v5
 
 backend:
-  - backend/**/*
+  - changed-files:
+      - any-glob-to-any-file: 'backend/**/*'
 
 frontend:
-  - frontend/**/*
+  - changed-files:
+      - any-glob-to-any-file: 'frontend/**/*'
 
 contracts:
-  - contracts/**/*
+  - changed-files:
+      - any-glob-to-any-file: 'contracts/**/*'
 
 infrastructure:
-  - k8s/**/*
-  - docker-compose.yml
-  - .github/**/*
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'k8s/**/*'
+          - 'docker-compose.yml'
+          - '.github/**/*'
 
 documentation:
-  - '**/*.md'
-  - docs/**/*
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**/*'
 
 ci/cd:
-  - .github/workflows/**/*
+  - changed-files:
+      - any-glob-to-any-file: '.github/workflows/**/*'
 
 dependencies:
-  - '**/package.json'
-  - '**/package-lock.json'
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/package.json'
+          - '**/package-lock.json'
