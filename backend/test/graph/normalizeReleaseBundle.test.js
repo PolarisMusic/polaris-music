@@ -52,14 +52,14 @@ describe('normalizeReleaseBundle', () => {
             expect(normalized.tracks[0].title).toBe('Come Together');
             expect(normalized.tracks[1].title).toBe('Something');
 
-            // Each track should have track_id (ISRC-based)
-            expect(normalized.tracks[0].track_id).toBe('track:isrc:GBAYE0601729');
-            expect(normalized.tracks[1].track_id).toBe('track:isrc:GBAYE0601730');
+            // Each track should have track_id (ISRC-based provisional)
+            expect(normalized.tracks[0].track_id).toBe('prov:track:isrc:GBAYE0601729');
+            expect(normalized.tracks[1].track_id).toBe('prov:track:isrc:GBAYE0601730');
 
             // Tracklist should reference track_id
             expect(normalized.tracklist).toHaveLength(2);
-            expect(normalized.tracklist[0].track_id).toBe('track:isrc:GBAYE0601729');
-            expect(normalized.tracklist[1].track_id).toBe('track:isrc:GBAYE0601730');
+            expect(normalized.tracklist[0].track_id).toBe('prov:track:isrc:GBAYE0601729');
+            expect(normalized.tracklist[1].track_id).toBe('prov:track:isrc:GBAYE0601730');
             expect(normalized.tracklist[0].position).toBe('1');
         });
 
@@ -114,9 +114,9 @@ describe('normalizeReleaseBundle', () => {
 
             const normalized = normalizeReleaseBundle(bundle);
 
-            // Should generate track_id
+            // Should generate track_id with prov: prefix
             expect(normalized.tracks[0].track_id).toBeDefined();
-            expect(normalized.tracks[0].track_id).toMatch(/^track:gen:/);
+            expect(normalized.tracks[0].track_id).toMatch(/^prov:track:/);
 
             // Tracklist should reference generated track_id
             expect(normalized.tracklist[0].track_id).toBe(normalized.tracks[0].track_id);
@@ -166,7 +166,7 @@ describe('normalizeReleaseBundle', () => {
             const normalized = normalizeReleaseBundle(bundle);
 
             // Should match by title and add track_id to tracklist
-            expect(normalized.tracklist[0].track_id).toBe('track:isrc:ABC123');
+            expect(normalized.tracklist[0].track_id).toBe('prov:track:isrc:ABC123');
         });
 
         it('should error on tracklist item that cannot be resolved to catalog', () => {

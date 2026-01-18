@@ -168,17 +168,21 @@ function normalizeTrackCatalog(trackDefs, errors) {
 /**
  * Generate deterministic track_id when missing
  *
+ * All generated IDs use the provisional format (prov:track:*) so that
+ * IdentityService.parseId() correctly classifies them as PROVISIONAL,
+ * ensuring consistent ID handling throughout the graph pipeline.
+ *
  * Priority:
- * 1. ISRC if available
+ * 1. ISRC if available (stored as property, ID is still provisional)
  * 2. Hash of normalized title + duration
  *
  * @param {Object} track - Normalized track
- * @returns {string} Deterministic track_id
+ * @returns {string} Deterministic track_id with prov: prefix
  */
 function generateTrackId(track) {
-    // Priority 1: ISRC-based ID
+    // Priority 1: ISRC-based provisional ID
     if (track.isrc) {
-        return `track:isrc:${track.isrc}`;
+        return `prov:track:isrc:${track.isrc}`;
     }
 
     // Priority 2: Hash of canonical identity (title + duration)
@@ -192,7 +196,7 @@ function generateTrackId(track) {
         .digest('hex')
         .substring(0, 16);
 
-    return `track:gen:${hash}`;
+    return `prov:track:${hash}`;
 }
 
 /**
