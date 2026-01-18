@@ -87,6 +87,26 @@ const PROTECTED_FIELDS = new Set([
 ]);
 
 /**
+ * Regular expression to validate safe property names for Neo4j.
+ * Property names must start with a letter or underscore, followed by
+ * alphanumeric characters or underscores.
+ */
+const SAFE_PROPERTY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Validate that a field name is safe for use as a Neo4j property.
+ * Throws an error if the field name contains invalid characters.
+ *
+ * @param {string} field - The field name to validate
+ * @throws {Error} If field name is invalid
+ */
+function assertSafePropertyName(field) {
+    if (!SAFE_PROPERTY_RE.test(field)) {
+        throw new Error(`Invalid field name: "${field}". Field must match ${SAFE_PROPERTY_RE}`);
+    }
+}
+
+/**
  * Derive track placement (disc, side, track number) from position string.
  * Handles common formats like "A1", "B2", "2-A3", or plain numbers "1", "02".
  *
@@ -1163,24 +1183,32 @@ class MusicGraphDatabase {
                 );
             }
 
+            // Validate field name is safe for Neo4j property syntax
+            assertSafePropertyName(normalizedField);
+
             console.log(`Adding claim to ${mapping.label} ${node.id}: ${normalizedField}`);
 
             // Normalize value for Neo4j storage (handle objects/complex types)
             const normalizedValue = normalizeValueForNeo4j(value);
 
             // Update the target node using validated label and idField from whitelist
-            await tx.run(`
+            // Note: We use backtick-escaped property name instead of $field parameter
+            // because Neo4j 5.x doesn't support dynamic property assignment via n[$field]
+            const updateRes = await tx.run(`
                 MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
-                SET n[$field] = $value,
+                SET n.\`${normalizedField}\` = $value,
                     n.last_updated = datetime(),
                     n.last_updated_by = $author
                 RETURN n
             `, {
                 nodeId: node.id,
-                field: normalizedField,
                 value: normalizedValue,
                 author
             });
+
+            if (updateRes.records.length === 0) {
+                throw new Error(`Target node not found for ADD_CLAIM: ${mapping.label} ${mapping.idField}=${node.id}`);
+            }
 
             // Create claim record (idempotent via MERGE)
             await this.createClaim(tx, claimId, node.type, node.id,
@@ -1293,6 +1321,9 @@ class MusicGraphDatabase {
                 );
             }
 
+            // Validate field name is safe for Neo4j property syntax
+            assertSafePropertyName(normalizedField);
+
             // Generate deterministic new claim ID from edit event hash
             const newClaimId = this.generateOpId(eventHash, 0);
 
@@ -1328,18 +1359,23 @@ class MusicGraphDatabase {
             const normalizedValue = normalizeValueForNeo4j(value);
 
             // Update the target node's current value
-            await tx.run(`
+            // Note: We use backtick-escaped property name instead of $field parameter
+            // because Neo4j 5.x doesn't support dynamic property assignment via n[$field]
+            const updateRes = await tx.run(`
                 MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
-                SET n[$field] = $value,
+                SET n.\`${normalizedField}\` = $value,
                     n.last_updated = datetime(),
                     n.last_updated_by = $author
                 RETURN n
             `, {
                 nodeId,
-                field: normalizedField,
                 value: normalizedValue,
                 author
             });
+
+            if (updateRes.records.length === 0) {
+                throw new Error(`Target node not found for EDIT_CLAIM: ${mapping.label} ${mapping.idField}=${nodeId}`);
+            }
 
             // Link source if provided
             if (source && source.url) {
