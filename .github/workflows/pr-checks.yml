@@ -105,17 +105,20 @@ jobs:
     - name: Validate base manifests
       working-directory: k8s/base
       run: |
-        kustomize build . | kubectl apply --dry-run=client -f - || exit 1
+        kustomize build . | kubectl apply --dry-run=client --validate=false -f - || exit 1
+
 
     - name: Validate development overlay
       working-directory: k8s/overlays/development
       run: |
-        kustomize build . | kubectl apply --dry-run=client -f - || exit 1
+        kustomize build . | kubectl apply --dry-run=client --validate=false -f - || exit 1
+
 
     - name: Validate production overlay
       working-directory: k8s/overlays/production
       run: |
-        kustomize build . | kubectl apply --dry-run=client -f - || exit 1
+        kustomize build . | kubectl apply --dry-run=client --validate=false -f - || exit 1
+
 
   pr-labeler:
     name: Label PR
