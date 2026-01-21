@@ -224,20 +224,21 @@ public:
 
         // Store like record
         likes_table likes(get_self(), account.value);
-        auto itr = likes.find(node_id);
+        auto likes_by_node = likes.get_index<"bynode"_n>();
+        auto itr = likes_by_node.find(node_id);
 
-        // Save state before modifying likes table (iterator will be stale after modification)
-        bool is_new_like = (itr == likes.end());
+        bool is_new_like = (itr == likes_by_node.end());
 
         if (is_new_like) {
             likes.emplace(account, [&](auto& l) {
+                l.id = likes.available_primary_key();
                 l.node_id = node_id;
                 l.path = node_path;
                 l.liked_at = current_time_point();
             });
         } else {
-            // Update existing like with new path
-            likes.modify(itr, account, [&](auto& l) {
+            auto pk_itr = likes.iterator_to(*itr);
+            likes.modify(pk_itr, account, [&](auto& l) {
                 l.path = node_path;
                 l.liked_at = current_time_point();
             });
@@ -245,19 +246,22 @@ public:
 
         // Update aggregate like count for the node
         likeagg_table aggregates(get_self(), get_self().value);
-        auto agg_itr = aggregates.find(node_id);
+        auto agg_by_node = aggregates.get_index<"bynode"_n>();
+        auto agg_itr = agg_by_node.find(node_id);
 
-        if (agg_itr == aggregates.end()) {
+        if (agg_itr == agg_by_node.end()) {
             aggregates.emplace(account, [&](auto& a) {
+                a.id = aggregates.available_primary_key();
                 a.node_id = node_id;
                 a.like_count = 1;
             });
         } else if (is_new_like) {
-            // Only increment if this was a new like (use saved state)
-            aggregates.modify(agg_itr, account, [&](auto& a) {
+            auto agg_pk_itr = aggregates.iterator_to(*agg_itr);
+            aggregates.modify(agg_pk_itr, account, [&](auto& a) {
                 a.like_count += 1;
             });
         }
+
     }
 
     /**
@@ -271,16 +275,20 @@ public:
 
         // Remove like record
         likes_table likes(get_self(), account.value);
-        auto itr = likes.require_find(node_id, "Like not found");
-        likes.erase(itr);
+        auto likes_by_node = likes.get_index<"bynode"_n>();
+        auto itr = likes_by_node.find(node_id);
+        check(itr != likes_by_node.end(), "Like not found");
+        likes.erase(likes.iterator_to(*itr));
 
         // Update aggregate (gracefully handle missing aggregate)
         likeagg_table aggregates(get_self(), get_self().value);
-        auto agg_itr = aggregates.find(node_id);
+        auto agg_by_node = aggregates.get_index<"bynode"_n>();
+        auto agg_itr = agg_by_node.find(node_id);
 
         // If aggregate exists, decrement and remove if zero
-        if (agg_itr != aggregates.end()) {
-            aggregates.modify(agg_itr, account, [&](auto& a) {
+        if (agg_itr != agg_by_node.end()) {
+            auto agg_pk_itr = aggregates.iterator_to(*agg_itr);
+            aggregates.modify(agg_pk_itr, account, [&](auto& a) {
                 if (a.like_count > 0) {
                     a.like_count -= 1;
                 }
@@ -288,9 +296,10 @@ public:
 
             // Remove aggregate if count reaches zero
             if (agg_itr->like_count == 0) {
-                aggregates.erase(agg_itr);
+                aggregates.erase(aggregates.iterator_to(*agg_itr));
             }
         }
+
         // If aggregate doesn't exist, that's okay - like record was still removed
     }
 
@@ -320,14 +329,17 @@ public:
 
         respect_table respect(get_self(), get_self().value);
 
-        for(const auto& [account, respect_value] : respect_data) {
+        for (const auto& item : respect_data) {
+            name account = item.first;
+            uint32_t respect_value = item.second;
+
             check(respect_value > 0, "Respect must be positive");
             check(respect_value <= 1000, "Respect value too high (max 1000)");
             auto itr = respect.find(account.value);
 
-            if(itr == respect.end()) {
+            if (itr == respect.end()) {
                 // New member receiving Respect
-                respect.emplace(get_self(), [&](auto& r) {
+                respect.emplace(get_self(), [account, respect_value, election_round](auto& r) {
                     r.account = account;
                     r.respect = respect_value;
                     r.round = election_round;
@@ -335,13 +347,14 @@ public:
                 });
             } else {
                 // Update existing Respect
-                respect.modify(itr, get_self(), [&](auto& r) {
+                respect.modify(itr, get_self(), [respect_value, election_round](auto& r) {
                     r.respect = respect_value;
                     r.round = election_round;
                     r.updated_at = current_time_point();
                 });
             }
         }
+
 
         // Update global round after successful processing
         g.round = election_round;
@@ -710,20 +723,22 @@ public:
 
         // Update individual stake record (for user's portfolio view)
         stakes_table stakes(get_self(), account.value);
-        auto itr = stakes.find(node_id);
+        auto stakes_by_node = stakes.get_index<"bynode"_n>();
+        auto itr = stakes_by_node.find(node_id);
 
-        // Save state before modifying stakes table (iterator will be stale after modification)
-        bool is_new_staker = (itr == stakes.end());
+        bool is_new_staker = (itr == stakes_by_node.end());
 
-        if(is_new_staker) {
+        if (is_new_staker) {
             stakes.emplace(account, [&](auto& s) {
+                s.id = stakes.available_primary_key();
                 s.node_id = node_id;
                 s.amount = quantity;
                 s.staked_at = current_time_point();
                 s.last_updated = current_time_point();
             });
         } else {
-            stakes.modify(itr, account, [&](auto& s) {
+            auto pk_itr = stakes.iterator_to(*itr);
+            stakes.modify(pk_itr, account, [&](auto& s) {
                 s.amount += quantity;
                 s.last_updated = current_time_point();
             });
@@ -731,23 +746,26 @@ public:
 
         // Update aggregate for the node (used for voting power and rewards)
         nodeagg_table aggregates(get_self(), get_self().value);
-        auto agg_itr = aggregates.find(node_id);
+        auto agg_by_node = aggregates.get_index<"bynode"_n>();
+        auto agg_itr = agg_by_node.find(node_id);
 
-        if(agg_itr == aggregates.end()) {
+        if (agg_itr == agg_by_node.end()) {
             aggregates.emplace(account, [&](auto& a) {
+                a.id = aggregates.available_primary_key();
                 a.node_id = node_id;
                 a.total = quantity;
                 a.staker_count = 1;
             });
         } else {
-            aggregates.modify(agg_itr, account, [&](auto& a) {
+            auto agg_pk_itr = aggregates.iterator_to(*agg_itr);
+            aggregates.modify(agg_pk_itr, account, [&](auto& a) {
                 a.total += quantity;
-                // Only increment staker count for new stakers (use saved state)
-                if(is_new_staker) {
+                if (is_new_staker) {
                     a.staker_count += 1;
                 }
             });
         }
+
 
         // Update staker tracking for reward distribution
         staker_nodes_table staker_nodes(get_self(), get_self().value);
@@ -785,15 +803,19 @@ public:
 
         // Update individual stake
         stakes_table stakes(get_self(), account.value);
-        auto itr = stakes.require_find(node_id, "No stake found for this node");
-        check(itr->amount >= quantity, "Insufficient stake");
+        auto stakes_by_node = stakes.get_index<"bynode"_n>();
+        auto itr = stakes_by_node.find(node_id);
+        check(itr != stakes_by_node.end(), "No stake found for this node");
 
-        bool removing_all = (itr->amount == quantity);
+        auto stake_pk_itr = stakes.iterator_to(*itr);
+        check(stake_pk_itr->amount >= quantity, "Insufficient stake");
 
-        if(removing_all) {
-            stakes.erase(itr);
+        bool removing_all = (stake_pk_itr->amount == quantity);
+
+        if (removing_all) {
+            stakes.erase(stake_pk_itr);
         } else {
-            stakes.modify(itr, account, [&](auto& s) {
+            stakes.modify(stake_pk_itr, account, [&](auto& s) {
                 s.amount -= quantity;
                 s.last_updated = current_time_point();
             });
@@ -801,9 +823,13 @@ public:
 
         // Update aggregate
         nodeagg_table aggregates(get_self(), get_self().value);
-        auto agg_itr = aggregates.require_find(node_id, "Aggregate not found");
+        auto agg_by_node = aggregates.get_index<"bynode"_n>();
+        auto agg_itr = agg_by_node.find(node_id);
+        check(agg_itr != agg_by_node.end(), "Aggregate not found");
+        auto agg_pk_itr = aggregates.iterator_to(*agg_itr);
 
-        aggregates.modify(agg_itr, account, [&](auto& a) {
+
+        aggregates.modify(agg_pk_itr, account, [&](auto& a) {
             a.total -= quantity;
             // Only decrement staker count if removing all stake
             if(removing_all) {
@@ -812,9 +838,10 @@ public:
         });
 
         // Remove aggregate if no more stakers
-        if(agg_itr->staker_count == 0) {
-            aggregates.erase(agg_itr);
+        if (agg_itr->staker_count == 0) {
+            aggregates.erase(agg_pk_itr);
         }
+
 
         // Update staker tracking
         staker_nodes_table staker_nodes(get_self(), get_self().value);
@@ -850,14 +877,16 @@ public:
 
         // Get pending rewards for this account and node
         pending_rewards_table pending(get_self(), account.value);
-        auto itr = pending.require_find(node_id, "No pending rewards for this node");
+        auto pending_by_node = pending.get_index<"bynode"_n>();
+        auto itr = pending_by_node.find(node_id);
+        check(itr != pending_by_node.end(), "No pending rewards for this node");
+        auto pending_pk_itr = pending.iterator_to(*itr);
 
-        asset reward_amount = itr->amount;
+        asset reward_amount = pending_pk_itr->amount;
         check(reward_amount.amount > 0, "No rewards to claim");
 
         // Remove the pending reward record
-        pending.erase(itr);
-
+        pending.erase(pending_pk_itr);
         // Issue tokens to the staker
         issue_tokens(account, reward_amount.amount,
                     "Staker reward from node " + checksum_to_hex(node_id).substr(0, 16));
@@ -1189,28 +1218,34 @@ private:
      * @brief Individual stake records (scoped by account)
      */
     TABLE stake_record {
+        uint64_t    id;             // Primary key (surrogate)
         checksum256 node_id;        // What's being staked on
         asset       amount;         // Amount staked
         time_point  staked_at;      // When first staked
         time_point  last_updated;   // Last change
 
-        checksum256 primary_key() const { return node_id; }
+        uint64_t primary_key() const { return id; }
+        checksum256 by_node() const { return node_id; }
 
-        EOSLIB_SERIALIZE(stake_record, (node_id)(amount)(staked_at)(last_updated))
+        EOSLIB_SERIALIZE(stake_record, (id)(node_id)(amount)(staked_at)(last_updated))
     };
+
 
     /**
      * @brief Aggregated stakes by node
      */
     TABLE node_aggregate {
+        uint64_t    id;             // Primary key (surrogate)
         checksum256 node_id;        // Node identifier
         asset       total;          // Total staked
         uint32_t    staker_count;   // Number of stakers
 
-        checksum256 primary_key() const { return node_id; }
+        uint64_t primary_key() const { return id; }
+        checksum256 by_node() const { return node_id; }
 
-        EOSLIB_SERIALIZE(node_aggregate, (node_id)(total)(staker_count))
+        EOSLIB_SERIALIZE(node_aggregate, (id)(node_id)(total)(staker_count))
     };
+
 
     /**
      * @brief Staker tracking for reward distribution
@@ -1254,26 +1289,32 @@ private:
      * @brief Like records (scoped by account)
      */
     TABLE like_record {
+        uint64_t    id;                 // Primary key (surrogate)
         checksum256 node_id;            // Liked entity
         std::vector<checksum256> path;  // Discovery path
         time_point  liked_at;           // When liked
 
-        checksum256 primary_key() const { return node_id; }
+        uint64_t primary_key() const { return id; }
+        checksum256 by_node() const { return node_id; }
 
-        EOSLIB_SERIALIZE(like_record, (node_id)(path)(liked_at))
+        EOSLIB_SERIALIZE(like_record, (id)(node_id)(path)(liked_at))
     };
+
 
     /**
      * @brief Aggregated likes by node
      */
     TABLE like_aggregate {
+        uint64_t    id;             // Primary key (surrogate)
         checksum256 node_id;        // Node identifier
         uint32_t    like_count;     // Number of likes
 
-        checksum256 primary_key() const { return node_id; }
+        uint64_t primary_key() const { return id; }
+        checksum256 by_node() const { return node_id; }
 
-        EOSLIB_SERIALIZE(like_aggregate, (node_id)(like_count))
+        EOSLIB_SERIALIZE(like_aggregate, (id)(node_id)(like_count))
     };
+
 
     /**
      * @brief Pending staker rewards (scoped by account)
@@ -1282,15 +1323,18 @@ private:
      * Stakers call claimreward() to collect their share.
      */
     TABLE pending_reward {
+        uint64_t    id;             // Primary key (surrogate)
         checksum256 node_id;        // Node where stake earned rewards
         asset       amount;         // Unclaimed reward amount
         time_point  earned_at;      // When reward was earned
         time_point  last_updated;   // Last time reward was added
 
-        checksum256 primary_key() const { return node_id; }
+        uint64_t primary_key() const { return id; }
+        checksum256 by_node() const { return node_id; }
 
-        EOSLIB_SERIALIZE(pending_reward, (node_id)(amount)(earned_at)(last_updated))
+        EOSLIB_SERIALIZE(pending_reward, (id)(node_id)(amount)(earned_at)(last_updated))
     };
+
 
     /**
      * @brief Global state singleton
@@ -1356,8 +1400,14 @@ private:
     > votes_table;
 
     typedef eosio::multi_index<"respect"_n, respect_record> respect_table;
-    typedef eosio::multi_index<"stakes"_n, stake_record> stakes_table;
-    typedef eosio::multi_index<"nodeagg"_n, node_aggregate> nodeagg_table;
+
+    typedef eosio::multi_index<"stakes"_n, stake_record,
+        indexed_by<"bynode"_n, const_mem_fun<stake_record, checksum256, &stake_record::by_node>>
+    > stakes_table;
+
+    typedef eosio::multi_index<"nodeagg"_n, node_aggregate,
+        indexed_by<"bynode"_n, const_mem_fun<node_aggregate, checksum256, &node_aggregate::by_node>>
+    > nodeagg_table;
     typedef eosio::multi_index<"stakernodes"_n, staker_node,
         indexed_by<"bynode"_n, const_mem_fun<staker_node, checksum256, &staker_node::by_node>>,
         indexed_by<"byaccount"_n, const_mem_fun<staker_node, uint64_t, &staker_node::by_account>>,
@@ -1366,9 +1416,17 @@ private:
     typedef eosio::multi_index<"attestations"_n, attestation,
         indexed_by<"byhash"_n, const_mem_fun<attestation, checksum256, &attestation::by_hash>>
     > attestations_table;
-    typedef eosio::multi_index<"likes"_n, like_record> likes_table;
-    typedef eosio::multi_index<"likeagg"_n, like_aggregate> likeagg_table;
-    typedef eosio::multi_index<"pendingrwd"_n, pending_reward> pending_rewards_table;
+    typedef eosio::multi_index<"likes"_n, like_record,
+        indexed_by<"bynode"_n, const_mem_fun<like_record, checksum256, &like_record::by_node>>
+    > likes_table;
+
+    typedef eosio::multi_index<"likeagg"_n, like_aggregate,
+        indexed_by<"bynode"_n, const_mem_fun<like_aggregate, checksum256, &like_aggregate::by_node>>
+    > likeagg_table;
+
+    typedef eosio::multi_index<"pendingrwd"_n, pending_reward,
+        indexed_by<"bynode"_n, const_mem_fun<pending_reward, checksum256, &pending_reward::by_node>>
+    > pending_rewards_table;
     typedef eosio::singleton<"globals"_n, global_state> globals_singleton;
 
     // ============ HELPER FUNCTIONS ============
@@ -1665,21 +1723,24 @@ private:
                 if(staker_share > 0) {
                     // Record pending reward for this staker
                     pending_rewards_table pending(get_self(), staker_itr->account.value);
-                    auto pending_itr = pending.find(node_itr->node_id);
+                    auto pending_by_node = pending.get_index<"bynode"_n>();
+                    auto pending_itr = pending_by_node.find(node_itr->node_id);
 
                     asset reward = asset(staker_share, symbol("MUS", 4));
 
-                    if(pending_itr == pending.end()) {
+                    if (pending_itr == pending_by_node.end()) {
                         // New pending reward
                         pending.emplace(get_self(), [&](auto& p) {
+                            p.id = pending.available_primary_key();
                             p.node_id = node_itr->node_id;
                             p.amount = reward;
                             p.earned_at = current_time_point();
                             p.last_updated = current_time_point();
                         });
+
                     } else {
                         // Add to existing pending reward
-                        pending.modify(pending_itr, get_self(), [&](auto& p) {
+                        pending.modify(pending.iterator_to(*pending_itr), get_self(), [&](auto& p) {
                             p.amount += reward;
                             p.last_updated = current_time_point();
                         });
