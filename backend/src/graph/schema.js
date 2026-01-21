@@ -229,24 +229,36 @@ class MusicGraphDatabase {
      * @param {string} config.password - Database password
      * @param {Object} [config.poolConfig] - Optional connection pool configuration
      */
-    constructor(config) {
-        if (!config.uri || !config.user || !config.password) {
-            throw new Error('Database configuration requires uri, user, and password');
-        }
+constructor(config = {}) {
+  // Allow config OR environment variables (CI sets GRAPH_*).
+  const resolved = {
+    uri: config.uri ?? process.env.GRAPH_URI ?? process.env.NEO4J_URI ?? process.env.NEO4J_URL,
+    user: config.user ?? process.env.GRAPH_USER ?? process.env.NEO4J_USER,
+    password: config.password ?? process.env.GRAPH_PASSWORD ?? process.env.NEO4J_PASSWORD,
+    // keep any other config fields (database name, etc.)
+    ...config,
+  };
+
+  if (!resolved.uri || !resolved.user || !resolved.password) {
+    throw new Error('Database configuration requires uri, user, and password');
+  }
+
+  // IMPORTANT: from here on, use "resolved" not "config"
+
 
         // Initialize Neo4j driver with connection pooling
         this.driver = neo4j.driver(
-            config.uri,
-            neo4j.auth.basic(config.user, config.password),
+            resolved.uri,
+            neo4j.auth.basic(resolved.user, resolved.password),
             {
-                maxConnectionPoolSize: config.poolConfig?.maxSize || 100,
-                connectionTimeout: config.poolConfig?.timeout || 30000,
+                maxConnectionPoolSize: resolved.poolConfig?.maxSize || 100,
+                connectionTimeout: resolved.poolConfig?.timeout || 30000,
                 maxTransactionRetryTime: 30000,
-                ...config.poolConfig
+                ...resolved.poolConfig
             }
         );
 
-        this.config = config;
+        this.resolved = resolved;
     }
 
     /**
