@@ -314,7 +314,7 @@ public:
      * @param respect_data - Array of account:respect pairs from latest election
      * @param election_round - Fractally round number for verification
      */
-    ACTION updaterespect(std::vector<std::pair<name, uint32_t>> respect_data,
+    ACTION updrespect(std::vector<std::pair<name, uint32_t>> respect_data,
                          uint64_t election_round) {
         // Only Fractally contract or designated oracle can update
         require_auth(get_fractally_oracle());
@@ -424,7 +424,7 @@ public:
      * @param merge - Voting window for MERGE_ENTITY (in seconds)
      * @param default_window - Default voting window for other types (in seconds)
      */
-    ACTION setvotewindows(uint32_t release, uint32_t mint, uint32_t resolve,
+    ACTION setvwindows(uint32_t release, uint32_t mint, uint32_t resolve,
                           uint32_t claim, uint32_t merge, uint32_t default_window) {
         require_auth(get_self());
 
@@ -464,7 +464,7 @@ public:
      * @param edit_claim - Multiplier for EDIT_CLAIM
      * @param merge - Multiplier for MERGE_ENTITY
      */
-    ACTION setmultipliers(uint64_t release, uint64_t mint, uint64_t resolve,
+    ACTION setmults(uint64_t release, uint64_t mint, uint64_t resolve,
                           uint64_t add_claim, uint64_t edit_claim, uint64_t merge) {
         require_auth(get_self());
 
@@ -505,7 +505,7 @@ public:
      * @param rejected_voters_pct - % to NO voters if rejected, distributed equally (default: 5000 = 50%)
      * @param rejected_stakers_pct - % to stakers if rejected (default: 5000 = 50%)
      */
-    ACTION setdistribution(
+    ACTION setdistr(
         uint64_t approved_author_pct,
         uint64_t approved_voters_pct,
         uint64_t approved_stakers_pct,
@@ -1445,7 +1445,7 @@ private:
      *
      * Different event types have different voting windows to allow
      * appropriate community review time. Values are configurable via
-     * setvotewindows() action.
+     * setvwindows() action.
      */
     uint32_t get_vote_window(uint8_t type) const {
         auto g = get_globals();
@@ -1463,7 +1463,7 @@ private:
      *
      * Higher multipliers for more valuable contributions.
      * The logarithmic curve applies to the multiplier.
-     * Values are configurable via setmultipliers() action.
+     * Values are configurable via setmults() action.
      */
     uint64_t get_multiplier(uint8_t type) const {
         auto g = get_globals();
