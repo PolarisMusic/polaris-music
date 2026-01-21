@@ -59,7 +59,7 @@ fn map_events(params: String, block: Block) -> Result<Events, Error> {
                         "unstake" => extract_unstake_event(&tx_hash, &block, action_trace),
                         "like" => extract_like_event(&tx_hash, &block, action_trace),
                         "unlike" => extract_unlike_event(&tx_hash, &block, action_trace),
-                        "updaterespect" => {
+                        "updrespect" => {
                             extract_update_respect_event(&tx_hash, &block, action_trace)
                         }
                         _ => None, // Ignore other actions (setoracle, init, etc.)
@@ -542,10 +542,10 @@ fn extract_update_respect_event(
     block: &Block,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
-    use abi::polaris_music::actions::Updaterespect;
+    use abi::polaris_music::actions::Updrespect;
 
     let action = action_trace.action.as_ref()?;
-    let update: Updaterespect = action.json_data.as_ref()?.parse_json().ok()?;
+    let update: Updrespect = action.json_data.as_ref()?.parse_json().ok()?;
 
     let updates = update
         .respect_data
@@ -562,7 +562,7 @@ fn extract_update_respect_event(
         timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
         event_type: "UPDATE_RESPECT".to_string(),
         data: Some(EventData {
-            event: Some(pb::polaris::v1::event_data::Event::UpdateRespect(
+            event: Some(pb::polaris::v1::event_data::Event::Updrespect(
                 UpdateRespectEvent {
                     updates,
                     election_round: update.election_round,
