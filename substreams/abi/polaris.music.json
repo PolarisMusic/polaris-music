@@ -76,7 +76,7 @@
       ]
     },
     {
-      "name": "updaterespect",
+      "name": "updrespect",
       "base": "",
       "fields": [
         {"name": "respect_data", "type": "pair_name_uint32[]"},
@@ -116,7 +116,7 @@
     {"name": "unstake", "type": "unstake"},
     {"name": "like", "type": "like"},
     {"name": "unlike", "type": "unlike"},
-    {"name": "updaterespect", "type": "updaterespect"},
+    {"name": "updrespect", "type": "updrespect"},
     {"name": "setoracle", "type": "setoracle"},
     {"name": "init", "type": "init"}
   ],
