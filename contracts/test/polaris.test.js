@@ -635,7 +635,7 @@ describe('Polaris Music Registry Smart Contract', function() {
             await contractApi.transact({
                 actions: [{
                     account: CONTRACT_ACCOUNT,
-                    name: 'updaterespect',
+                    name: 'updrespect',
                     authorization: [{
                         actor: ORACLE_ACCOUNT,
                         permission: 'active'
@@ -700,7 +700,7 @@ describe('Polaris Music Registry Smart Contract', function() {
             const result = await contractApi.transact({
                 actions: [{
                     account: CONTRACT_ACCOUNT,
-                    name: 'updaterespect',
+                    name: 'updrespect',
                     authorization: [{
                         actor: ORACLE_ACCOUNT,
                         permission: 'active'
@@ -739,7 +739,7 @@ describe('Polaris Music Registry Smart Contract', function() {
                 await contractApi.transact({
                     actions: [{
                         account: CONTRACT_ACCOUNT,
-                        name: 'updaterespect',
+                        name: 'updrespect',
                         authorization: [{
                             actor: ORACLE_ACCOUNT,
                             permission: 'active'
@@ -765,7 +765,7 @@ describe('Polaris Music Registry Smart Contract', function() {
             await contractApi.transact({
                 actions: [{
                     account: CONTRACT_ACCOUNT,
-                    name: 'updaterespect',
+                    name: 'updrespect',
                     authorization: [{
                         actor: ORACLE_ACCOUNT,
                         permission: 'active'
@@ -785,7 +785,7 @@ describe('Polaris Music Registry Smart Contract', function() {
                 await contractApi.transact({
                     actions: [{
                         account: CONTRACT_ACCOUNT,
-                        name: 'updaterespect',
+                        name: 'updrespect',
                         authorization: [{
                             actor: ORACLE_ACCOUNT,
                             permission: 'active'
