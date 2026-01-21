@@ -12,6 +12,11 @@ import neo4j from 'neo4j-driver';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
 import EventStore from '../../src/storage/eventStore.js';
 
+// Deterministic, valid UUIDs for tests.
+// (Regex in IdentityService only checks UUID shape, not version bits.)
+const testCid = (entityType, n) =>
+  `polaris:${entityType}:00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
+
 // Skip these tests if no database is configured
 const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
 
@@ -61,9 +66,9 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         // Clean up test nodes
         await session.run(`
             MATCH (n)
-            WHERE n.id STARTS WITH 'polaris:person:test-'
-               OR n.id STARTS WITH 'polaris:group:test-'
-               OR n.id STARTS WITH 'polaris:song:test-'
+            WHERE n.id STARTS WITH 'polaris:person:00000000-0000-0000-0000-'
+               OR n.id STARTS WITH 'polaris:group:00000000-0000-0000-0000-'
+               OR n.id STARTS WITH 'polaris:song:00000000-0000-0000-0000-'
             DETACH DELETE n
         `);
     });
@@ -79,7 +84,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const event = {
             body: {
                 entity_type: 'person',
-                canonical_id: 'polaris:person:test-mint-1',
+                canonical_id: 'testCid('person', 1)',
                 initial_claims: [],
                 provenance: {
                     submitter: 'test-user',
@@ -99,12 +104,12 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const result = await session.run(`
             MATCH (p:Person {id: $id})
             RETURN p.id as id, p.person_id as person_id, p.status as status
-        `, { id: 'polaris:person:test-mint-1' });
+        `, { id: 'testCid('person', 1)' });
 
         expect(result.records.length).toBe(1);
         const record = result.records[0];
-        expect(record.get('id')).toBe('polaris:person:test-mint-1');
-        expect(record.get('person_id')).toBe('polaris:person:test-mint-1'); // CRITICAL: Must be set
+        expect(record.get('id')).toBe('testCid('person', 1)');
+        expect(record.get('person_id')).toBe('testCid('person', 1)'); // CRITICAL: Must be set
         expect(record.get('status')).toBe('ACTIVE');
     });
 
@@ -112,7 +117,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const event = {
             body: {
                 entity_type: 'group',
-                canonical_id: 'polaris:group:test-mint-2',
+                canonical_id: 'testCid('group', 2)',
                 initial_claims: [],
                 provenance: {}
             }
@@ -129,19 +134,19 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const result = await session.run(`
             MATCH (g:Group {id: $id})
             RETURN g.id as id, g.group_id as group_id
-        `, { id: 'polaris:group:test-mint-2' });
+        `, { id: 'testCid('group', 2)' });
 
         expect(result.records.length).toBe(1);
         const record = result.records[0];
-        expect(record.get('id')).toBe('polaris:group:test-mint-2');
-        expect(record.get('group_id')).toBe('polaris:group:test-mint-2'); // CRITICAL: Must be set
+        expect(record.get('id')).toBe('testCid('group', 2)');
+        expect(record.get('group_id')).toBe('testCid('group', 2)'); // CRITICAL: Must be set
     });
 
     test('Song node created with both id and song_id', async () => {
         const event = {
             body: {
                 entity_type: 'song',
-                canonical_id: 'polaris:song:test-mint-3',
+                canonical_id: 'testCid('song', 3)',
                 initial_claims: [],
                 provenance: {}
             }
@@ -158,19 +163,19 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const result = await session.run(`
             MATCH (s:Song {id: $id})
             RETURN s.id as id, s.song_id as song_id
-        `, { id: 'polaris:song:test-mint-3' });
+        `, { id: 'testCid('song', 3)' });
 
         expect(result.records.length).toBe(1);
         const record = result.records[0];
-        expect(record.get('id')).toBe('polaris:song:test-mint-3');
-        expect(record.get('song_id')).toBe('polaris:song:test-mint-3'); // CRITICAL: Must be set
+        expect(record.get('id')).toBe('testCid('song', 3)');
+        expect(record.get('song_id')).toBe('testCid('song', 3)'); // CRITICAL: Must be set
     });
 
     test('Initial claims are attached correctly', async () => {
         const event = {
             body: {
                 entity_type: 'person',
-                canonical_id: 'polaris:person:test-mint-4',
+                canonical_id: 'testCid('person', 4)',
                 initial_claims: [
                     {
                         property: 'name',
@@ -195,7 +200,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const result = await session.run(`
             MATCH (p:Person {id: $id})<-[:CLAIMS_ABOUT]-(c:Claim)
             RETURN c.property as property, c.value as value
-        `, { id: 'polaris:person:test-mint-4' });
+        `, { id: 'testCid('person', 4)' });
 
         expect(result.records.length).toBe(1);
         const record = result.records[0];
@@ -207,7 +212,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
         const event = {
             body: {
                 entity_type: 'person',
-                canonical_id: 'polaris:person:test-mint-5',
+                canonical_id: 'testCid('person', 5)',
                 initial_claims: [
                     {
                         property: 'name',
@@ -240,7 +245,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
             MATCH (p:Person {id: $id})
             OPTIONAL MATCH (p)<-[:CLAIMS_ABOUT]-(c:Claim)
             RETURN p.id as id, count(c) as claimCount
-        `, { id: 'polaris:person:test-mint-5' });
+        `, { id: 'testCid('person', 5)' });
 
         expect(result1.records.length).toBe(1);
         expect(result1.records[0].get('claimCount').toNumber()).toBe(2);
@@ -254,7 +259,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
             MATCH (p:Person {id: $id})
             OPTIONAL MATCH (p)<-[:CLAIMS_ABOUT]-(c:Claim)
             RETURN p.id as id, count(c) as claimCount
-        `, { id: 'polaris:person:test-mint-5' });
+        `, { id: 'testCid('person', 5)' });
 
         expect(result2.records.length).toBe(1);
         expect(result2.records[0].get('claimCount').toNumber()).toBe(2); // Still 2, not 4
@@ -264,7 +269,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
             MATCH (:Person {id: $id})<-[:CLAIMS_ABOUT]-(c:Claim)
             RETURN c.claim_id as claimId, c.property as property
             ORDER BY c.property
-        `, { id: 'polaris:person:test-mint-5' });
+        `, { id: 'testCid('person', 5)' });
 
         expect(claimResult.records.length).toBe(2);
 
