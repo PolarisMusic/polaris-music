@@ -13,7 +13,7 @@ import neo4j from 'neo4j-driver';
 import GraphDatabaseService from '../../src/graph/schema.js';
 
 // Skip these tests if no database is configured
-const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
 
 describeOrSkip('ADD_CLAIM Event Processing', () => {
     let driver;
