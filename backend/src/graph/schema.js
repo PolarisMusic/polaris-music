@@ -846,24 +846,52 @@ constructor(config = {}) {
 
                 // Link performing GROUPS (the main bands/orchestras)
                 for (const performingGroup of track.performed_by_groups || []) {
-                    const perfGroupId = performingGroup.group_id;
+                    const groupName =
+                        performingGroup.name ||
+                        performingGroup.group_name ||
+                        'Unknown Group';
 
-                    if (!perfGroupId) {
-                        console.warn(`    Warning: Track ${track.title} has performing group without ID`);
+                    let groupId = null;
+
+                    try {
+                        // If group_id exists, resolve it (handles canonical/prov/external via IdentityMap)
+                        // If group_id does NOT exist, resolve from name -> deterministic provisional ID
+                        groupId = await this.resolveEntityId(tx, 'group', {
+                            ...(performingGroup.group_id ? { group_id: performingGroup.group_id } : {}),
+                            ...(groupName ? { name: groupName } : {})
+                        });
+                    } catch (e) {
+                        console.warn(`    Warning: Could not resolve performing group for track "${track.title}": ${e.message}`);
+                        continue;
+                    }
+
+                    if (!groupId) {
+                        console.warn(`    Warning: Track "${track.title}" has performing group with no resolvable id/name`);
                         continue;
                     }
 
                     await tx.run(`
-                        MATCH (t:Track {track_id: $trackId})
-                        MATCH (g:Group {group_id: $groupId})
+                        // Ensure group exists even if it wasn't included in bundle.groups
+                        MERGE (g:Group {group_id: $groupId})
+                        ON CREATE SET
+                            g.id = $groupId,
+                            g.name = $groupName,
+                            g.status = 'provisional',
+                            g.created_at = datetime()
+                        ON MATCH SET
+                            g.name = coalesce(g.name, $groupName)
 
-                        // PERFORMED_ON relationship for the group
+                        WITH g
+                        MATCH (t:Track {track_id: $trackId})
                         MERGE (g)-[p:PERFORMED_ON {claim_id: $claimId}]->(t)
-                        SET p.credited_as = $creditedAs
+                        SET p.credited_as = $creditedAs,
+                            p.role = $role
                     `, {
                         trackId,
-                        groupId: perfGroupId,
+                        groupId,
+                        groupName,
                         creditedAs: performingGroup.credited_as || null,
+                        role: performingGroup.role || null,
                         claimId: trackOpId
                     });
                 }
@@ -945,14 +973,51 @@ constructor(config = {}) {
                 }
 
                 // Link to Song if it's a recording of a composition
-                if (track.recording_of_song_id) {
+                // Uses track.recording_of (string) per canonical JSON schema
+                if (track.recording_of) {
+                    const ref = track.recording_of;
+
+                    // Treat ref as either an ID-like string OR a title-like string.
+                    // If it parses as a real ID, we use it directly.
+                    // Otherwise we mint a provisional song ID from the title.
+                    let songId = null;
+                    let songTitle = null;
+
+                    try {
+                        const parsed = IdentityService.parseId(ref);
+                        if ((parsed.kind === 'canonical' || parsed.kind === 'provisional') && parsed.valid) {
+                            songId = ref;
+                        } else if (parsed.kind === 'external' && parsed.valid) {
+                            // Resolve external → canonical if known; else mint provisional using track title as a fallback title
+                            songId = await this.resolveEntityId(tx, 'song', { song_id: ref, title: track.title });
+                        } else {
+                            songTitle = ref; // not a usable ID; treat as title
+                        }
+                    } catch {
+                        songTitle = ref;
+                    }
+
+                    if (!songId) {
+                        songId = await this.resolveEntityId(tx, 'song', { title: songTitle });
+                    }
+
                     await tx.run(`
+                        MERGE (s:Song {song_id: $songId})
+                        ON CREATE SET
+                            s.id = $songId,
+                            s.title = $songTitle,
+                            s.status = 'provisional',
+                            s.created_at = datetime()
+                        ON MATCH SET
+                            s.title = coalesce(s.title, $songTitle)
+
+                        WITH s
                         MATCH (t:Track {track_id: $trackId})
-                        MATCH (s:Song {song_id: $songId})
                         MERGE (t)-[r:RECORDING_OF {claim_id: $claimId}]->(s)
                     `, {
                         trackId,
-                        songId: track.recording_of_song_id,
+                        songId,
+                        songTitle: songTitle || null,
                         claimId: trackOpId
                     });
                 }
