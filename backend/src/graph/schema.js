@@ -845,7 +845,15 @@ constructor(config = {}) {
                 // ========== CRITICAL: DISTINGUISH GROUPS vs GUESTS ==========
 
                 // Link performing GROUPS (the main bands/orchestras)
-                for (const performingGroup of track.performed_by_groups || []) {
+                // Belt + suspenders: handle performed_by string fallback in case normalization was bypassed
+                const performingGroups =
+                    (Array.isArray(track.performed_by_groups) && track.performed_by_groups.length > 0)
+                        ? track.performed_by_groups
+                        : (typeof track.performed_by === 'string' && track.performed_by.trim())
+                            ? [{ name: track.performed_by.trim() }]
+                            : [];
+
+                for (const performingGroup of performingGroups) {
                     const groupName =
                         performingGroup.name ||
                         performingGroup.group_name ||

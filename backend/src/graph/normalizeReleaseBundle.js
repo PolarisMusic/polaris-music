@@ -424,6 +424,16 @@ function normalizeTrack(track) {
             .filter(group => group !== null); // Remove invalid entries
     }
 
+    // Fallback: older payloads use performed_by as a string (often the group name).
+    // Promote it to performed_by_groups so ingestion can create PERFORMED_ON edges.
+    if (
+        (!normalized.performed_by_groups || normalized.performed_by_groups.length === 0) &&
+        typeof track.performed_by === 'string' &&
+        track.performed_by.trim()
+    ) {
+        normalized.performed_by_groups = [{ name: track.performed_by.trim() }];
+    }
+
     if (track.guests && Array.isArray(track.guests)) {
         normalized.guests = track.guests.map(guest => {
             const normalizedPerson = normalizePerson(guest);
