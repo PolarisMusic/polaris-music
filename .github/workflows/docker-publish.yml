@@ -76,9 +76,11 @@ jobs:
     - name: Generate SBOM
       uses: anchore/sbom-action@v0
       with:
-        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}:${{ steps.meta.outputs.version }}
+        # Use the exact tag produced by docker/metadata-action (already lowercased/valid)
+        image: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
         format: spdx-json
         output-file: sbom-${{ matrix.component }}.spdx.json
+
 
     - name: Upload SBOM
       uses: actions/upload-artifact@v4
@@ -103,7 +105,7 @@ jobs:
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}:main
+        image-ref: ghcr.io/polarismusic/polaris-music/${{ matrix.component }}:main
         format: 'sarif'
         output: 'trivy-results-${{ matrix.component }}.sarif'
 
