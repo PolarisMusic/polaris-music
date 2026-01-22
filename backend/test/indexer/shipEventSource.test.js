@@ -64,7 +64,7 @@ const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : d
 describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
     describe('Fail-Fast Safeguard', () => {
         test('should throw clear error when start() is called (SHiP not implemented)', async () => {
-            const ship = new entSource({
+            const ship = new ShipEventSource({
                 shipUrl: 'ws://localhost:8080',
                 contractAccount: 'polaris'
             });
@@ -76,7 +76,7 @@ describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
         });
 
         test('should display clear error banner before throwing', async () => {
-            const ship = new entSource({
+            const ship = new ShipEventSource({
                 shipUrl: 'ws://localhost:8080',
                 contractAccount: 'polaris'
             });
