@@ -15,9 +15,9 @@
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
-// Skip tests if database not available
-const hasDatabase = process.env.GRAPH_URI && process.env.GRAPH_URI !== '';
-const testMode = hasDatabase ? describe : describe.skip;
+// These tests require a real IPFS daemon. They are opt-in so CI stays reliable.
+// Run locally with: RUN_IPFS_TESTS=true IPFS_URL=http://localhost:5001 npm test
+const testMode = process.env.RUN_IPFS_TESTS === 'true' ? describe : describe.skip;
 
 testMode('EventStore CID Functionality', () => {
     let EventStore;
