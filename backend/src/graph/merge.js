@@ -212,9 +212,17 @@ export class MergeOperations {
 
             // 9. Safety check: Ensure no TEMP relationships remain
             const tempCheckResult = await tx.run(
-                `MATCH ()-[r:TEMP]->()
-                 RETURN count(r) as tempCount`
+                `
+                MATCH (a)-[r:TEMP]->(b)
+                WHERE a.id = $survivorId
+                   OR b.id = $survivorId
+                   OR a.id IN $absorbedIds
+                   OR b.id IN $absorbedIds
+                RETURN count(r) as tempCount
+                `,
+                { survivorId, absorbedIds }
             );
+
             const tempCount = tempCheckResult.records[0]?.get('tempCount').toNumber() || 0;
             if (tempCount > 0) {
                 console.error(`⚠️  ERROR: ${tempCount} TEMP relationships remain after merge!`);
@@ -379,7 +387,20 @@ export class MergeOperations {
         } = metadata;
 
         // CRITICAL: MATCH canonical FIRST to prevent creating orphan alias nodes
+        const canonicalCheck = await session.run(
+            `
+            MATCH (c {id: $canonicalId})
+            RETURN c
+            `,
+            { canonicalId }
+        );
+
+        if (canonicalCheck.records.length === 0) {
+            throw new Error(`Canonical node does not exist: ${canonicalId}`);
+        }
+
         // If canonical doesn't exist, query fails before creating alias (good!)
+        // Canonical exists — safe to create alias
         await session.run(
             `MATCH (canonical {id: $canonicalId})
              MERGE (alias:Alias {id: $aliasId})
