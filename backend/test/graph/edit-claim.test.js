@@ -22,20 +22,22 @@ describeOrSkip('EDIT_CLAIM Event Processing', () => {
     let graphDb;
     let session;
 
-    const testPersonId = 'polaris:person:test-edit-claim-person';
+    const testPersonId = 'polaris:person:22222222-2222-2222-2222-222222222222';
     let originalClaimId;
 
     beforeAll(async () => {
-        // Connect to test database
-        driver = neo4j.driver(
-            process.env.GRAPH_URI || 'bolt://localhost:7687',
-            neo4j.auth.basic(
-                process.env.GRAPH_USER || 'neo4j',
-                process.env.GRAPH_PASSWORD || 'password'
-            )
-        );
+        graphDb = new GraphDatabaseService({
+            uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+            user: process.env.GRAPH_USER || 'neo4j',
+            password: process.env.GRAPH_PASSWORD || 'password'
+        });
+    
+        driver = graphDb.driver;
 
-        graphDb = new GraphDatabaseService({ driver });
+        // If available, initialize schema (constraints/indexes) once
+        if (typeof graphDb.initializeSchema === 'function') {
+            await graphDb.initializeSchema();
+        }
     });
 
     afterAll(async () => {
@@ -46,14 +48,15 @@ describeOrSkip('EDIT_CLAIM Event Processing', () => {
         session = driver.session();
 
         // Clean up test nodes
-        await session.run(`
+        await session.run(
+            `
             MATCH (n)
-            WHERE n.id STARTS WITH 'polaris:person:test-edit-claim-'
-               OR n.claim_id STARTS WITH 'test-claim-edit-'
-               OR n.event_hash = 'test-event-hash-edit-claim'
-               OR n.event_hash = 'test-event-hash-original-claim'
+            WHERE n.id = $id
             DETACH DELETE n
-        `);
+            `,
+            { id: testPersonId }
+        );
+
 
         // Create test person
         await session.run(`
