@@ -52,7 +52,7 @@ jest.mock('neo4j-driver', () => ({
 }));
 
 // Skip these integration tests if no database is configured
-const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
 
 describeOrSkip('ID Unification Migration (001-unify-id-property)', () => {
     let driver;
