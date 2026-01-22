@@ -12,7 +12,7 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } fr
 import GraphDatabaseService from '../../src/graph/schema.js';
 
 // Skip these tests if no database is configured
-const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
 
 describeOrSkip('Cypher Injection Prevention', () => {
     let driver;
