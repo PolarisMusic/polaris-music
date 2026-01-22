@@ -11,6 +11,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import neo4j from 'neo4j-driver';
 import EventStore from '../../src/storage/eventStore.js';
+import MusicGraphDatabase from '../../src/graph/schema.js';
 import { MergeOperations } from '../../src/graph/merge.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
 
@@ -57,42 +58,27 @@ jest.mock('neo4j-driver', () => ({
 const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
 
 describeOrSkip('Event-Sourced Merge Operations', () => {
+    let graphDb;
     let driver;
     let eventStore;
     let eventProcessor;
     let session;
 
     beforeAll(async () => {
-        // Connect to test database
-        driver = neo4j.driver(
-            process.env.GRAPH_URI || 'bolt://localhost:7687',
-            neo4j.auth.basic(
-                process.env.GRAPH_USER || 'neo4j',
-                process.env.GRAPH_PASSWORD || 'password'
-            )
-        );
+        // Use a real MusicGraphDatabase instance (required by EventProcessor)
+        graphDb = new MusicGraphDatabase({
+            uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+            user: process.env.GRAPH_USER || 'neo4j',
+            password: process.env.GRAPH_PASSWORD || 'password'
+        });
+        driver = graphDb.driver;
 
         // Initialize event store with correct config shape
-        eventStore = new EventStore({
-            s3: {
-                endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
-                region: process.env.S3_REGION || 'us-east-1',
-                bucket: process.env.S3_BUCKET || 'polaris-test-events',
-                accessKeyId: process.env.S3_ACCESS_KEY || 'minioadmin',
-                secretAccessKey: process.env.S3_SECRET_KEY || 'minioadmin'
-            },
-            redis: {
-                host: process.env.REDIS_HOST || 'localhost',
-                port: parseInt(process.env.REDIS_PORT || '6379')
-            },
-            ipfs: {
-                url: process.env.IPFS_URL || 'http://localhost:5001'
-            }
-        });
+        eventStore = new EventStore({ /* ... */ });
 
         // Initialize event processor
         eventProcessor = new EventProcessor({
-            db: { driver },
+            db: graphDb,
             store: eventStore
         });
 
@@ -101,7 +87,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
     });
 
     afterAll(async () => {
-        await driver.close();
+        await graphDb.close();
     });
 
     beforeEach(async () => {
