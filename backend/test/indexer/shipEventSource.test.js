@@ -58,7 +58,7 @@ jest.mock('neo4j-driver', () => ({
 }));
 
 // Skip these integration tests if no database is configured
-const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
 
 describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
     describe('Fail-Fast Safeguard', () => {
