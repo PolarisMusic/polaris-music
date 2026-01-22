@@ -13,6 +13,7 @@ import { ShipEventSource } from '../../src/indexer/shipEventSource.js';
 import { IngestionHandler } from '../../src/api/ingestion.js';
 import EventStore from '../../src/storage/eventStore.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
+import MusicGraphDatabase from '../../src/graph/schema.js';
 import neo4j from 'neo4j-driver';
 
 // Mock ws module to prevent actual WebSocket connections in tests
@@ -63,7 +64,7 @@ const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : d
 describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
     describe('Fail-Fast Safeguard', () => {
         test('should throw clear error when start() is called (SHiP not implemented)', async () => {
-            const ship = new ShipEventSource({
+            const ship = new entSource({
                 shipUrl: 'ws://localhost:8080',
                 contractAccount: 'polaris'
             });
@@ -75,7 +76,7 @@ describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
         });
 
         test('should display clear error banner before throwing', async () => {
-            const ship = new ShipEventSource({
+            const ship = new entSource({
                 shipUrl: 'ws://localhost:8080',
                 contractAccount: 'polaris'
             });
@@ -120,20 +121,20 @@ describe('SHiP Event Source (T6) - Non-Integration Tests', () => {
 });
 
 describeOrSkip('SHiP Event Source (T6)', () => {
+    let graphDb;
     let driver;
     let eventStore;
     let eventProcessor;
     let ingestionHandler;
 
     beforeAll(async () => {
-        // Connect to test database
-        driver = neo4j.driver(
-            process.env.GRAPH_URI || 'bolt://localhost:7687',
-            neo4j.auth.basic(
-                process.env.GRAPH_USER || 'neo4j',
-                process.env.GRAPH_PASSWORD || 'password'
-            )
-        );
+        // Use a real MusicGraphDatabase instance (required by EventProcessor)
+        graphDb = new MusicGraphDatabase({
+            uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+            user: process.env.GRAPH_USER || 'neo4j',
+            password: process.env.GRAPH_PASSWORD || 'password'
+        });
+        driver = graphDb.driver;
 
         // Initialize components
         eventStore = new EventStore({
@@ -143,7 +144,7 @@ describeOrSkip('SHiP Event Source (T6)', () => {
         });
 
         eventProcessor = new EventProcessor({
-            db: { driver },
+            db: graphDb,
             store: eventStore
         });
 
@@ -153,7 +154,7 @@ describeOrSkip('SHiP Event Source (T6)', () => {
     });
 
     afterAll(async () => {
-        await driver.close();
+        await graphDb.close();
     });
 
     describe('AnchoredEvent Creation', () => {
