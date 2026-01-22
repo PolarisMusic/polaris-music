@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "mocha": "^10.2.0",
-    "chai": "^4.3.7"
+    "chai": "^6.2.2"
   },
   "overrides": {
     "elliptic": "^6.6.1"
