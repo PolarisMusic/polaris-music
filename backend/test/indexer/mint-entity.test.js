@@ -18,7 +18,7 @@ const testCid = (entityType, n) =>
   `polaris:${entityType}:00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 
 // Skip these tests if no database is configured
-const describeOrSkip = process.env.GRAPH_URI ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
 
 describeOrSkip('MINT_ENTITY Event Handler', () => {
   let driver;
