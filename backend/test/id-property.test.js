@@ -38,6 +38,7 @@ describe('Neo4j ID Property Consistency', () => {
             const session = db.driver.session();
             await session.run('RETURN 1');
             await session.close();
+            await db.initializeSchema();
         } catch (err) {
             skipTests = true;
             console.log('⚠️  Skipping Neo4j integration tests - connection failed:', err.message);
@@ -58,6 +59,7 @@ describe('Neo4j ID Property Consistency', () => {
             try {
                 const result = await session.run(`
                     SHOW CONSTRAINTS
+                    YIELD name, type, labelsOrTypes, properties
                     WHERE type = 'UNIQUENESS'
                     RETURN name, labelsOrTypes, properties
                 `);
@@ -94,6 +96,7 @@ describe('Neo4j ID Property Consistency', () => {
             try {
                 const result = await session.run(`
                     SHOW CONSTRAINTS
+                    YIELD name, type, labelsOrTypes, properties
                     WHERE type = 'UNIQUENESS'
                     RETURN name, labelsOrTypes, properties
                 `);
