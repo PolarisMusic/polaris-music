@@ -40,9 +40,14 @@ describeOrSkip('MergeOperations - createAlias', () => {
         await session.run(`
             MATCH (n)
             WHERE n.id STARTS WITH 'test-alias-'
-               OR n.id STARTS WITH 'polaris:person:test-alias-'
+               OR n.id IN [
+                    'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
+                    'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
+                    'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4'
+               ]
             DETACH DELETE n
         `);
+
     });
 
     afterEach(async () => {
@@ -56,8 +61,8 @@ describeOrSkip('MergeOperations - createAlias', () => {
         // Setup: Create canonical node
         await session.run(`
             CREATE (p:Person {
-                id: 'polaris:person:test-alias-canonical-1',
-                person_id: 'polaris:person:test-alias-canonical-1',
+                id: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
+                person_id: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
                 status: 'ACTIVE'
             })
         `);
@@ -66,7 +71,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
         await MergeOperations.createAlias(
             session,
             'test-alias-prov-1',
-            'polaris:person:test-alias-canonical-1',
+            'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
             {
                 createdBy: 'test-user',
                 aliasKind: 'provisional',
@@ -80,13 +85,13 @@ describeOrSkip('MergeOperations - createAlias', () => {
             RETURN alias.id as aliasId, canonical.id as canonicalId, alias.alias_kind as aliasKind
         `, {
             aliasId: 'test-alias-prov-1',
-            canonicalId: 'polaris:person:test-alias-canonical-1'
+            canonicalId: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'
         });
 
         expect(result.records.length).toBe(1);
         const record = result.records[0];
         expect(record.get('aliasId')).toBe('test-alias-prov-1');
-        expect(record.get('canonicalId')).toBe('polaris:person:test-alias-canonical-1');
+        expect(record.get('canonicalId')).toBe('polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1');
         expect(record.get('aliasKind')).toBe('provisional');
     });
 
@@ -96,7 +101,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
             MergeOperations.createAlias(
                 session,
                 'test-alias-orphan-1',
-                'polaris:person:test-alias-missing-canonical',
+                'polaris:person:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
                 {
                     createdBy: 'test-user',
                     aliasKind: 'provisional',
@@ -112,7 +117,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
             await MergeOperations.createAlias(
                 session,
                 'test-alias-orphan-2',
-                'polaris:person:test-alias-missing-canonical-2',
+                'polaris:person:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2',
                 {
                     createdBy: 'test-user',
                     aliasKind: 'provisional',
@@ -138,8 +143,8 @@ describeOrSkip('MergeOperations - createAlias', () => {
         // Setup: Create canonical node
         await session.run(`
             CREATE (p:Person {
-                id: 'polaris:person:test-alias-canonical-3',
-                person_id: 'polaris:person:test-alias-canonical-3',
+                id: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
+                person_id: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
                 status: 'ACTIVE'
             })
         `);
@@ -148,7 +153,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
         await MergeOperations.createAlias(
             session,
             'test-alias-prov-3',
-            'polaris:person:test-alias-canonical-3',
+            'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
             {
                 createdBy: 'test-user',
                 aliasKind: 'provisional',
@@ -159,7 +164,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
         await MergeOperations.createAlias(
             session,
             'test-alias-prov-3', // Same alias ID
-            'polaris:person:test-alias-canonical-3',
+            'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
             {
                 createdBy: 'test-user',
                 aliasKind: 'provisional',
@@ -187,8 +192,8 @@ describeOrSkip('MergeOperations - createAlias', () => {
         // Setup: Create canonical node
         await session.run(`
             CREATE (p:Person {
-                id: 'polaris:person:test-alias-canonical-4',
-                person_id: 'polaris:person:test-alias-canonical-4',
+                id: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4',
+                person_id: 'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4',
                 status: 'ACTIVE'
             })
         `);
@@ -197,7 +202,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
         await MergeOperations.createAlias(
             session,
             'test-alias-prov-4',
-            'polaris:person:test-alias-canonical-4',
+            'polaris:person:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4',
             {
                 createdBy: 'importer-bot',
                 aliasKind: 'external',
