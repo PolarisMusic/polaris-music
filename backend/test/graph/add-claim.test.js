@@ -21,19 +21,24 @@ describeOrSkip('ADD_CLAIM Event Processing', () => {
     let session;
 
     const testEventHash = 'test-event-hash-add-claim-123';
-    const testPersonId = 'polaris:person:test-add-claim-person';
+    const testPersonId = 'polaris:person:11111111-1111-1111-1111-111111111111';
 
     beforeAll(async () => {
         // Connect to test database
-        driver = neo4j.driver(
-            process.env.GRAPH_URI || 'bolt://localhost:7687',
-            neo4j.auth.basic(
-                process.env.GRAPH_USER || 'neo4j',
-                process.env.GRAPH_PASSWORD || 'password'
-            )
-        );
+        graphDb = new GraphDatabaseService({
+            uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+            user: process.env.GRAPH_USER || 'neo4j',
+            password: process.env.GRAPH_PASSWORD || 'password'
+        });
 
-        graphDb = new GraphDatabaseService({ driver });
+        driver = graphDb.driver;
+
+// If your GraphDatabaseService has an initializeSchema method, call it.
+// (If it doesn't exist, remove this line.)
+        if (typeof graphDb.initializeSchema === 'function') {
+            await graphDb.initializeSchema();
+        }
+
     });
 
     afterAll(async () => {
@@ -44,13 +49,15 @@ describeOrSkip('ADD_CLAIM Event Processing', () => {
         session = driver.session();
 
         // Clean up test nodes
-        await session.run(`
+        await session.run(
+            `
             MATCH (n)
-            WHERE n.id STARTS WITH 'polaris:person:test-add-claim-'
-               OR n.claim_id STARTS WITH 'test-claim-'
-               OR n.event_hash = $eventHash
+            WHERE n.id = $id
             DETACH DELETE n
-        `, { eventHash: testEventHash });
+            `,
+            { id: testPersonId }
+        );
+
 
         // Create test person
         await session.run(`
