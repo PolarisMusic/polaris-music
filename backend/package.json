@@ -3,30 +3,46 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node src/api/index.js",
-    "processor": "node src/indexer/runProcessor.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:integration": "jest --testPathPattern=integration",
-    "test:e2e": "jest --testPathPattern=e2e",
-    "test:performance": "jest --testPathPattern=performance",
-    "test:ci": "jest --ci --coverage --maxWorkers=2"
+    "dev": "node --env-file=.env src/api/index.js",
+    "dev:docker": "node src/api/index.js",
+    "processor": "node --env-file=.env src/indexer/runProcessor.js",
+    "processor:docker": "node src/indexer/runProcessor.js",
+    "db:clear": "node --env-file=.env scripts/clearGraphData.js",
+    "db:load-white-album": "node --env-file=.env scripts/loadWhiteAlbumData.js",
+    "db:reset": "npm run db:clear && npm run db:load-white-album",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --coverage",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --testPathPattern=integration",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --testPathPattern=e2e",
+    "test:performance": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --testPathPattern=performance",
+    "test:load": "artillery run test/performance/artillery.yml",
+    "test:debug": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --runInBand --detectOpenHandles",
+    "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --ci --coverage --maxWorkers=2",
+    "start": "node src/api/index.js",
+    "verify": "npm run test:ci"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.645.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1",
+    "cors": "^2.8.5",
+    "eosjs": "^22.0.0",
     "express": "^4.19.0",
     "express-graphql": "^0.12.0",
-    "graphql": "^16.9.0",
-    "neo4j-driver": "^5.23.0",
+    "fast-json-stable-stringify": "^2.1.0",
+    "graphql": "^15.8.0",
     "ioredis": "^5.4.1",
-    "eosjs": "^22.0.0",
-    "supertest": "^7.0.0"
+    "ipfs-http-client": "^60.0.1",
+    "multiformats": "^13.4.2",
+    "neo4j-driver": "^5.23.0",
+    "node-fetch": "^3.3.2",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
+    "artillery": "^2.0.20",
+    "babel-jest": "^29.7.0",
     "jest": "^29.7.0",
-    "babel-jest": "^29.7.0"
-  },
-  "jest": {
-    "config": "test/jest.config.js"
+    "supertest": "^7.0.0"
   }
 }

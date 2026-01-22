@@ -1,0 +1,123 @@
+name: Smart Contracts CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+
+jobs:
+  compile:
+    name: Compile Smart Contracts
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install EOSIO CDT
+      run: |
+        wget -q https://github.com/AntelopeIO/cdt/releases/download/v4.0.0/cdt_4.0.0_amd64.deb || {
+          echo "::warning::Failed to download CDT package"
+          exit 1
+        }
+        sudo apt-get update
+        sudo apt-get install -y ./cdt_4.0.0_amd64.deb || {
+          echo "::warning::Failed to install CDT package"
+          exit 1
+        }
+
+    - name: Verify CDT installation
+      run: |
+        which cdt-cpp || which eosio-cpp || {
+          echo "::error::CDT compiler not found in PATH"
+          exit 1
+        }
+
+    - name: Compile contract
+      working-directory: contracts
+      run: |
+        # Try cdt-cpp first (newer naming), fall back to eosio-cpp
+        if command -v cdt-cpp &> /dev/null; then
+          cdt-cpp -abigen -o polaris.music.wasm polaris.music.cpp
+        else
+          eosio-cpp -abigen -o polaris.music.wasm polaris.music.cpp
+        fi
+
+    - name: Verify ABI generation
+      working-directory: contracts
+      run: |
+        if [ ! -f polaris.music.abi ]; then
+          echo "::error::ABI file not generated"
+          exit 1
+        fi
+
+    - name: Upload compiled artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: compiled-contracts
+        path: |
+          contracts/polaris.music.wasm
+          contracts/polaris.music.abi
+        retention-days: 7
+
+  test:
+    name: Test Smart Contracts
+    runs-on: ubuntu-latest
+    needs: compile
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: contracts/test/package-lock.json
+
+    - name: Install test dependencies
+      working-directory: contracts/test
+      run: npm ci
+
+    - name: Run validation tests
+      working-directory: contracts/test
+      run: npx mocha unit/validation.test.js --timeout 30000
+
+    - name: Security audit
+      working-directory: contracts/test
+      run: npm audit --production --audit-level=moderate || echo "::warning::Security vulnerabilities found"
+
+  analyze:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run clang-tidy
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-tidy
+        cd contracts
+        clang-tidy polaris.music.cpp -- -std=c++17 || echo "::warning::Static analysis warnings found"
+
+    - name: Check for TODOs
+      run: |
+        TODOS=$(grep -r "TODO\|FIXME\|XXX\|HACK" contracts/ || true)
+        if [ -n "$TODOS" ]; then
+          echo "::warning::TODOs found in codebase"
+          echo "$TODOS"
+        fi

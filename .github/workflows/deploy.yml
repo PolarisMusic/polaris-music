@@ -1,0 +1,94 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      version:
+        description: 'Version tag to deploy (e.g., v1.0.0 or sha-abc123)'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Install kustomize
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    - name: Configure kubectl
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+
+    - name: Verify cluster connection
+      run: kubectl cluster-info
+
+    - name: Update image tags
+      working-directory: k8s/overlays/${{ github.event.inputs.environment }}
+      run: |
+        kustomize edit set image polaris/backend=ghcr.io/${{ github.repository }}/backend:${{ github.event.inputs.version }}
+        kustomize edit set image polaris/frontend=ghcr.io/${{ github.repository }}/frontend:${{ github.event.inputs.version }}
+
+    - name: Deploy to Kubernetes
+      working-directory: k8s/overlays/${{ github.event.inputs.environment }}
+      run: |
+        kubectl apply -k .
+
+    - name: Wait for deployment
+      run: |
+        kubectl rollout status deployment/api -n polaris --timeout=5m
+        kubectl rollout status deployment/frontend -n polaris --timeout=5m
+        kubectl rollout status deployment/processor -n polaris --timeout=5m
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n polaris
+        kubectl get services -n polaris
+        kubectl get ingress -n polaris
+
+    - name: Run smoke tests
+      run: |
+        # Wait for ingress to be ready
+        sleep 30
+
+        # Test API health endpoint
+        HEALTH_URL="https://api.polaris.music/health"
+        HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL || echo "000")
+
+        if [ "$HEALTH_STATUS" != "200" ]; then
+          echo "::error::Health check failed with status $HEALTH_STATUS"
+          exit 1
+        fi
+
+        echo "✅ Deployment successful - health check passed"
+
+    - name: Notify deployment
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Deployment to ${{ github.event.inputs.environment }} succeeded"
+        else
+          echo "❌ Deployment to ${{ github.event.inputs.environment }} failed"
+        fi

@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: polaris
+  labels:
+    app: neo4j
+spec:
+  ports:
+    - port: 7474
+      name: http
+      targetPort: 7474
+    - port: 7687
+      name: bolt
+      targetPort: 7687
+  clusterIP: None
+  selector:
+    app: neo4j
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: polaris
+spec:
+  serviceName: neo4j
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      containers:
+      - name: neo4j
+        image: neo4j:5.15-community
+        ports:
+        - containerPort: 7474
+          name: http
+        - containerPort: 7687
+          name: bolt
+        env:
+        - name: NEO4J_AUTH
+          valueFrom:
+            secretKeyRef:
+              name: polaris-secrets
+              key: NEO4J_AUTH
+        - name: NEO4J_PLUGINS
+          valueFrom:
+            configMapKeyRef:
+              name: polaris-config
+              key: NEO4J_PLUGINS
+        - name: NEO4J_dbms_security_procedures_unrestricted
+          valueFrom:
+            configMapKeyRef:
+              name: polaris-config
+              key: NEO4J_dbms_security_procedures_unrestricted
+        - name: NEO4J_dbms_memory_heap_initial__size
+          valueFrom:
+            configMapKeyRef:
+              name: polaris-config
+              key: NEO4J_dbms_memory_heap_initial__size
+        - name: NEO4J_dbms_memory_heap_max__size
+          valueFrom:
+            configMapKeyRef:
+              name: polaris-config
+              key: NEO4J_dbms_memory_heap_max__size
+        - name: NEO4J_dbms_memory_pagecache_size
+          valueFrom:
+            configMapKeyRef:
+              name: polaris-config
+              key: NEO4J_dbms_memory_pagecache_size
+        volumeMounts:
+        - name: neo4j-data
+          mountPath: /data
+        - name: neo4j-logs
+          mountPath: /logs
+        - name: neo4j-import
+          mountPath: /var/lib/neo4j/import
+        - name: neo4j-plugins
+          mountPath: /plugins
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "1000m"
+          limits:
+            memory: "8Gi"
+            cpu: "2000m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - cypher-shell -u neo4j -p $NEO4J_PASSWORD 'RETURN 1'
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - cypher-shell -u neo4j -p $NEO4J_PASSWORD 'RETURN 1'
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: neo4j-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 50Gi
+  - metadata:
+      name: neo4j-logs
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 10Gi
+  - metadata:
+      name: neo4j-import
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 20Gi
+  - metadata:
+      name: neo4j-plugins
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 5Gi

@@ -1,0 +1,56 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 30
+      arrivalRate: 1
+      rampTo: 10
+    - duration: 60
+      arrivalRate: 10
+  defaults:
+    headers:
+      Content-Type: "application/json"
+  processor: "./processor.cjs"
+
+scenarios:
+  - name: "pipeline smoke load"
+    flow:
+      - function: "makeIds"
+      - post:
+          url: "/api/events/prepare"
+          json:
+            event: "{{ mintEvent }}"
+          capture:
+            - json: "$.canonical_payload"
+              as: "canonical_payload"
+            - json: "$.hash"
+              as: "hash"
+      - post:
+          url: "/api/events/dev-sign"
+          json:
+            canonical_payload: "{{ canonical_payload }}"
+          capture:
+            - json: "$.sig"
+              as: "sig"
+            - json: "$.author_pubkey"
+              as: "author_pubkey"
+      - function: "buildSignedEvent"
+      - post:
+          url: "/api/events/create"
+          json:
+            hash: "{{ hash }}"
+            event: "{{ signedMintEvent }}"
+          capture:
+            - json: "$.stored.event_cid"
+              as: "event_cid"
+      - function: "buildAnchoredPayload"
+      - post:
+          url: "/api/ingest/anchored-event"
+          json:
+            content_hash: "{{ hash }}"
+            payload: "{{ anchoredPayload }}"
+            event_cid: "{{ event_cid }}"
+            block_num: 999999
+            trx_id: "load-test-trx"
+            source: "load-test"
+            contract_account: "polaris"
+            action_name: "put"

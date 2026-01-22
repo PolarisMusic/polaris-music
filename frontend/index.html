@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polaris Music Registry - Submit Release</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Polaris Music Registry</h1>
+            <p>Decentralized Music Credits & Attribution</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="submit">Submit Release</button>
+            <button class="tab" data-tab="browse">Browse Registry</button>
+        </nav>
+
+        <main>
+            <!-- Submit Release Tab -->
+            <div id="submit-tab" class="tab-content active">
+                <div class="container">
+                    <h2>Submit New Release</h2>
+                    <p class="intro">
+                        Enter detailed information about a music release. All data will be anchored
+                        on-chain and stored in a decentralized manner. Please be as accurate as possible.
+                    </p>
+
+                    <!-- Discogs Import Section -->
+                    <div class="discogs-import">
+                        <details>
+                            <summary>
+                                <span class="icon">📀</span>
+                                <strong>Import from Discogs</strong>
+                                <span class="hint">Auto-fill form from Discogs database</span>
+                            </summary>
+                            <div class="import-content">
+                                <p>Enter a Discogs release URL or ID to automatically populate the form:</p>
+                                <div class="import-input-group">
+                                    <input type="text" id="discogs-input"
+                                           placeholder="https://www.discogs.com/release/249504 or just 249504"
+                                           autocomplete="off">
+                                    <button type="button" id="fetch-discogs-btn" class="btn-secondary">
+                                        Fetch Data
+                                    </button>
+                                </div>
+                                <div id="discogs-status" class="import-status"></div>
+                                <small class="note">
+                                    <strong>Note:</strong> This will auto-populate the form with data from Discogs.
+                                    You can review and edit all fields before submitting.
+                                </small>
+                            </div>
+                        </details>
+                    </div>
+
+                    <form id="release-form">
+                        <!-- Release Information Section -->
+                        <section class="form-section">
+                            <h3>Release Information</h3>
+
+                            <div class="form-group">
+                                <label for="release-name">Release Name *</label>
+                                <input type="text" id="release-name" name="release_name" required
+                                       placeholder="The Beatles">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="release-altnames">Alternative Names</label>
+                                <input type="text" id="release-altnames" name="release_altnames"
+                                       placeholder="The White Album (comma-separated)">
+                                <small>Separate multiple names with commas</small>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="release-date">Release Date *</label>
+                                    <input type="text" id="release-date" name="release_date" required placeholder="YYYY/MM/DD or YYYY/MM or YYYY">
+                                    <small>Format: YYYY/MM/DD (e.g., 2002/08/27) or YYYY/MM (e.g., 2002/08) or just YYYY (e.g., 2002)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="release-format">Format *</label>
+                                    <select id="release-format" name="release_format" required>
+                                        <option value="">Select format...</option>
+                                        <option value="LP">LP (Album)</option>
+                                        <option value="EP">EP</option>
+                                        <option value="Single">Single</option>
+                                        <option value="CD">CD</option>
+                                        <option value="Digital">Digital</option>
+                                        <option value="Cassette">Cassette</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="liner-notes">Liner Notes</label>
+                                <textarea id="liner-notes" name="liner_notes" rows="4"
+                                          placeholder="Additional notes, credits, or information about the release..."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="is-master" name="is_master" checked>
+                                    This is the master/original release
+                                </label>
+                                <small>Uncheck if this is a reissue</small>
+                            </div>
+
+                            <div class="form-group" id="master-release-group" style="display: none;">
+                                <label for="master-release-id">Master Release ID</label>
+                                <input type="text" id="master-release-id" name="master_release_id"
+                                       placeholder="Hash of the master release">
+                                <!-- UNIMPLEMENTED: Database search for master releases -->
+                                <!-- TODO: Add autocomplete search that queries /api/search?type=release&q={query} -->
+                                <!-- Should display matching releases and allow selection -->
+                            </div>
+                        </section>
+
+                        <!-- Source Attribution Section -->
+                        <section class="form-section">
+                            <h3>Source Attribution</h3>
+                            <div class="form-group">
+                                <label for="source-links">Source Links</label>
+                                <input type="text" id="source-links" name="source_links"
+                                       placeholder="https://discogs.com/..., https://musicbrainz.org/... (comma-separated)">
+                                <small>Provide source links for verification (Discogs, MusicBrainz, official websites, etc.)</small>
+                            </div>
+                        </section>
+
+                        <!-- Labels Section -->
+                        <section class="form-section">
+                            <h3>Labels</h3>
+                            <div id="labels-container"></div>
+                            <button type="button" class="btn-add" id="add-label">+ Add Label</button>
+                        </section>
+
+                        <!-- Release-Level Groups Section -->
+                        <section class="form-section">
+                            <h3>Release-Level Performing Groups</h3>
+                            <p class="section-note">
+                                Add groups that performed on this release. These will be automatically added to all tracks
+                                (you can remove them from individual tracks if needed). Examples: The Beatles, Paul McCartney & Wings, etc.
+                            </p>
+                            <div id="release-groups-container"></div>
+                            <button type="button" class="btn-add" id="add-release-group">+ Add Release Group</button>
+                        </section>
+
+                        <!-- Release-Level Guests Section -->
+                        <section class="form-section">
+                            <h3>Release-Level Credits</h3>
+                            <p class="section-note">
+                                Add personnel who contributed to the overall release (mastering engineers,
+                                album designers, release-level production, etc.) rather than specific tracks.
+                            </p>
+                            <div id="release-guests-container"></div>
+                            <button type="button" class="btn-add" id="add-release-guest">+ Add Release Guest</button>
+                        </section>
+
+                        <!-- Tracks Section -->
+                        <section class="form-section">
+                            <h3>Tracks</h3>
+                            <p class="section-note">
+                                Add all tracks on this release. Each track should include complete credits.
+                            </p>
+                            <div id="tracks-container"></div>
+                            <button type="button" class="btn-add" id="add-track">+ Add Track</button>
+                        </section>
+
+                        <!-- Submit Section -->
+                        <section class="form-section">
+                            <div class="form-actions">
+                                <button type="button" class="btn-secondary" id="preview-json">Preview JSON</button>
+                                <button type="submit" class="btn-primary">Submit Release</button>
+                            </div>
+                        </section>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Browse Tab (placeholder) -->
+            <div id="browse-tab" class="tab-content">
+                <div class="container">
+                    <h2>Browse Registry</h2>
+                    <p>Graph visualization coming soon...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- JSON Preview Modal -->
+        <div id="json-modal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Release Bundle Preview</h2>
+                <pre id="json-preview"></pre>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="copy-json">Copy JSON</button>
+                    <button type="button" class="btn-primary" id="confirm-submit">Confirm & Submit</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="overlay" style="display: none;">
+            <div class="spinner"></div>
+            <p>Submitting release...</p>
+        </div>
+
+        <!-- Success/Error Messages -->
+        <div id="toast-container"></div>
+    </div>
+
+    <script type="module" src="/src/index.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: polaris-config
+  namespace: polaris
+data:
+  # Blockchain Configuration
+  CHAIN_ID: "aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906"
+  RPC_URL: "https://eos.greymass.com"
+  CONTRACT_ACCOUNT: "polaris"
+
+  # Service URLs (internal cluster DNS)
+  GRAPH_URI: "bolt://neo4j:7687"
+  GRAPH_USER: "neo4j"
+  IPFS_URL: "http://ipfs:5001"
+  S3_ENDPOINT: "http://minio:9000"
+  S3_BUCKET: "polaris-events"
+  S3_REGION: "us-east-1"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+
+  # API Configuration
+  PORT: "3000"
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  CORS_ORIGIN: "https://polaris.music"
+
+  # Processor Configuration
+  START_BLOCK: "0"
+  BATCH_SIZE: "100"
+  POLL_INTERVAL: "5000"
+
+  # Neo4j Configuration
+  NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+  NEO4J_dbms_security_procedures_unrestricted: "apoc.*,gds.*"
+  NEO4J_dbms_memory_heap_initial__size: "1G"
+  NEO4J_dbms_memory_heap_max__size: "4G"
+  NEO4J_dbms_memory_pagecache_size: "2G"
+
+  # IPFS Configuration
+  IPFS_PROFILE: "server"

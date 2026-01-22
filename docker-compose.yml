@@ -1,0 +1,417 @@
+version: '3.8'
+
+services:
+  # Neo4j Graph Database
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: polaris-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/polarisdev
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_dbms_memory_pagecache_size=1G
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-import:/var/lib/neo4j/import
+      - neo4j-plugins:/plugins
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p polarisdev 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: polaris-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass polarisdev --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "polarisdev", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # IPFS Node (Primary)
+  ipfs:
+    image: ipfs/kubo:v0.24.0
+    container_name: polaris-ipfs
+    restart: unless-stopped
+    ports:
+      - "4001:4001"     # P2P (TCP) - public swarm
+      - "4001:4001/udp" # P2P (UDP for QUIC) - public swarm
+      - "127.0.0.1:5001:5001"     # API - localhost only (security)
+      - "127.0.0.1:8080:8080"     # Gateway - localhost only (security)
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ipfs-staging:/export
+      - ipfs-data:/data/ipfs
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs id || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # IPFS Node (Secondary - OPTIONAL internal redundancy)
+  # Purpose: Best-effort replication for local redundancy
+  # - Not required for startup (api/processor will start without it)
+  # - Reachable only via Docker network at http://ipfs2:5001 (no host ports)
+  # - Can make outbound swarm connections (content discovery) but no inbound (no exposed ports)
+  # - To enable: Set IPFS_URLS=http://ipfs:5001,http://ipfs2:5001 in your .env
+  # - Public availability: primary ipfs node + optional external pinning
+  ipfs2:
+    image: ipfs/kubo:v0.24.0
+    container_name: polaris-ipfs2
+    restart: unless-stopped
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ipfs2-staging:/export
+      - ipfs2-data:/data/ipfs
+    networks:
+      - polaris-network
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs id || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: polaris-minio
+    ports:
+      - "9000:9000"     # API
+      - "9001:9001"     # Console
+    environment:
+      - MINIO_ROOT_USER=polaris
+      - MINIO_ROOT_PASSWORD=polarisdev123
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - polaris-network
+
+  # MinIO Health Check (uses curl to check MinIO readiness)
+  # Separate service because MinIO image doesn't include curl
+  minio-health:
+    image: curlimages/curl:8.6.0
+    container_name: polaris-minio-health
+    depends_on:
+      - minio
+    networks:
+      - polaris-network
+    command: ["sh", "-c", "sleep 365d"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://minio:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  # MinIO Client - Create bucket on startup
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+    container_name: polaris-minio-init
+    depends_on:
+      minio-health:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      set -e;
+      /usr/bin/mc alias set polaris http://minio:9000 polaris polarisdev123;
+      /usr/bin/mc mb -p polaris/polaris-events || true;
+      /usr/bin/mc anonymous set download polaris/polaris-events;
+      echo 'MinIO init complete';
+      "
+    networks:
+      - polaris-network
+
+  # Backend API Server
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: polaris-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+
+      # Security: Signature Verification
+      # ALLOW_UNSIGNED_EVENTS=true bypasses cryptographic signature verification
+      # WARNING: DO NOT enable in production - undermines verifiability guarantees
+      # Only use for isolated testing with mock data
+      # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
+
+      # Blockchain (Jungle4 testnet for development)
+      - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
+      - RPC_URL=https://jungle4.greymass.com
+      - CONTRACT_ACCOUNT=polaris
+
+      # Graph Database
+      - GRAPH_URI=bolt://neo4j:7687
+      - GRAPH_USER=neo4j
+      - GRAPH_PASSWORD=polarisdev
+
+      # Storage (IPFS)
+      # Multi-node for redundancy (primary + secondary)
+      # Primary (ipfs) is required, secondary (ipfs2) is optional best-effort
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
+      - IPFS_URL=http://ipfs:5001  # Legacy fallback (single-node)
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=polaris
+      - S3_SECRET_KEY=polarisdev123
+      - S3_BUCKET=polaris-events
+      - S3_REGION=us-east-1
+
+      # Redis Cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=polarisdev
+
+      # External Pinning Provider (optional, best-effort)
+      - PIN_PROVIDER=${PIN_PROVIDER:-none}
+      - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
+      - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
+      - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
+
+      # Development/Testing: Smoke Test Support
+      # DevSigner uses well-known EOSIO dev key (safe: disabled in production via NODE_ENV check)
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
+      - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
+
+      # API Configuration
+      - CORS_ORIGIN=http://localhost:5173
+      - LOG_LEVEL=debug
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+      # ipfs2 is optional - best-effort redundancy, not required for startup
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/test:/app/test
+    networks:
+      - polaris-network
+    command: npm run dev:docker
+
+  # Event Processor (Blockchain → Graph)
+  # NOTE: This is the LEGACY processor that polls blockchain directly via SHiP/History API
+  # By default this service is DISABLED to avoid double-ingestion with Substreams
+  # To enable: docker compose --profile legacy up
+  processor:
+    profiles: ["legacy"]  # Only runs when explicitly enabled with --profile legacy
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: polaris-processor
+    environment:
+      - NODE_ENV=development
+
+      # Security: Signature Verification
+      # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
+
+      # Blockchain (Jungle4 testnet for development)
+      - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
+      - RPC_URL=https://jungle4.greymass.com
+      - CONTRACT_ACCOUNT=polaris
+
+      # Graph Database
+      - GRAPH_URI=bolt://neo4j:7687
+      - GRAPH_USER=neo4j
+      - GRAPH_PASSWORD=polarisdev
+
+      # Storage (IPFS)
+      # Multi-node for redundancy (primary + secondary)
+      # Primary (ipfs) is required, secondary (ipfs2) is optional best-effort
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
+      - IPFS_URL=http://ipfs:5001  # Legacy fallback (single-node)
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=polaris
+      - S3_SECRET_KEY=polarisdev123
+      - S3_BUCKET=polaris-events
+      - S3_REGION=us-east-1
+
+      # Redis Cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=polarisdev
+
+      # External Pinning Provider (optional, best-effort)
+      - PIN_PROVIDER=${PIN_PROVIDER:-none}
+      - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
+      - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
+      - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
+
+      # Development/Testing: Smoke Test Support
+      # DevSigner uses well-known EOSIO dev key (safe: disabled in production via NODE_ENV check)
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
+      - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
+
+      # Processor Configuration
+      - START_BLOCK=0
+      - BATCH_SIZE=100
+      - POLL_INTERVAL=5000
+      - LOG_LEVEL=debug
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+      # ipfs2 is optional - best-effort redundancy, not required for startup
+    volumes:
+      - ./backend/src:/app/src
+    networks:
+      - polaris-network
+    command: npm run processor:docker
+
+  # Frontend Development Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: polaris-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      # API endpoints (internal Docker network)
+      - VITE_API_URL=http://localhost:3000/api
+      - VITE_GRAPHQL_URL=http://localhost:3000/graphql
+
+      # Blockchain configuration (explicit values to avoid relying on code defaults)
+      - VITE_CHAIN_ID=${VITE_CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
+      - VITE_RPC_URL=${VITE_RPC_URL:-https://jungle4.greymass.com}
+      - VITE_CONTRACT_ACCOUNT=${VITE_CONTRACT_ACCOUNT:-polaris}
+      - VITE_USE_LOCAL_ABI=${VITE_USE_LOCAL_ABI:-true}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+    networks:
+      - polaris-network
+    command: npm run dev -- --host
+    depends_on:
+      - api
+
+  # Substreams HTTP Sink (Chain Ingestion)
+  # NOTE: Requires SUBSTREAMS_API_TOKEN (or SUBSTREAMS_API_KEY) to be set in .env file
+  # Get your token from https://app.pinax.network
+  # IMPORTANT: SUBSTREAMS_ENDPOINT must match the chain used by frontend/backend
+  #   - Jungle4 (default): jungle4.substreams.pinax.network:443
+  #   - EOS Mainnet: eos.substreams.pinax.network:443
+  # NEW: Uses Pinax Antelope foundational modules (.spkg URL for reliability)
+  #   - No local build artifacts needed
+  #   - Filters by: code:CONTRACT_ACCOUNT && action:put
+  # Substreams Sink (Blockchain → API ingestion)
+  # NOTE: This service requires SUBSTREAMS_API_TOKEN to be set
+  # By default this service is DISABLED to avoid restart loops when token is missing
+  # To enable: docker compose --profile chain up
+  substreams-sink:
+    profiles: ["chain"]  # Only runs when explicitly enabled with --profile chain
+    build:
+      context: ./substreams
+      dockerfile: Dockerfile
+    container_name: polaris-substreams-sink
+    environment:
+      # Backend ingestion endpoint (internal Docker network)
+      # NOTE: Do NOT include /api suffix - it's added automatically by http-sink.mjs
+      - BACKEND_URL=http://api:3000
+
+      # Substreams connection (reads from .env file)
+      # Default to Pinax Jungle4 Substreams endpoint for development
+      # Accepts either SUBSTREAMS_API_TOKEN or SUBSTREAMS_API_KEY
+      - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN:-}
+      - SUBSTREAMS_API_KEY=${SUBSTREAMS_API_KEY:-}
+      - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.substreams.pinax.network:443}
+      - START_BLOCK=${START_BLOCK:-0}
+
+      # Substreams package configuration
+      # DEFAULT: Local package with embedded contract ABI (no Pinax dependency)
+      #   - Package: /app/substreams/polaris_music_substreams-v0.1.0.spkg (built in Docker image)
+      #   - Module: map_anchored_events
+      #   - Params: map_anchored_events=polaris (module-keyed, no inner quotes)
+      #   - Advantage: Works even if Pinax doesn't have our contract ABI
+      #
+      # FALLBACK: Pinax foundational modules (requires Pinax to have your contract ABI)
+      #   - Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg
+      #   - Module: filtered_actions
+      #   - Params: filtered_actions=code:polaris && action:put (module-keyed, no inner quotes)
+      #   - Warning: May fail silently if Pinax cannot decode contract actions
+      #
+      # SINGLE SOURCE OF TRUTH: Set CONTRACT_ACCOUNT only
+      #   - http-sink.mjs derives SUBSTREAMS_PARAMS from CONTRACT_ACCOUNT when empty
+      #   - Format depends on module: map_anchored_events=<account> or filtered_actions=code:<account>
+      #   - This prevents config drift where you change account but forget to update params
+      #
+      # CRITICAL: Params MUST be in module-keyed format: <module_name>=<value>
+      # NOTE: Do NOT use inner quotes in params - spawn() passes them literally
+      # Good: map_anchored_events=polaris
+      # Bad:  map_anchored_events="polaris" (quotes passed to CLI)
+      - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-/app/substreams/polaris_music_substreams-v0.1.0.spkg}
+      - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-map_anchored_events}
+      - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-}  # Empty by default - derived from CONTRACT_ACCOUNT
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polaris}
+
+      # Logging
+      - NODE_ENV=development
+    networks:
+      - polaris-network
+    command: node sink/http-sink.mjs --endpoint=http://api:3000
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-import:
+  neo4j-plugins:
+  redis-data:
+  ipfs-staging:
+  ipfs-data:
+  ipfs2-staging:
+  ipfs2-data:
+  minio-data:
+
+networks:
+  polaris-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

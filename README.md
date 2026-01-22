@@ -72,7 +72,7 @@ npm install
 cp .env.example .env.local
 
 # Start services with Docker Compose
-docker-compose up -d
+docker compose up -d
 
 # Initialize database
 npm run init:db
@@ -106,7 +106,88 @@ S3_BUCKET=polaris-events
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=your-redis-password
+
+# Frontend Configuration (frontend/.env or docker-compose.yml)
+# IMPORTANT: VITE_API_URL must include the /api prefix
+VITE_API_URL=http://localhost:3000/api
+VITE_GRAPHQL_URL=http://localhost:3000/graphql
 ```
+
+**Note on Frontend API URL**: The `VITE_API_URL` environment variable must include the `/api` prefix. The backend API serves REST endpoints under `/api/*` (e.g., `/api/events/create`), while GraphQL is at `/graphql` and health checks at `/health`. The frontend client automatically normalizes the URL if the `/api` suffix is missing, but it's recommended to include it explicitly in your configuration.
+
+### Chain Ingestion (Blockchain Events)
+
+The system supports automated chain ingestion via **Substreams** (recommended), which monitors the blockchain for anchored events and automatically ingests them into the graph database.
+
+#### Ingestion Modes
+
+**Default Mode: Substreams (Recommended)**
+
+The `substreams-sink` service consumes events from the blockchain via Pinax Firehose and posts them to the backend ingestion endpoint. This is the modern, reliable ingestion method that uses Substreams to stream blockchain data in real-time.
+
+**Legacy Mode: Direct Blockchain Polling**
+
+A legacy `processor` service is available that directly polls the blockchain via SHiP/History API. This service is **disabled by default** to prevent double-ingestion conflicts. To enable it:
+
+```bash
+# Run with legacy processor instead of Substreams
+docker compose --profile legacy up
+```
+
+⚠️ **Warning**: Do not run both ingestion methods simultaneously, as this will cause duplicate event processing and graph inconsistencies.
+
+#### Substreams HTTP Sink (Default)
+
+This service is included in `docker-compose.yml` but requires a Pinax API token to run.
+
+**Setup**:
+
+1. **Get a Pinax API Token**:
+   - Visit https://app.pinax.network
+   - Sign up and get your API token
+
+2. **Configure the token** (choose one method):
+
+   **Method A - Environment file** (recommended):
+   ```bash
+   # Create .env file in project root
+   echo "SUBSTREAMS_API_TOKEN=your_token_here" >> .env
+   ```
+
+   **Method B - docker-compose.yml**:
+   ```yaml
+   # Uncomment and set in docker-compose.yml line 250
+   - SUBSTREAMS_API_TOKEN=your_token_here
+   ```
+
+3. **Start the stack**:
+
+   **With blockchain ingestion** (requires Pinax token):
+   ```bash
+   docker compose --profile chain up -d
+   ```
+
+   The `substreams-sink` service will automatically start and begin ingesting blockchain events.
+
+   **Without blockchain ingestion** (if you don't have a Pinax token):
+   ```bash
+   # Start only core services (excludes substreams-sink)
+   docker compose up -d
+   ```
+
+   **Note**: The `substreams-sink` service is behind the `chain` profile to avoid restart loops when token is missing. The legacy `processor` service is behind the `legacy` profile.
+
+4. **Verify ingestion** (check logs):
+   ```bash
+   docker compose logs -f substreams-sink
+   ```
+
+   You should see events being posted to `/api/ingest/anchored-event`.
+
+**Configuration Options**:
+- `START_BLOCK`: Block number to start ingestion from (default: 0)
+- `CONTRACT_ACCOUNT`: Contract account name (default: polaris)
+- `SUBSTREAMS_ENDPOINT`: Firehose endpoint (default: eos.firehose.pinax.network:443)
 
 ## Core Concepts
 
@@ -852,18 +933,18 @@ ACTION unstake(
     asset quantity
 );
 
-// Like a node after traversing the graph front-end 
+// Like a node after traversing the graph front-end
 ACTION like(
     name account,
     checksum256 node_id,
     vector<checksum256> node_path,
 );
 
-// Update respect score of an account verified through fractally process 
+// Batch update Respect values from Fractally elections (oracle-only)
+// Called weekly after Fractally consensus rounds complete
 ACTION updaterespect(
-    name account,
-    vector<checksum256> node_path,
-    asset quantity
+    std::vector<std::pair<name, uint32_t>> respect_data,  // Array of account:respect pairs
+    uint64_t election_round                                // Fractally round number
 );
 ```
 
@@ -1072,6 +1153,16 @@ CALL dbms.components() YIELD name, versions;
 MATCH (n) WHERE n.status = 'test' DETACH DELETE n;
 ```
 
+**Neo4j Password/Volume Issues:**
+
+If Neo4j healthcheck fails with authentication errors after changing the password in `docker-compose.yml`, you need to remove the old volume:
+
+```bash
+docker compose down -v
+```
+
+This is necessary because Neo4j only applies `NEO4J_AUTH` on first initialization of the database volume. No compose change can retroactively change the password inside an existing Neo4j data volume.
+
 #### Storage Issues
 ```bash
 # Test IPFS
@@ -1146,3 +1237,230 @@ MIT License - see LICENSE file for details
 - GQL compatible Cypher queries for Neo4j graph database
 - IPFS for decentralized storage
 - EOS/Vaulta blockchain community
+---
+
+## Documentation vs Implementation Mismatches
+
+_Last Updated: 2025-12-07_
+
+This section documents discrepancies between the English-language descriptions in README files and the actual implemented code.
+
+### Main README.md Mismatches
+
+#### 1. **release_guests Field Missing from Frontend** ✅ FIXED
+- **Previously**: Frontend form did NOT capture release-level guests
+- **Now Fixed**: Added "Release-Level Credits" section to form
+- **Implementation**:
+  - Added `createReleaseGuestForm()` to FormBuilder.js
+  - Added `extractReleaseGuests()` to index.js
+  - Updated `buildReleaseData()` to include `release_guests` array
+- **Usage**: Credits mastering engineers, album designers, and other release-level contributors
+- **Location**: `frontend/index.html` lines 95-107, `frontend/src/components/FormBuilder.js` lines 200-253, `frontend/src/index.js` lines 135, 190-228
+
+#### 2. **Emission Formula Multiplier Mismatch**
+- **README States** (line 886-890): Multipliers should be:
+  - CREATE_RELEASE_BUNDLE: 100,000,000
+  - ADD_CLAIM: 1,000,000
+  - EDIT_CLAIM: 1,000
+- **Smart Contract Implements** (`contracts/polaris.music.cpp` line 507-512):
+  - CREATE_RELEASE_BUNDLE: 1,000,000
+  - ADD_CLAIM: 50,000
+  - EDIT_CLAIM: 1,000
+- **Impact**: Rewards are 100x lower for release bundles and 20x lower for claims than documented
+- **Location**: `contracts/polaris.music.cpp` getMultiplier() function
+
+#### 3. **updaterespect Action Signature Mismatch** ✅ FIXED
+- **Previously**: README documented wrong signature with single account parameter
+- **Now Fixed**: Documentation updated to match actual implementation
+- **Correct Signature**:
+  ```cpp
+  ACTION updaterespect(
+      std::vector<std::pair<name, uint32_t>> respect_data,
+      uint64_t election_round
+  )
+  ```
+- **Purpose**: Batch update Respect values from Fractally elections (oracle-only)
+- **Location**: `contracts/polaris.music.cpp` lines 242-243, README.md lines 864-867
+
+#### 4. **Missing Backend Directory Structure**
+- **README States** (line 958): Backend should have `config/` directory
+- **Implementation**: No `backend/src/config/` directory exists - configuration is handled via environment variables in code
+- **Impact**: Documentation incorrectly describes file structure
+- **Location**: `backend/src/` directory
+
+#### 5. **Docker Compose File Missing** ✅ FIXED
+- **Previously**: No `docker-compose.yml` file existed in repository
+- **Now Fixed**: Created comprehensive docker-compose.yml with all services
+- **Services Included**:
+  - Neo4j graph database (with APOC and GDS plugins)
+  - Redis cache
+  - IPFS node
+  - MinIO (S3-compatible storage)
+  - Backend API server
+  - Event processor
+  - Frontend development server
+- **Additional Files**: Created Dockerfiles and .env.example
+- **Location**: `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile.dev`, `.env.example`
+
+#### 6. **Missing Deployment Scripts**
+- **README States** (line 1034): Should have `./deploy.sh` script
+- **Implementation**: No deployment script exists
+- **Impact**: Production deployment instructions don't work
+- **Location**: Repository root
+- **Note**: Docker Compose can be used for local deployment; production deployment scripts deferred
+
+#### 7. **Missing Tools Directory** ✅ PARTIALLY FIXED
+- **Previously**: No `tools/` directory existed
+- **Now Fixed**: Created stub implementations with TODO markers
+- **Implementation**:
+  - Created `tools/import/discogsImporter.js` (stub with specification reference)
+  - Created `tools/import/csvImporter.js` (stub with specification reference)
+  - Created `tools/migration/migrate.js` (stub with specification reference)
+  - Created `tools/README.md` (implementation guide)
+- **Status**: Stubs created; full implementation specified in `/docs/10-data-import-tools.md`
+- **Location**: `tools/import/`, `tools/migration/`, `tools/README.md`
+
+#### 8. **Missing Kubernetes Files**
+- **README States** (line 977): Should have `k8s/` directory for Kubernetes deployment
+- **Implementation**: No `k8s/` directory exists
+- **Impact**: Kubernetes deployment instructions (line 1037-1040) don't work
+- **Location**: Repository root
+
+#### 9. **Backend README.md Doesn't Exist** ✅ FIXED
+- **Previously**: No `backend/README.md` file existed
+- **Now Fixed**: Created comprehensive backend documentation
+- **Content Includes**:
+  - Architecture diagram
+  - Directory structure guide
+  - Quick start with Docker Compose
+  - Manual setup instructions
+  - Available npm scripts
+  - API endpoint documentation
+  - Environment variables reference
+  - Testing guide with performance targets
+  - Development workflow
+  - Troubleshooting section
+  - Production deployment considerations
+- **Location**: `backend/README.md`
+
+### Frontend README.md vs Implementation
+
+#### 10. **Frontend README Claims "Visualization" Directory**
+- **Frontend README States** (line 42): `src/visualization/` for JIT-based graph visualization
+- **Implementation**: Directory exists but only has placeholder `MusicGraph.js` file (1 line)
+- **Impact**: Misleading - visualization is not actually implemented in frontend
+- **Location**: `frontend/src/visualization/MusicGraph.js`
+
+#### 11. **Frontend README Incorrect Package Reference**
+- **Frontend README States** (line 10): Uses "crypto-js" package for hashing
+- **Implementation**: Correct - `package.json` does include crypto-js@^4.2.0
+- **Status**: ✅ MATCHES (no mismatch - documentation is accurate)
+
+### Smart Contract README.md vs Implementation
+
+#### 12. **Missing "clear" Action Documentation**
+- **Contract README**: Does not document the `clear()` action
+- **Implementation** (`contracts/polaris.music.cpp` line 311-347): Has a `clear()` action for testing
+- **Impact**: Undocumented dangerous action exists in code
+- **Location**: `contracts/polaris.music.cpp` clear action
+- **Note**: README correctly warns this should be removed before mainnet (line 621)
+
+#### 13. **Contract README Correctly Documents Actions**
+- **Contract README** (line 11-116): Documents all main actions accurately
+- **Implementation**: Matches - all documented actions exist with correct signatures
+- **Status**: ✅ MATCHES
+
+### Substreams README.md vs Implementation
+
+#### 14. **Substreams Module Outputs Don't Match**  
+- **Substreams README States** (line 61-72): Four modules exist:
+  1. map_events
+  2. store_stats  
+  3. store_account_activity
+  4. map_stats
+- **Implementation** (`substreams/substreams.yaml`): Only defines three modules in YAML manifest
+  - Missing proper module definitions for store modules
+- **Impact**: Incomplete module configuration
+- **Location**: `substreams/substreams.yaml` lines 55-95
+
+#### 15. **Substreams README Build Instructions**
+- **Substreams README** (line 79-83): Says `make build` will work
+- **Implementation**: `Makefile` exists and should work, but requires external dependencies (substreams CLI)
+- **Status**: ⚠️ CONDITIONAL - Works if dependencies installed
+
+### CLAUDE.md vs Implementation
+
+#### 16. **CLAUDE.md Says Tests Directory Has performance/**
+- **CLAUDE.md States** (line 37): `backend/test/performance/` should exist
+- **Implementation**: No `backend/test/performance/` directory exists
+- **Impact**: Performance testing documentation references non-existent directory
+- **Location**: `backend/test/` directory structure
+
+#### 17. **CLAUDE.md Lists Docs That Don't Exist**
+- **CLAUDE.md States** (lines 53-56): Should have comprehensive docs in `docs/` directory
+- **Implementation**: Only 3 docs files exist:
+  - `docs/01-smart-contract.md` ✅
+  - `docs/02-graph-database-schema.md` ❌ (doesn't exist)
+  - `docs/03-event-storage.md` ✅
+  - Other numbered docs don't exist
+- **Impact**: Referenced documentation is incomplete
+- **Location**: `docs/` directory
+
+### Critical Functional Mismatches
+
+#### 18. **Backend Has No Implementation**
+- **Multiple READMEs State**: Backend should have full implementation with Neo4j, IPFS, Redis, etc.
+- **Implementation**: Backend files are mostly placeholder stubs (schema.js, eventStore.js, server.js created but not fully tested)
+- **Status**: ⚠️ CODE EXISTS BUT UNTESTED - Implementation is present but requires:
+  - Database setup
+  - Storage backend configuration  
+  - Testing and validation
+- **Location**: All `backend/src/` files
+
+#### 19. **Event Processor Integration**  
+- **CLAUDE.md States** (line 144): Backend has `backend/src/indexer/eventProcessor.js`
+- **Implementation**: File exists with full implementation
+- **Status**: ✅ MATCHES
+
+### Data Structure Mismatches
+
+#### 20. **proofs Field Inconsistency** ✅ FIXED
+- **Previously**: Frontend form did NOT capture or send proofs field
+- **Now Fixed**: Added "Source Attribution" section to form
+- **Implementation**:
+  - Added `source_links` input field to index.html
+  - Updated `buildReleaseData()` to create proofs object with source_links array
+- **Usage**: Provide verification sources (Discogs, MusicBrainz, official websites, etc.)
+- **Location**: `frontend/index.html` lines 95-102, `frontend/src/index.js` lines 140-142, 154
+
+### Summary of Critical Issues
+
+**High Priority (Breaks Documented Functionality):**
+1. ~~Missing `release_guests` field in frontend~~ ✅ FIXED
+2. Emission multipliers 100x different from docs
+3. ~~`updaterespect` action completely different signature~~ ✅ FIXED
+4. ~~Missing `proofs` field in frontend~~ ✅ FIXED
+5. ~~Docker Compose file missing~~ ✅ FIXED
+
+**Medium Priority (Documentation Errors):**
+6. ~~Tools directory doesn't exist (Discogs import broken)~~ ✅ PARTIALLY FIXED (stubs created)
+7. Deployment scripts missing (deferred - Docker Compose covers local deployment)
+8. K8s files missing (deferred - not critical for initial development)
+9. ~~Backend README missing~~ ✅ FIXED
+10. Performance test directory missing (deferred - can add when running performance tests)
+
+**Low Priority (Minor Inconsistencies):**
+11. Visualization directory exists but not implemented
+12. Some documentation files missing
+13. `clear()` action undocumented
+
+### Recommended Actions
+
+1. ~~**Frontend Form**: Add `release_guests` field and `proofs` field to form~~ ✅ FIXED
+2. **Smart Contract**: Either update multipliers to match docs or update docs to match code (REMAINING)
+3. ~~**Documentation**: Update `updaterespect` signature in README to match actual implementation~~ ✅ FIXED
+4. ~~**Docker**: Create `docker-compose.yml` or remove references from README~~ ✅ FIXED
+5. ~~**Backend README**: Create comprehensive backend documentation~~ ✅ FIXED
+6. ~~**Tools**: Either create tools/import directory or remove from README~~ ✅ FIXED (stubs created)
+7. **Testing**: Create performance test directory or update CLAUDE.md (DEFERRED)
+

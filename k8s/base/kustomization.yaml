@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: polaris
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - neo4j-statefulset.yaml
+  - redis-statefulset.yaml
+  - ipfs-statefulset.yaml
+  - minio-statefulset.yaml
+  - api-deployment.yaml
+  - processor-deployment.yaml
+  - frontend-deployment.yaml
+  - ingress.yaml
+
+commonLabels:
+  project: polaris
+  managed-by: kustomize

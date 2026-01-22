@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ./backend
+        run: npm test
+
+      - name: Run tests with coverage
+        working-directory: ./backend
+        run: npm run test:ci
+        if: matrix.node-version == '20.x'
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: matrix.node-version == '20.x'
+        with:
+          files: ./backend/coverage/lcov.info
+          flags: backend
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  lint:
+    name: Lint Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Check for syntax errors
+        working-directory: ./backend
+        run: |
+          # Basic syntax check - verify all JS files parse correctly
+          find src -name "*.js" -type f -exec node --check {} \;
+          find test -name "*.js" -type f -exec node --check {} \;
+
+  docker-smoke:
+    name: Docker Compose Smoke Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Docker Compose config
+        run: docker compose config > /dev/null
+
+      - name: Check tooling images exist
+        run: |
+          docker run --rm redis:7-alpine redis-cli --version
+          docker run --rm curlimages/curl:8.6.0 --version
+
+      - name: Start services (healthcheck validation)
+        run: |
+          # Start only infrastructure services for quick validation
+          docker compose up -d neo4j redis ipfs minio
+
+          # Wait for healthy status (max 60s)
+          timeout 90s bash -c '
+            until \
+              [ "$(docker inspect -f "{{.State.Health.Status}}" polaris-neo4j 2>/dev/null)" = "healthy" ] && \
+              [ "$(docker inspect -f "{{.State.Health.Status}}" polaris-redis 2>/dev/null)" = "healthy" ] && \
+              docker run --rm --network host curlimages/curl:8.6.0 -fsS http://localhost:9000/minio/health/ready >/dev/null
+            do
+              sleep 2
+            done
+          '
+
+
+          echo "Services healthy! ✓"
+          docker compose ps
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  contracts-check:
+    name: Smart Contract Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify contract syntax
+        run: |
+          # Basic syntax check - ensure contract has valid structure
+          if [ -f contracts/polaris.music.cpp ]; then
+            echo "Contract file found ✓"
+
+            # Check for required action declarations
+            grep -q "ACTION put" contracts/polaris.music.cpp || exit 1
+            grep -q "ACTION vote" contracts/polaris.music.cpp || exit 1
+            grep -q "ACTION init" contracts/polaris.music.cpp || exit 1
+
+            echo "Contract structure valid ✓"
+          else
+            echo "No contract file found - skipping"
+          fi

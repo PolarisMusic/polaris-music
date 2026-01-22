@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://eos.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; frame-src https://*.anchor.link;">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <title>Polaris Music Registry - Graph Visualization</title>
+
+    <!-- JIT Library (local copy) -->
+    <script src="./public/lib/jit.js"></script>
+
+    <!-- Visualization Styles -->
+    <link rel="stylesheet" href="./src/visualization/visualization.css">
+</head>
+<body>
+    <!-- Top Bar -->
+    <div id="top-bar">
+        <div class="top-bar-left">
+            <div class="logo">Polaris Music Registry</div>
+        </div>
+        <div class="top-bar-right">
+            <div class="user-info">
+                <span id="user-account">Not connected</span>
+                <button id="connect-wallet" class="btn-wallet">Connect Wallet</button>
+            </div>
+            <div class="stats">
+                <span class="stat-item">
+                    <span class="icon">⭐</span>
+                    <span id="favorites-count">0</span> Favorites
+                </span>
+                <span class="stat-item">
+                    <span class="icon">❄️</span>
+                    <span id="history-count">0</span> History
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="main-container">
+        <!-- Visualization Canvas -->
+        <div id="viz-container">
+            <div id="infovis"></div>
+
+            <!-- Controls Overlay -->
+            <div id="controls-overlay">
+                <div class="control-group">
+                    <label>Zoom</label>
+                    <input type="range" id="zoom-slider" min="0.5" max="2" step="0.1" value="1">
+                </div>
+                <button id="center-view" class="btn-control">Center View</button>
+                <button id="toggle-labels" class="btn-control">Toggle Labels</button>
+            </div>
+        </div>
+
+        <!-- Info Viewer Panel -->
+        <div id="info-viewer">
+            <div class="info-header">
+                <h2 id="info-title">Select a node</h2>
+                <button id="like-button" class="btn-like" style="display: none;">🤍 Like</button>
+                <button id="close-info" class="btn-close">×</button>
+            </div>
+            <div id="info-content" class="info-content">
+                <p class="placeholder">Click on a Group or Person to see details</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div id="bottom-bar">
+        <button class="btn-action" id="submit-project">Submit a Project</button>
+        <a href="https://ursapolarisrecords.com/polaris" class="btn-action" target="_blank">Info / Contact</a>
+        <a href="https://ursapolarisrecords.com/album-artwork-1" class="btn-action" target="_blank">Merch / Albums</a>
+        <button class="btn-action" id="help">Help</button>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <p>Loading graph data...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="./src/visualization/colorPalette.js"></script>
+    <script type="module" src="./src/visualization/graphApi.js"></script>
+    <script type="module" src="./src/visualization/PathTracker.js"></script>
+    <script type="module" src="./src/visualization/LikeManager.js"></script>
+    <script type="module" src="./src/visualization/MusicGraph.js"></script>
+    <script type="module" src="./src/wallet/WalletManager.js"></script>
+    <script type="module">
+        import { MusicGraph } from './src/visualization/MusicGraph.js';
+        import { WalletManager } from './src/wallet/WalletManager.js';
+
+        // Initialize wallet manager
+        const walletManager = new WalletManager();
+        window.walletManager = walletManager; // For debugging
+
+        // UI elements
+        const userAccountEl = document.getElementById('user-account');
+        const connectWalletBtn = document.getElementById('connect-wallet');
+
+        /**
+         * Update UI based on wallet connection status
+         */
+        function updateWalletUI(accountInfo) {
+            if (accountInfo) {
+                userAccountEl.textContent = accountInfo.accountName;
+                userAccountEl.style.color = '#4CAF50';
+                connectWalletBtn.textContent = 'Disconnect';
+            } else {
+                userAccountEl.textContent = 'Not connected';
+                userAccountEl.style.color = '';
+                connectWalletBtn.textContent = 'Connect Wallet';
+            }
+        }
+
+        /**
+         * Handle wallet connection/disconnection
+         */
+        async function handleWalletButtonClick() {
+            if (walletManager.isConnected()) {
+                // Disconnect wallet
+                await walletManager.disconnect();
+                updateWalletUI(null);
+            } else {
+                // Connect wallet
+                try {
+                    const accountInfo = await walletManager.connect();
+                    updateWalletUI(accountInfo);
+                } catch (error) {
+                    console.error('Failed to connect wallet:', error);
+                    alert('Failed to connect wallet. Please try again.');
+                }
+            }
+        }
+
+        // Initialize visualization when DOM is ready
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Pass walletManager to enable like functionality
+            const graph = new MusicGraph('infovis', walletManager);
+            window.musicGraph = graph; // For debugging
+
+            // Load initial graph data from backend
+            await graph.loadGraphData();
+
+            // Try to restore wallet session
+            try {
+                const accountInfo = await walletManager.restore();
+                if (accountInfo) {
+                    updateWalletUI(accountInfo);
+                }
+            } catch (error) {
+                console.error('Failed to restore wallet session:', error);
+            }
+
+            // Connect Wallet button
+            if (connectWalletBtn) {
+                connectWalletBtn.addEventListener('click', handleWalletButtonClick);
+            }
+
+            // Submit a Project button
+            const submitBtn = document.getElementById('submit-project');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', () => {
+                    if (!walletManager.isConnected()) {
+                        alert('Please connect your wallet first before submitting a project.');
+                        return;
+                    }
+                    // Navigate to submission form
+                    window.location.href = '/index.html';
+                });
+            }
+
+            // Help button - link to Reddit community
+            const helpBtn = document.getElementById('help');
+            if (helpBtn) {
+                helpBtn.addEventListener('click', () => {
+                    window.open('https://www.reddit.com/r/polarismusic/', '_blank');
+                });
+            }
+
+            // Listen for wallet events
+            walletManager.on('onConnect', (accountInfo) => {
+                console.log('Wallet connected event:', accountInfo);
+            });
+
+            walletManager.on('onDisconnect', () => {
+                console.log('Wallet disconnected event');
+            });
+
+            walletManager.on('onError', (error) => {
+                console.error('Wallet error event:', error);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ipfs
+  namespace: polaris
+  labels:
+    app: ipfs
+spec:
+  ports:
+    - port: 4001
+      name: p2p
+      targetPort: 4001
+    - port: 5001
+      name: api
+      targetPort: 5001
+    - port: 8080
+      name: gateway
+      targetPort: 8080
+  clusterIP: None
+  selector:
+    app: ipfs
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ipfs
+  namespace: polaris
+spec:
+  serviceName: ipfs
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ipfs
+  template:
+    metadata:
+      labels:
+        app: ipfs
+    spec:
+      containers:
+      - name: ipfs
+        image: ipfs/kubo:v0.24.0
+        ports:
+        - containerPort: 4001
+          name: p2p
+        - containerPort: 5001
+          name: api
+        - containerPort: 8080
+          name: gateway
+        env:
+        - name: IPFS_PROFILE
+          valueFrom:
+            configMapKeyRef:
+              name: polaris-config
+              key: IPFS_PROFILE
+        volumeMounts:
+        - name: ipfs-staging
+          mountPath: /export
+        - name: ipfs-data
+          mountPath: /data/ipfs
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ipfs id || exit 1
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ipfs id || exit 1
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: ipfs-staging
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 50Gi
+  - metadata:
+      name: ipfs-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 100Gi

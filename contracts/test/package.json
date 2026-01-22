@@ -1,0 +1,24 @@
+{
+  "name": "polaris-contract-tests",
+  "version": "1.0.0",
+  "description": "Unit tests for Polaris Music Registry smart contract",
+  "scripts": {
+    "test": "mocha polaris.test.js --timeout 30000",
+    "test:watch": "mocha polaris.test.js --watch --timeout 30000",
+    "test:verbose": "mocha polaris.test.js --timeout 30000 --reporter spec"
+  },
+  "dependencies": {
+    "eosjs": "^22.1.0",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "mocha": "^10.2.0",
+    "chai": "^4.3.7"
+  },
+  "overrides": {
+    "elliptic": "^6.6.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

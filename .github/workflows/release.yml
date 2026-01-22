@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Get previous tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+        if [ -z "$PREV_TAG" ]; then
+          # First release
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --reverse)
+        else
+          # Get commits since previous tag
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD)
+        fi
+
+        # Save to file
+        echo "$CHANGELOG" > changelog.txt
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: changelog.txt
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-contracts:
+    name: Build and Attach Smart Contracts
+    runs-on: ubuntu-latest
+    needs: create-release
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install EOSIO CDT
+      run: |
+        wget https://github.com/AntelopeIO/cdt/releases/download/v4.0.0/cdt_4.0.0_amd64.deb
+        sudo apt install ./cdt_4.0.0_amd64.deb
+
+    - name: Compile contracts
+      working-directory: contracts
+      run: |
+        eosio-cpp -abigen -o polaris.music.wasm polaris.music.cpp
+
+    - name: Create artifacts archive
+      run: |
+        cd contracts
+        tar -czf polaris-contracts-${{ github.ref_name }}.tar.gz \
+          polaris.music.wasm \
+          polaris.music.abi \
+          polaris.music.cpp
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: contracts/polaris-contracts-${{ github.ref_name }}.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Notify Release
+    runs-on: ubuntu-latest
+    needs: [create-release, build-contracts]
+    if: always()
+
+    steps:
+    - name: Send notification
+      run: |
+        echo "Release ${{ github.ref_name }} completed"
+        echo "Status: ${{ job.status }}"

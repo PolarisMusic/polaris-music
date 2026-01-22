@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "ADD_CLAIM",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "node": {
+      "type": "release",
+      "id": "__RELEASE_ID__"
+    },
+    "field": "catalog_number",
+    "value": "SMOKE-__RUN_ID__",
+    "provenance": {
+      "submitter": "smoke-test",
+      "source": "smoke_pipeline"
+    }
+  }
+}

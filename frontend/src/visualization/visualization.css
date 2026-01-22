@@ -1,0 +1,426 @@
+/* Polaris Music Registry - Visualization Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    overflow: hidden;
+}
+
+/* Top Bar */
+#top-bar {
+    height: 60px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    z-index: 1000;
+}
+
+.top-bar-left .logo {
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.top-bar-right {
+    display: flex;
+    gap: 30px;
+    align-items: center;
+}
+
+.user-info {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+#user-account {
+    color: #aaa;
+    font-size: 14px;
+}
+
+.btn-wallet {
+    background: #4A90E2;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.btn-wallet:hover {
+    background: #357ABD;
+}
+
+.stats {
+    display: flex;
+    gap: 20px;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+    color: #bbb;
+}
+
+.stat-item .icon {
+    font-size: 18px;
+}
+
+/* Main Container */
+#main-container {
+    display: flex;
+    height: calc(100vh - 120px); /* Subtract top and bottom bars */
+}
+
+/* Visualization Canvas */
+#viz-container {
+    flex: 1;
+    position: relative;
+    background: #0a0a0a;
+    overflow: hidden;
+}
+
+#infovis {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* JIT Canvas Styling - ensure canvas and labels are aligned */
+#infovis canvas {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: #0a0a0a;
+}
+
+/* JIT labels container alignment */
+#infovis > div {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: visible !important;
+}
+
+/* Controls Overlay */
+#controls-overlay {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(26, 26, 26, 0.95);
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.control-group label {
+    font-size: 12px;
+    color: #aaa;
+    text-transform: uppercase;
+}
+
+#zoom-slider {
+    width: 150px;
+}
+
+.btn-control {
+    background: #2a2a2a;
+    color: #e0e0e0;
+    border: 1px solid #444;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.btn-control:hover {
+    background: #3a3a3a;
+    border-color: #555;
+}
+
+/* Info Viewer Panel */
+#info-viewer {
+    width: 400px;
+    background: #1a1a1a;
+    border-left: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.info-header {
+    padding: 20px;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#info-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.btn-close {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 32px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    transition: color 0.2s;
+}
+
+.btn-close:hover {
+    color: #fff;
+}
+
+.info-content {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.info-content .placeholder {
+    color: #666;
+    font-style: italic;
+    text-align: center;
+    margin-top: 100px;
+}
+
+/* Info Content Styles */
+.info-photo {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.info-photo img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.info-meta {
+    color: #aaa;
+    font-size: 14px;
+    margin: 10px 0;
+}
+
+.info-section {
+    margin-bottom: 25px;
+}
+
+.info-section h4 {
+    font-size: 14px;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+}
+
+.info-section p {
+    color: #ddd;
+    line-height: 1.6;
+    font-size: 14px;
+}
+
+.info-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.info-list li {
+    padding: 6px 0;
+    color: #ddd;
+    font-size: 14px;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.info-list li:last-child {
+    border-bottom: none;
+}
+
+.info-section ul {
+    list-style: none;
+    padding: 0;
+}
+
+.info-section li {
+    padding: 8px 0;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.info-section li:last-child {
+    border-bottom: none;
+}
+
+.person-link, .track-link {
+    color: #4A90E2;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.person-link:hover, .track-link:hover {
+    color: #357ABD;
+    text-decoration: underline;
+}
+
+/* Node Images */
+.node-image {
+    width: 100%;
+    max-width: 200px;
+    height: auto;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+/* Bottom Bar */
+#bottom-bar {
+    height: 60px;
+    background: #1a1a1a;
+    border-top: 1px solid #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    padding: 0 20px;
+}
+
+.btn-action {
+    background: #2a2a2a;
+    color: #e0e0e0;
+    border: 1px solid #444;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.btn-action:hover {
+    background: #3a3a3a;
+    border-color: #555;
+    color: #fff;
+}
+
+/* Loading Overlay */
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(10, 10, 10, 0.95);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #333;
+    border-top-color: #4A90E2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+#loading-overlay p {
+    margin-top: 20px;
+    color: #888;
+    font-size: 16px;
+}
+
+/* Scrollbar Styling */
+.info-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.info-content::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+.info-content::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+
+.info-content::-webkit-scrollbar-thumb:hover {
+    background: #444;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+    #info-viewer {
+        width: 320px;
+    }
+
+    .stats {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    #info-viewer {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        transform: translateX(100%);
+        transition: transform 0.3s;
+        z-index: 500;
+    }
+
+    #info-viewer.open {
+        transform: translateX(0);
+    }
+
+    #controls-overlay {
+        top: 10px;
+        left: 10px;
+        padding: 10px;
+    }
+}

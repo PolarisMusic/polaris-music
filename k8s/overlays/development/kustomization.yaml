@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: polaris-dev
+
+bases:
+  - ../../base
+
+nameSuffix: -dev
+
+configMapGenerator:
+  - name: polaris-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+      - CORS_ORIGIN=http://localhost:5173
+
+patchesStrategicMerge:
+  - replicas-patch.yaml
+
+images:
+  - name: polaris/backend
+    newTag: "latest"
+  - name: polaris/frontend
+    newTag: "latest"

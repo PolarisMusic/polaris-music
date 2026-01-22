@@ -1,0 +1,50 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "name": "Smoke Test Release __RUN_ID__"
+    },
+    "groups": [
+      {
+        "name": "Smoke Test Band __RUN_ID__",
+        "members": [
+          {
+            "name": "Smoke Artist One __RUN_ID__",
+            "role": "Vocals"
+          },
+          {
+            "name": "Smoke Artist Two __RUN_ID__",
+            "role": "Guitar"
+          }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "title": "Smoke Track __RUN_ID__",
+        "groups": [
+          {
+            "name": "Smoke Test Band __RUN_ID__"
+          }
+        ]
+      }
+    ],
+    "tracklist": [
+      {
+        "position": "A1",
+        "track_title": "Smoke Track __RUN_ID__"
+      }
+    ],
+    "provenance": {
+      "submitter": "smoketest",
+      "source": "smoke_pipeline",
+      "submitted_at": __TIMESTAMP__
+    }
+  },
+  "proofs": {
+    "source_links": []
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "polaris-music-frontend",
+  "version": "1.0.0",
+  "description": "Polaris Music Registry - Release Submission Form",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@wharfkit/session": "^1.6.1",
+    "@wharfkit/wallet-plugin-anchor": "^1.6.1",
+    "@wharfkit/wallet-plugin-cloudwallet": "^1.5.1",
+    "@wharfkit/web-renderer": "^1.4.3",
+    "crypto-js": "^4.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
