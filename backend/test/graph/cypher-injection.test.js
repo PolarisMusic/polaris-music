@@ -9,7 +9,6 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
-import neo4j from 'neo4j-driver';
 import GraphDatabaseService from '../../src/graph/schema.js';
 
 // Skip these tests if no database is configured
@@ -22,15 +21,17 @@ describeOrSkip('Cypher Injection Prevention', () => {
 
     beforeAll(async () => {
         // Connect to test database
-        driver = neo4j.driver(
-            process.env.GRAPH_URI || 'bolt://localhost:7687',
-            neo4j.auth.basic(
-                process.env.GRAPH_USER || 'neo4j',
-                process.env.GRAPH_PASSWORD || 'password'
-            )
-        );
+        graphDb = new GraphDatabaseService({
+            uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+            user: process.env.GRAPH_USER || 'neo4j',
+            password: process.env.GRAPH_PASSWORD || 'password'
+        });
 
-        graphDb = new GraphDatabaseService({ driver });
+        driver = graphDb.driver;
+
+        await driver.verifyConnectivity();
+        await graphDb.initializeSchema();
+
     });
 
     afterAll(async () => {
@@ -43,10 +44,32 @@ describeOrSkip('Cypher Injection Prevention', () => {
         // Clean up test nodes
         await session.run(`
             MATCH (n)
-            WHERE n.id STARTS WITH 'test-cypher-injection-'
-               OR n.id STARTS WITH 'polaris:person:test-cypher-'
+            WHERE (n.id IS NOT NULL AND n.id STARTS WITH 'test-cypher-injection-')
+                OR n.id IN [
+                    'polaris:person:11111111-1111-1111-1111-111111111111',
+                    'polaris:person:22222222-2222-2222-2222-222222222222',
+                    'polaris:person:33333333-3333-3333-3333-333333333333',
+                    'polaris:person:44444444-4444-4444-4444-444444444444',
+                    'polaris:person:55555555-5555-5555-5555-555555555555',
+                    'polaris:person:66666666-6666-6666-6666-666666666666',
+                    'polaris:person:77777777-7777-7777-7777-777777777777',
+                    'polaris:person:88888888-8888-8888-8888-888888888888',
+                    'polaris:person:99999999-9999-9999-9999-999999999999'
+                ]
+                OR n.person_id IN [
+                    'polaris:person:11111111-1111-1111-1111-111111111111',
+                    'polaris:person:22222222-2222-2222-2222-222222222222',
+                    'polaris:person:33333333-3333-3333-3333-333333333333',
+                    'polaris:person:44444444-4444-4444-4444-444444444444',
+                    'polaris:person:55555555-5555-5555-5555-555555555555',
+                    'polaris:person:66666666-6666-6666-6666-666666666666',
+                    'polaris:person:77777777-7777-7777-7777-777777777777',
+                    'polaris:person:88888888-8888-8888-8888-888888888888',
+                    'polaris:person:99999999-9999-9999-9999-999999999999'
+                ]
             DETACH DELETE n
         `);
+
     });
 
     afterEach(async () => {
@@ -61,8 +84,8 @@ describeOrSkip('Cypher Injection Prevention', () => {
             // Setup: Create test person
             await session.run(`
                 CREATE (p:Person {
-                    id: 'polaris:person:test-cypher-person-1',
-                    person_id: 'polaris:person:test-cypher-person-1',
+                    id: 'polaris:person:11111111-1111-1111-1111-111111111111',
+                    person_id: 'polaris:person:11111111-1111-1111-1111-111111111111',
                     name: 'Test Person',
                     status: 'ACTIVE'
                 })
@@ -72,7 +95,7 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const result = await graphDb.processAddClaim(
                 'test-event-hash-123',
                 {
-                    node: { type: 'person', id: 'polaris:person:test-cypher-person-1' },
+                    node: { type: 'person', id: 'polaris:person:11111111-1111-1111-1111-111111111111' },
                     field: 'bio',
                     value: 'Test biography'
                 },
@@ -87,7 +110,7 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const verifyResult = await session.run(`
                 MATCH (p:Person {id: $id})
                 RETURN p.bio as bio
-            `, { id: 'polaris:person:test-cypher-person-1' });
+            `, { id: 'polaris:person:11111111-1111-1111-1111-111111111111' });
 
             expect(verifyResult.records[0].get('bio')).toBe('Test biography');
         });
@@ -96,8 +119,8 @@ describeOrSkip('Cypher Injection Prevention', () => {
             // Setup: Create test person
             await session.run(`
                 CREATE (p:Person {
-                    id: 'polaris:person:test-cypher-person-2',
-                    person_id: 'polaris:person:test-cypher-person-2',
+                    id: 'polaris:person:22222222-2222-2222-2222-222222222222',
+                    person_id: 'polaris:person:22222222-2222-2222-2222-222222222222',
                     name: 'Test Person 2',
                     status: 'ACTIVE'
                 })
@@ -107,7 +130,7 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const result = await graphDb.processAddClaim(
                 'test-event-hash-456',
                 {
-                    node: { type: 'Person', id: 'polaris:person:test-cypher-person-2' },
+                    node: { type: 'Person', id: 'polaris:person:22222222-2222-2222-2222-222222222222' },
                     field: 'bio',
                     value: 'Test biography 2'
                 },
@@ -148,8 +171,8 @@ describeOrSkip('Cypher Injection Prevention', () => {
             // Setup: Create test person
             await session.run(`
                 CREATE (p:Person {
-                    id: 'polaris:person:test-cypher-person-3',
-                    person_id: 'polaris:person:test-cypher-person-3',
+                    id: 'polaris:person:77777777-7777-7777-7777-777777777777',
+                    person_id: 'polaris:person:77777777-7777-7777-7777-777777777777',
                     name: 'Victim',
                     status: 'ACTIVE'
                 })
@@ -162,7 +185,7 @@ describeOrSkip('Cypher Injection Prevention', () => {
                 graphDb.processAddClaim(
                     'test-event-hash-inject-1',
                     {
-                        node: { type: maliciousType, id: 'polaris:person:test-cypher-person-3' },
+                        node: { type: maliciousType, id: 'polaris:person:77777777-7777-7777-7777-777777777777' },
                         field: 'bio',
                         value: 'Malicious'
                     },
@@ -174,7 +197,7 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const verifyResult = await session.run(`
                 MATCH (p:Person {id: $id})
                 RETURN count(p) as count
-            `, { id: 'polaris:person:test-cypher-person-3' });
+            `, { id: 'polaris:person:77777777-7777-7777-7777-777777777777' });
 
             expect(verifyResult.records[0].get('count').toNumber()).toBe(1);
         });
@@ -202,8 +225,8 @@ describeOrSkip('Cypher Injection Prevention', () => {
             // Setup: Create test person
             await session.run(`
                 CREATE (p:Person {
-                    id: 'polaris:person:test-cypher-person-4',
-                    person_id: 'polaris:person:test-cypher-person-4',
+                    id: 'polaris:person:44444444-4444-4444-4444-444444444444',
+                    person_id: 'polaris:person:44444444-4444-4444-4444-444444444444',
                     name: 'John Doe',
                     status: 'ACTIVE'
                 })
@@ -245,26 +268,26 @@ describeOrSkip('Cypher Injection Prevention', () => {
         beforeEach(async () => {
             // Create test persons for merge tests
             await session.run(`
-                CREATE (p1:Person {
-                    id: 'polaris:person:test-cypher-source',
-                    person_id: 'polaris:person:test-cypher-source',
-                    name: 'Source Person',
-                    status: 'ACTIVE'
-                })
-                CREATE (p2:Person {
-                    id: 'polaris:person:test-cypher-target',
-                    person_id: 'polaris:person:test-cypher-target',
-                    name: 'Target Person',
-                    status: 'ACTIVE'
-                })
+              MERGE (p1:Person { id: 'polaris:person:88888888-8888-8888-8888-888888888888' })
+              ON CREATE SET
+                p1.person_id = 'polaris:person:88888888-8888-8888-8888-888888888888',
+                p1.name = 'Source Person',
+                p1.status = 'ACTIVE'
+
+              MERGE (p2:Person { id: 'polaris:person:99999999-9999-9999-9999-999999999999' })
+              ON CREATE SET
+                p2.person_id = 'polaris:person:99999999-9999-9999-9999-999999999999',
+                p2.name = 'Target Person',
+                p2.status = 'ACTIVE'
             `);
+
         });
 
         test('should accept valid lowercase type (person)', async () => {
             // Act: Merge with lowercase type
             const result = await graphDb.mergeNodes(
-                'polaris:person:test-cypher-source',
-                'polaris:person:test-cypher-target',
+                'polaris:person:88888888-8888-8888-8888-888888888888',
+                'polaris:person:99999999-9999-9999-9999-999999999999',
                 'person',
                 'test merge'
             );
@@ -276,7 +299,7 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const verifyResult = await session.run(`
                 MATCH (p:Person {id: $id})
                 RETURN count(p) as count
-            `, { id: 'polaris:person:test-cypher-source' });
+            `, { id: 'polaris:person:88888888-8888-8888-8888-888888888888' });
 
             expect(verifyResult.records[0].get('count').toNumber()).toBe(0);
         });
@@ -284,18 +307,18 @@ describeOrSkip('Cypher Injection Prevention', () => {
         test('should accept valid capitalized type (Person)', async () => {
             // Recreate source (previous test deleted it)
             await session.run(`
-                MERGE (p:Person {
-                    id: 'polaris:person:test-cypher-source-2',
-                    person_id: 'polaris:person:test-cypher-source-2',
-                    name: 'Source Person 2',
-                    status: 'ACTIVE'
-                })
+                MERGE (p:Person { id: 'polaris:person:66666666-6666-6666-6666-666666666666' })
+                ON CREATE SET
+                  p.person_id = 'polaris:person:66666666-6666-6666-6666-666666666666',
+                  p.name = 'Source Person 2',
+                  p.status = 'ACTIVE'
+
             `);
 
             // Act: Merge with capitalized type
             const result = await graphDb.mergeNodes(
-                'polaris:person:test-cypher-source-2',
-                'polaris:person:test-cypher-target',
+                'polaris:person:66666666-6666-6666-6666-666666666666',
+                'polaris:person:99999999-9999-9999-9999-999999999999',
                 'Person',
                 'test merge 2'
             );
@@ -321,19 +344,20 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const maliciousType = 'Person) MATCH (x) DETACH DELETE x //';
 
             await expect(
-                graphDb.mergeNodes(
-                    'polaris:person:test-cypher-target',
-                    'some-id',
-                    maliciousType,
-                    'malicious merge'
-                )
+              graphDb.mergeNodes(
+                'polaris:person:88888888-8888-8888-8888-888888888888', // existing
+                'polaris:person:99999999-9999-9999-9999-999999999999', // existing
+                maliciousType,
+                'malicious merge'
+              )
             ).rejects.toThrow('Invalid nodeType');
+
 
             // Verify target person still exists (not deleted by injection)
             const verifyResult = await session.run(`
                 MATCH (p:Person {id: $id})
                 RETURN count(p) as count
-            `, { id: 'polaris:person:test-cypher-target' });
+            `, { id: 'polaris:person:99999999-9999-9999-9999-999999999999' });
 
             expect(verifyResult.records[0].get('count').toNumber()).toBe(1);
         });
