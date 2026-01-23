@@ -378,12 +378,12 @@ verify_neo4j() {
     sleep 2
 
     # Verify release created by CREATE_RELEASE_BUNDLE
-    log_info "Checking if release exists (name contains: $RUN_ID)"
+    log_info "Checking if release exists (release_id: $RELEASE_ID)"
 
     local neo4j_response=$(curl -s -X POST "http://localhost:7474/db/neo4j/tx/commit" \
         -H "Content-Type: application/json" \
         -H "Authorization: Basic $(echo -n 'neo4j:polarisdev' | base64)" \
-        -d "{\"statements\": [{\"statement\": \"MATCH (r:Release) WHERE r.name CONTAINS \\\"${RUN_ID}\\\" RETURN r.release_id AS id, r.name AS name, r.catalog_number AS catalog LIMIT 5\"}]}" 2>/dev/null)
+        -d "{\"statements\": [{\"statement\": \"MATCH (r:Release {release_id: \\\"${RELEASE_ID}\\\"}) RETURN r.release_id AS id, r.name AS name, r.catalog_number AS catalog LIMIT 5\"}]}" 2>/dev/null)
 
     if [ $? -ne 0 ]; then
         log_warning "Neo4j HTTP API not available (this is OK if Neo4j browser is disabled)"
