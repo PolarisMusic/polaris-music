@@ -480,19 +480,11 @@ main() {
     # Process CREATE_RELEASE_BUNDLE event
     process_event "${PAYLOAD_DIR}/create-release-bundle.tmpl.json" "CREATE_RELEASE_BUNDLE"
 
-    # Capture the created Release ID from Neo4j for ADD_CLAIM
-    log_info "Capturing created Release ID from Neo4j..."
-    RELEASE_ID=$(docker compose exec -T neo4j cypher-shell -u neo4j -p polarisdev \
-        "MATCH (r:Release) WHERE r.name CONTAINS 'Smoke Test Release ${RUN_ID}' RETURN r.release_id LIMIT 1;" \
-        2>/dev/null | tail -n 1 | tr -d '\r' | tr -d '"' | xargs)
-
-    if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" == "null" ]; then
-        log_warning "Could not capture Release ID from Neo4j (this is OK if Neo4j browser is disabled)"
-        RELEASE_ID="smoke-release-${RUN_ID}"
-        log_info "Using fallback Release ID: $RELEASE_ID"
-    else
-        log_success "Captured Release ID: $RELEASE_ID"
-    fi
+    # Use the deterministic Release ID from the template
+    # This matches the release_id in create-release-bundle.tmpl.json
+    log_info "Setting deterministic Release ID for ADD_CLAIM..."
+    RELEASE_ID="polaris:release:00000000-0000-4000-8000-000000000001"
+    log_success "Using Release ID: $RELEASE_ID"
     echo ""
 
     # Process ADD_CLAIM event (claims on the release we just created)
