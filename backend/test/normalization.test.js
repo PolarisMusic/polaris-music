@@ -174,7 +174,8 @@ describe('ReleaseBundle Normalization', () => {
 
             expect(normalized.tracks[0].guests).toHaveLength(1);
             expect(normalized.tracks[0].guests[0].name).toBe('Eric Clapton');
-            expect(normalized.tracks[0].guests[0].role).toBe('guitar');
+            // Guest roles are now normalized to an array
+            expect(normalized.tracks[0].guests[0].roles).toEqual(['guitar']);
         });
 
         test('Normalizes release labels with city', () => {

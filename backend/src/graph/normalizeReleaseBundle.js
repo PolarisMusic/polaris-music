@@ -16,6 +16,7 @@
  */
 
 import crypto from 'crypto';
+import { normalizeRoles, normalizeRole } from './roleNormalization.js';
 
 /**
  * Normalize a ReleaseBundle from frontend format to canonical format
@@ -334,7 +335,23 @@ function normalizeRelease(release) {
         normalized.labels = release.labels.map(normalizeLabel);
     }
     if (release.guests && Array.isArray(release.guests)) {
-        normalized.guests = release.guests.map(normalizePerson);
+        normalized.guests = release.guests.map(guest => {
+            const normalizedPerson = normalizePerson(guest);
+            // Collect roles from both role (singular) and roles (plural) inputs
+            const rawRoles = [];
+            if (Array.isArray(guest.roles)) {
+                rawRoles.push(...guest.roles);
+            }
+            if (guest.role && typeof guest.role === 'string') {
+                rawRoles.push(guest.role);
+            }
+            // Normalize and dedupe roles
+            normalizedPerson.roles = normalizeRoles(rawRoles);
+            if (guest.credited_as) {
+                normalizedPerson.credited_as = guest.credited_as;
+            }
+            return normalizedPerson;
+        });
     }
 
     return normalized;
@@ -369,7 +386,11 @@ function normalizeGroup(group) {
             // Add membership-specific fields
             if (member.from_date) normalizedPerson.from_date = member.from_date;
             if (member.to_date) normalizedPerson.to_date = member.to_date;
-            if (member.role) normalizedPerson.role = member.role;
+            // Normalize role for consistent querying
+            if (member.role) normalizedPerson.role = normalizeRole(member.role);
+            if (Array.isArray(member.instruments)) {
+                normalizedPerson.instruments = member.instruments;
+            }
             return normalizedPerson;
         });
     }
@@ -441,7 +462,23 @@ function normalizeTrack(track) {
     if (track.guests && Array.isArray(track.guests)) {
         normalized.guests = track.guests.map(guest => {
             const normalizedPerson = normalizePerson(guest);
-            if (guest.role) normalizedPerson.role = guest.role;
+            // Collect roles from both role (singular) and roles (plural) inputs
+            const rawRoles = [];
+            if (Array.isArray(guest.roles)) {
+                rawRoles.push(...guest.roles);
+            }
+            if (guest.role && typeof guest.role === 'string') {
+                rawRoles.push(guest.role);
+            }
+            // Normalize and dedupe roles
+            normalizedPerson.roles = normalizeRoles(rawRoles);
+            // Also preserve instruments if present
+            if (Array.isArray(guest.instruments)) {
+                normalizedPerson.instruments = guest.instruments;
+            }
+            if (guest.credited_as) {
+                normalizedPerson.credited_as = guest.credited_as;
+            }
             return normalizedPerson;
         });
     }

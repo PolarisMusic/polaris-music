@@ -20,6 +20,7 @@ import { IdentityService, EntityType } from '../identity/idService.js';
 import { MergeOperations } from './merge.js';
 import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
+import { normalizeRole, normalizeRoles } from './roleNormalization.js';
 
 /**
  * Whitelist mapping for safe node type validation.
@@ -437,7 +438,13 @@ constructor(config = {}) {
                 // IdentityMap lookups (for external ID resolution)
                 { name: 'identity_map_source', query: 'CREATE INDEX identity_map_source IF NOT EXISTS FOR (im:IdentityMap) ON (im.source)' },
                 { name: 'identity_map_external_id', query: 'CREATE INDEX identity_map_external_id IF NOT EXISTS FOR (im:IdentityMap) ON (im.external_id)' },
-                { name: 'identity_map_canonical', query: 'CREATE INDEX identity_map_canonical IF NOT EXISTS FOR (im:IdentityMap) ON (im.canonical_id)' }
+                { name: 'identity_map_canonical', query: 'CREATE INDEX identity_map_canonical IF NOT EXISTS FOR (im:IdentityMap) ON (im.canonical_id)' },
+
+                // Relationship property indexes for role searchability (Neo4j 5.x+)
+                { name: 'performed_on_role', query: 'CREATE INDEX performed_on_role IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.role)' },
+                { name: 'member_of_role', query: 'CREATE INDEX member_of_role IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.role)' },
+                { name: 'wrote_role', query: 'CREATE INDEX wrote_role IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role)' },
+                { name: 'guest_on_roles', query: 'CREATE INDEX guest_on_roles IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.roles)' }
             ];
 
             // Create all indexes
@@ -640,7 +647,7 @@ constructor(config = {}) {
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
                         groupId,
-                        role: member.role || 'member',
+                        role: normalizeRole(member.role) || 'member',
                         from: member.from_date || null,
                         to: member.to_date || null,
                         instruments: member.instruments || [],
@@ -748,7 +755,7 @@ constructor(config = {}) {
                     name: guest.name,
                     status: guest.person_id ? 'canonical' : 'provisional',
                     releaseId,
-                    roles: guest.roles || [],
+                    roles: normalizeRoles(guest.roles || []),
                     creditedAs: guest.credited_as || null,
                     claimId: releaseOpId
                 });
@@ -932,7 +939,7 @@ constructor(config = {}) {
                             groupId,
                             groupName,
                             creditedAs: performingGroup.credited_as || null,
-                            role: performingGroup.role || null,
+                            role: normalizeRole(performingGroup.role),
                             claimId: trackOpId
                         });
                         console.log(`    Created PERFORMED_ON: ${groupName} -> ${track.title}`);
@@ -972,7 +979,7 @@ constructor(config = {}) {
                                     membersPayload.push({
                                         personId: memberId,
                                         name: member.name,
-                                        role: member.role || null,
+                                        role: normalizeRole(member.role),
                                         instruments: member.instruments || []
                                     });
                                 } catch (memberResolveError) {
@@ -1041,7 +1048,7 @@ constructor(config = {}) {
                         name: guest.name,
                         status: guest.person_id ? 'canonical' : 'provisional',
                         trackId,
-                        roles: guest.roles || [],
+                        roles: normalizeRoles(guest.roles || []),
                         instruments: guest.instruments || [],
                         creditedAs: guest.credited_as || null,
                         claimId: trackOpId
