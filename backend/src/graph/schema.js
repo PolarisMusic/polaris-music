@@ -845,13 +845,22 @@ constructor(config = {}) {
                 // ========== CRITICAL: DISTINGUISH GROUPS vs GUESTS ==========
 
                 // Link performing GROUPS (the main bands/orchestras)
-                // Belt + suspenders: handle performed_by string fallback in case normalization was bypassed
-                const performingGroups =
-                    (Array.isArray(track.performed_by_groups) && track.performed_by_groups.length > 0)
-                        ? track.performed_by_groups
-                        : (typeof track.performed_by === 'string' && track.performed_by.trim())
-                            ? [{ name: track.performed_by.trim() }]
-                            : [];
+                // 3-way fallback: performed_by_groups > groups (legacy) > performed_by (string)
+                let performingGroups = [];
+
+                if (Array.isArray(track.performed_by_groups) && track.performed_by_groups.length > 0) {
+                    performingGroups = track.performed_by_groups;
+                } else if (Array.isArray(track.groups) && track.groups.length > 0) {
+                    // Legacy support: frontend/templates may use track.groups
+                    performingGroups = track.groups
+                        .map(g => ({
+                            group_id: g.group_id || g.id || (typeof g === 'string' ? g : undefined),
+                            name: g.name || g.group_name || (typeof g === 'string' ? g : undefined),
+                        }))
+                        .filter(g => g.group_id || g.name);
+                } else if (typeof track.performed_by === 'string' && track.performed_by.trim()) {
+                    performingGroups = [{ name: track.performed_by.trim() }];
+                }
 
                 for (const performingGroup of performingGroups) {
                     const groupName =
