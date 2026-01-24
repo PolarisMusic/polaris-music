@@ -862,6 +862,17 @@ constructor(config = {}) {
                     performingGroups = [{ name: track.performed_by.trim() }];
                 }
 
+                // Single-artist album fallback: if no per-track performer attribution but bundle has group(s),
+                // assume all tracks are performed by the bundle's group(s)
+                if (performingGroups.length === 0 && Array.isArray(normalizedBundle.groups) && normalizedBundle.groups.length > 0) {
+                    console.log(`    Track "${track.title}" has no performer attribution; using bundle groups as fallback`);
+                    performingGroups = normalizedBundle.groups.map(g => ({
+                        group_id: g.group_id || g.id,
+                        name: g.name,
+                        role: 'performer',
+                    }));
+                }
+
                 for (const performingGroup of performingGroups) {
                     const groupName =
                         performingGroup.name ||
@@ -883,34 +894,50 @@ constructor(config = {}) {
                     }
 
                     if (!groupId) {
-                        console.warn(`    Warning: Track "${track.title}" has performing group with no resolvable id/name`);
+                        console.warn(`    Warning: Track "${track.title}" has performing group with no resolvable id/name`, {
+                            performingGroup,
+                            trackId
+                        });
                         continue;
                     }
 
-                    await tx.run(`
-                        // Ensure group exists even if it wasn't included in bundle.groups
-                        MERGE (g:Group {group_id: $groupId})
-                        ON CREATE SET
-                            g.id = $groupId,
-                            g.name = $groupName,
-                            g.status = 'provisional',
-                            g.created_at = datetime()
-                        ON MATCH SET
-                            g.name = coalesce(g.name, $groupName)
+                    try {
+                        await tx.run(`
+                            // Ensure group exists even if it wasn't included in bundle.groups
+                            MERGE (g:Group {group_id: $groupId})
+                            ON CREATE SET
+                                g.id = $groupId,
+                                g.name = $groupName,
+                                g.status = 'provisional',
+                                g.created_at = datetime()
+                            ON MATCH SET
+                                g.name = coalesce(g.name, $groupName)
 
-                        WITH g
-                        MATCH (t:Track {track_id: $trackId})
-                        MERGE (g)-[p:PERFORMED_ON {claim_id: $claimId}]->(t)
-                        SET p.credited_as = $creditedAs,
-                            p.role = $role
-                    `, {
-                        trackId,
-                        groupId,
-                        groupName,
-                        creditedAs: performingGroup.credited_as || null,
-                        role: performingGroup.role || null,
-                        claimId: trackOpId
-                    });
+                            WITH g
+                            MATCH (t:Track {track_id: $trackId})
+                            MERGE (g)-[p:PERFORMED_ON {claim_id: $claimId}]->(t)
+                            SET p.credited_as = $creditedAs,
+                                p.role = $role
+                        `, {
+                            trackId,
+                            groupId,
+                            groupName,
+                            creditedAs: performingGroup.credited_as || null,
+                            role: performingGroup.role || null,
+                            claimId: trackOpId
+                        });
+                        console.log(`    Created PERFORMED_ON: ${groupName} -> ${track.title}`);
+                    } catch (performedOnError) {
+                        console.error(`    PERFORMED_ON FAILED:`, {
+                            groupId,
+                            groupName,
+                            trackId,
+                            trackTitle: track.title,
+                            error: performedOnError.message
+                        });
+                        // Re-throw to fail the transaction rather than silently continue
+                        throw performedOnError;
+                    }
                 }
 
                 // Link GUEST performers (individuals not in the main group)
