@@ -418,7 +418,11 @@ function normalizeTrack(track) {
                     group_id,
                     name,
                     ...(group.credited_as && { credited_as: group.credited_as }),
-                    ...(group.role && { role: group.role })
+                    ...(group.role && { role: group.role }),
+                    // Preserve per-track member overrides for lineup attribution
+                    ...(Array.isArray(group.members) && group.members.length > 0 && {
+                        members: group.members.map(m => normalizePerson(m))
+                    })
                 };
             })
             .filter(group => group !== null); // Remove invalid entries

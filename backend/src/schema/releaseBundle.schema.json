@@ -112,7 +112,11 @@
               "group_id": { "type": "string" },
               "name": { "type": "string" },
               "credited_as": { "type": "string" },
-              "role": { "type": "string" }
+              "role": { "type": "string" },
+              "members": {
+                "type": "array",
+                "items": { "$ref": "#/definitions/Person" }
+              }
             }
           }
         },

@@ -543,6 +543,9 @@ constructor(config = {}) {
             // Groups must be created before we can link members and performances
 
             const processedGroups = [];
+            // Maps to store release-level lineup for propagating Person -> Track PERFORMED_ON
+            const groupMembersById = new Map();    // resolved groupId -> members[]
+            const groupMembersByName = new Map();  // lower(group.name) -> members[]
 
             for (const group of normalizedBundle.groups || []) {
                 const groupOpId = opId();
@@ -669,6 +672,12 @@ constructor(config = {}) {
                 // Create audit claim for group creation
                 await this.createClaim(tx, groupOpId, 'Group', groupId,
                                      'created', group, eventHash);
+
+                // Store release-level lineup for propagating Person -> Track PERFORMED_ON later
+                groupMembersById.set(groupId, group.members || []);
+                if (group.name) {
+                    groupMembersByName.set(group.name.toLowerCase(), group.members || []);
+                }
 
                 processedGroups.push(groupId);
             }
@@ -927,6 +936,75 @@ constructor(config = {}) {
                             claimId: trackOpId
                         });
                         console.log(`    Created PERFORMED_ON: ${groupName} -> ${track.title}`);
+
+                        // ========== PROPAGATE Person -> Track PERFORMED_ON for group members ==========
+                        // Determine lineup: per-track override > release-level default
+                        let lineupMembers = [];
+                        let lineupSource = 'none';
+
+                        if (Array.isArray(performingGroup.members) && performingGroup.members.length > 0) {
+                            lineupMembers = performingGroup.members;
+                            lineupSource = 'track_override';
+                        } else if (groupMembersById.has(groupId) && groupMembersById.get(groupId).length > 0) {
+                            lineupMembers = groupMembersById.get(groupId);
+                            lineupSource = 'release_default';
+                        } else if (groupMembersByName.has(groupName.toLowerCase()) && groupMembersByName.get(groupName.toLowerCase()).length > 0) {
+                            lineupMembers = groupMembersByName.get(groupName.toLowerCase());
+                            lineupSource = 'release_default_by_name';
+                        }
+
+                        if (lineupMembers.length > 0) {
+                            // Build set of guest names to avoid duplicating guests as core performers
+                            const guestNames = new Set(
+                                (track.guests || []).map(g => (g.name || '').toLowerCase().trim())
+                            );
+
+                            // Resolve member IDs and build payload for UNWIND
+                            const membersPayload = [];
+                            for (const member of lineupMembers) {
+                                // Skip if this person is already a guest on this track
+                                if (guestNames.has((member.name || '').toLowerCase().trim())) {
+                                    continue;
+                                }
+
+                                try {
+                                    const memberId = await this.resolveEntityId(tx, 'person', member);
+                                    membersPayload.push({
+                                        personId: memberId,
+                                        name: member.name,
+                                        role: member.role || null,
+                                        instruments: member.instruments || []
+                                    });
+                                } catch (memberResolveError) {
+                                    console.warn(`    Warning: Could not resolve member "${member.name}" for PERFORMED_ON propagation: ${memberResolveError.message}`);
+                                }
+                            }
+
+                            if (membersPayload.length > 0) {
+                                await tx.run(`
+                                    UNWIND $members AS m
+                                    MERGE (p:Person {person_id: m.personId})
+                                    ON CREATE SET
+                                        p.id = m.personId,
+                                        p.name = m.name,
+                                        p.status = 'provisional',
+                                        p.created_at = datetime()
+                                    WITH p, m
+                                    MATCH (t:Track {track_id: $trackId})
+                                    MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
+                                    SET perf.role = m.role,
+                                        perf.instruments = m.instruments,
+                                        perf.lineup_source = $lineupSource
+                                `, {
+                                    members: membersPayload,
+                                    trackId,
+                                    claimId: trackOpId,
+                                    groupId,
+                                    lineupSource
+                                });
+                                console.log(`      Propagated PERFORMED_ON to ${membersPayload.length} members (${lineupSource})`);
+                            }
+                        }
                     } catch (performedOnError) {
                         console.error(`    PERFORMED_ON FAILED:`, {
                             groupId,
