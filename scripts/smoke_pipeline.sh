@@ -377,8 +377,16 @@ verify_neo4j() {
     # Shared person ID (Smoke Dave Grohl appears in both QOTSA and Nirvana)
     local shared_person_id="polaris:person:00000000-0000-4000-8000-000000000103"
 
-    # Group IDs
-    local group_id_1="polaris:group:00000000-0000-4000-8000-000000000001"  # Smoke QOTSA
+    # Nirvana-only members
+    local kurt_person_id="polaris:person:00000000-0000-4000-8000-000000000201"
+    local krist_person_id="polaris:person:00000000-0000-4000-8000-000000000202"
+
+    # Nevermind guests
+    local chad_person_id="polaris:person:00000000-0000-4000-8000-000000000203"
+    local kirk_person_id="polaris:person:00000000-0000-4000-8000-000000000204"
+
+    # Group IDs (FIXED: QOTSA is ...0002, not ...0001)
+    local group_id_1="polaris:group:00000000-0000-4000-8000-000000000002"  # Smoke QOTSA
     local group_id_2="polaris:group:00000000-0000-4000-8000-000000000003"  # Smoke Nirvana
 
     log_info "========================================="
@@ -454,6 +462,10 @@ verify_neo4j() {
     local member_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:MEMBER_OF]->(g:Group) RETURN g.group_id AS gid, g.name AS name")
     local member_count=$(echo "$member_response" | jq -r '.results[0].data | length')
 
+    # Diagnostic: print returned group IDs
+    log_info "Groups (gid, name) returned for shared person:"
+    echo "$member_response" | jq -r '.results[0].data[].row | @tsv' | sed 's/^/  - /'
+
     if [ "$member_count" -lt "2" ]; then
         log_error "Shared person is member of $member_count groups (expected at least 2)"
         log_error "Groups found: $(echo "$member_response" | jq -r '.results[0].data[].row[1]')"
@@ -466,18 +478,18 @@ verify_neo4j() {
     local has_group2=$(echo "$groups_json" | jq --arg g "$group_id_2" 'contains([$g])')
 
     if [ "$has_group1" != "true" ]; then
-        log_error "Shared person is NOT a member of Group 1 (QOTSA)"
+        log_error "Shared person is NOT a member of Group 1 (QOTSA, expected $group_id_1)"
+        log_error "Actual groups: $groups_json"
         fail "Neo4j verification failed: shared person missing MEMBER_OF to Group 1"
     fi
 
     if [ "$has_group2" != "true" ]; then
-        log_error "Shared person is NOT a member of Group 2 (Nirvana)"
+        log_error "Shared person is NOT a member of Group 2 (Nirvana, expected $group_id_2)"
+        log_error "Actual groups: $groups_json"
         fail "Neo4j verification failed: shared person missing MEMBER_OF to Group 2"
     fi
 
     log_success "Shared person is member of both groups"
-    log_info "  - $(echo "$member_response" | jq -r '.results[0].data[0].row[1]')"
-    log_info "  - $(echo "$member_response" | jq -r '.results[0].data[1].row[1]')"
 
     # ========== Verify Shared Person has PERFORMED_ON Edges via Both Groups ==========
     log_info "Verifying shared person has PERFORMED_ON edges to tracks from both releases..."
@@ -504,7 +516,84 @@ verify_neo4j() {
 
     log_success "Shared person has PERFORMED_ON edges to $perf_count2 tracks in Release 2"
 
-    log_success "Neo4j verification complete - shared person properly resolved across releases"
+    # ========== Verify Kurt and Krist are MEMBER_OF Nirvana ==========
+    log_info "Verifying Kurt and Krist are members of Nirvana..."
+
+    for pid in "$kurt_person_id" "$krist_person_id"; do
+        local resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[:MEMBER_OF]->(g:Group {group_id: \\\"$group_id_2\\\"}) RETURN count(g) AS c")
+        local c=$(echo "$resp" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c" = "0" ]; then
+            fail "Neo4j verification failed: $pid is not MEMBER_OF Nirvana (group_id=$group_id_2)"
+        fi
+    done
+    log_success "Kurt and Krist are MEMBER_OF Nirvana"
+
+    # ========== Verify Kurt and Krist have PERFORMED_ON edges to Nevermind tracks ==========
+    log_info "Verifying Kurt and Krist have PERFORMED_ON edges to Nevermind tracks..."
+
+    for pid in "$kurt_person_id" "$krist_person_id"; do
+        local resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) RETURN count(t) AS c")
+        local c=$(echo "$resp" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c" = "0" ]; then
+            fail "Neo4j verification failed: $pid has 0 PERFORMED_ON tracks in Release 2 (Nevermind)"
+        fi
+        log_success "$pid PERFORMED_ON count in Release 2: $c"
+    done
+
+    # ========== Verify Kurt and Krist PERFORMED_ON edges have via_group_id ==========
+    log_info "Verifying Kurt and Krist PERFORMED_ON edges came via propagation (via_group_id)..."
+
+    for pid in "$kurt_person_id" "$krist_person_id"; do
+        local resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[perf:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) RETURN count(CASE WHEN perf.via_group_id = \\\"$group_id_2\\\" THEN 1 END) AS c")
+        local c=$(echo "$resp" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c" = "0" ]; then
+            fail "Neo4j verification failed: $pid PERFORMED_ON edges exist but none have via_group_id=$group_id_2"
+        fi
+        log_success "$pid has propagated PERFORMED_ON edges via_group_id=$group_id_2: $c"
+    done
+
+    # ========== Verify Guests have GUEST_ON edges (not PERFORMED_ON) ==========
+    log_info "Verifying guests (Chad Channing, Kirk Canning) have GUEST_ON edges..."
+
+    # Chad Channing should have exactly 1 GUEST_ON edge in Release 2 (Polly)
+    local chad_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$chad_person_id\\\"})-[:GUEST_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) RETURN count(t) AS c")
+    local chad_guest_count=$(echo "$chad_resp" | jq -r '.results[0].data[0].row[0]')
+    if [ "$chad_guest_count" != "1" ]; then
+        log_warning "Expected Chad Channing GUEST_ON count=1 in Release 2, got $chad_guest_count"
+    else
+        log_success "Chad Channing has GUEST_ON edge count: $chad_guest_count"
+    fi
+
+    # Chad should NOT have member-propagated PERFORMED_ON edges
+    local chad_perf_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$chad_person_id\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) RETURN count(t) AS c")
+    local chad_perf_count=$(echo "$chad_perf_resp" | jq -r '.results[0].data[0].row[0]')
+    if [ "$chad_perf_count" != "0" ]; then
+        log_warning "Chad Channing should not have PERFORMED_ON edges in Release 2 (got $chad_perf_count) - guest contamination"
+    else
+        log_success "Chad Channing has no PERFORMED_ON contamination"
+    fi
+
+    # Kirk Canning should have exactly 1 GUEST_ON edge in Release 2 (Something in the Way)
+    local kirk_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$kirk_person_id\\\"})-[:GUEST_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) RETURN count(t) AS c")
+    local kirk_guest_count=$(echo "$kirk_resp" | jq -r '.results[0].data[0].row[0]')
+    if [ "$kirk_guest_count" != "1" ]; then
+        log_warning "Expected Kirk Canning GUEST_ON count=1 in Release 2, got $kirk_guest_count"
+    else
+        log_success "Kirk Canning has GUEST_ON edge count: $kirk_guest_count"
+    fi
+
+    # Kirk should NOT have member-propagated PERFORMED_ON edges
+    local kirk_perf_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$kirk_person_id\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) RETURN count(t) AS c")
+    local kirk_perf_count=$(echo "$kirk_perf_resp" | jq -r '.results[0].data[0].row[0]')
+    if [ "$kirk_perf_count" != "0" ]; then
+        log_warning "Kirk Canning should not have PERFORMED_ON edges in Release 2 (got $kirk_perf_count) - guest contamination"
+    else
+        log_success "Kirk Canning has no PERFORMED_ON contamination"
+    fi
+
+    log_success "Guests verified: GUEST_ON only, no PERFORMED_ON contamination"
+
+    log_success "Neo4j verification complete - all relationship checks passed"
 }
 
 # Print final summary
