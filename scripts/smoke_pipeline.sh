@@ -369,7 +369,18 @@ process_event() {
 }
 
 # Verify data in Neo4j
+# Args: release_id_1, release_id_2
 verify_neo4j() {
+    local release_id_1="$1"
+    local release_id_2="$2"
+
+    # Shared person ID (Smoke Dave Grohl appears in both QOTSA and Nirvana)
+    local shared_person_id="polaris:person:00000000-0000-4000-8000-000000000103"
+
+    # Group IDs
+    local group_id_1="polaris:group:00000000-0000-4000-8000-000000000001"  # Smoke QOTSA
+    local group_id_2="polaris:group:00000000-0000-4000-8000-000000000003"  # Smoke Nirvana
+
     log_info "========================================="
     log_info "Verifying data in Neo4j"
     log_info "========================================="
@@ -377,13 +388,21 @@ verify_neo4j() {
     # Give Neo4j a moment to complete writes
     sleep 2
 
-    # Verify release created by CREATE_RELEASE_BUNDLE
-    log_info "Checking if release exists (release_id: $RELEASE_ID)"
+    local neo4j_auth=$(echo -n 'neo4j:polarisdev' | base64)
 
-    local neo4j_response=$(curl -s -X POST "http://localhost:7474/db/neo4j/tx/commit" \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Basic $(echo -n 'neo4j:polarisdev' | base64)" \
-        -d "{\"statements\": [{\"statement\": \"MATCH (r:Release {release_id: \\\"${RELEASE_ID}\\\"}) RETURN r.release_id AS id, r.name AS name, r.catalog_number AS catalog LIMIT 5\"}]}" 2>/dev/null)
+    # Helper function for Neo4j queries
+    run_neo4j_query() {
+        local query="$1"
+        curl -s -X POST "http://localhost:7474/db/neo4j/tx/commit" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Basic $neo4j_auth" \
+            -d "{\"statements\": [{\"statement\": \"$query\"}]}" 2>/dev/null
+    }
+
+    # ========== Check Release 1 (QOTSA) ==========
+    log_info "Checking Release 1 (release_id: $release_id_1)"
+
+    local response1=$(run_neo4j_query "MATCH (r:Release {release_id: \\\"${release_id_1}\\\"}) RETURN r.release_id AS id, r.name AS name, r.catalog_number AS catalog LIMIT 1")
 
     if [ $? -ne 0 ]; then
         log_warning "Neo4j HTTP API not available (this is OK if Neo4j browser is disabled)"
@@ -391,24 +410,101 @@ verify_neo4j() {
         return 0
     fi
 
-    local result_count=$(echo "$neo4j_response" | jq -r '.results[0].data | length')
-
-    if [ "$result_count" -eq "0" ]; then
-        log_error "Release not found in Neo4j"
-        log_error "Query result: $neo4j_response"
-        fail "Neo4j verification failed: release not found"
+    local count1=$(echo "$response1" | jq -r '.results[0].data | length')
+    if [ "$count1" -eq "0" ]; then
+        log_error "Release 1 not found in Neo4j"
+        log_error "Query result: $response1"
+        fail "Neo4j verification failed: Release 1 not found"
     fi
 
-    local release_name=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[1]')
-    local release_id=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[0]')
-    local catalog_number=$(echo "$neo4j_response" | jq -r '.results[0].data[0].row[2] // "none"')
+    local name1=$(echo "$response1" | jq -r '.results[0].data[0].row[1]')
+    log_success "Release 1 found: $name1"
 
-    log_success "Release found in Neo4j"
-    log_info "  ID: $release_id"
-    log_info "  Name: $release_name"
-    log_info "  Catalog Number: $catalog_number"
+    # ========== Check Release 2 (Nevermind) ==========
+    log_info "Checking Release 2 (release_id: $release_id_2)"
 
-    log_success "Neo4j verification complete"
+    local response2=$(run_neo4j_query "MATCH (r:Release {release_id: \\\"${release_id_2}\\\"}) RETURN r.release_id AS id, r.name AS name, r.catalog_number AS catalog LIMIT 1")
+
+    local count2=$(echo "$response2" | jq -r '.results[0].data | length')
+    if [ "$count2" -eq "0" ]; then
+        log_error "Release 2 not found in Neo4j"
+        log_error "Query result: $response2"
+        fail "Neo4j verification failed: Release 2 not found"
+    fi
+
+    local name2=$(echo "$response2" | jq -r '.results[0].data[0].row[1]')
+    log_success "Release 2 found: $name2"
+
+    # ========== Validate Shared Person Node Count ==========
+    log_info "Verifying shared person (Smoke Dave Grohl) is not duplicated..."
+
+    local person_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"}) RETURN count(p) AS c")
+    local person_count=$(echo "$person_response" | jq -r '.results[0].data[0].row[0]')
+
+    if [ "$person_count" != "1" ]; then
+        log_error "Shared person node count is $person_count (expected 1)"
+        fail "Neo4j verification failed: shared person duplicated or missing"
+    fi
+
+    log_success "Shared person exists exactly once (count=$person_count)"
+
+    # ========== Verify Shared Person is MEMBER_OF Both Groups ==========
+    log_info "Verifying shared person is member of both groups..."
+
+    local member_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:MEMBER_OF]->(g:Group) RETURN g.group_id AS gid, g.name AS name")
+    local member_count=$(echo "$member_response" | jq -r '.results[0].data | length')
+
+    if [ "$member_count" -lt "2" ]; then
+        log_error "Shared person is member of $member_count groups (expected at least 2)"
+        log_error "Groups found: $(echo "$member_response" | jq -r '.results[0].data[].row[1]')"
+        fail "Neo4j verification failed: shared person not member of both groups"
+    fi
+
+    # Check both group IDs are present
+    local groups_json=$(echo "$member_response" | jq -r '[.results[0].data[].row[0]]')
+    local has_group1=$(echo "$groups_json" | jq --arg g "$group_id_1" 'contains([$g])')
+    local has_group2=$(echo "$groups_json" | jq --arg g "$group_id_2" 'contains([$g])')
+
+    if [ "$has_group1" != "true" ]; then
+        log_error "Shared person is NOT a member of Group 1 (QOTSA)"
+        fail "Neo4j verification failed: shared person missing MEMBER_OF to Group 1"
+    fi
+
+    if [ "$has_group2" != "true" ]; then
+        log_error "Shared person is NOT a member of Group 2 (Nirvana)"
+        fail "Neo4j verification failed: shared person missing MEMBER_OF to Group 2"
+    fi
+
+    log_success "Shared person is member of both groups"
+    log_info "  - $(echo "$member_response" | jq -r '.results[0].data[0].row[1]')"
+    log_info "  - $(echo "$member_response" | jq -r '.results[0].data[1].row[1]')"
+
+    # ========== Verify Shared Person has PERFORMED_ON Edges via Both Groups ==========
+    log_info "Verifying shared person has PERFORMED_ON edges to tracks from both releases..."
+
+    # Check PERFORMED_ON edges exist for tracks in Release 1
+    local perf_response1=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"${release_id_1}\\\"}) RETURN count(t) AS c")
+    local perf_count1=$(echo "$perf_response1" | jq -r '.results[0].data[0].row[0]')
+
+    if [ "$perf_count1" -eq "0" ]; then
+        log_error "Shared person has no PERFORMED_ON edges to Release 1 tracks"
+        fail "Neo4j verification failed: missing Person->Track PERFORMED_ON for Release 1"
+    fi
+
+    log_success "Shared person has PERFORMED_ON edges to $perf_count1 tracks in Release 1"
+
+    # Check PERFORMED_ON edges exist for tracks in Release 2
+    local perf_response2=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"${release_id_2}\\\"}) RETURN count(t) AS c")
+    local perf_count2=$(echo "$perf_response2" | jq -r '.results[0].data[0].row[0]')
+
+    if [ "$perf_count2" -eq "0" ]; then
+        log_error "Shared person has no PERFORMED_ON edges to Release 2 tracks"
+        fail "Neo4j verification failed: missing Person->Track PERFORMED_ON for Release 2"
+    fi
+
+    log_success "Shared person has PERFORMED_ON edges to $perf_count2 tracks in Release 2"
+
+    log_success "Neo4j verification complete - shared person properly resolved across releases"
 }
 
 # Print final summary
@@ -420,7 +516,9 @@ print_summary() {
     echo ""
     log_info "Summary:"
     log_info "  Run ID: $RUN_ID"
-    log_info "  Release ID: $RELEASE_ID"
+    log_info "  Release 1 (QOTSA): $RELEASE_ID_1"
+    log_info "  Release 2 (Nevermind): $RELEASE_ID_2"
+    log_info "  Shared Person (Smoke Dave Grohl): polaris:person:00000000-0000-4000-8000-000000000103"
     log_info "  Events processed: ${#EVENT_HASHES[@]}"
     echo ""
 
@@ -439,6 +537,7 @@ print_summary() {
     log_info "  ✓ Multi-node IPFS replication"
     log_info "  ✓ Event ingestion"
     log_info "  ✓ Graph database updates"
+    log_info "  ✓ Shared person resolution across releases"
     echo ""
 }
 
@@ -477,21 +576,34 @@ main() {
     generate_test_ids
     echo ""
 
-    # Process CREATE_RELEASE_BUNDLE event
+    # ========== RELEASE 1: Songs for the Deaf (QOTSA) ==========
     process_event "${PAYLOAD_DIR}/create-release-bundle.tmpl.json" "CREATE_RELEASE_BUNDLE"
 
     # Use the deterministic Release ID from the template
-    # This matches the release_id in create-release-bundle.tmpl.json
-    log_info "Setting deterministic Release ID for ADD_CLAIM..."
-    RELEASE_ID="polaris:release:00000000-0000-4000-8000-000000000001"
+    log_info "Setting deterministic Release ID for ADD_CLAIM (Release 1)..."
+    RELEASE_ID_1="polaris:release:00000000-0000-4000-8000-000000000001"
+    RELEASE_ID="$RELEASE_ID_1"
     log_success "Using Release ID: $RELEASE_ID"
     echo ""
 
     # Process ADD_CLAIM event (claims on the release we just created)
     process_event "${PAYLOAD_DIR}/add-claim.tmpl.json" "ADD_CLAIM"
 
-    # Verify in Neo4j
-    verify_neo4j
+    # ========== RELEASE 2: Nevermind (Nirvana) ==========
+    process_event "${PAYLOAD_DIR}/create-release-bundle-nevermind.tmpl.json" "CREATE_RELEASE_BUNDLE"
+
+    # Use the deterministic Release ID from the Nevermind template
+    log_info "Setting deterministic Release ID for ADD_CLAIM (Release 2)..."
+    RELEASE_ID_2="polaris:release:00000000-0000-4000-8000-000000000003"
+    RELEASE_ID="$RELEASE_ID_2"
+    log_success "Using Release ID: $RELEASE_ID"
+    echo ""
+
+    # Process ADD_CLAIM event (claims on the second release)
+    process_event "${PAYLOAD_DIR}/add-claim.tmpl.json" "ADD_CLAIM"
+
+    # Verify in Neo4j (pass both release IDs)
+    verify_neo4j "$RELEASE_ID_1" "$RELEASE_ID_2"
 
     # Print summary
     print_summary
