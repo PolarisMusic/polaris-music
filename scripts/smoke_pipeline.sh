@@ -573,6 +573,32 @@ verify_neo4j() {
         log_success "$pid has propagated PERFORMED_ON edges via_group_id=$group_id_2: $c"
     done
 
+    # ========== Verify propagated PERFORMED_ON edges have derived=true ==========
+    log_info "Verifying propagated PERFORMED_ON edges have derived=true flag..."
+
+    # Check Dave's edges to Nevermind (Release 2) have derived=true
+    local derived_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$shared_dave_id\\\"})-[perf:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) WHERE perf.via_group_id IS NOT NULL RETURN count(perf) AS total, count(CASE WHEN perf.derived = true THEN 1 END) AS derived_count")
+    local derived_total=$(echo "$derived_resp" | jq -r '.results[0].data[0].row[0]')
+    local derived_count=$(echo "$derived_resp" | jq -r '.results[0].data[0].row[1]')
+
+    if [ "$derived_total" = "0" ]; then
+        log_warning "No propagated PERFORMED_ON edges found for Dave -> Nevermind"
+    elif [ "$derived_count" = "0" ]; then
+        log_warning "Propagated edges exist but none have derived=true (total=$derived_total, derived=$derived_count)"
+    else
+        log_success "Dave's propagated PERFORMED_ON edges have derived=true: $derived_count/$derived_total"
+    fi
+
+    # Check that roles[] array exists on propagated edges
+    local roles_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$shared_dave_id\\\"})-[perf:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_2\\\"}) WHERE perf.via_group_id IS NOT NULL RETURN count(CASE WHEN perf.roles IS NOT NULL AND size(perf.roles) > 0 THEN 1 END) AS roles_count")
+    local roles_count=$(echo "$roles_resp" | jq -r '.results[0].data[0].row[0]')
+
+    if [ "$roles_count" = "0" ]; then
+        log_warning "Propagated edges exist but none have roles[] array populated"
+    else
+        log_success "Dave's propagated PERFORMED_ON edges have roles[] populated: $roles_count"
+    fi
+
     # ========== Verify Guests have GUEST_ON edges (not PERFORMED_ON) ==========
     log_info "Verifying guests (Chad Channing, Kirk Canning) have GUEST_ON edges..."
 

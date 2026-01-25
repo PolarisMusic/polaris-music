@@ -27,16 +27,19 @@ const ROLE_SYNONYMS = {
     'synth': 'synthesizer',
     'synths': 'synthesizer',
 
-    // Vocal variations
+    // Vocal variations - preserve lead/backing distinction
     'vox': 'vocals',
     'vocal': 'vocals',
     'voice': 'vocals',
     'singing': 'vocals',
-    'lead vocals': 'vocals',
-    'lead vocal': 'vocals',
+    'lead vocal': 'lead vocals',
+    'lead vox': 'lead vocals',
+    // Note: 'lead vocals' stays as-is (no mapping needed)
     'backing vocals': 'backing vocals',
     'background vocals': 'backing vocals',
     'harmony vocals': 'backing vocals',
+    'backup vocals': 'backing vocals',
+    'bvs': 'backing vocals',
 
     // Production/engineering
     'producer': 'producer',
@@ -85,6 +88,25 @@ export function normalizeRole(role) {
 }
 
 /**
+ * Split a comma/semicolon-separated role string into individual roles
+ * Handles strings like "drums, backing vocals" or "guitar; bass"
+ *
+ * @param {string} roleString - Role string potentially containing multiple roles
+ * @returns {string[]} Array of individual role strings (not yet normalized)
+ */
+export function splitRoleString(roleString) {
+    if (!roleString || typeof roleString !== 'string') {
+        return [];
+    }
+
+    // Split on comma or semicolon, trim each part
+    return roleString
+        .split(/[,;]/)
+        .map(r => r.trim())
+        .filter(r => r.length > 0);
+}
+
+/**
  * Normalize an array of role values
  *
  * @param {string[]} roles - Array of raw role values
@@ -105,23 +127,33 @@ export function normalizeRoles(roles) {
 
 /**
  * Normalize a single role or array of roles
- * Convenience function that handles both cases
+ * Handles comma-separated role strings like "drums, backing vocals"
  *
- * @param {string|string[]} roleOrRoles - Single role or array of roles
+ * @param {string|string[]} roleOrRoles - Single role, comma-separated string, or array of roles
  * @returns {string[]} Array of normalized role values
  */
 export function normalizeRoleInput(roleOrRoles) {
     if (Array.isArray(roleOrRoles)) {
-        return normalizeRoles(roleOrRoles);
+        // Flatten in case any array element contains comma-separated roles
+        const expanded = roleOrRoles.flatMap(r =>
+            typeof r === 'string' ? splitRoleString(r) : []
+        );
+        return normalizeRoles(expanded);
     }
 
-    const normalized = normalizeRole(roleOrRoles);
-    return normalized ? [normalized] : [];
+    if (typeof roleOrRoles === 'string') {
+        // Split comma-separated roles and normalize each
+        const parts = splitRoleString(roleOrRoles);
+        return normalizeRoles(parts);
+    }
+
+    return [];
 }
 
 export default {
     normalizeRole,
     normalizeRoles,
     normalizeRoleInput,
+    splitRoleString,
     ROLE_SYNONYMS
 };

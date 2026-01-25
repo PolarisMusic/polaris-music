@@ -20,7 +20,7 @@ import { IdentityService, EntityType } from '../identity/idService.js';
 import { MergeOperations } from './merge.js';
 import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
-import { normalizeRole, normalizeRoles } from './roleNormalization.js';
+import { normalizeRole, normalizeRoles, normalizeRoleInput } from './roleNormalization.js';
 
 /**
  * Whitelist mapping for safe node type validation.
@@ -442,7 +442,11 @@ constructor(config = {}) {
 
                 // Relationship property indexes for role searchability (Neo4j 5.x+)
                 { name: 'performed_on_role', query: 'CREATE INDEX performed_on_role IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.role)' },
+                { name: 'performed_on_roles', query: 'CREATE INDEX performed_on_roles IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.roles)' },
+                { name: 'performed_on_derived', query: 'CREATE INDEX performed_on_derived IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.derived)' },
+                { name: 'performed_on_via_group', query: 'CREATE INDEX performed_on_via_group IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.via_group_id)' },
                 { name: 'member_of_role', query: 'CREATE INDEX member_of_role IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.role)' },
+                { name: 'member_of_roles', query: 'CREATE INDEX member_of_roles IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.roles)' },
                 { name: 'wrote_role', query: 'CREATE INDEX wrote_role IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role)' },
                 { name: 'guest_on_roles', query: 'CREATE INDEX guest_on_roles IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.roles)' }
             ];
@@ -624,6 +628,10 @@ constructor(config = {}) {
 
                     console.log(`    Adding member: ${member.name} [${personIdKind}]`);
 
+                    // Normalize roles from member (handles comma-separated strings)
+                    const memberRoles = normalizeRoleInput(member.roles || member.role || []);
+                    const primaryRole = memberRoles[0] || 'member';
+
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
@@ -637,6 +645,7 @@ constructor(config = {}) {
                         // MEMBER_OF relationship with full details
                         MERGE (p)-[m:MEMBER_OF {claim_id: $claimId}]->(g)
                         SET m.role = $role,
+                            m.roles = $roles,
                             m.from_date = $from,
                             m.to_date = $to,
                             m.instruments = $instruments
@@ -647,7 +656,8 @@ constructor(config = {}) {
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
                         groupId,
-                        role: normalizeRole(member.role) || 'member',
+                        role: primaryRole,
+                        roles: memberRoles,
                         from: member.from_date || null,
                         to: member.to_date || null,
                         instruments: member.instruments || [],
@@ -945,49 +955,52 @@ constructor(config = {}) {
                         console.log(`    Created PERFORMED_ON: ${groupName} -> ${track.title}`);
 
                         // ========== PROPAGATE Person -> Track PERFORMED_ON for group members ==========
-                        // Determine lineup: per-track override > release-level default
-                        let lineupMembers = [];
-                        let lineupSource = 'none';
+                        // Option B Semantics:
+                        // - Derived edges: derived=true, from release-level group membership
+                        // - Explicit edges: derived=false, from track-level member overrides
+                        // - When members_are_complete=true: only explicit members, no derivation
 
-                        if (Array.isArray(performingGroup.members) && performingGroup.members.length > 0) {
-                            lineupMembers = performingGroup.members;
-                            lineupSource = 'track_override';
-                        } else if (groupMembersById.has(groupId) && groupMembersById.get(groupId).length > 0) {
-                            lineupMembers = groupMembersById.get(groupId);
-                            lineupSource = 'release_default';
-                        } else if (groupMembersByName.has(groupName.toLowerCase()) && groupMembersByName.get(groupName.toLowerCase()).length > 0) {
-                            lineupMembers = groupMembersByName.get(groupName.toLowerCase());
-                            lineupSource = 'release_default_by_name';
-                        }
+                        // Build set of guest person_ids/names to avoid duplicating guests as performers
+                        const guestNames = new Set(
+                            (track.guests || []).map(g => (g.name || '').toLowerCase().trim())
+                        );
+                        const guestIds = new Set(
+                            (track.guests || []).filter(g => g.person_id).map(g => g.person_id)
+                        );
 
-                        if (lineupMembers.length > 0) {
-                            // Build set of guest names to avoid duplicating guests as core performers
-                            const guestNames = new Set(
-                                (track.guests || []).map(g => (g.name || '').toLowerCase().trim())
-                            );
+                        // Check for explicit per-track member overrides
+                        const explicitMembers = Array.isArray(performingGroup.members) ? performingGroup.members : [];
+                        const membersAreComplete = performingGroup.members_are_complete === true;
 
-                            // Resolve member IDs and build payload for UNWIND
-                            const membersPayload = [];
-                            for (const member of lineupMembers) {
-                                // Skip if this person is already a guest on this track
-                                if (guestNames.has((member.name || '').toLowerCase().trim())) {
-                                    continue;
-                                }
+                        // Step 1: Create explicit (non-derived) edges for per-track member overrides
+                        if (explicitMembers.length > 0) {
+                            const explicitPayload = [];
+                            const explicitIds = new Set();
+
+                            for (const member of explicitMembers) {
+                                // Skip guests
+                                if (guestNames.has((member.name || '').toLowerCase().trim())) continue;
 
                                 try {
                                     const memberId = await this.resolveEntityId(tx, 'person', member);
-                                    membersPayload.push({
+                                    explicitIds.add(memberId);
+
+                                    // Normalize roles from member (handles comma-separated strings)
+                                    const roles = normalizeRoleInput(member.roles || member.role || []);
+
+                                    explicitPayload.push({
                                         personId: memberId,
                                         name: member.name,
-                                        role: normalizeRole(member.role),
+                                        roles: roles,
+                                        role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || []
                                     });
                                 } catch (memberResolveError) {
-                                    console.warn(`    Warning: Could not resolve member "${member.name}" for PERFORMED_ON propagation: ${memberResolveError.message}`);
+                                    console.warn(`    Warning: Could not resolve explicit member "${member.name}": ${memberResolveError.message}`);
                                 }
                             }
 
-                            if (membersPayload.length > 0) {
+                            if (explicitPayload.length > 0) {
                                 await tx.run(`
                                     UNWIND $members AS m
                                     MERGE (p:Person {person_id: m.personId})
@@ -999,17 +1012,102 @@ constructor(config = {}) {
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
-                                    SET perf.role = m.role,
+                                    SET perf.derived = false,
+                                        perf.roles = m.roles,
+                                        perf.role = m.role,
+                                        perf.instruments = m.instruments,
+                                        perf.lineup_source = 'track_explicit'
+                                `, {
+                                    members: explicitPayload,
+                                    trackId,
+                                    claimId: trackOpId,
+                                    groupId
+                                });
+                                console.log(`      Created ${explicitPayload.length} explicit PERFORMED_ON edges (derived=false)`);
+                            }
+
+                            // If members_are_complete, skip derived propagation for this group
+                            if (membersAreComplete) {
+                                console.log(`      Skipping derived propagation (members_are_complete=true)`);
+                                continue; // Skip to next performingGroup
+                            }
+                        }
+
+                        // Step 2: Create derived edges for release-level default lineup
+                        // (only if not members_are_complete)
+                        let derivedMembers = [];
+                        let lineupSource = 'none';
+
+                        if (groupMembersById.has(groupId) && groupMembersById.get(groupId).length > 0) {
+                            derivedMembers = groupMembersById.get(groupId);
+                            lineupSource = 'release_default';
+                        } else if (groupMembersByName.has(groupName.toLowerCase()) && groupMembersByName.get(groupName.toLowerCase()).length > 0) {
+                            derivedMembers = groupMembersByName.get(groupName.toLowerCase());
+                            lineupSource = 'release_default_by_name';
+                        }
+
+                        if (derivedMembers.length > 0) {
+                            // Build set of explicit member IDs to skip (avoid duplicates)
+                            const explicitMemberIds = new Set();
+                            for (const m of explicitMembers) {
+                                if (m.person_id) explicitMemberIds.add(m.person_id);
+                            }
+
+                            const derivedPayload = [];
+                            for (const member of derivedMembers) {
+                                // Skip guests
+                                if (guestNames.has((member.name || '').toLowerCase().trim())) continue;
+                                if (member.person_id && guestIds.has(member.person_id)) continue;
+
+                                // Skip if already covered by explicit override
+                                if (member.person_id && explicitMemberIds.has(member.person_id)) continue;
+
+                                try {
+                                    const memberId = await this.resolveEntityId(tx, 'person', member);
+
+                                    // Double-check resolved ID isn't already explicit
+                                    if (explicitMemberIds.has(memberId)) continue;
+
+                                    // Normalize roles from member (handles comma-separated strings)
+                                    const roles = normalizeRoleInput(member.roles || member.role || []);
+
+                                    derivedPayload.push({
+                                        personId: memberId,
+                                        name: member.name,
+                                        roles: roles,
+                                        role: roles[0] || null,  // backward compat
+                                        instruments: member.instruments || []
+                                    });
+                                } catch (memberResolveError) {
+                                    console.warn(`    Warning: Could not resolve member "${member.name}" for derived PERFORMED_ON: ${memberResolveError.message}`);
+                                }
+                            }
+
+                            if (derivedPayload.length > 0) {
+                                await tx.run(`
+                                    UNWIND $members AS m
+                                    MERGE (p:Person {person_id: m.personId})
+                                    ON CREATE SET
+                                        p.id = m.personId,
+                                        p.name = m.name,
+                                        p.status = 'provisional',
+                                        p.created_at = datetime()
+                                    WITH p, m
+                                    MATCH (t:Track {track_id: $trackId})
+                                    MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
+                                    SET perf.derived = true,
+                                        perf.roles = m.roles,
+                                        perf.role = m.role,
                                         perf.instruments = m.instruments,
                                         perf.lineup_source = $lineupSource
                                 `, {
-                                    members: membersPayload,
+                                    members: derivedPayload,
                                     trackId,
                                     claimId: trackOpId,
                                     groupId,
                                     lineupSource
                                 });
-                                console.log(`      Propagated PERFORMED_ON to ${membersPayload.length} members (${lineupSource})`);
+                                console.log(`      Propagated PERFORMED_ON to ${derivedPayload.length} members (derived=true, ${lineupSource})`);
                             }
                         }
                     } catch (performedOnError) {

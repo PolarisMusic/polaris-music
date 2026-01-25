@@ -16,7 +16,7 @@
  */
 
 import crypto from 'crypto';
-import { normalizeRoles, normalizeRole } from './roleNormalization.js';
+import { normalizeRoles, normalizeRole, normalizeRoleInput } from './roleNormalization.js';
 
 /**
  * Normalize a ReleaseBundle from frontend format to canonical format
@@ -338,15 +338,11 @@ function normalizeRelease(release) {
         normalized.guests = release.guests.map(guest => {
             const normalizedPerson = normalizePerson(guest);
             // Collect roles from both role (singular) and roles (plural) inputs
+            // Use normalizeRoleInput to handle comma-separated strings
             const rawRoles = [];
-            if (Array.isArray(guest.roles)) {
-                rawRoles.push(...guest.roles);
-            }
-            if (guest.role && typeof guest.role === 'string') {
-                rawRoles.push(guest.role);
-            }
-            // Normalize and dedupe roles
-            normalizedPerson.roles = normalizeRoles(rawRoles);
+            if (guest.role) rawRoles.push(guest.role);
+            if (Array.isArray(guest.roles)) rawRoles.push(...guest.roles);
+            normalizedPerson.roles = normalizeRoleInput(rawRoles);
             if (guest.credited_as) {
                 normalizedPerson.credited_as = guest.credited_as;
             }
@@ -386,8 +382,17 @@ function normalizeGroup(group) {
             // Add membership-specific fields
             if (member.from_date) normalizedPerson.from_date = member.from_date;
             if (member.to_date) normalizedPerson.to_date = member.to_date;
-            // Normalize role for consistent querying
-            if (member.role) normalizedPerson.role = normalizeRole(member.role);
+            // Normalize roles - collect from both role (singular) and roles (plural)
+            // Use normalizeRoleInput to handle comma-separated strings like "drums, backing vocals"
+            const rawRoles = [];
+            if (member.role) rawRoles.push(member.role);
+            if (Array.isArray(member.roles)) rawRoles.push(...member.roles);
+            const normalizedRoles = normalizeRoleInput(rawRoles);
+            if (normalizedRoles.length > 0) {
+                normalizedPerson.roles = normalizedRoles;
+                // Keep role as first role for backward compatibility
+                normalizedPerson.role = normalizedRoles[0];
+            }
             if (Array.isArray(member.instruments)) {
                 normalizedPerson.instruments = member.instruments;
             }
@@ -435,16 +440,41 @@ function normalizeTrack(track) {
                     return null;
                 }
 
-                return {
+                const normalizedGroup = {
                     group_id,
                     name,
                     ...(group.credited_as && { credited_as: group.credited_as }),
-                    ...(group.role && { role: group.role }),
-                    // Preserve per-track member overrides for lineup attribution
-                    ...(Array.isArray(group.members) && group.members.length > 0 && {
-                        members: group.members.map(m => normalizePerson(m))
-                    })
+                    ...(group.role && { role: group.role })
                 };
+
+                // Preserve per-track member overrides for lineup attribution
+                // These override derived edges from release-level group membership
+                if (Array.isArray(group.members) && group.members.length > 0) {
+                    normalizedGroup.members = group.members.map(m => {
+                        const normalizedMember = normalizePerson(m);
+                        // Normalize roles for this track-level member
+                        const rawRoles = [];
+                        if (m.role) rawRoles.push(m.role);
+                        if (Array.isArray(m.roles)) rawRoles.push(...m.roles);
+                        const normalizedRoles = normalizeRoleInput(rawRoles);
+                        if (normalizedRoles.length > 0) {
+                            normalizedMember.roles = normalizedRoles;
+                            normalizedMember.role = normalizedRoles[0];
+                        }
+                        if (Array.isArray(m.instruments)) {
+                            normalizedMember.instruments = m.instruments;
+                        }
+                        return normalizedMember;
+                    });
+                }
+
+                // Pass through members_are_complete flag if provided
+                // When true, only listed members performed on this track (no derivation)
+                if (group.members_are_complete === true) {
+                    normalizedGroup.members_are_complete = true;
+                }
+
+                return normalizedGroup;
             })
             .filter(group => group !== null); // Remove invalid entries
     }
@@ -463,15 +493,11 @@ function normalizeTrack(track) {
         normalized.guests = track.guests.map(guest => {
             const normalizedPerson = normalizePerson(guest);
             // Collect roles from both role (singular) and roles (plural) inputs
+            // Use normalizeRoleInput to handle comma-separated strings
             const rawRoles = [];
-            if (Array.isArray(guest.roles)) {
-                rawRoles.push(...guest.roles);
-            }
-            if (guest.role && typeof guest.role === 'string') {
-                rawRoles.push(guest.role);
-            }
-            // Normalize and dedupe roles
-            normalizedPerson.roles = normalizeRoles(rawRoles);
+            if (guest.role) rawRoles.push(guest.role);
+            if (Array.isArray(guest.roles)) rawRoles.push(...guest.roles);
+            normalizedPerson.roles = normalizeRoleInput(rawRoles);
             // Also preserve instruments if present
             if (Array.isArray(guest.instruments)) {
                 normalizedPerson.instruments = guest.instruments;
@@ -546,6 +572,9 @@ function normalizeSong(song) {
 
 /**
  * Normalize Person object
+ * Note: role/roles normalization is typically handled by the caller (normalizeGroup,
+ * normalizeTrack guests, etc.) since the role context varies by relationship type.
+ * This function preserves raw roles for the caller to normalize.
  */
 function normalizePerson(person) {
     if (!person || typeof person !== 'object') {
@@ -564,6 +593,8 @@ function normalizePerson(person) {
     if (person.birth_name) normalized.birth_name = person.birth_name;
     if (person.birth_date) normalized.birth_date = person.birth_date;
     if (person.birth_city) normalized.birth_city = normalizeCity(person.birth_city);
+
+    // Preserve roles if already provided (caller may further normalize)
     if (person.roles) normalized.roles = person.roles;
 
     return normalized;
