@@ -369,13 +369,18 @@ process_event() {
 }
 
 # Verify data in Neo4j
-# Args: release_id_1, release_id_2
+# Args: release_id_1, release_id_2, release_id_3
 verify_neo4j() {
     local release_id_1="$1"
     local release_id_2="$2"
+    local release_id_3="$3"
 
     # Shared person ID (Smoke Dave Grohl appears in both QOTSA and Nirvana)
-    local shared_person_id="polaris:person:00000000-0000-4000-8000-000000000103"
+    local shared_dave_id="polaris:person:00000000-0000-4000-8000-000000000103"
+
+    # Shared persons (Josh Homme + Nick Oliveri appear in both QOTSA and Kyuss)
+    local shared_josh_id="polaris:person:00000000-0000-4000-8000-000000000101"
+    local shared_nick_id="polaris:person:00000000-0000-4000-8000-000000000102"
 
     # Nirvana-only members
     local kurt_person_id="polaris:person:00000000-0000-4000-8000-000000000201"
@@ -388,6 +393,7 @@ verify_neo4j() {
     # Group IDs (FIXED: QOTSA is ...0002, not ...0001)
     local group_id_1="polaris:group:00000000-0000-4000-8000-000000000002"  # Smoke QOTSA
     local group_id_2="polaris:group:00000000-0000-4000-8000-000000000003"  # Smoke Nirvana
+    local group_id_3="polaris:group:00000000-0000-4000-8000-000000000004"  # Smoke Kyuss
 
     log_info "========================================="
     log_info "Verifying data in Neo4j"
@@ -443,10 +449,25 @@ verify_neo4j() {
     local name2=$(echo "$response2" | jq -r '.results[0].data[0].row[1]')
     log_success "Release 2 found: $name2"
 
+    # ========== Check Release 3 (Kyuss - Blues for the Red Sun) ==========
+    log_info "Checking Release 3 (release_id: $release_id_3)"
+
+    local response3=$(run_neo4j_query "MATCH (r:Release {release_id: \\\"${release_id_3}\\\"}) RETURN r.release_id AS id, r.name AS name, r.catalog_number AS catalog LIMIT 1")
+
+    local count3=$(echo "$response3" | jq -r '.results[0].data | length')
+    if [ "$count3" -eq "0" ]; then
+        log_error "Release 3 not found in Neo4j"
+        log_error "Query result: $response3"
+        fail "Neo4j verification failed: Release 3 not found"
+    fi
+
+    local name3=$(echo "$response3" | jq -r '.results[0].data[0].row[1]')
+    log_success "Release 3 found: $name3"
+
     # ========== Validate Shared Person Node Count ==========
     log_info "Verifying shared person (Smoke Dave Grohl) is not duplicated..."
 
-    local person_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"}) RETURN count(p) AS c")
+    local person_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_dave_id}\\\"}) RETURN count(p) AS c")
     local person_count=$(echo "$person_response" | jq -r '.results[0].data[0].row[0]')
 
     if [ "$person_count" != "1" ]; then
@@ -459,7 +480,7 @@ verify_neo4j() {
     # ========== Verify Shared Person is MEMBER_OF Both Groups ==========
     log_info "Verifying shared person is member of both groups..."
 
-    local member_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:MEMBER_OF]->(g:Group) RETURN g.group_id AS gid, g.name AS name")
+    local member_response=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_dave_id}\\\"})-[:MEMBER_OF]->(g:Group) RETURN g.group_id AS gid, g.name AS name")
     local member_count=$(echo "$member_response" | jq -r '.results[0].data | length')
 
     # Diagnostic: print returned group IDs
@@ -495,7 +516,7 @@ verify_neo4j() {
     log_info "Verifying shared person has PERFORMED_ON edges to tracks from both releases..."
 
     # Check PERFORMED_ON edges exist for tracks in Release 1
-    local perf_response1=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"${release_id_1}\\\"}) RETURN count(t) AS c")
+    local perf_response1=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_dave_id}\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"${release_id_1}\\\"}) RETURN count(t) AS c")
     local perf_count1=$(echo "$perf_response1" | jq -r '.results[0].data[0].row[0]')
 
     if [ "$perf_count1" -eq "0" ]; then
@@ -506,7 +527,7 @@ verify_neo4j() {
     log_success "Shared person has PERFORMED_ON edges to $perf_count1 tracks in Release 1"
 
     # Check PERFORMED_ON edges exist for tracks in Release 2
-    local perf_response2=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_person_id}\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"${release_id_2}\\\"}) RETURN count(t) AS c")
+    local perf_response2=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"${shared_dave_id}\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"${release_id_2}\\\"}) RETURN count(t) AS c")
     local perf_count2=$(echo "$perf_response2" | jq -r '.results[0].data[0].row[0]')
 
     if [ "$perf_count2" -eq "0" ]; then
@@ -593,6 +614,62 @@ verify_neo4j() {
 
     log_success "Guests verified: GUEST_ON only, no PERFORMED_ON contamination"
 
+    # ========== Verify Josh Homme and Nick Oliveri exist exactly once ==========
+    log_info "Verifying shared persons (Josh Homme, Nick Oliveri) are not duplicated..."
+
+    for pid in "$shared_josh_id" "$shared_nick_id"; do
+        local resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"}) RETURN count(p) AS c")
+        local c=$(echo "$resp" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c" != "1" ]; then
+            fail "Neo4j verification failed: $pid exists $c times (expected 1)"
+        fi
+    done
+    log_success "Josh Homme and Nick Oliveri each exist exactly once"
+
+    # ========== Verify Josh and Nick are MEMBER_OF both QOTSA and Kyuss ==========
+    log_info "Verifying Josh and Nick are members of both QOTSA and Kyuss..."
+
+    for pid in "$shared_josh_id" "$shared_nick_id"; do
+        # Check QOTSA membership
+        local resp1=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[:MEMBER_OF]->(g:Group {group_id: \\\"$group_id_1\\\"}) RETURN count(g) AS c")
+        local c1=$(echo "$resp1" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c1" = "0" ]; then
+            fail "Neo4j verification failed: $pid is not MEMBER_OF QOTSA (group_id=$group_id_1)"
+        fi
+
+        # Check Kyuss membership
+        local resp3=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[:MEMBER_OF]->(g:Group {group_id: \\\"$group_id_3\\\"}) RETURN count(g) AS c")
+        local c3=$(echo "$resp3" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c3" = "0" ]; then
+            fail "Neo4j verification failed: $pid is not MEMBER_OF Kyuss (group_id=$group_id_3)"
+        fi
+    done
+    log_success "Josh and Nick are MEMBER_OF both QOTSA and Kyuss"
+
+    # ========== Verify Josh and Nick have PERFORMED_ON edges to Kyuss tracks ==========
+    log_info "Verifying Josh and Nick have PERFORMED_ON edges to Kyuss tracks (Release 3)..."
+
+    for pid in "$shared_josh_id" "$shared_nick_id"; do
+        local resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_3\\\"}) RETURN count(t) AS c")
+        local c=$(echo "$resp" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c" = "0" ]; then
+            fail "Neo4j verification failed: $pid has 0 PERFORMED_ON tracks in Release 3 (Kyuss)"
+        fi
+        log_success "$pid PERFORMED_ON count in Release 3: $c"
+    done
+
+    # ========== Verify Josh and Nick PERFORMED_ON edges have via_group_id for Kyuss ==========
+    log_info "Verifying Josh and Nick PERFORMED_ON edges came via Kyuss propagation (via_group_id)..."
+
+    for pid in "$shared_josh_id" "$shared_nick_id"; do
+        local resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$pid\\\"})-[perf:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release {release_id: \\\"$release_id_3\\\"}) RETURN count(CASE WHEN perf.via_group_id = \\\"$group_id_3\\\" THEN 1 END) AS c")
+        local c=$(echo "$resp" | jq -r '.results[0].data[0].row[0]')
+        if [ "$c" = "0" ]; then
+            fail "Neo4j verification failed: $pid PERFORMED_ON edges exist but none have via_group_id=$group_id_3"
+        fi
+        log_success "$pid has propagated PERFORMED_ON edges via_group_id=$group_id_3: $c"
+    done
+
     log_success "Neo4j verification complete - all relationship checks passed"
 }
 
@@ -607,7 +684,11 @@ print_summary() {
     log_info "  Run ID: $RUN_ID"
     log_info "  Release 1 (QOTSA): $RELEASE_ID_1"
     log_info "  Release 2 (Nevermind): $RELEASE_ID_2"
-    log_info "  Shared Person (Smoke Dave Grohl): polaris:person:00000000-0000-4000-8000-000000000103"
+    log_info "  Release 3 (Kyuss): $RELEASE_ID_3"
+    log_info "  Shared Persons:"
+    log_info "    - Smoke Dave Grohl (QOTSA + Nirvana): polaris:person:...-000000000103"
+    log_info "    - Smoke Josh Homme (QOTSA + Kyuss): polaris:person:...-000000000101"
+    log_info "    - Smoke Nick Oliveri (QOTSA + Kyuss): polaris:person:...-000000000102"
     log_info "  Events processed: ${#EVENT_HASHES[@]}"
     echo ""
 
@@ -691,8 +772,21 @@ main() {
     # Process ADD_CLAIM event (claims on the second release)
     process_event "${PAYLOAD_DIR}/add-claim.tmpl.json" "ADD_CLAIM"
 
-    # Verify in Neo4j (pass both release IDs)
-    verify_neo4j "$RELEASE_ID_1" "$RELEASE_ID_2"
+    # ========== RELEASE 3: Blues for the Red Sun (Kyuss) ==========
+    process_event "${PAYLOAD_DIR}/create-release-bundle-blues-red-sun.tmpl.json" "CREATE_RELEASE_BUNDLE"
+
+    # Use the deterministic Release ID from the Kyuss template
+    log_info "Setting deterministic Release ID for ADD_CLAIM (Release 3)..."
+    RELEASE_ID_3="polaris:release:00000000-0000-4000-8000-000000000005"
+    RELEASE_ID="$RELEASE_ID_3"
+    log_success "Using Release ID: $RELEASE_ID"
+    echo ""
+
+    # Process ADD_CLAIM event (claims on the third release)
+    process_event "${PAYLOAD_DIR}/add-claim.tmpl.json" "ADD_CLAIM"
+
+    # Verify in Neo4j (pass all release IDs)
+    verify_neo4j "$RELEASE_ID_1" "$RELEASE_ID_2" "$RELEASE_ID_3"
 
     # Print summary
     print_summary
