@@ -21,9 +21,12 @@ export class TransactionBuilder {
 
     /**
      * Build CREATE_RELEASE_BUNDLE event structure
-     * @param {Object} releaseData - Release bundle data from form
+     * The full canonical bundle (release, groups, tracks, tracklist, songs, sources)
+     * goes into event.body so /api/events/prepare sees the complete structure.
+     *
+     * @param {Object} releaseData - Full canonical release bundle from buildReleaseData()
      * @param {string} authorPubkey - Author's public key from wallet
-     * @param {Array} sourceLinks - Source attribution links
+     * @param {Array} sourceLinks - Source attribution links (legacy, now in bundle.sources)
      * @returns {Object} Event structure ready for signing
      */
     buildReleaseBundleEvent(releaseData, authorPubkey, sourceLinks = []) {
@@ -33,10 +36,7 @@ export class TransactionBuilder {
             author_pubkey: authorPubkey,
             created_at: Math.floor(Date.now() / 1000),
             parents: [],
-            body: {
-                release: releaseData.release,
-                tracklist: releaseData.tracklist || []
-            },
+            body: releaseData,
             proofs: {
                 source_links: sourceLinks
             }
@@ -210,8 +210,8 @@ export class TransactionBuilder {
     }
 
     /**
-     * Validate release data has all required fields
-     * @param {Object} releaseData - Release data to validate
+     * Validate release data has all required fields (canonical keys)
+     * @param {Object} releaseData - Full canonical release bundle
      * @returns {Object} { valid: boolean, errors: string[] }
      */
     validateReleaseData(releaseData) {
@@ -225,31 +225,33 @@ export class TransactionBuilder {
 
         const release = releaseData.release;
 
-        // Required fields based on screenshot
-        if (!release.release_name || release.release_name.trim() === '') {
-            errors.push('Project Name is required');
+        // Required: release.name
+        if (!release.name || release.name.trim() === '') {
+            errors.push('Release Name is required');
         }
 
-        // At least one track required
-        if (!release.tracks || release.tracks.length === 0) {
-            errors.push('At least one track/song is required');
+        // At least one track required (tracks are top-level in canonical bundle)
+        const tracks = releaseData.tracks;
+        if (!tracks || tracks.length === 0) {
+            errors.push('At least one track is required');
         } else {
-            // Validate each track
-            release.tracks.forEach((track, index) => {
+            tracks.forEach((track, index) => {
                 if (!track.title || track.title.trim() === '') {
-                    errors.push(`Track ${index + 1}: Song Name is required`);
+                    errors.push(`Track ${index + 1}: Title is required`);
                 }
 
-                // Check for groups
-                if (!track.groups || track.groups.length === 0) {
-                    errors.push(`Track ${index + 1}: At least one Group is required`);
-                }
-
-                // Check for songwriters
-                if (!track.songwriters || track.songwriters.length === 0) {
-                    errors.push(`Track ${index + 1}: At least one Songwriter is required`);
+                // Check for performing groups (performed_by_groups or release-level groups)
+                const hasTrackGroups = track.performed_by_groups && track.performed_by_groups.length > 0;
+                const hasReleaseGroups = releaseData.groups && releaseData.groups.length > 0;
+                if (!hasTrackGroups && !hasReleaseGroups) {
+                    errors.push(`Track ${index + 1}: At least one performing group is required`);
                 }
             });
+        }
+
+        // Tracklist required
+        if (!releaseData.tracklist || releaseData.tracklist.length === 0) {
+            errors.push('Tracklist is required');
         }
 
         return {
