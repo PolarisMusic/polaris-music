@@ -148,8 +148,22 @@
         "iswc": { "type": "string" },
         "writers": {
           "type": "array",
-          "items": { "$ref": "#/definitions/Person" }
+          "items": { "$ref": "#/definitions/WriterCredit" }
         }
+      }
+    },
+    "WriterCredit": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "person_id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "credited_as": { "type": "string" },
+        "role": { "type": "string" },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "role_detail": { "type": "string" },
+        "share_percentage": { "type": "number", "minimum": 0, "maximum": 100 }
       }
     },
     "Label": {

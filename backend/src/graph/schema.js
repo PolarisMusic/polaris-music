@@ -448,6 +448,8 @@ constructor(config = {}) {
                 { name: 'member_of_role', query: 'CREATE INDEX member_of_role IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.role)' },
                 { name: 'member_of_roles', query: 'CREATE INDEX member_of_roles IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.roles)' },
                 { name: 'wrote_role', query: 'CREATE INDEX wrote_role IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role)' },
+                { name: 'wrote_roles', query: 'CREATE INDEX wrote_roles IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.roles)' },
+                { name: 'wrote_role_detail', query: 'CREATE INDEX wrote_role_detail IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role_detail)' },
                 { name: 'guest_on_roles', query: 'CREATE INDEX guest_on_roles IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.roles)' }
             ];
 
@@ -809,6 +811,10 @@ constructor(config = {}) {
                 for (const writer of song.writers || []) {
                     const writerId = await this.resolveEntityId(tx, 'person', writer);
 
+                    // Normalize writing roles (handles comma-separated, synonyms)
+                    const writerRoles = normalizeRoleInput(writer.roles || writer.role || []);
+                    const primaryRole = writerRoles[0] || 'songwriter';
+
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
@@ -818,13 +824,19 @@ constructor(config = {}) {
                         MATCH (s:Song {song_id: $songId})
                         MERGE (p)-[w:WROTE {claim_id: $claimId}]->(s)
                         SET w.role = $role,
+                            w.roles = $roles,
+                            w.role_detail = $roleDetail,
+                            w.credited_as = $creditedAs,
                             w.share_percentage = $share
                     `, {
                         personId: writerId,
                         name: writer.name,
                         status: writer.person_id ? 'canonical' : 'provisional',
                         songId,
-                        role: writer.role || 'songwriter',
+                        role: primaryRole,
+                        roles: writerRoles,
+                        roleDetail: writer.role_detail || null,
+                        creditedAs: writer.credited_as || null,
                         share: writer.share_percentage || null,
                         claimId: songOpId
                     });

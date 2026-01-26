@@ -696,6 +696,70 @@ verify_neo4j() {
         log_success "$pid has propagated PERFORMED_ON edges via_group_id=$group_id_3: $c"
     done
 
+    # ========== Verify WROTE relationships exist with enriched properties ==========
+    log_info "Verifying WROTE relationships for songwriter credits..."
+
+    # Song IDs for verification
+    local teen_spirit_song="polaris:song:00000000-0000-4000-8000-000000002100"
+    local no_one_knows_song="polaris:song:00000000-0000-4000-8000-000000001002"
+    local mosquito_song="polaris:song:00000000-0000-4000-8000-000000001014"
+
+    # Check Kurt wrote "Smells Like Teen Spirit" with roles
+    local wrote_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$kurt_person_id\\\"})-[w:WROTE]->(s:Song {song_id: \\\"$teen_spirit_song\\\"}) RETURN w.role AS role, w.roles AS roles")
+    local wrote_count=$(echo "$wrote_resp" | jq -r '.results[0].data | length')
+    if [ "$wrote_count" = "0" ]; then
+        fail "Neo4j verification failed: Kurt Cobain has no WROTE edge to Smells Like Teen Spirit"
+    fi
+    local wrote_role=$(echo "$wrote_resp" | jq -r '.results[0].data[0].row[0]')
+    log_success "Kurt Cobain WROTE Smells Like Teen Spirit (role=$wrote_role)"
+
+    # Check that Kurt's WROTE edge has roles[] array populated
+    local wrote_roles=$(echo "$wrote_resp" | jq -r '.results[0].data[0].row[1]')
+    if [ "$wrote_roles" = "null" ] || [ -z "$wrote_roles" ]; then
+        log_warning "Kurt's WROTE edge to Teen Spirit has no roles[] array"
+    else
+        log_success "Kurt's WROTE edge has roles[]: $wrote_roles"
+    fi
+
+    # Check Smells Like Teen Spirit has 3 writers total
+    local writers_resp=$(run_neo4j_query "MATCH (p:Person)-[:WROTE]->(s:Song {song_id: \\\"$teen_spirit_song\\\"}) RETURN count(p) AS c")
+    local writers_count=$(echo "$writers_resp" | jq -r '.results[0].data[0].row[0]')
+    if [ "$writers_count" != "3" ]; then
+        log_warning "Smells Like Teen Spirit has $writers_count writers (expected 3)"
+    else
+        log_success "Smells Like Teen Spirit has 3 writers"
+    fi
+
+    # Check Josh wrote "No One Knows" with roles
+    local josh_wrote_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$shared_josh_id\\\"})-[w:WROTE]->(s:Song {song_id: \\\"$no_one_knows_song\\\"}) RETURN w.role AS role, w.roles AS roles")
+    local josh_wrote_count=$(echo "$josh_wrote_resp" | jq -r '.results[0].data | length')
+    if [ "$josh_wrote_count" = "0" ]; then
+        fail "Neo4j verification failed: Josh Homme has no WROTE edge to No One Knows"
+    fi
+    log_success "Josh Homme WROTE No One Knows"
+
+    # Check Mosquito Song has role_detail and share_percentage on Chris Goss
+    local chris_goss_id="polaris:person:00000000-0000-4000-8000-000000000110"
+    local goss_wrote_resp=$(run_neo4j_query "MATCH (p:Person {person_id: \\\"$chris_goss_id\\\"})-[w:WROTE]->(s:Song {song_id: \\\"$mosquito_song\\\"}) RETURN w.role_detail AS detail, w.share_percentage AS share, w.roles AS roles")
+    local goss_wrote_count=$(echo "$goss_wrote_resp" | jq -r '.results[0].data | length')
+    if [ "$goss_wrote_count" = "0" ]; then
+        fail "Neo4j verification failed: Chris Goss has no WROTE edge to Mosquito Song"
+    fi
+    local goss_detail=$(echo "$goss_wrote_resp" | jq -r '.results[0].data[0].row[0]')
+    local goss_share=$(echo "$goss_wrote_resp" | jq -r '.results[0].data[0].row[1]')
+    if [ "$goss_detail" = "null" ] || [ -z "$goss_detail" ]; then
+        log_warning "Chris Goss WROTE edge has no role_detail"
+    else
+        log_success "Chris Goss WROTE Mosquito Song with role_detail='$goss_detail', share=$goss_share"
+    fi
+
+    # Check total WROTE edges across all songs
+    local total_wrote_resp=$(run_neo4j_query "MATCH ()-[w:WROTE]->() RETURN count(w) AS c")
+    local total_wrote=$(echo "$total_wrote_resp" | jq -r '.results[0].data[0].row[0]')
+    log_info "Total WROTE relationships in graph: $total_wrote"
+
+    log_success "WROTE relationship verification complete"
+
     log_success "Neo4j verification complete - all relationship checks passed"
 }
 

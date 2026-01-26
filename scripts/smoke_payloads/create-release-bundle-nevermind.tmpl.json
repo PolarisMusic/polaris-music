@@ -50,16 +50,16 @@
         "song_id": "polaris:song:00000000-0000-4000-8000-000000002100",
         "title": "Smells Like Teen Spirit",
         "writers": [
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" },
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000202", "name": "Smoke Krist Novoselic" },
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000103", "name": "Smoke Dave Grohl" }
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000202", "name": "Smoke Krist Novoselic", "roles": ["music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000103", "name": "Smoke Dave Grohl", "roles": ["music"] }
         ]
       },
       {
         "song_id": "polaris:song:00000000-0000-4000-8000-000000002101",
         "title": "In Bloom",
         "writers": [
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain", "roles": ["lyrics", "music"] }
         ]
       },
       {

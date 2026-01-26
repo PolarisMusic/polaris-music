@@ -564,7 +564,50 @@ function normalizeSong(song) {
     if (song.iswc) normalized.iswc = song.iswc;
 
     if (song.writers && Array.isArray(song.writers)) {
-        normalized.writers = song.writers.map(normalizePerson);
+        normalized.writers = song.writers.map(normalizeWriterCredit);
+    }
+
+    return normalized;
+}
+
+/**
+ * Normalize WriterCredit object
+ * Handles writing-specific fields (role, roles, role_detail, share_percentage, credited_as)
+ * alongside base person identity fields (name, person_id).
+ *
+ * @param {Object} writer - Raw writer credit object
+ * @returns {Object} Normalized writer credit
+ */
+function normalizeWriterCredit(writer) {
+    if (!writer || typeof writer !== 'object') {
+        throw new Error('Must be an object');
+    }
+
+    if (!writer.name || writer.name.trim() === '') {
+        throw new Error('name is required and cannot be empty');
+    }
+
+    const normalized = {
+        name: writer.name.trim()
+    };
+
+    if (writer.person_id) normalized.person_id = writer.person_id;
+
+    // Normalize writing roles from both role (singular) and roles (plural)
+    const rawRoles = [];
+    if (writer.role) rawRoles.push(writer.role);
+    if (Array.isArray(writer.roles)) rawRoles.push(...writer.roles);
+    const normalizedRoles = normalizeRoleInput(rawRoles);
+    if (normalizedRoles.length > 0) {
+        normalized.roles = normalizedRoles;
+        normalized.role = normalizedRoles[0];
+    }
+
+    // Pass through writing-specific fields
+    if (writer.credited_as) normalized.credited_as = writer.credited_as;
+    if (writer.role_detail) normalized.role_detail = writer.role_detail;
+    if (writer.share_percentage !== undefined && writer.share_percentage !== null) {
+        normalized.share_percentage = writer.share_percentage;
     }
 
     return normalized;

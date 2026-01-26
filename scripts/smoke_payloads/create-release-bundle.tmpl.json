@@ -74,15 +74,15 @@
         "song_id": "polaris:song:00000000-0000-4000-8000-000000001002",
         "title": "No One Knows",
         "writers": [
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme", "roles": ["lyrics", "music"] }
         ]
       },
       {
         "song_id": "polaris:song:00000000-0000-4000-8000-000000001003",
         "title": "First It Giveth",
         "writers": [
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri" }
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme", "roles": ["music"], "share_percentage": 50 },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri", "roles": ["lyrics", "music"], "share_percentage": 50 }
         ]
       },
       {
@@ -164,9 +164,9 @@
         "song_id": "polaris:song:00000000-0000-4000-8000-000000001014",
         "title": "Mosquito Song",
         "writers": [
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan" },
-          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000110", "name": "Smoke Chris Goss" }
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme", "roles": ["lyrics", "music"], "share_percentage": 50 },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan", "roles": ["lyrics"], "share_percentage": 25 },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000110", "name": "Smoke Chris Goss", "roles": ["music"], "role_detail": "additional guitar arrangement", "share_percentage": 25 }
         ]
       }
     ],

@@ -52,12 +52,19 @@ const ROLE_SYNONYMS = {
     'mastering engineer': 'mastering',
     'master': 'mastering',
 
-    // Other common roles
+    // Writing/composition roles
     'songwriter': 'songwriter',
     'writer': 'songwriter',
+    'lyricist': 'lyrics',
+    'words': 'lyrics',
+    'text': 'lyrics',
+    'libretto': 'lyrics',
+    'composition': 'music',
     'composer': 'composer',
-    'arranger': 'arranger',
-    'arrangement': 'arranger',
+    'arranger': 'arrangement',
+    'arrangement': 'arrangement',
+    'orchestration': 'arrangement',
+    'adapted by': 'arrangement',
 };
 
 /**
