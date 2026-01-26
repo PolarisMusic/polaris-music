@@ -12,19 +12,29 @@
       "format": "CD",
       "country": "US",
       "catalog_number": "SMOKE-TEST-001",
-      "trivia": "Smoke-test release bundle based on the Songs for the Deaf (Wikipedia) track listing and personnel."
+      "trivia": "Smoke-test release bundle based on the Songs for the Deaf (Wikipedia) track listing and personnel.",
+      "labels": [
+        {
+          "label_id": "polaris:label:00000000-0000-4000-8000-000000000601",
+          "name": "Interscope Records",
+          "alt_names": ["Interscope", "Interscope/Geffen"],
+          "parent_label": { "name": "Universal Music Group" },
+          "origin_city": { "name": "Los Angeles", "lat": 34.0522, "lon": -118.2437 }
+        },
+        {
+          "label_id": "polaris:label:00000000-0000-4000-8000-000000000602",
+          "name": "Rekords Rekords"
+        }
+      ],
+      "guests": [
+        {
+          "person_id": "polaris:person:00000000-0000-4000-8000-000000000501",
+          "name": "Smoke Adam Kasper",
+          "roles": ["producer", "mixing"],
+          "role_detail": "produced and mixed at Studio X"
+        }
+      ]
     },
-    "labels": [
-      {
-        "label_id": "polaris:label:00000000-0000-4000-8000-000000000601",
-        "name": "Interscope Records",
-        "alt_names": ["Interscope"]
-      },
-      {
-        "label_id": "polaris:label:00000000-0000-4000-8000-000000000602",
-        "name": "Rekords Rekords"
-      }
-    ],
     "groups": [
       {
         "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",

@@ -346,6 +346,9 @@ function normalizeRelease(release) {
             if (guest.credited_as) {
                 normalizedPerson.credited_as = guest.credited_as;
             }
+            if (guest.role_detail) {
+                normalizedPerson.role_detail = guest.role_detail;
+            }
             return normalizedPerson;
         });
     }
@@ -424,6 +427,8 @@ function normalizeTrack(track) {
     if (track.isrc) normalized.isrc = track.isrc;
     if (track.performed_by) normalized.performed_by = track.performed_by;
     if (track.recording_of) normalized.recording_of = track.recording_of;
+    if (track.recording_date) normalized.recording_date = track.recording_date;
+    if (track.recording_location) normalized.recording_location = track.recording_location;
     if (track.samples) normalized.samples = track.samples;
 
     // Map track.groups → performed_by_groups for graph ingestion
@@ -505,6 +510,29 @@ function normalizeTrack(track) {
             if (guest.credited_as) {
                 normalizedPerson.credited_as = guest.credited_as;
             }
+            if (guest.role_detail) {
+                normalizedPerson.role_detail = guest.role_detail;
+            }
+            return normalizedPerson;
+        });
+    }
+
+    // Producers (normalized as Person credits with role context)
+    if (track.producers && Array.isArray(track.producers)) {
+        normalized.producers = track.producers.map(producer => {
+            const normalizedPerson = normalizePerson(producer);
+            if (producer.role) normalizedPerson.role = producer.role;
+            if (producer.credited_as) normalizedPerson.credited_as = producer.credited_as;
+            return normalizedPerson;
+        });
+    }
+
+    // Arrangers (normalized as Person credits with role context)
+    if (track.arrangers && Array.isArray(track.arrangers)) {
+        normalized.arrangers = track.arrangers.map(arranger => {
+            const normalizedPerson = normalizePerson(arranger);
+            if (arranger.role) normalizedPerson.role = arranger.role;
+            if (arranger.credited_as) normalizedPerson.credited_as = arranger.credited_as;
             return normalizedPerson;
         });
     }
@@ -636,15 +664,23 @@ function normalizePerson(person) {
     if (person.birth_name) normalized.birth_name = person.birth_name;
     if (person.birth_date) normalized.birth_date = person.birth_date;
     if (person.birth_city) normalized.birth_city = normalizeCity(person.birth_city);
+    if (person.origin_city) normalized.origin_city = normalizeCity(person.origin_city);
 
     // Preserve roles if already provided (caller may further normalize)
     if (person.roles) normalized.roles = person.roles;
+
+    // Credit-context fields (used by guests, producers, etc.)
+    if (person.role_detail) normalized.role_detail = person.role_detail;
+    if (person.credited_as) normalized.credited_as = person.credited_as;
+    if (Array.isArray(person.instruments)) normalized.instruments = person.instruments;
 
     return normalized;
 }
 
 /**
  * Normalize Label object
+ * Handles alt_names, parent_label (string or object), and origin_city
+ * with backward-compatible mapping from deprecated label.city → origin_city.
  */
 function normalizeLabel(label) {
     if (!label || typeof label !== 'object') {
@@ -660,7 +696,34 @@ function normalizeLabel(label) {
     };
 
     if (label.label_id) normalized.label_id = label.label_id;
-    if (label.city) normalized.city = normalizeCity(label.city);
+
+    // Alt names
+    if (Array.isArray(label.alt_names)) {
+        normalized.alt_names = label.alt_names
+            .filter(n => typeof n === 'string' && n.trim())
+            .map(n => n.trim());
+    }
+
+    // Parent label: accept string or { label_id?, name }
+    if (label.parent_label) {
+        if (typeof label.parent_label === 'string') {
+            normalized.parent_label = { name: label.parent_label.trim() };
+        } else if (typeof label.parent_label === 'object') {
+            normalized.parent_label = {};
+            if (label.parent_label.name) {
+                normalized.parent_label.name = label.parent_label.name.trim();
+            }
+            if (label.parent_label.label_id) {
+                normalized.parent_label.label_id = label.parent_label.label_id;
+            }
+        }
+    }
+
+    // Origin city: prefer origin_city, fall back to deprecated city
+    const cityInput = label.origin_city || label.city;
+    if (cityInput) {
+        normalized.origin_city = normalizeCity(cityInput);
+    }
 
     return normalized;
 }

@@ -760,6 +760,56 @@ verify_neo4j() {
 
     log_success "WROTE relationship verification complete"
 
+    # ========== Verify Label enriched properties (alt_names, parent_label, origin_city) ==========
+    log_info "Verifying label enrichment (alt_names, parent_label_name, origin city)..."
+
+    local label_resp=$(run_neo4j_query "MATCH (l:Label) WHERE l.name CONTAINS 'Interscope' RETURN l.name AS name, l.alt_names AS alt_names, l.parent_label_name AS parent LIMIT 1")
+    local label_count=$(echo "$label_resp" | jq -r '.results[0].data | length')
+    if [ "$label_count" = "0" ]; then
+        log_warning "Interscope label not found in Neo4j (labels may not be inside release)"
+    else
+        local label_parent=$(echo "$label_resp" | jq -r '.results[0].data[0].row[2]')
+        local label_alts=$(echo "$label_resp" | jq -r '.results[0].data[0].row[1]')
+        if [ "$label_parent" = "null" ] || [ -z "$label_parent" ]; then
+            log_warning "Interscope label has no parent_label_name set"
+        else
+            log_success "Interscope label has parent_label_name='$label_parent'"
+        fi
+        if [ "$label_alts" = "null" ] || [ "$label_alts" = "[]" ]; then
+            log_warning "Interscope label has no alt_names set"
+        else
+            log_success "Interscope label has alt_names: $label_alts"
+        fi
+    fi
+
+    # Check label ORIGIN relationship to city
+    local label_city_resp=$(run_neo4j_query "MATCH (l:Label)-[:ORIGIN]->(c:City) WHERE l.name CONTAINS 'Interscope' RETURN c.name AS city LIMIT 1")
+    local label_city_count=$(echo "$label_city_resp" | jq -r '.results[0].data | length')
+    if [ "$label_city_count" = "0" ]; then
+        log_warning "Interscope label has no ORIGIN->City relationship"
+    else
+        local label_city=$(echo "$label_city_resp" | jq -r '.results[0].data[0].row[0]')
+        log_success "Interscope label ORIGIN city: $label_city"
+    fi
+
+    # ========== Verify release-level guest (producer) credits ==========
+    log_info "Verifying release-level guest (producer) credits..."
+
+    local producer_resp=$(run_neo4j_query "MATCH (p:Person)-[g:GUEST_ON]->(r:Release) WHERE g.scope = 'release' AND any(x IN g.roles WHERE x IN ['producer','mixing','engineer','mastering']) RETURN count(g) AS c")
+    local producer_count=$(echo "$producer_resp" | jq -r '.results[0].data[0].row[0]')
+    if [ "$producer_count" = "0" ]; then
+        log_warning "No release-level producer/engineer GUEST_ON edges found"
+    else
+        log_success "Release-level producer/engineer GUEST_ON edges: $producer_count"
+    fi
+
+    # Check guest scope differentiation
+    local scope_resp=$(run_neo4j_query "MATCH ()-[g:GUEST_ON]->() RETURN g.scope AS scope, count(g) AS c ORDER BY scope")
+    log_info "GUEST_ON scope distribution:"
+    echo "$scope_resp" | jq -r '.results[0].data[].row | @tsv' | sed 's/^/  - /'
+
+    log_success "Label and guest enrichment verification complete"
+
     log_success "Neo4j verification complete - all relationship checks passed"
 }
 

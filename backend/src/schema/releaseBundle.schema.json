@@ -68,8 +68,12 @@
         "birth_name": { "type": "string" },
         "birth_date": { "type": "string" },
         "birth_city": { "$ref": "#/definitions/City" },
+        "origin_city": { "$ref": "#/definitions/City" },
         "roles": { "type": "array", "items": { "type": "string" } },
         "role": { "type": "string" },
+        "role_detail": { "type": "string" },
+        "credited_as": { "type": "string" },
+        "instruments": { "type": "array", "items": { "type": "string" } },
         "from_date": { "type": "string" },
         "to_date": { "type": "string" }
       }
@@ -103,6 +107,8 @@
         "isrc": { "type": "string" },
         "performed_by": { "type": "string" },
         "recording_of": { "type": "string" },
+        "recording_date": { "type": "string" },
+        "recording_location": { "type": "string" },
         "samples": { "type": "array", "items": { "type": "string" } },
         "performed_by_groups": {
           "type": "array",
@@ -113,6 +119,7 @@
               "name": { "type": "string" },
               "credited_as": { "type": "string" },
               "role": { "type": "string" },
+              "members_are_complete": { "type": "boolean" },
               "members": {
                 "type": "array",
                 "items": { "$ref": "#/definitions/Person" }
@@ -121,6 +128,14 @@
           }
         },
         "guests": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Person" }
+        },
+        "producers": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Person" }
+        },
+        "arrangers": {
           "type": "array",
           "items": { "$ref": "#/definitions/Person" }
         }
@@ -173,7 +188,24 @@
       "properties": {
         "label_id": { "type": "string" },
         "name": { "type": "string", "minLength": 1 },
-        "city": { "$ref": "#/definitions/City" }
+        "alt_names": { "type": "array", "items": { "type": "string" } },
+        "parent_label": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "label_id": { "type": "string" },
+                "name": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "origin_city": { "$ref": "#/definitions/City" },
+        "city": {
+          "description": "Deprecated: use origin_city instead",
+          "$ref": "#/definitions/City"
+        }
       }
     },
     "City": {

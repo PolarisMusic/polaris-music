@@ -178,7 +178,7 @@ describe('ReleaseBundle Normalization', () => {
             expect(normalized.tracks[0].guests[0].roles).toEqual(['guitar']);
         });
 
-        test('Normalizes release labels with city', () => {
+        test('Normalizes release labels with city (maps deprecated city to origin_city)', () => {
             const bundle = {
                 release: {
                     name: 'Test Album',
@@ -200,8 +200,9 @@ describe('ReleaseBundle Normalization', () => {
 
             expect(normalized.release.labels).toHaveLength(1);
             expect(normalized.release.labels[0].name).toBe('Abbey Road Studios');
-            expect(normalized.release.labels[0].city.name).toBe('London');
-            expect(normalized.release.labels[0].city.lat).toBe(51.5074);
+            // Deprecated label.city is mapped to label.origin_city
+            expect(normalized.release.labels[0].origin_city.name).toBe('London');
+            expect(normalized.release.labels[0].origin_city.lat).toBe(51.5074);
         });
     });
 

@@ -440,6 +440,11 @@ constructor(config = {}) {
                 { name: 'identity_map_external_id', query: 'CREATE INDEX identity_map_external_id IF NOT EXISTS FOR (im:IdentityMap) ON (im.external_id)' },
                 { name: 'identity_map_canonical', query: 'CREATE INDEX identity_map_canonical IF NOT EXISTS FOR (im:IdentityMap) ON (im.canonical_id)' },
 
+                // Label and Person city/parent indexes
+                { name: 'label_parent_name', query: 'CREATE INDEX label_parent_name IF NOT EXISTS FOR (l:Label) ON (l.parent_label_name)' },
+                { name: 'label_origin_city', query: 'CREATE INDEX label_origin_city IF NOT EXISTS FOR (l:Label) ON (l.origin_city_name)' },
+                { name: 'person_origin_city', query: 'CREATE INDEX person_origin_city IF NOT EXISTS FOR (p:Person) ON (p.origin_city_name)' },
+
                 // Relationship property indexes for role searchability (Neo4j 5.x+)
                 { name: 'performed_on_role', query: 'CREATE INDEX performed_on_role IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.role)' },
                 { name: 'performed_on_roles', query: 'CREATE INDEX performed_on_roles IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.roles)' },
@@ -450,7 +455,8 @@ constructor(config = {}) {
                 { name: 'wrote_role', query: 'CREATE INDEX wrote_role IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role)' },
                 { name: 'wrote_roles', query: 'CREATE INDEX wrote_roles IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.roles)' },
                 { name: 'wrote_role_detail', query: 'CREATE INDEX wrote_role_detail IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role_detail)' },
-                { name: 'guest_on_roles', query: 'CREATE INDEX guest_on_roles IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.roles)' }
+                { name: 'guest_on_roles', query: 'CREATE INDEX guest_on_roles IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.roles)' },
+                { name: 'guest_on_scope', query: 'CREATE INDEX guest_on_scope IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.scope)' }
             ];
 
             // Create all indexes
@@ -640,6 +646,7 @@ constructor(config = {}) {
                             p.name = $name,
                                      p.status = $status,
                                      p.created_at = datetime()
+                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                         WITH p
                         MATCH (g:Group {group_id: $groupId})
@@ -657,6 +664,7 @@ constructor(config = {}) {
                         personId,
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
+                        originCityName: member.origin_city?.name || null,
                         groupId,
                         role: primaryRole,
                         roles: memberRoles,
@@ -756,18 +764,25 @@ constructor(config = {}) {
                     ON CREATE SET p.id = $personId,
                             p.name = $name,
                                  p.status = $status
+                    SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                     WITH p
                     MATCH (r:Release {release_id: $releaseId})
                     MERGE (p)-[g:GUEST_ON {claim_id: $claimId}]->(r)
                     SET g.roles = $roles,
-                        g.credited_as = $creditedAs
+                        g.role = $role,
+                        g.role_detail = $roleDetail,
+                        g.credited_as = $creditedAs,
+                        g.scope = 'release'
                 `, {
                     personId,
                     name: guest.name,
                     status: guest.person_id ? 'canonical' : 'provisional',
+                    originCityName: guest.origin_city?.name || null,
                     releaseId,
                     roles: normalizeRoles(guest.roles || []),
+                    role: normalizeRole(guest.roles?.[0] || guest.role),
+                    roleDetail: guest.role_detail || null,
                     creditedAs: guest.credited_as || null,
                     claimId: releaseOpId
                 });
@@ -1144,6 +1159,7 @@ constructor(config = {}) {
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
                                      p.status = $status
+                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
@@ -1151,14 +1167,20 @@ constructor(config = {}) {
                         // GUEST_ON relationship for non-members
                         MERGE (p)-[g:GUEST_ON {claim_id: $claimId}]->(t)
                         SET g.roles = $roles,
+                            g.role = $role,
+                            g.role_detail = $roleDetail,
                             g.instruments = $instruments,
-                            g.credited_as = $creditedAs
+                            g.credited_as = $creditedAs,
+                            g.scope = 'track'
                     `, {
                         personId: guestId,
                         name: guest.name,
                         status: guest.person_id ? 'canonical' : 'provisional',
+                        originCityName: guest.origin_city?.name || null,
                         trackId,
                         roles: normalizeRoles(guest.roles || []),
+                        role: normalizeRole(guest.roles?.[0] || guest.role),
+                        roleDetail: guest.role_detail || null,
                         instruments: guest.instruments || [],
                         creditedAs: guest.credited_as || null,
                         claimId: trackOpId
@@ -1372,6 +1394,9 @@ constructor(config = {}) {
                     ON CREATE SET l.id = $labelId,
                                  l.name = $labelName,
                                  l.status = $status
+                    SET l.alt_names = $altNames,
+                        l.parent_label_name = $parentLabelName,
+                        l.parent_label_id = $parentLabelId
 
                     WITH l
                     MATCH (r:Release {release_id: $releaseId})
@@ -1380,6 +1405,9 @@ constructor(config = {}) {
                     labelId,
                     labelName: label.name,
                     status: label.label_id ? 'canonical' : 'provisional',
+                    altNames: label.alt_names || [],
+                    parentLabelName: label.parent_label?.name || null,
+                    parentLabelId: label.parent_label?.label_id || null,
                     releaseId
                 });
 
