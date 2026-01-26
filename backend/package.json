@@ -40,7 +40,7 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "artillery": "^2.0.20",
+    "artillery": "^2.0.28",
     "babel-jest": "^29.7.0",
     "jest": "^29.7.0",
     "supertest": "^7.0.0"
