@@ -433,9 +433,11 @@ class PolarisApp {
             const coverOfSongId = this.getInputValue(item, `track-cover-${index}`);
             if (coverOfSongId) track.cover_of_song_id = coverOfSongId;
 
-            // Samples
-            const samples = this.parseCommaSeparated(this.getInputValue(item, `track-samples-${index}`));
-            if (samples.length > 0) track.samples = samples;
+            // Samples (comma-separated IDs → canonical SampleCredit objects)
+            const sampleIds = this.parseCommaSeparated(this.getInputValue(item, `track-samples-${index}`));
+            if (sampleIds.length > 0) {
+                track.samples = sampleIds.map(id => ({ sampled_track_id: id }));
+            }
 
             // Internal fields (used by buildReleaseData for tracklist/songs, stripped before output)
             track._disc = parseInt(this.getInputValue(item, `track-disc-${index}`) || 1);

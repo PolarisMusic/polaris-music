@@ -384,7 +384,7 @@ export class FormBuilder {
                 </div>
                 <div class="form-group">
                     <label>Samples (sampled track IDs)</label>
-                    <input type="text" name="track-samples-${index}" placeholder="Comma-separated track hashes">
+                    <input type="text" name="track-samples-${index}" placeholder="Comma-separated sampled track IDs (polaris:track:...)">
                     <small>UNIMPLEMENTED: Add multi-select search for sampled tracks</small>
                 </div>
             </div>

@@ -111,7 +111,7 @@
         "recording_location": { "type": "string" },
         "listen_links": { "type": "array", "items": { "type": "string", "format": "uri" } },
         "cover_of_song_id": { "type": "string" },
-        "samples": { "type": "array", "items": { "$ref": "#/definitions/Sample" } },
+        "samples": { "type": "array", "items": { "$ref": "#/definitions/SampleCredit" } },
         "performed_by_groups": {
           "type": "array",
           "items": {
@@ -221,15 +221,24 @@
         "lon": { "type": "number", "minimum": -180, "maximum": 180 }
       }
     },
-    "Sample": {
+    "SampleCredit": {
       "type": "object",
-      "required": ["track_id"],
+      "required": ["sampled_track_id"],
       "additionalProperties": false,
       "properties": {
-        "track_id": { "type": "string" },
-        "title": { "type": "string" },
+        "sampled_track_id": { "type": "string" },
+        "sampled_track_title": { "type": "string" },
         "portion_used": { "type": "string" },
-        "cleared": { "type": "boolean" }
+        "cleared": { "type": "boolean" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string" },
+            "url": { "type": "string", "format": "uri" },
+            "accessed_at": { "type": "string" }
+          }
+        }
       }
     },
     "Source": {

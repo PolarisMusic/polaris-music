@@ -436,12 +436,28 @@ function normalizeTrack(track) {
         normalized.listen_links = track.listen_links.filter(l => typeof l === 'string' && l.trim());
     }
 
-    // Samples: normalize string items to { track_id } objects for ingest compatibility
+    // Samples: coerce legacy formats into canonical SampleCredit objects
+    // Accepts: string → { sampled_track_id }, { track_id } → { sampled_track_id }, or canonical objects
     if (Array.isArray(track.samples) && track.samples.length > 0) {
-        normalized.samples = track.samples.map(s => {
-            if (typeof s === 'string') return { track_id: s };
-            return s; // already an object
-        });
+        normalized.samples = track.samples
+            .map(s => {
+                if (typeof s === 'string') return { sampled_track_id: s };
+                if (typeof s === 'object' && s !== null) {
+                    const canonical = {};
+                    // Map canonical or legacy key
+                    canonical.sampled_track_id = s.sampled_track_id || s.track_id;
+                    if (!canonical.sampled_track_id) return null; // skip invalid
+                    // Map title (canonical or legacy)
+                    const title = s.sampled_track_title || s.title;
+                    if (title) canonical.sampled_track_title = title;
+                    if (s.portion_used) canonical.portion_used = s.portion_used;
+                    if (s.cleared !== undefined) canonical.cleared = s.cleared;
+                    if (s.source) canonical.source = s.source;
+                    return canonical;
+                }
+                return null;
+            })
+            .filter(Boolean);
     }
 
     // Performer groups: accept canonical performed_by_groups OR legacy groups

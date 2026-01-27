@@ -1296,8 +1296,17 @@ constructor(config = {}) {
                     });
                 }
 
-                // Link samples
+                // Link samples (canonical: sampled_track_id, legacy fallback: track_id)
                 for (const sample of track.samples || []) {
+                    const sampleTrackId = sample.sampled_track_id ?? sample.track_id;
+                    if (!sampleTrackId) continue; // skip invalid entries
+                    const sampleTitle = sample.sampled_track_title ?? sample.title ?? 'Unknown';
+                    const portion = sample.portion_used ?? null;
+                    const cleared = sample.cleared ?? false;
+                    const sourceUrl = sample.source?.url ?? null;
+                    const sourceType = sample.source?.type ?? null;
+                    const accessedAt = sample.source?.accessed_at ?? null;
+
                     await tx.run(`
                         MATCH (t1:Track {track_id: $trackId})
                         MERGE (t2:Track {track_id: $sampleId})
@@ -1306,13 +1315,19 @@ constructor(config = {}) {
                                      t2.title = $sampleTitle
                         MERGE (t1)-[s:SAMPLES {claim_id: $claimId}]->(t2)
                         SET s.portion_used = $portion,
-                            s.cleared = $cleared
+                            s.cleared = $cleared,
+                            s.source_url = $sourceUrl,
+                            s.source_type = $sourceType,
+                            s.accessed_at = $accessedAt
                     `, {
                         trackId,
-                        sampleId: sample.track_id,
-                        sampleTitle: sample.title || 'Unknown',
-                        portion: sample.portion_used || null,
-                        cleared: sample.cleared || false,
+                        sampleId: sampleTrackId,
+                        sampleTitle,
+                        portion,
+                        cleared,
+                        sourceUrl,
+                        sourceType,
+                        accessedAt,
                         claimId: trackOpId
                     });
                 }

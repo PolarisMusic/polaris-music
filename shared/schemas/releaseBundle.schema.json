@@ -205,8 +205,8 @@
         "recording_of": { "type": "string", "description": "Song ID this track records" },
         "samples": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Track IDs sampled in this track"
+          "items": { "$ref": "#/definitions/sampleCredit" },
+          "description": "Sampled track credits"
         }
       }
     },
@@ -254,6 +254,24 @@
         "name": { "type": "string" },
         "lat": { "type": "number" },
         "lon": { "type": "number" }
+      }
+    },
+    "sampleCredit": {
+      "type": "object",
+      "required": ["sampled_track_id"],
+      "properties": {
+        "sampled_track_id": { "type": "string" },
+        "sampled_track_title": { "type": "string" },
+        "portion_used": { "type": "string" },
+        "cleared": { "type": "boolean" },
+        "source": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "url": { "type": "string", "format": "uri" },
+            "accessed_at": { "type": "string" }
+          }
+        }
       }
     }
   }
