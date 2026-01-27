@@ -123,6 +123,45 @@ class APIClient {
     }
 
     /**
+     * Resolve which key in an account's permission produced a signature.
+     *
+     * Used when the wallet does not return the signing public key. The backend
+     * tries each key in the specified permission until one verifies.
+     *
+     * @param {string} account - Blockchain account name
+     * @param {string} permission - Permission to inspect (usually "active")
+     * @param {string} canonicalPayload - Canonical JSON string that was signed
+     * @param {string} signature - SIG_K1_... signature to verify
+     * @returns {Promise<string|null>} Matching public key or null
+     */
+    async resolveSigningKey(account, permission, canonicalPayload, signature) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/crypto/resolve-signing-key`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    account,
+                    permission,
+                    canonical_payload: canonicalPayload,
+                    signature
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                console.warn('resolve-signing-key failed:', error.error || response.status);
+                return null;
+            }
+
+            const data = await response.json();
+            return data.signing_key || null;
+        } catch (error) {
+            console.warn('resolve-signing-key request failed:', error.message);
+            return null;
+        }
+    }
+
+    /**
      * Search for existing entities in the database
      * UNIMPLEMENTED: This would query the backend for matching entities
      * TODO: Implement autocomplete search functionality

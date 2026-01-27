@@ -2,7 +2,7 @@
  * LikeManager - Handles blockchain submission of likes
  *
  * Integrates with WalletManager to submit likes to the blockchain
- * via the polaris smart contract's put() action (event type 41 = LIKE).
+ * via the polaris smart contract's like(account, node_id, node_path) action.
  */
 
 import { CONTRACT_ACCOUNT } from '../config/chain.js';
@@ -123,9 +123,8 @@ export class LikeManager {
             const nodeHash = await this.nodeIdToChecksum256(nodeId);
             const actor = this.walletManager.session.actor.toString();
 
-            // Use the contract's put() action with type 41 (LIKE).
-            // The contract does not have a separate 'like' action; likes
-            // are anchored as events via put() like any other event type.
+            // Use the contract's dedicated like(account, node_id, node_path) action.
+            // This is a separate action from put() — it records node likes directly.
             const action = {
                 account: CONTRACT_ACCOUNT,
                 name: 'like',

@@ -28,6 +28,8 @@ import { MergeOperations } from '../graph/merge.js';
 import { IngestionHandler } from './ingestion.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
+import { createHash } from 'crypto';
+import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
 
 /**
  * GraphQL Schema Definition
@@ -933,6 +935,110 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('Dev signing failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * POST /api/crypto/resolve-signing-key
+         * Determine which of an account's permission keys produced a given signature.
+         *
+         * When the wallet does not return the signing public key (signingKey is null
+         * on the frontend), the frontend calls this endpoint so the backend can
+         * try each key in the permission and return the one that verifies.
+         *
+         * Request body:
+         * {
+         *   "account":           "alice",            // blockchain account name
+         *   "permission":        "active",           // permission to inspect
+         *   "canonical_payload": "<json-string>",    // canonical JSON that was signed
+         *   "signature":         "SIG_K1_..."        // EOSIO signature to verify
+         * }
+         *
+         * Response (200):
+         * { "success": true, "signing_key": "EOS6..." }
+         *
+         * Response (400): missing/invalid fields
+         * Response (404): no matching key found
+         */
+        this.app.post('/api/crypto/resolve-signing-key', async (req, res) => {
+            try {
+                const { account, permission, canonical_payload, signature } = req.body;
+
+                // Validate required fields
+                if (!account || !permission || !canonical_payload || !signature) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Missing required fields: account, permission, canonical_payload, signature'
+                    });
+                }
+
+                // Hash the canonical payload (same as verifyEventSignature)
+                const payloadHash = createHash('sha256')
+                    .update(canonical_payload)
+                    .digest();
+
+                // Parse the signature once
+                let sig;
+                try {
+                    sig = Signature.fromString(signature);
+                } catch (parseErr) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Invalid signature format: ${parseErr.message}`
+                    });
+                }
+
+                // Fetch account permissions via IngestionHandler's cached RPC helper
+                const accountData = await this.ingestionHandler.fetchAccountData(account);
+                if (!accountData) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Cannot fetch account data for '${account}'`
+                    });
+                }
+
+                const perm = accountData.permissions?.find(p => p.perm_name === permission);
+                if (!perm) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Permission '${permission}' not found for account '${account}'`
+                    });
+                }
+
+                const keys = perm.required_auth?.keys || [];
+                if (keys.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        error: `No keys found in permission '${permission}' for account '${account}'`
+                    });
+                }
+
+                // Try each key until one verifies
+                for (const keyEntry of keys) {
+                    try {
+                        const pubKey = PublicKey.fromString(keyEntry.key);
+                        if (sig.verify(payloadHash, pubKey)) {
+                            return res.json({
+                                success: true,
+                                signing_key: keyEntry.key
+                            });
+                        }
+                    } catch {
+                        // Key parse/verify failure — skip to next key
+                    }
+                }
+
+                // None matched
+                return res.status(404).json({
+                    success: false,
+                    error: 'Signature does not match any key in the specified permission'
+                });
+            } catch (error) {
+                console.error('resolve-signing-key failed:', error);
                 res.status(500).json({
                     success: false,
                     error: error.message

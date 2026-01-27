@@ -690,19 +690,46 @@ class PolarisApp {
             const signature = signResult.signature;
             console.log('Signature:', signature);
 
-            // If the wallet returned a signing key that differs from the
-            // pre-fetched author_pubkey, re-prepare the event with the actual
-            // signing key so the backend's signature verification succeeds.
+            // Determine the actual signing key. Three paths:
+            //   1. Wallet returned signingKey directly → use it
+            //   2. Wallet didn't return signingKey → ask backend to resolve it
+            //   3. Backend can't resolve → fall through with pre-fetched key (best effort)
             const sessionInfo = this.walletManager.getSessionInfo();
-            if (signResult.signingKey && signResult.signingKey !== sessionInfo.publicKey) {
+            let actualSigningKey = signResult.signingKey;
+
+            if (!actualSigningKey) {
+                // Wallet did not return the signing pubkey — ask the backend
+                // to verify the signature against each key in the account's
+                // active permission and tell us which one matched.
+                console.log('Wallet did not return signing key. Asking backend to resolve...');
+                actualSigningKey = await api.resolveSigningKey(
+                    sessionInfo.actor,
+                    'active',
+                    this.currentTransaction.canonicalPayload,
+                    signResult.signature
+                );
+                if (actualSigningKey) {
+                    console.log('Backend resolved signing key:', actualSigningKey);
+                } else {
+                    console.warn(
+                        'Backend could not resolve signing key. ' +
+                        'Proceeding with pre-fetched key (may fail if multi-key).'
+                    );
+                }
+            }
+
+            // If the actual signing key differs from the pre-fetched author_pubkey,
+            // re-prepare the event with the correct key so the backend's signature
+            // verification succeeds.
+            if (actualSigningKey && actualSigningKey !== sessionInfo.publicKey) {
                 console.warn(
                     'Signing key differs from pre-fetched key. ' +
-                    `Pre-fetched: ${sessionInfo.publicKey}, Actual: ${signResult.signingKey}. ` +
+                    `Pre-fetched: ${sessionInfo.publicKey}, Actual: ${actualSigningKey}. ` +
                     'Re-preparing event with actual signing key...'
                 );
 
                 // Rebuild event with correct author_pubkey
-                this.currentTransaction.event.author_pubkey = signResult.signingKey;
+                this.currentTransaction.event.author_pubkey = actualSigningKey;
 
                 // Re-prepare to get correct canonical hash
                 const rePrepared = await api.prepareEvent(this.currentTransaction.event);
