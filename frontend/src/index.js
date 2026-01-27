@@ -686,13 +686,43 @@ class PolarisApp {
             // The backend verifies signatures against sha256(canonical_payload)
             // Signing the hash string would produce an invalid signature
             console.log('Signing canonical payload (length: ' + this.currentTransaction.canonicalPayload.length + ' bytes)');
-            const signature = await this.walletManager.signMessage(this.currentTransaction.canonicalPayload);
+            const signResult = await this.walletManager.signMessage(this.currentTransaction.canonicalPayload);
+            const signature = signResult.signature;
             console.log('Signature:', signature);
+
+            // If the wallet returned a signing key that differs from the
+            // pre-fetched author_pubkey, re-prepare the event with the actual
+            // signing key so the backend's signature verification succeeds.
+            const sessionInfo = this.walletManager.getSessionInfo();
+            if (signResult.signingKey && signResult.signingKey !== sessionInfo.publicKey) {
+                console.warn(
+                    'Signing key differs from pre-fetched key. ' +
+                    `Pre-fetched: ${sessionInfo.publicKey}, Actual: ${signResult.signingKey}. ` +
+                    'Re-preparing event with actual signing key...'
+                );
+
+                // Rebuild event with correct author_pubkey
+                this.currentTransaction.event.author_pubkey = signResult.signingKey;
+
+                // Re-prepare to get correct canonical hash
+                const rePrepared = await api.prepareEvent(this.currentTransaction.event);
+                this.currentTransaction.event = rePrepared.normalizedEvent;
+                this.currentTransaction.eventHash = rePrepared.hash;
+                this.currentTransaction.canonicalPayload = rePrepared.canonical_payload;
+
+                // Re-sign with the corrected canonical payload
+                console.log('Re-signing with corrected canonical payload...');
+                const reSignResult = await this.walletManager.signMessage(
+                    this.currentTransaction.canonicalPayload
+                );
+                // Use the new signature (key should be the same on second pass)
+                signResult.signature = reSignResult.signature;
+            }
 
             // Create signed event
             const eventWithSig = {
                 ...this.currentTransaction.event,
-                sig: signature
+                sig: signResult.signature
             };
 
             console.log('\n=== STEP 1: Store event off-chain ===');
