@@ -109,7 +109,9 @@
         "recording_of": { "type": "string" },
         "recording_date": { "type": "string" },
         "recording_location": { "type": "string" },
-        "samples": { "type": "array", "items": { "type": "string" } },
+        "listen_links": { "type": "array", "items": { "type": "string", "format": "uri" } },
+        "cover_of_song_id": { "type": "string" },
+        "samples": { "type": "array", "items": { "$ref": "#/definitions/Sample" } },
         "performed_by_groups": {
           "type": "array",
           "items": {
@@ -217,6 +219,17 @@
         "name": { "type": "string", "minLength": 1 },
         "lat": { "type": "number", "minimum": -90, "maximum": 90 },
         "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "Sample": {
+      "type": "object",
+      "required": ["track_id"],
+      "additionalProperties": false,
+      "properties": {
+        "track_id": { "type": "string" },
+        "title": { "type": "string" },
+        "portion_used": { "type": "string" },
+        "cleared": { "type": "boolean" }
       }
     },
     "Source": {

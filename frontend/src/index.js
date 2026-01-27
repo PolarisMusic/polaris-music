@@ -425,6 +425,14 @@ class PolarisApp {
             const producers = this.extractPersons(item, 'producer', index);
             if (producers.length > 0) track.producers = producers;
 
+            // Listen links (comma-separated URLs)
+            const listenLinks = this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`));
+            if (listenLinks.length > 0) track.listen_links = listenLinks;
+
+            // Cover of (original song ID)
+            const coverOfSongId = this.getInputValue(item, `track-cover-${index}`);
+            if (coverOfSongId) track.cover_of_song_id = coverOfSongId;
+
             // Samples
             const samples = this.parseCommaSeparated(this.getInputValue(item, `track-samples-${index}`));
             if (samples.length > 0) track.samples = samples;

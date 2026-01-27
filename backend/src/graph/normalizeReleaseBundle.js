@@ -429,12 +429,25 @@ function normalizeTrack(track) {
     if (track.recording_of) normalized.recording_of = track.recording_of;
     if (track.recording_date) normalized.recording_date = track.recording_date;
     if (track.recording_location) normalized.recording_location = track.recording_location;
-    if (track.samples) normalized.samples = track.samples;
+    if (track.cover_of_song_id) normalized.cover_of_song_id = track.cover_of_song_id;
 
-    // Map track.groups → performed_by_groups for graph ingestion
-    // Frontend sends track.groups, graph expects performed_by_groups
-    if (track.groups && Array.isArray(track.groups)) {
-        normalized.performed_by_groups = track.groups
+    // Listen links (array of URLs)
+    if (Array.isArray(track.listen_links) && track.listen_links.length > 0) {
+        normalized.listen_links = track.listen_links.filter(l => typeof l === 'string' && l.trim());
+    }
+
+    // Samples: normalize string items to { track_id } objects for ingest compatibility
+    if (Array.isArray(track.samples) && track.samples.length > 0) {
+        normalized.samples = track.samples.map(s => {
+            if (typeof s === 'string') return { track_id: s };
+            return s; // already an object
+        });
+    }
+
+    // Performer groups: accept canonical performed_by_groups OR legacy groups
+    const rawGroups = track.performed_by_groups || track.groups;
+    if (rawGroups && Array.isArray(rawGroups)) {
+        normalized.performed_by_groups = rawGroups
             .map(group => {
                 // Ensure we have at least a group_id or name to identify the group
                 const group_id = group.group_id || group.id;
