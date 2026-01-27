@@ -16,6 +16,7 @@
  */
 
 import crypto from 'crypto';
+import { normalizeRoles, normalizeRole, normalizeRoleInput } from './roleNormalization.js';
 
 /**
  * Normalize a ReleaseBundle from frontend format to canonical format
@@ -334,7 +335,22 @@ function normalizeRelease(release) {
         normalized.labels = release.labels.map(normalizeLabel);
     }
     if (release.guests && Array.isArray(release.guests)) {
-        normalized.guests = release.guests.map(normalizePerson);
+        normalized.guests = release.guests.map(guest => {
+            const normalizedPerson = normalizePerson(guest);
+            // Collect roles from both role (singular) and roles (plural) inputs
+            // Use normalizeRoleInput to handle comma-separated strings
+            const rawRoles = [];
+            if (guest.role) rawRoles.push(guest.role);
+            if (Array.isArray(guest.roles)) rawRoles.push(...guest.roles);
+            normalizedPerson.roles = normalizeRoleInput(rawRoles);
+            if (guest.credited_as) {
+                normalizedPerson.credited_as = guest.credited_as;
+            }
+            if (guest.role_detail) {
+                normalizedPerson.role_detail = guest.role_detail;
+            }
+            return normalizedPerson;
+        });
     }
 
     return normalized;
@@ -369,7 +385,20 @@ function normalizeGroup(group) {
             // Add membership-specific fields
             if (member.from_date) normalizedPerson.from_date = member.from_date;
             if (member.to_date) normalizedPerson.to_date = member.to_date;
-            if (member.role) normalizedPerson.role = member.role;
+            // Normalize roles - collect from both role (singular) and roles (plural)
+            // Use normalizeRoleInput to handle comma-separated strings like "drums, backing vocals"
+            const rawRoles = [];
+            if (member.role) rawRoles.push(member.role);
+            if (Array.isArray(member.roles)) rawRoles.push(...member.roles);
+            const normalizedRoles = normalizeRoleInput(rawRoles);
+            if (normalizedRoles.length > 0) {
+                normalizedPerson.roles = normalizedRoles;
+                // Keep role as first role for backward compatibility
+                normalizedPerson.role = normalizedRoles[0];
+            }
+            if (Array.isArray(member.instruments)) {
+                normalizedPerson.instruments = member.instruments;
+            }
             return normalizedPerson;
         });
     }
@@ -398,12 +427,43 @@ function normalizeTrack(track) {
     if (track.isrc) normalized.isrc = track.isrc;
     if (track.performed_by) normalized.performed_by = track.performed_by;
     if (track.recording_of) normalized.recording_of = track.recording_of;
-    if (track.samples) normalized.samples = track.samples;
+    if (track.recording_date) normalized.recording_date = track.recording_date;
+    if (track.recording_location) normalized.recording_location = track.recording_location;
+    if (track.cover_of_song_id) normalized.cover_of_song_id = track.cover_of_song_id;
 
-    // Map track.groups → performed_by_groups for graph ingestion
-    // Frontend sends track.groups, graph expects performed_by_groups
-    if (track.groups && Array.isArray(track.groups)) {
-        normalized.performed_by_groups = track.groups
+    // Listen links (array of URLs)
+    if (Array.isArray(track.listen_links) && track.listen_links.length > 0) {
+        normalized.listen_links = track.listen_links.filter(l => typeof l === 'string' && l.trim());
+    }
+
+    // Samples: coerce legacy formats into canonical SampleCredit objects
+    // Accepts: string → { sampled_track_id }, { track_id } → { sampled_track_id }, or canonical objects
+    if (Array.isArray(track.samples) && track.samples.length > 0) {
+        normalized.samples = track.samples
+            .map(s => {
+                if (typeof s === 'string') return { sampled_track_id: s };
+                if (typeof s === 'object' && s !== null) {
+                    const canonical = {};
+                    // Map canonical or legacy key
+                    canonical.sampled_track_id = s.sampled_track_id || s.track_id;
+                    if (!canonical.sampled_track_id) return null; // skip invalid
+                    // Map title (canonical or legacy)
+                    const title = s.sampled_track_title || s.title;
+                    if (title) canonical.sampled_track_title = title;
+                    if (s.portion_used) canonical.portion_used = s.portion_used;
+                    if (s.cleared !== undefined) canonical.cleared = s.cleared;
+                    if (s.source) canonical.source = s.source;
+                    return canonical;
+                }
+                return null;
+            })
+            .filter(Boolean);
+    }
+
+    // Performer groups: accept canonical performed_by_groups OR legacy groups
+    const rawGroups = track.performed_by_groups || track.groups;
+    if (rawGroups && Array.isArray(rawGroups)) {
+        normalized.performed_by_groups = rawGroups
             .map(group => {
                 // Ensure we have at least a group_id or name to identify the group
                 const group_id = group.group_id || group.id;
@@ -414,20 +474,94 @@ function normalizeTrack(track) {
                     return null;
                 }
 
-                return {
+                const normalizedGroup = {
                     group_id,
                     name,
                     ...(group.credited_as && { credited_as: group.credited_as }),
                     ...(group.role && { role: group.role })
                 };
+
+                // Preserve per-track member overrides for lineup attribution
+                // These override derived edges from release-level group membership
+                if (Array.isArray(group.members) && group.members.length > 0) {
+                    normalizedGroup.members = group.members.map(m => {
+                        const normalizedMember = normalizePerson(m);
+                        // Normalize roles for this track-level member
+                        const rawRoles = [];
+                        if (m.role) rawRoles.push(m.role);
+                        if (Array.isArray(m.roles)) rawRoles.push(...m.roles);
+                        const normalizedRoles = normalizeRoleInput(rawRoles);
+                        if (normalizedRoles.length > 0) {
+                            normalizedMember.roles = normalizedRoles;
+                            normalizedMember.role = normalizedRoles[0];
+                        }
+                        if (Array.isArray(m.instruments)) {
+                            normalizedMember.instruments = m.instruments;
+                        }
+                        return normalizedMember;
+                    });
+                }
+
+                // Pass through members_are_complete flag if provided
+                // When true, only listed members performed on this track (no derivation)
+                if (group.members_are_complete === true) {
+                    normalizedGroup.members_are_complete = true;
+                }
+
+                return normalizedGroup;
             })
             .filter(group => group !== null); // Remove invalid entries
+    }
+
+    // Fallback: older payloads use performed_by as a string (often the group name).
+    // Promote it to performed_by_groups so ingestion can create PERFORMED_ON edges.
+    if (
+        (!normalized.performed_by_groups || normalized.performed_by_groups.length === 0) &&
+        typeof track.performed_by === 'string' &&
+        track.performed_by.trim()
+    ) {
+        normalized.performed_by_groups = [{ name: track.performed_by.trim() }];
     }
 
     if (track.guests && Array.isArray(track.guests)) {
         normalized.guests = track.guests.map(guest => {
             const normalizedPerson = normalizePerson(guest);
-            if (guest.role) normalizedPerson.role = guest.role;
+            // Collect roles from both role (singular) and roles (plural) inputs
+            // Use normalizeRoleInput to handle comma-separated strings
+            const rawRoles = [];
+            if (guest.role) rawRoles.push(guest.role);
+            if (Array.isArray(guest.roles)) rawRoles.push(...guest.roles);
+            normalizedPerson.roles = normalizeRoleInput(rawRoles);
+            // Also preserve instruments if present
+            if (Array.isArray(guest.instruments)) {
+                normalizedPerson.instruments = guest.instruments;
+            }
+            if (guest.credited_as) {
+                normalizedPerson.credited_as = guest.credited_as;
+            }
+            if (guest.role_detail) {
+                normalizedPerson.role_detail = guest.role_detail;
+            }
+            return normalizedPerson;
+        });
+    }
+
+    // Producers (normalized as Person credits with role context)
+    if (track.producers && Array.isArray(track.producers)) {
+        normalized.producers = track.producers.map(producer => {
+            const normalizedPerson = normalizePerson(producer);
+            if (producer.role) normalizedPerson.role = producer.role;
+            if (producer.credited_as) normalizedPerson.credited_as = producer.credited_as;
+            return normalizedPerson;
+        });
+    }
+
+    // Arrangers (normalized as Person credits with role context)
+    if (track.arrangers && Array.isArray(track.arrangers)) {
+        normalized.arrangers = track.arrangers.map(arranger => {
+            const normalizedPerson = normalizePerson(arranger);
+            if (arranger.role) normalizedPerson.role = arranger.role;
+            if (arranger.credited_as) normalizedPerson.credited_as = arranger.credited_as;
             return normalizedPerson;
         });
     }
@@ -487,7 +621,50 @@ function normalizeSong(song) {
     if (song.iswc) normalized.iswc = song.iswc;
 
     if (song.writers && Array.isArray(song.writers)) {
-        normalized.writers = song.writers.map(normalizePerson);
+        normalized.writers = song.writers.map(normalizeWriterCredit);
+    }
+
+    return normalized;
+}
+
+/**
+ * Normalize WriterCredit object
+ * Handles writing-specific fields (role, roles, role_detail, share_percentage, credited_as)
+ * alongside base person identity fields (name, person_id).
+ *
+ * @param {Object} writer - Raw writer credit object
+ * @returns {Object} Normalized writer credit
+ */
+function normalizeWriterCredit(writer) {
+    if (!writer || typeof writer !== 'object') {
+        throw new Error('Must be an object');
+    }
+
+    if (!writer.name || writer.name.trim() === '') {
+        throw new Error('name is required and cannot be empty');
+    }
+
+    const normalized = {
+        name: writer.name.trim()
+    };
+
+    if (writer.person_id) normalized.person_id = writer.person_id;
+
+    // Normalize writing roles from both role (singular) and roles (plural)
+    const rawRoles = [];
+    if (writer.role) rawRoles.push(writer.role);
+    if (Array.isArray(writer.roles)) rawRoles.push(...writer.roles);
+    const normalizedRoles = normalizeRoleInput(rawRoles);
+    if (normalizedRoles.length > 0) {
+        normalized.roles = normalizedRoles;
+        normalized.role = normalizedRoles[0];
+    }
+
+    // Pass through writing-specific fields
+    if (writer.credited_as) normalized.credited_as = writer.credited_as;
+    if (writer.role_detail) normalized.role_detail = writer.role_detail;
+    if (writer.share_percentage !== undefined && writer.share_percentage !== null) {
+        normalized.share_percentage = writer.share_percentage;
     }
 
     return normalized;
@@ -495,6 +672,9 @@ function normalizeSong(song) {
 
 /**
  * Normalize Person object
+ * Note: role/roles normalization is typically handled by the caller (normalizeGroup,
+ * normalizeTrack guests, etc.) since the role context varies by relationship type.
+ * This function preserves raw roles for the caller to normalize.
  */
 function normalizePerson(person) {
     if (!person || typeof person !== 'object') {
@@ -513,13 +693,23 @@ function normalizePerson(person) {
     if (person.birth_name) normalized.birth_name = person.birth_name;
     if (person.birth_date) normalized.birth_date = person.birth_date;
     if (person.birth_city) normalized.birth_city = normalizeCity(person.birth_city);
+    if (person.origin_city) normalized.origin_city = normalizeCity(person.origin_city);
+
+    // Preserve roles if already provided (caller may further normalize)
     if (person.roles) normalized.roles = person.roles;
+
+    // Credit-context fields (used by guests, producers, etc.)
+    if (person.role_detail) normalized.role_detail = person.role_detail;
+    if (person.credited_as) normalized.credited_as = person.credited_as;
+    if (Array.isArray(person.instruments)) normalized.instruments = person.instruments;
 
     return normalized;
 }
 
 /**
  * Normalize Label object
+ * Handles alt_names, parent_label (string or object), and origin_city
+ * with backward-compatible mapping from deprecated label.city → origin_city.
  */
 function normalizeLabel(label) {
     if (!label || typeof label !== 'object') {
@@ -535,7 +725,34 @@ function normalizeLabel(label) {
     };
 
     if (label.label_id) normalized.label_id = label.label_id;
-    if (label.city) normalized.city = normalizeCity(label.city);
+
+    // Alt names
+    if (Array.isArray(label.alt_names)) {
+        normalized.alt_names = label.alt_names
+            .filter(n => typeof n === 'string' && n.trim())
+            .map(n => n.trim());
+    }
+
+    // Parent label: accept string or { label_id?, name }
+    if (label.parent_label) {
+        if (typeof label.parent_label === 'string') {
+            normalized.parent_label = { name: label.parent_label.trim() };
+        } else if (typeof label.parent_label === 'object') {
+            normalized.parent_label = {};
+            if (label.parent_label.name) {
+                normalized.parent_label.name = label.parent_label.name.trim();
+            }
+            if (label.parent_label.label_id) {
+                normalized.parent_label.label_id = label.parent_label.label_id;
+            }
+        }
+    }
+
+    // Origin city: prefer origin_city, fall back to deprecated city
+    const cityInput = label.origin_city || label.city;
+    if (cityInput) {
+        normalized.origin_city = normalizeCity(cityInput);
+    }
 
     return normalized;
 }

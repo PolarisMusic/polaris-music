@@ -20,6 +20,7 @@ import { IdentityService, EntityType } from '../identity/idService.js';
 import { MergeOperations } from './merge.js';
 import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
+import { normalizeRole, normalizeRoles, normalizeRoleInput } from './roleNormalization.js';
 
 /**
  * Whitelist mapping for safe node type validation.
@@ -437,7 +438,25 @@ constructor(config = {}) {
                 // IdentityMap lookups (for external ID resolution)
                 { name: 'identity_map_source', query: 'CREATE INDEX identity_map_source IF NOT EXISTS FOR (im:IdentityMap) ON (im.source)' },
                 { name: 'identity_map_external_id', query: 'CREATE INDEX identity_map_external_id IF NOT EXISTS FOR (im:IdentityMap) ON (im.external_id)' },
-                { name: 'identity_map_canonical', query: 'CREATE INDEX identity_map_canonical IF NOT EXISTS FOR (im:IdentityMap) ON (im.canonical_id)' }
+                { name: 'identity_map_canonical', query: 'CREATE INDEX identity_map_canonical IF NOT EXISTS FOR (im:IdentityMap) ON (im.canonical_id)' },
+
+                // Label and Person city/parent indexes
+                { name: 'label_parent_name', query: 'CREATE INDEX label_parent_name IF NOT EXISTS FOR (l:Label) ON (l.parent_label_name)' },
+                { name: 'label_origin_city', query: 'CREATE INDEX label_origin_city IF NOT EXISTS FOR (l:Label) ON (l.origin_city_name)' },
+                { name: 'person_origin_city', query: 'CREATE INDEX person_origin_city IF NOT EXISTS FOR (p:Person) ON (p.origin_city_name)' },
+
+                // Relationship property indexes for role searchability (Neo4j 5.x+)
+                { name: 'performed_on_role', query: 'CREATE INDEX performed_on_role IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.role)' },
+                { name: 'performed_on_roles', query: 'CREATE INDEX performed_on_roles IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.roles)' },
+                { name: 'performed_on_derived', query: 'CREATE INDEX performed_on_derived IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.derived)' },
+                { name: 'performed_on_via_group', query: 'CREATE INDEX performed_on_via_group IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.via_group_id)' },
+                { name: 'member_of_role', query: 'CREATE INDEX member_of_role IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.role)' },
+                { name: 'member_of_roles', query: 'CREATE INDEX member_of_roles IF NOT EXISTS FOR ()-[r:MEMBER_OF]-() ON (r.roles)' },
+                { name: 'wrote_role', query: 'CREATE INDEX wrote_role IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role)' },
+                { name: 'wrote_roles', query: 'CREATE INDEX wrote_roles IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.roles)' },
+                { name: 'wrote_role_detail', query: 'CREATE INDEX wrote_role_detail IF NOT EXISTS FOR ()-[r:WROTE]-() ON (r.role_detail)' },
+                { name: 'guest_on_roles', query: 'CREATE INDEX guest_on_roles IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.roles)' },
+                { name: 'guest_on_scope', query: 'CREATE INDEX guest_on_scope IF NOT EXISTS FOR ()-[r:GUEST_ON]-() ON (r.scope)' }
             ];
 
             // Create all indexes
@@ -543,6 +562,9 @@ constructor(config = {}) {
             // Groups must be created before we can link members and performances
 
             const processedGroups = [];
+            // Maps to store release-level lineup for propagating Person -> Track PERFORMED_ON
+            const groupMembersById = new Map();    // resolved groupId -> members[]
+            const groupMembersByName = new Map();  // lower(group.name) -> members[]
 
             for (const group of normalizedBundle.groups || []) {
                 const groupOpId = opId();
@@ -614,12 +636,17 @@ constructor(config = {}) {
 
                     console.log(`    Adding member: ${member.name} [${personIdKind}]`);
 
+                    // Normalize roles from member (handles comma-separated strings)
+                    const memberRoles = normalizeRoleInput(member.roles || member.role || []);
+                    const primaryRole = memberRoles[0] || 'member';
+
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
                                      p.status = $status,
                                      p.created_at = datetime()
+                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                         WITH p
                         MATCH (g:Group {group_id: $groupId})
@@ -627,6 +654,7 @@ constructor(config = {}) {
                         // MEMBER_OF relationship with full details
                         MERGE (p)-[m:MEMBER_OF {claim_id: $claimId}]->(g)
                         SET m.role = $role,
+                            m.roles = $roles,
                             m.from_date = $from,
                             m.to_date = $to,
                             m.instruments = $instruments
@@ -636,8 +664,10 @@ constructor(config = {}) {
                         personId,
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
+                        originCityName: member.origin_city?.name || null,
                         groupId,
-                        role: member.role || 'member',
+                        role: primaryRole,
+                        roles: memberRoles,
                         from: member.from_date || null,
                         to: member.to_date || null,
                         instruments: member.instruments || [],
@@ -669,6 +699,12 @@ constructor(config = {}) {
                 // Create audit claim for group creation
                 await this.createClaim(tx, groupOpId, 'Group', groupId,
                                      'created', group, eventHash);
+
+                // Store release-level lineup for propagating Person -> Track PERFORMED_ON later
+                groupMembersById.set(groupId, group.members || []);
+                if (group.name) {
+                    groupMembersByName.set(group.name.toLowerCase(), group.members || []);
+                }
 
                 processedGroups.push(groupId);
             }
@@ -728,18 +764,25 @@ constructor(config = {}) {
                     ON CREATE SET p.id = $personId,
                             p.name = $name,
                                  p.status = $status
+                    SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                     WITH p
                     MATCH (r:Release {release_id: $releaseId})
                     MERGE (p)-[g:GUEST_ON {claim_id: $claimId}]->(r)
                     SET g.roles = $roles,
-                        g.credited_as = $creditedAs
+                        g.role = $role,
+                        g.role_detail = $roleDetail,
+                        g.credited_as = $creditedAs,
+                        g.scope = 'release'
                 `, {
                     personId,
                     name: guest.name,
                     status: guest.person_id ? 'canonical' : 'provisional',
+                    originCityName: guest.origin_city?.name || null,
                     releaseId,
-                    roles: guest.roles || [],
+                    roles: normalizeRoles(guest.roles || []),
+                    role: normalizeRole(guest.roles?.[0] || guest.role),
+                    roleDetail: guest.role_detail || null,
                     creditedAs: guest.credited_as || null,
                     claimId: releaseOpId
                 });
@@ -783,6 +826,10 @@ constructor(config = {}) {
                 for (const writer of song.writers || []) {
                     const writerId = await this.resolveEntityId(tx, 'person', writer);
 
+                    // Normalize writing roles (handles comma-separated, synonyms)
+                    const writerRoles = normalizeRoleInput(writer.roles || writer.role || []);
+                    const primaryRole = writerRoles[0] || 'songwriter';
+
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
@@ -792,13 +839,19 @@ constructor(config = {}) {
                         MATCH (s:Song {song_id: $songId})
                         MERGE (p)-[w:WROTE {claim_id: $claimId}]->(s)
                         SET w.role = $role,
+                            w.roles = $roles,
+                            w.role_detail = $roleDetail,
+                            w.credited_as = $creditedAs,
                             w.share_percentage = $share
                     `, {
                         personId: writerId,
                         name: writer.name,
                         status: writer.person_id ? 'canonical' : 'provisional',
                         songId,
-                        role: writer.role || 'songwriter',
+                        role: primaryRole,
+                        roles: writerRoles,
+                        roleDetail: writer.role_detail || null,
+                        creditedAs: writer.credited_as || null,
                         share: writer.share_percentage || null,
                         claimId: songOpId
                     });
@@ -845,27 +898,256 @@ constructor(config = {}) {
                 // ========== CRITICAL: DISTINGUISH GROUPS vs GUESTS ==========
 
                 // Link performing GROUPS (the main bands/orchestras)
-                for (const performingGroup of track.performed_by_groups || []) {
-                    const perfGroupId = performingGroup.group_id;
+                // 3-way fallback: performed_by_groups > groups (legacy) > performed_by (string)
+                let performingGroups = [];
 
-                    if (!perfGroupId) {
-                        console.warn(`    Warning: Track ${track.title} has performing group without ID`);
+                if (Array.isArray(track.performed_by_groups) && track.performed_by_groups.length > 0) {
+                    performingGroups = track.performed_by_groups;
+                } else if (Array.isArray(track.groups) && track.groups.length > 0) {
+                    // Legacy support: frontend/templates may use track.groups
+                    performingGroups = track.groups
+                        .map(g => ({
+                            group_id: g.group_id || g.id || (typeof g === 'string' ? g : undefined),
+                            name: g.name || g.group_name || (typeof g === 'string' ? g : undefined),
+                        }))
+                        .filter(g => g.group_id || g.name);
+                } else if (typeof track.performed_by === 'string' && track.performed_by.trim()) {
+                    performingGroups = [{ name: track.performed_by.trim() }];
+                }
+
+                // Single-artist album fallback: if no per-track performer attribution but bundle has group(s),
+                // assume all tracks are performed by the bundle's group(s)
+                if (performingGroups.length === 0 && Array.isArray(normalizedBundle.groups) && normalizedBundle.groups.length > 0) {
+                    console.log(`    Track "${track.title}" has no performer attribution; using bundle groups as fallback`);
+                    performingGroups = normalizedBundle.groups.map(g => ({
+                        group_id: g.group_id || g.id,
+                        name: g.name,
+                        role: 'performer',
+                    }));
+                }
+
+                for (const performingGroup of performingGroups) {
+                    const groupName =
+                        performingGroup.name ||
+                        performingGroup.group_name ||
+                        'Unknown Group';
+
+                    let groupId = null;
+
+                    try {
+                        // If group_id exists, resolve it (handles canonical/prov/external via IdentityMap)
+                        // If group_id does NOT exist, resolve from name -> deterministic provisional ID
+                        groupId = await this.resolveEntityId(tx, 'group', {
+                            ...(performingGroup.group_id ? { group_id: performingGroup.group_id } : {}),
+                            ...(groupName ? { name: groupName } : {})
+                        });
+                    } catch (e) {
+                        console.warn(`    Warning: Could not resolve performing group for track "${track.title}": ${e.message}`);
                         continue;
                     }
 
-                    await tx.run(`
-                        MATCH (t:Track {track_id: $trackId})
-                        MATCH (g:Group {group_id: $groupId})
+                    if (!groupId) {
+                        console.warn(`    Warning: Track "${track.title}" has performing group with no resolvable id/name`, {
+                            performingGroup,
+                            trackId
+                        });
+                        continue;
+                    }
 
-                        // PERFORMED_ON relationship for the group
-                        MERGE (g)-[p:PERFORMED_ON {claim_id: $claimId}]->(t)
-                        SET p.credited_as = $creditedAs
-                    `, {
-                        trackId,
-                        groupId: perfGroupId,
-                        creditedAs: performingGroup.credited_as || null,
-                        claimId: trackOpId
-                    });
+                    try {
+                        await tx.run(`
+                            // Ensure group exists even if it wasn't included in bundle.groups
+                            MERGE (g:Group {group_id: $groupId})
+                            ON CREATE SET
+                                g.id = $groupId,
+                                g.name = $groupName,
+                                g.status = 'provisional',
+                                g.created_at = datetime()
+                            ON MATCH SET
+                                g.name = coalesce(g.name, $groupName)
+
+                            WITH g
+                            MATCH (t:Track {track_id: $trackId})
+                            MERGE (g)-[p:PERFORMED_ON {claim_id: $claimId}]->(t)
+                            SET p.credited_as = $creditedAs,
+                                p.role = $role
+                        `, {
+                            trackId,
+                            groupId,
+                            groupName,
+                            creditedAs: performingGroup.credited_as || null,
+                            role: normalizeRole(performingGroup.role),
+                            claimId: trackOpId
+                        });
+                        console.log(`    Created PERFORMED_ON: ${groupName} -> ${track.title}`);
+
+                        // ========== PROPAGATE Person -> Track PERFORMED_ON for group members ==========
+                        // Option B Semantics:
+                        // - Derived edges: derived=true, from release-level group membership
+                        // - Explicit edges: derived=false, from track-level member overrides
+                        // - When members_are_complete=true: only explicit members, no derivation
+
+                        // Build set of guest person_ids/names to avoid duplicating guests as performers
+                        const guestNames = new Set(
+                            (track.guests || []).map(g => (g.name || '').toLowerCase().trim())
+                        );
+                        const guestIds = new Set(
+                            (track.guests || []).filter(g => g.person_id).map(g => g.person_id)
+                        );
+
+                        // Check for explicit per-track member overrides
+                        const explicitMembers = Array.isArray(performingGroup.members) ? performingGroup.members : [];
+                        const membersAreComplete = performingGroup.members_are_complete === true;
+
+                        // Step 1: Create explicit (non-derived) edges for per-track member overrides
+                        if (explicitMembers.length > 0) {
+                            const explicitPayload = [];
+                            const explicitIds = new Set();
+
+                            for (const member of explicitMembers) {
+                                // Skip guests
+                                if (guestNames.has((member.name || '').toLowerCase().trim())) continue;
+
+                                try {
+                                    const memberId = await this.resolveEntityId(tx, 'person', member);
+                                    explicitIds.add(memberId);
+
+                                    // Normalize roles from member (handles comma-separated strings)
+                                    const roles = normalizeRoleInput(member.roles || member.role || []);
+
+                                    explicitPayload.push({
+                                        personId: memberId,
+                                        name: member.name,
+                                        roles: roles,
+                                        role: roles[0] || null,  // backward compat
+                                        instruments: member.instruments || []
+                                    });
+                                } catch (memberResolveError) {
+                                    console.warn(`    Warning: Could not resolve explicit member "${member.name}": ${memberResolveError.message}`);
+                                }
+                            }
+
+                            if (explicitPayload.length > 0) {
+                                await tx.run(`
+                                    UNWIND $members AS m
+                                    MERGE (p:Person {person_id: m.personId})
+                                    ON CREATE SET
+                                        p.id = m.personId,
+                                        p.name = m.name,
+                                        p.status = 'provisional',
+                                        p.created_at = datetime()
+                                    WITH p, m
+                                    MATCH (t:Track {track_id: $trackId})
+                                    MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
+                                    SET perf.derived = false,
+                                        perf.roles = m.roles,
+                                        perf.role = m.role,
+                                        perf.instruments = m.instruments,
+                                        perf.lineup_source = 'track_explicit'
+                                `, {
+                                    members: explicitPayload,
+                                    trackId,
+                                    claimId: trackOpId,
+                                    groupId
+                                });
+                                console.log(`      Created ${explicitPayload.length} explicit PERFORMED_ON edges (derived=false)`);
+                            }
+
+                            // If members_are_complete, skip derived propagation for this group
+                            if (membersAreComplete) {
+                                console.log(`      Skipping derived propagation (members_are_complete=true)`);
+                                continue; // Skip to next performingGroup
+                            }
+                        }
+
+                        // Step 2: Create derived edges for release-level default lineup
+                        // (only if not members_are_complete)
+                        let derivedMembers = [];
+                        let lineupSource = 'none';
+
+                        if (groupMembersById.has(groupId) && groupMembersById.get(groupId).length > 0) {
+                            derivedMembers = groupMembersById.get(groupId);
+                            lineupSource = 'release_default';
+                        } else if (groupMembersByName.has(groupName.toLowerCase()) && groupMembersByName.get(groupName.toLowerCase()).length > 0) {
+                            derivedMembers = groupMembersByName.get(groupName.toLowerCase());
+                            lineupSource = 'release_default_by_name';
+                        }
+
+                        if (derivedMembers.length > 0) {
+                            // Build set of explicit member IDs to skip (avoid duplicates)
+                            const explicitMemberIds = new Set();
+                            for (const m of explicitMembers) {
+                                if (m.person_id) explicitMemberIds.add(m.person_id);
+                            }
+
+                            const derivedPayload = [];
+                            for (const member of derivedMembers) {
+                                // Skip guests
+                                if (guestNames.has((member.name || '').toLowerCase().trim())) continue;
+                                if (member.person_id && guestIds.has(member.person_id)) continue;
+
+                                // Skip if already covered by explicit override
+                                if (member.person_id && explicitMemberIds.has(member.person_id)) continue;
+
+                                try {
+                                    const memberId = await this.resolveEntityId(tx, 'person', member);
+
+                                    // Double-check resolved ID isn't already explicit
+                                    if (explicitMemberIds.has(memberId)) continue;
+
+                                    // Normalize roles from member (handles comma-separated strings)
+                                    const roles = normalizeRoleInput(member.roles || member.role || []);
+
+                                    derivedPayload.push({
+                                        personId: memberId,
+                                        name: member.name,
+                                        roles: roles,
+                                        role: roles[0] || null,  // backward compat
+                                        instruments: member.instruments || []
+                                    });
+                                } catch (memberResolveError) {
+                                    console.warn(`    Warning: Could not resolve member "${member.name}" for derived PERFORMED_ON: ${memberResolveError.message}`);
+                                }
+                            }
+
+                            if (derivedPayload.length > 0) {
+                                await tx.run(`
+                                    UNWIND $members AS m
+                                    MERGE (p:Person {person_id: m.personId})
+                                    ON CREATE SET
+                                        p.id = m.personId,
+                                        p.name = m.name,
+                                        p.status = 'provisional',
+                                        p.created_at = datetime()
+                                    WITH p, m
+                                    MATCH (t:Track {track_id: $trackId})
+                                    MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
+                                    SET perf.derived = true,
+                                        perf.roles = m.roles,
+                                        perf.role = m.role,
+                                        perf.instruments = m.instruments,
+                                        perf.lineup_source = $lineupSource
+                                `, {
+                                    members: derivedPayload,
+                                    trackId,
+                                    claimId: trackOpId,
+                                    groupId,
+                                    lineupSource
+                                });
+                                console.log(`      Propagated PERFORMED_ON to ${derivedPayload.length} members (derived=true, ${lineupSource})`);
+                            }
+                        }
+                    } catch (performedOnError) {
+                        console.error(`    PERFORMED_ON FAILED:`, {
+                            groupId,
+                            groupName,
+                            trackId,
+                            trackTitle: track.title,
+                            error: performedOnError.message
+                        });
+                        // Re-throw to fail the transaction rather than silently continue
+                        throw performedOnError;
+                    }
                 }
 
                 // Link GUEST performers (individuals not in the main group)
@@ -877,6 +1159,7 @@ constructor(config = {}) {
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
                                      p.status = $status
+                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
@@ -884,14 +1167,20 @@ constructor(config = {}) {
                         // GUEST_ON relationship for non-members
                         MERGE (p)-[g:GUEST_ON {claim_id: $claimId}]->(t)
                         SET g.roles = $roles,
+                            g.role = $role,
+                            g.role_detail = $roleDetail,
                             g.instruments = $instruments,
-                            g.credited_as = $creditedAs
+                            g.credited_as = $creditedAs,
+                            g.scope = 'track'
                     `, {
                         personId: guestId,
                         name: guest.name,
                         status: guest.person_id ? 'canonical' : 'provisional',
+                        originCityName: guest.origin_city?.name || null,
                         trackId,
-                        roles: guest.roles || [],
+                        roles: normalizeRoles(guest.roles || []),
+                        role: normalizeRole(guest.roles?.[0] || guest.role),
+                        roleDetail: guest.role_detail || null,
                         instruments: guest.instruments || [],
                         creditedAs: guest.credited_as || null,
                         claimId: trackOpId
@@ -945,14 +1234,51 @@ constructor(config = {}) {
                 }
 
                 // Link to Song if it's a recording of a composition
-                if (track.recording_of_song_id) {
+                // Uses track.recording_of (string) per canonical JSON schema
+                if (track.recording_of) {
+                    const ref = track.recording_of;
+
+                    // Treat ref as either an ID-like string OR a title-like string.
+                    // If it parses as a real ID, we use it directly.
+                    // Otherwise we mint a provisional song ID from the title.
+                    let songId = null;
+                    let songTitle = null;
+
+                    try {
+                        const parsed = IdentityService.parseId(ref);
+                        if ((parsed.kind === 'canonical' || parsed.kind === 'provisional') && parsed.valid) {
+                            songId = ref;
+                        } else if (parsed.kind === 'external' && parsed.valid) {
+                            // Resolve external → canonical if known; else mint provisional using track title as a fallback title
+                            songId = await this.resolveEntityId(tx, 'song', { song_id: ref, title: track.title });
+                        } else {
+                            songTitle = ref; // not a usable ID; treat as title
+                        }
+                    } catch {
+                        songTitle = ref;
+                    }
+
+                    if (!songId) {
+                        songId = await this.resolveEntityId(tx, 'song', { title: songTitle });
+                    }
+
                     await tx.run(`
+                        MERGE (s:Song {song_id: $songId})
+                        ON CREATE SET
+                            s.id = $songId,
+                            s.title = $songTitle,
+                            s.status = 'provisional',
+                            s.created_at = datetime()
+                        ON MATCH SET
+                            s.title = coalesce(s.title, $songTitle)
+
+                        WITH s
                         MATCH (t:Track {track_id: $trackId})
-                        MATCH (s:Song {song_id: $songId})
                         MERGE (t)-[r:RECORDING_OF {claim_id: $claimId}]->(s)
                     `, {
                         trackId,
-                        songId: track.recording_of_song_id,
+                        songId,
+                        songTitle: songTitle || null,
                         claimId: trackOpId
                     });
                 }
@@ -970,8 +1296,17 @@ constructor(config = {}) {
                     });
                 }
 
-                // Link samples
+                // Link samples (canonical: sampled_track_id, legacy fallback: track_id)
                 for (const sample of track.samples || []) {
+                    const sampleTrackId = sample.sampled_track_id ?? sample.track_id;
+                    if (!sampleTrackId) continue; // skip invalid entries
+                    const sampleTitle = sample.sampled_track_title ?? sample.title ?? 'Unknown';
+                    const portion = sample.portion_used ?? null;
+                    const cleared = sample.cleared ?? false;
+                    const sourceUrl = sample.source?.url ?? null;
+                    const sourceType = sample.source?.type ?? null;
+                    const accessedAt = sample.source?.accessed_at ?? null;
+
                     await tx.run(`
                         MATCH (t1:Track {track_id: $trackId})
                         MERGE (t2:Track {track_id: $sampleId})
@@ -980,13 +1315,19 @@ constructor(config = {}) {
                                      t2.title = $sampleTitle
                         MERGE (t1)-[s:SAMPLES {claim_id: $claimId}]->(t2)
                         SET s.portion_used = $portion,
-                            s.cleared = $cleared
+                            s.cleared = $cleared,
+                            s.source_url = $sourceUrl,
+                            s.source_type = $sourceType,
+                            s.accessed_at = $accessedAt
                     `, {
                         trackId,
-                        sampleId: sample.track_id,
-                        sampleTitle: sample.title || 'Unknown',
-                        portion: sample.portion_used || null,
-                        cleared: sample.cleared || false,
+                        sampleId: sampleTrackId,
+                        sampleTitle,
+                        portion,
+                        cleared,
+                        sourceUrl,
+                        sourceType,
+                        accessedAt,
                         claimId: trackOpId
                     });
                 }
@@ -1068,6 +1409,9 @@ constructor(config = {}) {
                     ON CREATE SET l.id = $labelId,
                                  l.name = $labelName,
                                  l.status = $status
+                    SET l.alt_names = $altNames,
+                        l.parent_label_name = $parentLabelName,
+                        l.parent_label_id = $parentLabelId
 
                     WITH l
                     MATCH (r:Release {release_id: $releaseId})
@@ -1076,6 +1420,9 @@ constructor(config = {}) {
                     labelId,
                     labelName: label.name,
                     status: label.label_id ? 'canonical' : 'provisional',
+                    altNames: label.alt_names || [],
+                    parentLabelName: label.parent_label?.name || null,
+                    parentLabelId: label.parent_label?.label_id || null,
                     releaseId
                 });
 

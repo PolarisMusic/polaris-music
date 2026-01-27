@@ -1640,6 +1640,7 @@ class APIServer {
                 const session = this.db.driver.session();
                 try {
                     // Get top groups by track count for initial load
+                    // Use OPTIONAL MATCH for MEMBER_OF to show groups even without membership data
                     const result = await session.run(`
                         MATCH (g:Group)-[:PERFORMED_ON]->(t:Track)
                         WITH g, count(t) as trackCount
@@ -1647,7 +1648,7 @@ class APIServer {
                         LIMIT 20
 
                         MATCH (g)-[:PERFORMED_ON]->(t:Track)
-                        MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                        OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
 
                         RETURN collect(DISTINCT {
                             id: g.group_id,
@@ -1655,12 +1656,12 @@ class APIServer {
                             type: 'group',
                             trackCount: trackCount
                         }) as groups,
-                        collect(DISTINCT {
+                        collect(DISTINCT CASE WHEN p IS NOT NULL THEN {
                             id: p.person_id,
                             name: p.name,
                             type: 'person'
-                        }) as persons,
-                        collect(DISTINCT {
+                        } ELSE null END) as persons,
+                        collect(DISTINCT CASE WHEN m IS NOT NULL THEN {
                             source: p.person_id,
                             target: g.group_id,
                             type: 'MEMBER_OF',
@@ -1668,7 +1669,7 @@ class APIServer {
                             from_date: m.from_date,
                             to_date: m.to_date,
                             instruments: m.instruments
-                        }) as edges
+                        } ELSE null END) as edges
                     `);
 
                     if (result.records.length === 0) {
@@ -1680,8 +1681,9 @@ class APIServer {
                     }
 
                     const groups = result.records[0].get('groups');
-                    const persons = result.records[0].get('persons');
-                    const edges = result.records[0].get('edges');
+                    // Filter out nulls from OPTIONAL MATCH results
+                    const persons = result.records[0].get('persons').filter(p => p !== null);
+                    const edges = result.records[0].get('edges').filter(e => e !== null);
 
                     res.json({
                         success: true,

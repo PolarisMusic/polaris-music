@@ -68,8 +68,12 @@
         "birth_name": { "type": "string" },
         "birth_date": { "type": "string" },
         "birth_city": { "$ref": "#/definitions/City" },
+        "origin_city": { "$ref": "#/definitions/City" },
         "roles": { "type": "array", "items": { "type": "string" } },
         "role": { "type": "string" },
+        "role_detail": { "type": "string" },
+        "credited_as": { "type": "string" },
+        "instruments": { "type": "array", "items": { "type": "string" } },
         "from_date": { "type": "string" },
         "to_date": { "type": "string" }
       }
@@ -103,7 +107,11 @@
         "isrc": { "type": "string" },
         "performed_by": { "type": "string" },
         "recording_of": { "type": "string" },
-        "samples": { "type": "array", "items": { "type": "string" } },
+        "recording_date": { "type": "string" },
+        "recording_location": { "type": "string" },
+        "listen_links": { "type": "array", "items": { "type": "string", "format": "uri" } },
+        "cover_of_song_id": { "type": "string" },
+        "samples": { "type": "array", "items": { "$ref": "#/definitions/SampleCredit" } },
         "performed_by_groups": {
           "type": "array",
           "items": {
@@ -112,11 +120,24 @@
               "group_id": { "type": "string" },
               "name": { "type": "string" },
               "credited_as": { "type": "string" },
-              "role": { "type": "string" }
+              "role": { "type": "string" },
+              "members_are_complete": { "type": "boolean" },
+              "members": {
+                "type": "array",
+                "items": { "$ref": "#/definitions/Person" }
+              }
             }
           }
         },
         "guests": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Person" }
+        },
+        "producers": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Person" }
+        },
+        "arrangers": {
           "type": "array",
           "items": { "$ref": "#/definitions/Person" }
         }
@@ -144,8 +165,22 @@
         "iswc": { "type": "string" },
         "writers": {
           "type": "array",
-          "items": { "$ref": "#/definitions/Person" }
+          "items": { "$ref": "#/definitions/WriterCredit" }
         }
+      }
+    },
+    "WriterCredit": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "person_id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "credited_as": { "type": "string" },
+        "role": { "type": "string" },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "role_detail": { "type": "string" },
+        "share_percentage": { "type": "number", "minimum": 0, "maximum": 100 }
       }
     },
     "Label": {
@@ -155,7 +190,24 @@
       "properties": {
         "label_id": { "type": "string" },
         "name": { "type": "string", "minLength": 1 },
-        "city": { "$ref": "#/definitions/City" }
+        "alt_names": { "type": "array", "items": { "type": "string" } },
+        "parent_label": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "properties": {
+                "label_id": { "type": "string" },
+                "name": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "origin_city": { "$ref": "#/definitions/City" },
+        "city": {
+          "description": "Deprecated: use origin_city instead",
+          "$ref": "#/definitions/City"
+        }
       }
     },
     "City": {
@@ -167,6 +219,26 @@
         "name": { "type": "string", "minLength": 1 },
         "lat": { "type": "number", "minimum": -90, "maximum": 90 },
         "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "SampleCredit": {
+      "type": "object",
+      "required": ["sampled_track_id"],
+      "additionalProperties": false,
+      "properties": {
+        "sampled_track_id": { "type": "string" },
+        "sampled_track_title": { "type": "string" },
+        "portion_used": { "type": "string" },
+        "cleared": { "type": "boolean" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string" },
+            "url": { "type": "string", "format": "uri" },
+            "accessed_at": { "type": "string" }
+          }
+        }
       }
     },
     "Source": {

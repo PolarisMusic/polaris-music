@@ -56,8 +56,8 @@ export class FormBuilder {
                 <h4>Label City</h4>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>City Name *</label>
-                        <input type="text" name="label-city-name-${index}" required placeholder="London">
+                        <label>City Name</label>
+                        <input type="text" name="label-city-name-${index}" placeholder="London">
                         <small>UNIMPLEMENTED: Add autocomplete for cities</small>
                     </div>
                     <div class="form-row">
@@ -254,6 +254,7 @@ export class FormBuilder {
 
     /**
      * Create a release-level group form (groups performing on the entire release)
+     * Includes a members subsection for specifying the group roster.
      */
     createReleaseGroupForm(index) {
         const div = document.createElement('div');
@@ -277,15 +278,26 @@ export class FormBuilder {
                 <label>Alternative Names</label>
                 <input type="text" name="release-group-altnames-${index}" placeholder="The Fab Four">
             </div>
+
+            <div class="subsection">
+                <h4>Members (Release-Level Roster)</h4>
+                <p class="section-note">Add the members of this group for this release. Track-level overrides can be made per-track if needed.</p>
+                <div class="release-members-container" data-release-group="${index}"></div>
+                <button type="button" class="btn-add add-release-member" data-release-group="${index}">+ Add Member</button>
+            </div>
         `;
 
-        div.querySelector('.remove-release-group').addEventListener('click', () => {
-            // Remove this group from the release level
-            const groupIndex = div.dataset.index;
-            div.remove();
+        // Add member button handler
+        const addMemberBtn = div.querySelector('.add-release-member');
+        addMemberBtn.addEventListener('click', () => {
+            const container = div.querySelector('.release-members-container');
+            const memberIndex = container.children.length;
+            const memberForm = this.createPersonForm(memberIndex, 'release-member', index);
+            container.appendChild(memberForm);
+        });
 
-            // TODO: Optionally remove from all tracks (would need to implement)
-            // For now, we'll leave the groups in tracks when removed from release level
+        div.querySelector('.remove-release-group').addEventListener('click', () => {
+            div.remove();
         });
 
         return div;
@@ -372,7 +384,7 @@ export class FormBuilder {
                 </div>
                 <div class="form-group">
                     <label>Samples (sampled track IDs)</label>
-                    <input type="text" name="track-samples-${index}" placeholder="Comma-separated track hashes">
+                    <input type="text" name="track-samples-${index}" placeholder="Comma-separated sampled track IDs (polaris:track:...)">
                     <small>UNIMPLEMENTED: Add multi-select search for sampled tracks</small>
                 </div>
             </div>

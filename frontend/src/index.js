@@ -169,49 +169,156 @@ class PolarisApp {
     }
 
     /**
-     * Extract form data and build release bundle
+     * Extract form data and build full canonical release bundle
+     * Returns the complete bundle matching backend/src/schema/releaseBundle.schema.json
      */
     buildReleaseData() {
         const form = document.getElementById('release-form');
         const formData = new FormData(form);
 
-        // Release metadata
+        // Extract tracks first (needed for tracklist, songs)
+        const tracks = this.extractTracks();
+
+        // Release metadata (canonical keys)
         const release = {
-            release_name: formData.get('release_name'),
-            release_altnames: this.parseCommaSeparated(formData.get('release_altnames')),
-            release_date: formData.get('release_date'),
-            release_format: [formData.get('release_format')],
-            liner_notes: formData.get('liner_notes') || '',
-            master_release: [
-                document.getElementById('is-master').checked,
-                formData.get('master_release_id') || null
-            ],
+            name: formData.get('release_name'),
             labels: this.extractLabels(),
-            release_guests: this.extractReleaseGuests(),
-            tracks: this.extractTracks(),
+            guests: this.extractReleaseGuests(),
         };
 
-        // Proofs object (source attribution)
-        const proofs = {
-            source_links: this.parseCommaSeparated(formData.get('source_links'))
-        };
+        // Optional release fields
+        const altNames = this.parseCommaSeparated(formData.get('release_altnames'));
+        if (altNames.length > 0) release.alt_names = altNames;
 
-        // Build tracklist from tracks
-        const tracklist = release.tracks.map((track, index) => ({
-            track_id: track.track_id,
-            disc_side: track.disc_side || 1,
-            track_number: track.track_number || index + 1,
+        const releaseDate = formData.get('release_date');
+        if (releaseDate) release.release_date = releaseDate;
+
+        const format = formData.get('release_format');
+        if (format) release.format = format; // string, not array
+
+        const linerNotes = formData.get('liner_notes');
+        if (linerNotes) release.liner_notes = linerNotes;
+
+        // Master release
+        const isMaster = document.getElementById('is-master').checked;
+        if (!isMaster) {
+            const masterId = formData.get('master_release_id');
+            if (masterId) release.master_id = masterId;
+        }
+
+        // Release-level groups (with members)
+        const groups = this.extractReleaseGroups();
+
+        // Build canonical tracklist from tracks
+        const tracklist = tracks.map((track, index) => ({
+            position: `${track._disc || 1}.${track._trackNumber || index + 1}`,
+            track_title: track.title,
         }));
 
-        return {
+        // Build songs from track songwriters (deduplicated by title)
+        const songs = this.buildSongsFromTracks(tracks);
+
+        // Build sources from source links
+        const sourceLinks = this.parseCommaSeparated(formData.get('source_links'));
+        const sources = sourceLinks.map(url => ({
+            type: 'web',
+            url,
+            accessed_at: new Date().toISOString().split('T')[0]
+        }));
+
+        // Strip internal fields from tracks before output
+        const canonicalTracks = tracks.map(track => {
+            const { _disc, _trackNumber, _songwriters, ...canonical } = track;
+            return canonical;
+        });
+
+        // Assemble full bundle
+        const bundle = {
             release,
+            groups,
+            tracks: canonicalTracks,
             tracklist,
-            proofs,
         };
+
+        if (songs.length > 0) bundle.songs = songs;
+        if (sources.length > 0) bundle.sources = sources;
+
+        return bundle;
     }
 
     /**
-     * Extract labels from form
+     * Extract release-level groups with their members
+     * Reads from the release-groups section of the form.
+     */
+    extractReleaseGroups() {
+        const groups = [];
+        const groupItems = document.querySelectorAll('[data-type="release-group"]');
+
+        groupItems.forEach(item => {
+            const index = item.dataset.index;
+            const groupName = this.getInputValue(item, `release-group-name-${index}`);
+
+            if (!groupName) return;
+
+            const group = { name: groupName };
+
+            // Alt names
+            const altNamesStr = this.getInputValue(item, `release-group-altnames-${index}`);
+            const altNames = this.parseCommaSeparated(altNamesStr);
+            if (altNames.length > 0) group.alt_names = altNames;
+
+            // Extract members from release-group member forms
+            const members = [];
+            const memberItems = item.querySelectorAll('[data-type="release-member"]');
+            memberItems.forEach(memberItem => {
+                const memberData = this.extractPersonData(memberItem, 'release-member', index);
+                if (memberData) members.push(memberData);
+            });
+
+            if (members.length > 0) group.members = members;
+
+            groups.push(group);
+        });
+
+        return groups;
+    }
+
+    /**
+     * Build canonical songs array from track songwriters
+     * Deduplicates songs by title and merges writers.
+     */
+    buildSongsFromTracks(tracks) {
+        const songMap = new Map();
+
+        for (const track of tracks) {
+            const title = track.title;
+            if (!title) continue;
+
+            // Songwriters stored as internal _songwriters field
+            const writers = (track._songwriters || []).map(sw => {
+                const writer = { name: sw.name };
+                if (sw.roles && sw.roles.length > 0) {
+                    writer.roles = sw.roles;
+                    writer.role = sw.roles[0];
+                }
+                return writer;
+            });
+
+            if (writers.length === 0) continue;
+
+            if (!songMap.has(title)) {
+                songMap.set(title, { title, writers });
+            }
+            // If title already exists, skip (first occurrence wins)
+        }
+
+        return Array.from(songMap.values());
+    }
+
+    /**
+     * Extract labels from form (canonical format)
+     * Emits: { name, alt_names?, parent_label?, origin_city? }
+     * Backend will generate deterministic prov: IDs during normalization.
      */
     extractLabels() {
         const labels = [];
@@ -220,34 +327,39 @@ class PolarisApp {
         labelItems.forEach(item => {
             const index = item.dataset.index;
             const labelName = this.getInputValue(item, `label-name-${index}`);
+
+            if (!labelName) return;
+
+            const label = { name: labelName };
+
+            // Alt names
+            const altNames = this.parseCommaSeparated(this.getInputValue(item, `label-altnames-${index}`));
+            if (altNames.length > 0) label.alt_names = altNames;
+
+            // Parent label (string form → backend normalizes to { name })
+            const parentLabel = this.getInputValue(item, `label-parent-${index}`);
+            if (parentLabel) label.parent_label = parentLabel;
+
+            // Origin city (optional)
             const cityName = this.getInputValue(item, `label-city-name-${index}`);
-            const lat = this.getInputValue(item, `label-city-lat-${index}`);
-            const lon = this.getInputValue(item, `label-city-lon-${index}`);
+            if (cityName) {
+                const lat = parseFloat(this.getInputValue(item, `label-city-lat-${index}`));
+                const lon = parseFloat(this.getInputValue(item, `label-city-lon-${index}`));
+                label.origin_city = { name: cityName };
+                if (!isNaN(lat)) label.origin_city.lat = lat;
+                if (!isNaN(lon)) label.origin_city.lon = lon;
+            }
 
-            if (!labelName || !cityName) return;
-
-            const cityId = HashGenerator.generateCityId(cityName, lat, lon);
-            const labelId = HashGenerator.generateLabelId(labelName, cityId);
-
-            labels.push({
-                label_id: labelId,
-                label_name: labelName,
-                label_altnames: this.parseCommaSeparated(this.getInputValue(item, `label-altnames-${index}`)),
-                label_parents: this.getInputValue(item, `label-parent-${index}`) || '',
-                label_city: [{
-                    city_id: cityId,
-                    city_name: cityName,
-                    city_lat: parseFloat(lat) || 0,
-                    city_lon: parseFloat(lon) || 0,
-                }],
-            });
+            labels.push(label);
         });
 
         return labels;
     }
 
     /**
-     * Extract release-level guests from form
+     * Extract release-level guests from form (canonical format)
+     * Emits: { name, roles: string[], origin_city? }
+     * These are producers, engineers, etc. persisted as GUEST_ON→Release.
      */
     extractReleaseGuests() {
         const guests = [];
@@ -259,38 +371,32 @@ class PolarisApp {
 
             if (!name) return;
 
-            const cityName = this.getInputValue(item, `release-guest-city-name-${index}`);
-            const lat = this.getInputValue(item, `release-guest-city-lat-${index}`);
-            const lon = this.getInputValue(item, `release-guest-city-lon-${index}`);
-
-            let cityData = null;
-            if (cityName) {
-                const cityId = HashGenerator.generateCityId(cityName, lat, lon);
-                cityData = {
-                    city_id: cityId,
-                    city_name: cityName,
-                    city_lat: parseFloat(lat) || 0,
-                    city_lon: parseFloat(lon) || 0,
-                };
-            }
-
-            const personId = HashGenerator.generatePersonId(name, cityData?.city_id);
             const rolesStr = this.getInputValue(item, `release-guest-roles-${index}`);
             const roles = this.parseRoles(rolesStr);
 
-            guests.push({
-                person_id: personId,
-                person_name: name,
-                person_roles: roles,
-                person_city: cityData,
-            });
+            const guest = { name };
+            if (roles.length > 0) guest.roles = roles;
+
+            // Origin city (optional)
+            const cityName = this.getInputValue(item, `release-guest-city-name-${index}`);
+            if (cityName) {
+                const lat = parseFloat(this.getInputValue(item, `release-guest-city-lat-${index}`));
+                const lon = parseFloat(this.getInputValue(item, `release-guest-city-lon-${index}`));
+                guest.origin_city = { name: cityName };
+                if (!isNaN(lat)) guest.origin_city.lat = lat;
+                if (!isNaN(lon)) guest.origin_city.lon = lon;
+            }
+
+            guests.push(guest);
         });
 
         return guests;
     }
 
     /**
-     * Extract tracks from form
+     * Extract tracks from form (canonical format)
+     * Emits canonical Track shape: { title, performed_by_groups, guests, producers, ... }
+     * Internal fields (_disc, _trackNumber, _songwriters) are stripped before final output.
      */
     extractTracks() {
         const tracks = [];
@@ -302,22 +408,43 @@ class PolarisApp {
 
             if (!title) return;
 
-            const groupName = this.getFirstGroupName(item);
-            const trackId = HashGenerator.generateTrackId(title, groupName);
-
-            tracks.push({
-                track_id: trackId,
+            const track = {
                 title: title,
-                listen_link: this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`)),
-                cover_song: this.parseCommaSeparated(this.getInputValue(item, `track-cover-${index}`)),
-                sampled_songs: this.parseCommaSeparated(this.getInputValue(item, `track-samples-${index}`)),
-                songwriters: this.extractPersons(item, 'songwriter', index),
-                producers: this.extractPersons(item, 'producer', index),
-                groups: this.extractGroups(item, index),
-                guests: this.extractPersons(item, 'guest', index),
-                disc_side: parseInt(this.getInputValue(item, `track-disc-${index}`) || 1),
-                track_number: parseInt(this.getInputValue(item, `track-number-${index}`) || trackIndex + 1),
-            });
+                recording_of: title, // Links Track to Song by title
+            };
+
+            // Performing groups → performed_by_groups (canonical key)
+            const performedByGroups = this.extractGroups(item, index);
+            if (performedByGroups.length > 0) track.performed_by_groups = performedByGroups;
+
+            // Guest musicians
+            const guests = this.extractPersons(item, 'guest', index);
+            if (guests.length > 0) track.guests = guests;
+
+            // Track producers
+            const producers = this.extractPersons(item, 'producer', index);
+            if (producers.length > 0) track.producers = producers;
+
+            // Listen links (comma-separated URLs)
+            const listenLinks = this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`));
+            if (listenLinks.length > 0) track.listen_links = listenLinks;
+
+            // Cover of (original song ID)
+            const coverOfSongId = this.getInputValue(item, `track-cover-${index}`);
+            if (coverOfSongId) track.cover_of_song_id = coverOfSongId;
+
+            // Samples (comma-separated IDs → canonical SampleCredit objects)
+            const sampleIds = this.parseCommaSeparated(this.getInputValue(item, `track-samples-${index}`));
+            if (sampleIds.length > 0) {
+                track.samples = sampleIds.map(id => ({ sampled_track_id: id }));
+            }
+
+            // Internal fields (used by buildReleaseData for tracklist/songs, stripped before output)
+            track._disc = parseInt(this.getInputValue(item, `track-disc-${index}`) || 1);
+            track._trackNumber = parseInt(this.getInputValue(item, `track-number-${index}`) || trackIndex + 1);
+            track._songwriters = this.extractPersons(item, 'songwriter', index);
+
+            tracks.push(track);
         });
 
         return tracks;
@@ -347,7 +474,9 @@ class PolarisApp {
     }
 
     /**
-     * Extract a single person's data
+     * Extract a single person's data (canonical format)
+     * Emits: { name, roles: string[], origin_city?: { name, lat?, lon? } }
+     * Backend will generate deterministic prov: IDs during normalization.
      */
     extractPersonData(item, type, parentIndex) {
         const index = item.dataset.index;
@@ -355,35 +484,29 @@ class PolarisApp {
 
         if (!name) return null;
 
-        const cityName = this.getInputValue(item, `${type}-city-name-${parentIndex}-${index}`);
-        const lat = this.getInputValue(item, `${type}-city-lat-${parentIndex}-${index}`);
-        const lon = this.getInputValue(item, `${type}-city-lon-${parentIndex}-${index}`);
-
-        let cityData = null;
-        if (cityName) {
-            const cityId = HashGenerator.generateCityId(cityName, lat, lon);
-            cityData = {
-                city_id: cityId,
-                city_name: cityName,
-                city_lat: parseFloat(lat) || 0,
-                city_lon: parseFloat(lon) || 0,
-            };
-        }
-
-        const personId = HashGenerator.generatePersonId(name, cityData?.city_id);
         const rolesStr = this.getInputValue(item, `${type}-roles-${parentIndex}-${index}`);
         const roles = this.parseRoles(rolesStr);
 
-        return {
-            person_id: personId,
-            person_name: name,
-            person_roles: roles,
-            person_city: cityData,
-        };
+        const person = { name };
+        if (roles.length > 0) person.roles = roles;
+
+        // Build origin_city if city name is provided
+        const cityName = this.getInputValue(item, `${type}-city-name-${parentIndex}-${index}`);
+        if (cityName) {
+            const lat = parseFloat(this.getInputValue(item, `${type}-city-lat-${parentIndex}-${index}`));
+            const lon = parseFloat(this.getInputValue(item, `${type}-city-lon-${parentIndex}-${index}`));
+            person.origin_city = { name: cityName };
+            if (!isNaN(lat)) person.origin_city.lat = lat;
+            if (!isNaN(lon)) person.origin_city.lon = lon;
+        }
+
+        return person;
     }
 
     /**
-     * Extract groups and their members from track
+     * Extract groups and their members from track (canonical format)
+     * Emits: { name, alt_names?, members: Person[] }
+     * These become track.performed_by_groups in the canonical bundle.
      */
     extractGroups(trackItem, trackIndex) {
         const groups = [];
@@ -395,9 +518,17 @@ class PolarisApp {
 
             if (!groupName) return;
 
-            const groupId = HashGenerator.generateGroupId(groupName);
+            const group = {
+                name: groupName,
+                role: 'performer'
+            };
 
-            // Extract members
+            // Alt names
+            const altNamesStr = this.getInputValue(item, `group-altnames-${trackIndex}-${groupIndex}`);
+            const altNames = this.parseCommaSeparated(altNamesStr);
+            if (altNames.length > 0) group.alt_names = altNames;
+
+            // Extract members (canonical Person objects)
             const members = [];
             const memberItems = item.querySelectorAll('[data-type="member"]');
 
@@ -406,12 +537,9 @@ class PolarisApp {
                 if (memberData) members.push(memberData);
             });
 
-            groups.push({
-                group_id: groupId,
-                group_name: groupName,
-                group_altnames: this.getInputValue(item, `group-altnames-${trackIndex}-${groupIndex}`) || '',
-                members: members,
-            });
+            if (members.length > 0) group.members = members;
+
+            groups.push(group);
         });
 
         return groups;
@@ -426,15 +554,12 @@ class PolarisApp {
     }
 
     /**
-     * Parse roles string into role objects
+     * Parse roles string into string array (canonical format)
+     * Backend expects roles: string[] (e.g., ["drums", "vocals"])
      */
     parseRoles(rolesStr) {
         if (!rolesStr) return [];
-
-        return this.parseCommaSeparated(rolesStr).map(roleName => ({
-            role_id: HashGenerator.generateRoleId(roleName),
-            role_name: roleName,
-        }));
+        return this.parseCommaSeparated(rolesStr);
     }
 
     /**

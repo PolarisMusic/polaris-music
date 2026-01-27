@@ -28,7 +28,8 @@ export const EntityType = {
     RELEASE: 'release',
     MASTER: 'master',
     LABEL: 'label',
-    CITY: 'city'
+    CITY: 'city',
+    SOURCE: 'source'
 };
 
 /**
