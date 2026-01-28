@@ -136,7 +136,7 @@ describe.skip('API Server Integration Tests', () => {
                                 person_id: 'person:1',
                                 name: 'John Lennon',
                                 alt_names: ['Johnny'],
-                                status: 'canonical'
+                                status: 'ACTIVE'
                             }
                         })
                     }]
@@ -165,7 +165,7 @@ describe.skip('API Server Integration Tests', () => {
                 person_id: 'person:1',
                 name: 'John Lennon',
                 alt_names: ['Johnny'],
-                status: 'canonical'
+                status: 'ACTIVE'
             });
         });
 

@@ -522,14 +522,28 @@ constructor(config = {}) {
      * @param {Array} bundle.tracklist - Track ordering information
      * @param {Array} [bundle.sources] - External source references
      * @param {string} submitterAccount - Blockchain account that submitted this event
+     * @param {number} [eventTimestamp] - Event timestamp (Unix seconds or millis). Falls back to Date.now() for older events without timestamps.
      * @returns {Promise<Object>} Result with releaseId and statistics
      * @throws {Error} If transaction fails (will rollback all changes)
      */
-    async processReleaseBundle(eventHash, bundle, submitterAccount) {
+    async processReleaseBundle(eventHash, bundle, submitterAccount, eventTimestamp) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
 
         try {
+            // Compute deterministic event timestamp for replay consistency.
+            // eventTimestamp may be Unix seconds (from contract ts) or millis;
+            // normalize to milliseconds. Falls back to wall-clock time for
+            // older events that lack a timestamp.
+            let eventTs;
+            if (eventTimestamp != null) {
+                const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
+                // Distinguish seconds (< 1e12) from millis (>= 1e12)
+                eventTs = raw < 1e12 ? raw * 1000 : raw;
+            } else {
+                eventTs = Date.now();
+            }
+
             // Validate required fields
             if (!eventHash || !bundle || !bundle.release) {
                 throw new Error('Invalid release bundle: missing required fields');
@@ -582,21 +596,21 @@ constructor(config = {}) {
                         g.formed_date = $formed,
                         g.disbanded_date = $disbanded,
                         g.status = $status,
+                        g.id_kind = $id_kind,
                         g.updated_by = $eventHash,
-                        g.updated_at = datetime()
+                        g.updated_at = datetime({epochMillis: $eventTs})
 
                     // Link to submitter Account
                     WITH g
                     MERGE (a:Account {account_id: $account})
                     ON CREATE SET a.id = $account
-                    ON CREATE SET a.created_at = datetime()
-                    MERGE (a)-[sub:SUBMITTED {
-                        event_hash: $eventHash,
-                        timestamp: datetime()
-                    }]->(g)
+                    ON CREATE SET a.created_at = datetime({epochMillis: $eventTs})
+                    MERGE (a)-[sub:SUBMITTED {event_hash: $eventHash}]->(g)
+                    ON CREATE SET sub.timestamp = datetime({epochMillis: $eventTs})
 
                     RETURN g.group_id as groupId
                 `, {
+                    eventTs,
                     groupId,
                     name: group.name,
                     altNames: group.alt_names || [],
@@ -604,6 +618,7 @@ constructor(config = {}) {
                     formed: group.formed_date || null,
                     disbanded: group.disbanded_date || null,
                     status: idKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
+                    id_kind: idKind,
                     eventHash,
                     account: submitterAccount
                 });
@@ -645,7 +660,7 @@ constructor(config = {}) {
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
                                      p.status = $status,
-                                     p.created_at = datetime()
+                                     p.created_at = datetime({epochMillis: $eventTs})
                         SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
 
                         WITH p
@@ -661,6 +676,7 @@ constructor(config = {}) {
 
                         RETURN p.person_id as personId
                     `, {
+                        eventTs,
                         personId,
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
@@ -698,7 +714,7 @@ constructor(config = {}) {
 
                 // Create audit claim for group creation
                 await this.createClaim(tx, groupOpId, 'Group', groupId,
-                                     'created', group, eventHash);
+                                     'created', group, eventHash, eventTs);
 
                 // Store release-level lineup for propagating Person -> Track PERFORMED_ON later
                 groupMembersById.set(groupId, group.members || []);
@@ -729,17 +745,20 @@ constructor(config = {}) {
                     r.trivia = $trivia,
                     r.album_art = $albumArt,
                     r.status = $status,
+                    r.id_kind = $id_kind,
                     r.updated_by = $eventHash,
-                    r.updated_at = datetime()
+                    r.updated_at = datetime({epochMillis: $eventTs})
 
                 // Link to submitter
                 WITH r
                 MERGE (a:Account {account_id: $account})
                     ON CREATE SET a.id = $account
-                MERGE (a)-[:SUBMITTED {event_hash: $eventHash}]->(r)
+                MERGE (a)-[sub:SUBMITTED {event_hash: $eventHash}]->(r)
+                ON CREATE SET sub.timestamp = datetime({epochMillis: $eventTs})
 
                 RETURN r.release_id as releaseId
             `, {
+                eventTs,
                 releaseId,
                 name: normalizedBundle.release.name,
                 altNames: normalizedBundle.release.alt_names || [],
@@ -750,7 +769,8 @@ constructor(config = {}) {
                 linerNotes: normalizedBundle.release.liner_notes || null,
                 trivia: normalizedBundle.release.trivia || null,
                 albumArt: normalizedBundle.release.album_art || null,
-                status: normalizedBundle.release.release_id ? 'canonical' : 'provisional',
+                status: normalizedBundle.release.release_id ? 'ACTIVE' : 'PROVISIONAL',
+                id_kind: normalizedBundle.release.release_id ? 'canonical' : 'provisional',
                 eventHash,
                 account: submitterAccount
             });
@@ -777,7 +797,7 @@ constructor(config = {}) {
                 `, {
                     personId,
                     name: guest.name,
-                    status: guest.person_id ? 'canonical' : 'provisional',
+                    status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
                     originCityName: guest.origin_city?.name || null,
                     releaseId,
                     roles: normalizeRoles(guest.roles || []),
@@ -790,7 +810,7 @@ constructor(config = {}) {
 
             // Create audit claim for release
             await this.createClaim(tx, releaseOpId, 'Release', releaseId,
-                                 'created', normalizedBundle.release, eventHash);
+                                 'created', normalizedBundle.release, eventHash, eventTs);
 
             // ========== 3. PROCESS SONGS (Compositions) ==========
 
@@ -811,15 +831,18 @@ constructor(config = {}) {
                         s.year = $year,
                         s.lyrics = $lyrics,
                         s.status = $status,
-                        s.updated_at = datetime()
+                        s.id_kind = $id_kind,
+                        s.updated_at = datetime({epochMillis: $eventTs})
                 `, {
+                    eventTs,
                     songId,
                     title: song.title,
                     altTitles: song.alt_titles || [],
                     iswc: song.iswc || null,
                     year: song.year || null,
                     lyrics: song.lyrics || null,
-                    status: song.song_id ? 'canonical' : 'provisional'
+                    status: song.song_id ? 'ACTIVE' : 'PROVISIONAL',
+                    id_kind: song.song_id ? 'canonical' : 'provisional'
                 });
 
                 // Link songwriters (Persons who WROTE this Song)
@@ -846,7 +869,7 @@ constructor(config = {}) {
                     `, {
                         personId: writerId,
                         name: writer.name,
-                        status: writer.person_id ? 'canonical' : 'provisional',
+                        status: writer.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         songId,
                         role: primaryRole,
                         roles: writerRoles,
@@ -858,7 +881,7 @@ constructor(config = {}) {
                 }
 
                 await this.createClaim(tx, songOpId, 'Song', songId,
-                                     'created', song, eventHash);
+                                     'created', song, eventHash, eventTs);
 
                 processedSongs.set(songId, song);
             }
@@ -883,8 +906,10 @@ constructor(config = {}) {
                         t.recording_location = $location,
                         t.listen_links = $listenLinks,
                         t.status = $status,
-                        t.updated_at = datetime()
+                        t.id_kind = $id_kind,
+                        t.updated_at = datetime({epochMillis: $eventTs})
                 `, {
+                    eventTs,
                     trackId,
                     title: track.title,
                     isrc: track.isrc || null,
@@ -892,7 +917,8 @@ constructor(config = {}) {
                     recordingDate: track.recording_date || null,
                     location: track.recording_location || null,
                     listenLinks: track.listen_links || [],
-                    status: track.track_id ? 'canonical' : 'provisional'
+                    status: track.track_id ? 'ACTIVE' : 'PROVISIONAL',
+                    id_kind: track.track_id ? 'canonical' : 'provisional'
                 });
 
                 // ========== CRITICAL: DISTINGUISH GROUPS vs GUESTS ==========
@@ -961,8 +987,9 @@ constructor(config = {}) {
                             ON CREATE SET
                                 g.id = $groupId,
                                 g.name = $groupName,
-                                g.status = 'provisional',
-                                g.created_at = datetime()
+                                g.status = 'PROVISIONAL',
+                                g.id_kind = 'provisional',
+                                g.created_at = datetime({epochMillis: $eventTs})
                             ON MATCH SET
                                 g.name = coalesce(g.name, $groupName)
 
@@ -972,6 +999,7 @@ constructor(config = {}) {
                             SET p.credited_as = $creditedAs,
                                 p.role = $role
                         `, {
+                            eventTs,
                             trackId,
                             groupId,
                             groupName,
@@ -1034,8 +1062,8 @@ constructor(config = {}) {
                                     ON CREATE SET
                                         p.id = m.personId,
                                         p.name = m.name,
-                                        p.status = 'provisional',
-                                        p.created_at = datetime()
+                                        p.status = 'PROVISIONAL',
+                                        p.created_at = datetime({epochMillis: $eventTs})
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
@@ -1045,6 +1073,7 @@ constructor(config = {}) {
                                         perf.instruments = m.instruments,
                                         perf.lineup_source = 'track_explicit'
                                 `, {
+                                    eventTs,
                                     members: explicitPayload,
                                     trackId,
                                     claimId: trackOpId,
@@ -1117,8 +1146,8 @@ constructor(config = {}) {
                                     ON CREATE SET
                                         p.id = m.personId,
                                         p.name = m.name,
-                                        p.status = 'provisional',
-                                        p.created_at = datetime()
+                                        p.status = 'PROVISIONAL',
+                                        p.created_at = datetime({epochMillis: $eventTs})
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
@@ -1128,6 +1157,7 @@ constructor(config = {}) {
                                         perf.instruments = m.instruments,
                                         perf.lineup_source = $lineupSource
                                 `, {
+                                    eventTs,
                                     members: derivedPayload,
                                     trackId,
                                     claimId: trackOpId,
@@ -1175,7 +1205,7 @@ constructor(config = {}) {
                     `, {
                         personId: guestId,
                         name: guest.name,
-                        status: guest.person_id ? 'canonical' : 'provisional',
+                        status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         originCityName: guest.origin_city?.name || null,
                         trackId,
                         roles: normalizeRoles(guest.roles || []),
@@ -1203,7 +1233,7 @@ constructor(config = {}) {
                     `, {
                         personId: producerId,
                         name: producer.name,
-                        status: producer.person_id ? 'canonical' : 'provisional',
+                        status: producer.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         trackId,
                         role: producer.role || 'producer',
                         claimId: trackOpId
@@ -1226,7 +1256,7 @@ constructor(config = {}) {
                     `, {
                         personId: arrangerId,
                         name: arranger.name,
-                        status: arranger.person_id ? 'canonical' : 'provisional',
+                        status: arranger.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         trackId,
                         role: arranger.role || 'arranger',
                         claimId: trackOpId
@@ -1267,8 +1297,9 @@ constructor(config = {}) {
                         ON CREATE SET
                             s.id = $songId,
                             s.title = $songTitle,
-                            s.status = 'provisional',
-                            s.created_at = datetime()
+                            s.status = 'PROVISIONAL',
+                            s.id_kind = 'provisional',
+                            s.created_at = datetime({epochMillis: $eventTs})
                         ON MATCH SET
                             s.title = coalesce(s.title, $songTitle)
 
@@ -1276,6 +1307,7 @@ constructor(config = {}) {
                         MATCH (t:Track {track_id: $trackId})
                         MERGE (t)-[r:RECORDING_OF {claim_id: $claimId}]->(s)
                     `, {
+                        eventTs,
                         trackId,
                         songId,
                         songTitle: songTitle || null,
@@ -1311,7 +1343,8 @@ constructor(config = {}) {
                         MATCH (t1:Track {track_id: $trackId})
                         MERGE (t2:Track {track_id: $sampleId})
                         ON CREATE SET t2.id = $sampleId,
-                                     t2.status = 'provisional',
+                                     t2.status = 'PROVISIONAL',
+                                     t2.id_kind = 'provisional',
                                      t2.title = $sampleTitle
                         MERGE (t1)-[s:SAMPLES {claim_id: $claimId}]->(t2)
                         SET s.portion_used = $portion,
@@ -1333,7 +1366,7 @@ constructor(config = {}) {
                 }
 
                 await this.createClaim(tx, trackOpId, 'Track', trackId,
-                                     'created', track, eventHash);
+                                     'created', track, eventHash, eventTs);
 
                 processedTracks.push(trackId);
             }
@@ -1389,11 +1422,12 @@ constructor(config = {}) {
                     MERGE (m:Master {master_id: $masterId})
                     ON CREATE SET m.id = $masterId,
                                  m.name = $masterName,
-                                 m.created_at = datetime()
+                                 m.created_at = datetime({epochMillis: $eventTs})
                     WITH m
                     MATCH (r:Release {release_id: $releaseId})
                     MERGE (r)-[:IN_MASTER]->(m)
                 `, {
+                    eventTs,
                     masterId: normalizedBundle.release.master_id,
                     masterName: normalizedBundle.release.master_name || normalizedBundle.release.name,
                     releaseId
@@ -1408,7 +1442,8 @@ constructor(config = {}) {
                     MERGE (l:Label {label_id: $labelId})
                     ON CREATE SET l.id = $labelId,
                                  l.name = $labelName,
-                                 l.status = $status
+                                 l.status = $status,
+                                 l.id_kind = $id_kind
                     SET l.alt_names = $altNames,
                         l.parent_label_name = $parentLabelName,
                         l.parent_label_id = $parentLabelId
@@ -1419,7 +1454,8 @@ constructor(config = {}) {
                 `, {
                     labelId,
                     labelName: label.name,
-                    status: label.label_id ? 'canonical' : 'provisional',
+                    status: label.label_id ? 'ACTIVE' : 'PROVISIONAL',
+                    id_kind: label.label_id ? 'canonical' : 'provisional',
                     altNames: label.alt_names || [],
                     parentLabelName: label.parent_label?.name || null,
                     parentLabelId: label.parent_label?.label_id || null,
@@ -1927,7 +1963,8 @@ constructor(config = {}) {
                     ELSE target
                 END
 
-                SET target.status = 'canonical'
+                SET target.status = 'ACTIVE',
+                    target.id_kind = 'canonical'
 
                 RETURN target
             `, { sourceId, targetId });
@@ -2011,8 +2048,12 @@ constructor(config = {}) {
      * @param {string} field - Field being modified
      * @param {*} value - New value
      * @param {string} eventHash - Hash of the source event
+     * @param {number} [eventTs] - Event timestamp in epoch millis (falls back to wall-clock time)
      */
-    async createClaim(tx, claimId, nodeType, nodeId, field, value, eventHash) {
+    async createClaim(tx, claimId, nodeType, nodeId, field, value, eventHash, eventTs) {
+        const tsExpr = eventTs != null
+            ? 'datetime({epochMillis: $eventTs})'
+            : 'datetime()';
         await tx.run(`
             MERGE (c:Claim {claim_id: $claimId})
             ON CREATE SET
@@ -2021,14 +2062,15 @@ constructor(config = {}) {
                 c.field = $field,
                 c.value = $value,
                 c.event_hash = $eventHash,
-                c.created_at = datetime()
+                c.created_at = ${tsExpr}
         `, {
             claimId,
             nodeType,
             nodeId,
             field,
             value: JSON.stringify(value),
-            eventHash
+            eventHash,
+            eventTs: eventTs ?? null
         });
     }
 

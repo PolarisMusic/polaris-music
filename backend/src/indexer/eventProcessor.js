@@ -461,10 +461,15 @@ class EventProcessor {
             'Unknown';
         console.log(`  Processing release bundle: ${releaseTitle}`);
 
+        // Pass event timestamp for deterministic replay.
+        // Prefer contract-anchored ts (Unix seconds); fall back to event.created_at.
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
         const result = await this.db.processReleaseBundle(
             actionData.hash,
             event.body,
-            actionData.author  // Use chain account as submitter-of-record
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
         );
 
         console.log(`   Created: ${result.stats.groups_created} groups, ${result.stats.tracks_created} tracks`);
