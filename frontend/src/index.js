@@ -839,6 +839,7 @@ class PolarisApp {
             setTimeout(() => {
                 document.getElementById('release-form').reset();
                 document.getElementById('labels-container').innerHTML = '';
+                document.getElementById('release-groups-container').innerHTML = '';
                 document.getElementById('release-guests-container').innerHTML = '';
                 document.getElementById('tracks-container').innerHTML = '';
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };

@@ -16,6 +16,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { graphqlHTTP } from 'express-graphql';
 import { buildSchema } from 'graphql';
 import MusicGraphDatabase from '../graph/schema.js';
@@ -28,7 +29,7 @@ import { MergeOperations } from '../graph/merge.js';
 import { IngestionHandler } from './ingestion.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
 
 /**
@@ -309,7 +310,7 @@ class APIServer {
         this.app.use(cors({
             origin: corsOrigin,
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-            allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+            allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-API-Key'],
             credentials: false
         }));
         console.log(` CORS enabled for origin(s): ${origins.join(', ')}`);
@@ -322,6 +323,39 @@ class APIServer {
             console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
             next();
         });
+
+        // Rate limiting for write routes (coarse, IP-based)
+        // Prevents storage cost blow-up and graph pollution from spammy clients
+        this.writeRateLimiter = rateLimit({
+            windowMs: 60 * 1000, // 1-minute window
+            max: 30,             // 30 write requests per minute per IP
+            standardHeaders: true,
+            legacyHeaders: false,
+            message: { error: 'Too many write requests, please try again later' }
+        });
+
+        // API key middleware for write routes.
+        // When INGEST_API_KEY is set, all write endpoints require X-API-Key header.
+        // When unset (local dev), write endpoints are open.
+        this.requireApiKey = (req, res, next) => {
+            const requiredKey = process.env.INGEST_API_KEY;
+            if (!requiredKey) {
+                return next(); // No key configured — open access (dev mode)
+            }
+            const provided = req.headers['x-api-key'];
+            if (!provided) {
+                return res.status(401).json({ error: 'Missing X-API-Key header' });
+            }
+            // Constant-time comparison to prevent timing attacks
+            if (provided.length !== requiredKey.length ||
+                !timingSafeEqual(
+                    Buffer.from(provided),
+                    Buffer.from(requiredKey)
+                )) {
+                return res.status(403).json({ error: 'Invalid API key' });
+            }
+            next();
+        };
     }
 
     /**
@@ -687,7 +721,7 @@ class APIServer {
             })
         }));
 
-        console.log(' GraphQL endpoint configured at /graphql');
+        console.log(' GraphQL endpoint configured at /graphql');
     }
 
     /**
@@ -787,7 +821,7 @@ class APIServer {
          *
          * @returns {Object} { success: true, hash, normalizedEvent }
          */
-        this.app.post('/api/events/prepare', async (req, res) => {
+        this.app.post('/api/events/prepare', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
             try {
                 const event = req.body;
 
@@ -966,6 +1000,15 @@ class APIServer {
          */
         this.app.post('/api/crypto/resolve-signing-key', async (req, res) => {
             try {
+                // RPC is required for key resolution — fail clearly if unavailable
+                const rpcUrl = process.env.RPC_URL || this.config.rpcUrl;
+                if (!rpcUrl) {
+                    return res.status(503).json({
+                        success: false,
+                        error: 'RPC_URL not configured — cannot resolve signing keys'
+                    });
+                }
+
                 const { account, permission, canonical_payload, signature } = req.body;
 
                 // Validate required fields
@@ -1056,7 +1099,7 @@ class APIServer {
          * @param {string} req.body.expected_hash - Optional. Expected hash from /api/events/prepare.
          *                                          If provided and doesn't match computed hash, returns 400.
          */
-        this.app.post('/api/events/create', async (req, res) => {
+        this.app.post('/api/events/create', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
             try {
                 const { expected_hash, ...event } = req.body;
 
@@ -1261,7 +1304,7 @@ class APIServer {
          *   processing?: Object
          * }
          */
-        this.app.post('/api/ingest/anchored-event', async (req, res) => {
+        this.app.post('/api/ingest/anchored-event', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
             try {
                 const anchoredEvent = req.body;
 
@@ -1808,7 +1851,7 @@ class APIServer {
             }
         });
 
-        console.log(' REST endpoints configured');
+        console.log(' REST endpoints configured');
     }
 
     /**
@@ -1845,10 +1888,10 @@ class APIServer {
         // Test database connection
         const dbConnected = await this.db.testConnection();
         if (!dbConnected) {
-            console.error(' Failed to connect to database');
+            console.error(' Failed to connect to database');
             throw new Error('Database connection failed');
         }
-        console.log(' Database connected');
+        console.log(' Database connected');
 
         // Initialize database schema (constraints, indexes)
         // Controlled by GRAPH_INIT_SCHEMA env var (default: true in dev, configurable in prod)
@@ -1880,9 +1923,23 @@ class APIServer {
             }
         }
 
+        // Fail fast: if account auth is required but RPC is not configured,
+        // the server cannot verify signing keys and should not start.
+        const requireAuth = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
+        const rpcUrl = process.env.RPC_URL || this.config.rpcUrl;
+        if (requireAuth && !rpcUrl) {
+            throw new Error(
+                'REQUIRE_ACCOUNT_AUTH is enabled but RPC_URL is not configured. ' +
+                'Set RPC_URL to a blockchain RPC endpoint, or set REQUIRE_ACCOUNT_AUTH=false for development.'
+            );
+        }
+        if (!rpcUrl) {
+            console.warn('Warning: RPC_URL not configured - account auth and signing-key resolution disabled');
+        }
+
         // Test storage connectivity
         const storageStatus = await this.store.testConnectivity();
-        console.log(' Storage status:', storageStatus);
+        console.log(' Storage status:', storageStatus);
 
         // Start listening
         return new Promise((resolve) => {
@@ -1901,7 +1958,7 @@ class APIServer {
                 console.log(`     NODE_ENV: ${nodeEnv}`);
                 console.log(`     DEV_SIGNER_PRIVATE_KEY: ${hasDevKey ? 'set' : 'not set'}`);
 
-                console.log(`\n Server ready\n`);
+                console.log(`\n Server ready\n`);
                 resolve();
             });
         });
@@ -1928,7 +1985,7 @@ class APIServer {
             });
         }
 
-        console.log(' Server stopped');
+        console.log(' Server stopped');
     }
 }
 

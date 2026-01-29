@@ -22,6 +22,21 @@ function normalizeApiUrl(url) {
 
 const API_BASE_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
+/**
+ * Optional API key for write endpoints.
+ * Set VITE_INGEST_API_KEY in .env if the backend requires X-API-Key.
+ */
+const INGEST_API_KEY = import.meta.env.VITE_INGEST_API_KEY || null;
+
+/** Build headers for write requests, including API key when configured. */
+function writeHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (INGEST_API_KEY) {
+        headers['X-API-Key'] = INGEST_API_KEY;
+    }
+    return headers;
+}
+
 class APIClient {
     /**
      * Submit a release bundle event
@@ -29,9 +44,7 @@ class APIClient {
     async submitRelease(releaseData) {
         const response = await fetch(`${API_BASE_URL}/events/create`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: writeHeaders(),
             body: JSON.stringify({
                 type: 'CREATE_RELEASE_BUNDLE',
                 body: releaseData,
@@ -56,9 +69,7 @@ class APIClient {
     async prepareEvent(event) {
         const response = await fetch(`${API_BASE_URL}/events/prepare`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: writeHeaders(),
             body: JSON.stringify(event),
         });
 
@@ -81,9 +92,7 @@ class APIClient {
 
         const response = await fetch(`${API_BASE_URL}/events/create`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: writeHeaders(),
             body: JSON.stringify(payload),
         });
 

@@ -186,10 +186,18 @@ export class IngestionHandler {
      * @returns {Promise<boolean>} True if key is authorized
      */
     async isKeyAuthorizedForPermission(accountName, permissionName, publicKey, depth = 0, visited = new Set()) {
-        // Skip verification if no RPC URL configured
+        // Skip verification if no RPC URL configured.
+        // Only safe when REQUIRE_ACCOUNT_AUTH is explicitly false (dev mode).
+        // When auth is required, the server should have failed at startup
+        // before reaching this path — but guard defensively anyway.
         if (!this.config.rpcUrl) {
-            console.warn('⚠ RPC URL not configured - skipping account key verification');
-            return true; // Allow if we can't verify
+            const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
+            if (authRequired) {
+                console.error('RPC URL not configured but REQUIRE_ACCOUNT_AUTH is enabled - denying');
+                return false;
+            }
+            console.warn('RPC URL not configured - skipping account key verification (dev mode)');
+            return true;
         }
 
         // Hard limit: prevent excessive recursion (cycles, abuse)

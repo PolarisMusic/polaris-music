@@ -27,6 +27,10 @@ process.env.REDIS_PORT = process.env.REDIS_PORT || '6379';
 // This is ONLY for testing - production code enforces signature verification
 process.env.ALLOW_UNSIGNED_EVENTS = 'true';
 
+// Skip account authorization in tests (no RPC available)
+// Production enforces this by default; tests run without a blockchain node
+process.env.REQUIRE_ACCOUNT_AUTH = process.env.REQUIRE_ACCOUNT_AUTH || 'false';
+
 // Neo4j validation - warn if not set (tests will use mocks)
 if (!process.env.GRAPH_URI) {
     console.warn('⚠️  GRAPH_URI not set - Neo4j tests will use mocks');
