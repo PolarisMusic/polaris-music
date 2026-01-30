@@ -438,8 +438,9 @@ Response:
 POST /api/events/create
 { ...signedEvent, "expected_hash": "abc123..." }
 
-# Step 4: Client anchors on-chain
-# cleos push action polaris put '["alice.polaris", 60, "abc123...", null, 1700000000, []]' -p alice.polaris
+# Step 4: Client anchors on-chain (7 args: author, type, hash, event_cid, parent, ts, tags)
+# event_cid is the IPFS CID from the /api/events/create response (required for IPFS-based ingestion)
+# cleos push action polaris put '["alice.polaris", 60, "abc123...", "bafy...", null, 1700000000, []]' -p alice.polaris
 
 # Step 5: Substreams → /api/ingest/anchored-event → handleMergeEntity applies merge
 ```

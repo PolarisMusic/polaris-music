@@ -49,6 +49,17 @@ export function createIdentityRoutes(db, store) {
      */
     router.post('/mint', async (req, res) => {
         try {
+            // In chain mode, entity minting must go through the event-sourced pipeline
+            const ingestMode = process.env.INGEST_MODE || 'chain';
+            if (ingestMode === 'chain') {
+                return res.status(501).json({
+                    success: false,
+                    error: 'Direct minting is disabled in chain mode. ' +
+                           'Use the event-sourced pipeline: POST /api/events/prepare (type MINT_ENTITY) ' +
+                           '→ sign → POST /api/events/create → anchor on-chain → ingestion applies mint.'
+                });
+            }
+
             const { entity_type, initial_claims = [], provenance = {} } = req.body;
 
             // Validate entity type
@@ -61,23 +72,47 @@ export function createIdentityRoutes(db, store) {
 
             // Generate canonical ID
             const canonicalId = IdentityService.mintCanonicalId(entity_type);
+            const nowUnix = Math.floor(Date.now() / 1000);
 
-            console.log(`Minting new canonical ${entity_type}: ${canonicalId}`);
+            console.log(`Minting new canonical ${entity_type}: ${canonicalId} (dev mode)`);
 
-            // Create the entity node in the graph
+            // DEV mode: create event + apply immediately
+            const mintEvent = {
+                v: 1,
+                type: 'MINT_ENTITY',
+                author_pubkey: provenance.submitter || 'system',
+                created_at: nowUnix,
+                parents: [],
+                body: {
+                    entity_type,
+                    canonical_id: canonicalId,
+                    initial_claims,
+                    provenance
+                },
+                proofs: { source_links: [] },
+                sig: '' // Dev mode only
+            };
+
+            // Store event for replay
+            const storeResult = await store.storeEvent(mintEvent);
+            const eventHash = storeResult.hash;
+            console.log(`Mint event created (dev mode): ${eventHash}`);
+
+            // Apply immediately: create node in graph
             const session = db.driver.session();
             try {
                 await session.run(
                     `CREATE (n:${capitalizeFirst(entity_type)} {
                         id: $id,
                         status: 'ACTIVE',
-                        created_at: datetime(),
+                        created_at: datetime({epochMillis: $eventTs}),
                         created_by: $submitter,
                         creation_source: $source
                     })
                     RETURN n.id as id`,
                     {
                         id: canonicalId,
+                        eventTs: nowUnix * 1000,
                         submitter: provenance.submitter || 'system',
                         source: provenance.source || 'manual'
                     }
@@ -92,7 +127,7 @@ export function createIdentityRoutes(db, store) {
                              property: $property,
                              value: $value,
                              confidence: $confidence,
-                             created_at: datetime(),
+                             created_at: datetime({epochMillis: $eventTs}),
                              created_by: $submitter
                          })
                          CREATE (c)-[:CLAIMS_ABOUT]->(n)`,
@@ -101,6 +136,7 @@ export function createIdentityRoutes(db, store) {
                             property: claim.property,
                             value: JSON.stringify(claim.value),
                             confidence: claim.confidence || 1.0,
+                            eventTs: nowUnix * 1000,
                             submitter: provenance.submitter || 'system'
                         }
                     );
@@ -110,6 +146,7 @@ export function createIdentityRoutes(db, store) {
                     success: true,
                     canonical_id: canonicalId,
                     status: 'ACTIVE',
+                    eventHash,
                     initial_claims: initial_claims.length,
                     message: `Created canonical ${entity_type}`
                 });
@@ -153,6 +190,17 @@ export function createIdentityRoutes(db, store) {
      */
     router.post('/resolve', async (req, res) => {
         try {
+            // In chain mode, ID resolution must go through the event-sourced pipeline
+            const ingestMode = process.env.INGEST_MODE || 'chain';
+            if (ingestMode === 'chain') {
+                return res.status(501).json({
+                    success: false,
+                    error: 'Direct ID resolution is disabled in chain mode. ' +
+                           'Use the event-sourced pipeline: POST /api/events/prepare (type RESOLVE_ID) ' +
+                           '→ sign → POST /api/events/create → anchor on-chain → ingestion applies resolution.'
+                });
+            }
+
             const {
                 subject_id,
                 canonical_id,
@@ -190,8 +238,34 @@ export function createIdentityRoutes(db, store) {
                 });
             }
 
-            console.log(`Resolving ${subject_id} → ${canonical_id} (${method}, confidence: ${confidence})`);
+            const nowUnix = Math.floor(Date.now() / 1000);
 
+            console.log(`Resolving ${subject_id} → ${canonical_id} (${method}, confidence: ${confidence}) (dev mode)`);
+
+            // DEV mode: create event + apply immediately
+            const resolveEvent = {
+                v: 1,
+                type: 'RESOLVE_ID',
+                author_pubkey: submitter,
+                created_at: nowUnix,
+                parents: [],
+                body: {
+                    subject_id,
+                    canonical_id,
+                    confidence,
+                    method,
+                    evidence
+                },
+                proofs: { source_links: [] },
+                sig: '' // Dev mode only
+            };
+
+            // Store event for replay
+            const storeResult = await store.storeEvent(resolveEvent);
+            const eventHash = storeResult.hash;
+            console.log(`Resolve event created (dev mode): ${eventHash}`);
+
+            // Apply immediately
             const session = db.driver.session();
             try {
                 let mapping;
@@ -225,6 +299,7 @@ export function createIdentityRoutes(db, store) {
 
                 res.status(200).json({
                     success: true,
+                    eventHash,
                     mapping: {
                         ...mapping,
                         subject_id,

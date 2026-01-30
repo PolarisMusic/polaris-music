@@ -345,7 +345,7 @@ export class IngestionHandler {
             let source; // Track which retrieval path was used
 
             if (event_cid) {
-                console.log(`  Using event_cid: ${event_cid.substring(0, 20)}...`);
+                console.log(`  Using event_cid: ${typeof event_cid === 'string' ? event_cid.substring(0, 20) : '<non-string>'}...`);
                 try {
                     event = await this.store.retrieveByEventCid(event_cid);
                     source = 'ipfs_cid';

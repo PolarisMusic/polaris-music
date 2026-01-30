@@ -334,15 +334,22 @@ class APIServer {
             message: { error: 'Too many write requests, please try again later' }
         });
 
-        // API key middleware for ingestion/admin routes only.
-        // Applied to: /api/ingest/anchored-event, /api/merge
+        // API key middleware for ingestion endpoints only.
+        // Applied to: /api/ingest/anchored-event
         // NOT applied to: /api/events/prepare, /api/events/create (public, signature-verified)
         // When INGEST_API_KEY is set, protected endpoints require X-API-Key header.
         // When unset (local dev), protected endpoints are open.
         this.requireApiKey = (req, res, next) => {
             const requiredKey = process.env.INGEST_API_KEY;
             if (!requiredKey) {
-                return next(); // No key configured — open access (dev mode)
+                // In chain mode / production, missing key is a server misconfiguration
+                const ingestMode = process.env.INGEST_MODE || 'chain';
+                if (ingestMode === 'chain' || process.env.NODE_ENV === 'production') {
+                    return res.status(500).json({
+                        error: 'Server misconfigured: INGEST_API_KEY is required in chain/production mode'
+                    });
+                }
+                return next(); // No key configured — open access (dev mode only)
             }
             const provided = req.headers['x-api-key'];
             if (!provided) {
@@ -1853,6 +1860,27 @@ class APIServer {
         }
         if (!rpcUrl) {
             console.warn('Warning: RPC_URL not configured - account auth and signing-key resolution disabled');
+        }
+
+        // Fail fast: if in chain mode / production and INGEST_API_KEY is not set,
+        // the ingestion endpoint would be unprotected — refuse to start.
+        const ingestMode = process.env.INGEST_MODE || 'chain';
+        const hasIngestKey = !!process.env.INGEST_API_KEY;
+        if (!hasIngestKey && (ingestMode === 'chain' || process.env.NODE_ENV === 'production')) {
+            throw new Error(
+                'INGEST_API_KEY is required in chain/production mode to protect ingestion endpoints. ' +
+                'Set INGEST_API_KEY to a strong random value (e.g., openssl rand -hex 32), ' +
+                'or set INGEST_MODE=dev for local development.'
+            );
+        }
+
+        // Fail fast: block ALLOW_UNSIGNED_EVENTS=true in production
+        if (process.env.ALLOW_UNSIGNED_EVENTS === 'true' && process.env.NODE_ENV === 'production') {
+            throw new Error(
+                'ALLOW_UNSIGNED_EVENTS=true is forbidden in production. ' +
+                'This bypasses cryptographic signature verification and undermines event integrity. ' +
+                'Remove ALLOW_UNSIGNED_EVENTS or set NODE_ENV to a non-production value.'
+            );
         }
 
         // Test storage connectivity

@@ -26,29 +26,6 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 class APIClient {
     /**
-     * Submit a release bundle event
-     */
-    async submitRelease(releaseData) {
-        const response = await fetch(`${API_BASE_URL}/events/create`, {
-            method: 'POST',
-            headers: JSON_HEADERS,
-            body: JSON.stringify({
-                type: 'CREATE_RELEASE_BUNDLE',
-                body: releaseData,
-                // Note: In production, this would come from wallet integration
-                author_pubkey: 'PUB_K1_DEMO', // Placeholder
-            }),
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || error.message || 'Failed to submit release');
-        }
-
-        return response.json();
-    }
-
-    /**
      * Prepare event for signing by normalizing and getting canonical hash
      * @param {Object} event - Event object WITHOUT signature
      * @returns {Promise<Object>} { success: true, hash, normalizedEvent }
