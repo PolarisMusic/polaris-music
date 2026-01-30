@@ -12,8 +12,8 @@
 
 import express from 'express';
 import { IdentityService, EntityType, IDKind } from '../../identity/idService.js';
-
-const router = express.Router();
+import { MergeOperations } from '../../graph/merge.js';
+import { getDevSigner } from '../../crypto/devSigner.js';
 
 /**
  * Initialize identity routes with database and event store
@@ -24,6 +24,7 @@ const router = express.Router();
  * @returns {express.Router} Configured router
  */
 export function createIdentityRoutes(db, store, eventProcessor) {
+    const router = express.Router();
     /**
      * POST /api/identity/mint
      * Create a new canonical entity
@@ -76,11 +77,18 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
             console.log(`Minting new canonical ${entity_type}: ${canonicalId} (dev mode)`);
 
-            // DEV mode: create event + apply immediately via EventProcessor
-            const mintEvent = {
+            // DEV mode: create event, sign with DevSigner, apply immediately via EventProcessor
+            const devSigner = getDevSigner();
+            if (!devSigner.isEnabled()) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY in environment.'
+                });
+            }
+
+            const unsignedMintEvent = {
                 v: 1,
                 type: 'MINT_ENTITY',
-                author_pubkey: provenance.submitter || 'system',
                 created_at: nowUnix,
                 parents: [],
                 body: {
@@ -89,11 +97,13 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                     initial_claims,
                     provenance
                 },
-                proofs: { source_links: [] },
-                sig: '' // Dev mode only
+                proofs: { source_links: [] }
             };
 
-            // Store event for replay
+            // Sign with DevSigner — sets author_pubkey and sig
+            const mintEvent = devSigner.signEvent(unsignedMintEvent);
+
+            // Store event for replay (signature verification passes)
             const storeResult = await store.storeEvent(mintEvent);
             const eventHash = storeResult.hash;
             console.log(`Mint event created (dev mode): ${eventHash}`);
@@ -206,11 +216,18 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
             console.log(`Resolving ${subject_id} → ${canonical_id} (${method}, confidence: ${confidence}) (dev mode)`);
 
-            // DEV mode: create event + apply immediately via EventProcessor
-            const resolveEvent = {
+            // DEV mode: create event, sign with DevSigner, apply immediately via EventProcessor
+            const devSigner = getDevSigner();
+            if (!devSigner.isEnabled()) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY in environment.'
+                });
+            }
+
+            const unsignedResolveEvent = {
                 v: 1,
                 type: 'RESOLVE_ID',
-                author_pubkey: submitter,
                 created_at: nowUnix,
                 parents: [],
                 body: {
@@ -220,11 +237,13 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                     method,
                     evidence
                 },
-                proofs: { source_links: [] },
-                sig: '' // Dev mode only
+                proofs: { source_links: [] }
             };
 
-            // Store event for replay
+            // Sign with DevSigner — sets author_pubkey and sig
+            const resolveEvent = devSigner.signEvent(unsignedResolveEvent);
+
+            // Store event for replay (signature verification passes)
             const storeResult = await store.storeEvent(resolveEvent);
             const eventHash = storeResult.hash;
             console.log(`Resolve event created (dev mode): ${eventHash}`);
@@ -322,12 +341,19 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
             console.log(`Merging ${absorbed_ids.length} entities into ${survivor_id}`);
 
-            // DEV mode: create event + apply merge immediately via EventProcessor
+            // DEV mode: create event, sign with DevSigner, apply merge immediately via EventProcessor
             const nowUnix = Math.floor(Date.now() / 1000);
-            const mergeEvent = {
+            const devSigner = getDevSigner();
+            if (!devSigner.isEnabled()) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY in environment.'
+                });
+            }
+
+            const unsignedMergeEvent = {
                 v: 1,
                 type: 'MERGE_ENTITY',
-                author_pubkey: submitter,
                 created_at: nowUnix,
                 parents: [],
                 body: {
@@ -336,13 +362,13 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                     evidence,
                     submitter
                 },
-                proofs: {
-                    source_links: []
-                },
-                sig: '' // Dev mode only; chain mode requires proper signatures
+                proofs: { source_links: [] }
             };
 
-            // Store event to get hash
+            // Sign with DevSigner — sets author_pubkey and sig
+            const mergeEvent = devSigner.signEvent(unsignedMergeEvent);
+
+            // Store event for replay (signature verification passes)
             const storeResult = await store.storeEvent(mergeEvent);
             const eventHash = storeResult.hash;
 

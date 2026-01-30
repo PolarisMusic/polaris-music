@@ -180,7 +180,7 @@ Declares two or more entities are the same. Rewires edges and preserves claims.
 **Payload**:
 ```javascript
 {
-    survivor_cid: "polaris:person:550e8400-...",
+    survivor_id: "polaris:person:550e8400-...",
     absorbed_ids: [
         "polaris:person:123e4567-...",
         "prov:person:fedcba09"

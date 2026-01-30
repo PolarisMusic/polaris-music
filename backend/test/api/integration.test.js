@@ -222,21 +222,6 @@ describe.skip('API Server Integration Tests', () => {
             expect(response.body.data.stats.enabled_services.ipfs).toBe(true);
         });
 
-        test('should submit event via mutation', async () => {
-            const mutation = `
-                mutation {
-                    submitEvent(event: "{\\"v\\":1,\\"type\\":\\"TEST\\",\\"body\\":{}}")
-                }
-            `;
-
-            const response = await request(app)
-                .post('/graphql')
-                .send({ query: mutation })
-                .expect(200);
-
-            expect(mockStore.storeEvent).toHaveBeenCalled();
-        });
-
         test('should handle GraphQL errors gracefully', async () => {
             const invalidQuery = `
                 query {

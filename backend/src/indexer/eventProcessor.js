@@ -629,12 +629,15 @@ class EventProcessor {
             // CRITICAL: Must set both 'id' (universal) and entity-specific field (person_id, group_id, etc.)
             // to satisfy Neo4j uniqueness constraints (e.g., REQUIRE p.person_id IS UNIQUE)
             // Uses MERGE to handle replays: if entity exists, do nothing (idempotent)
+            // Deterministic timestamp from event/block time for replay purity
+            const eventTs = actionData.ts || event.created_at || Math.floor(Date.now() / 1000);
+
             const entityResult = await session.run(
                 `MERGE (n:${nodeLabel} {id: $id})
                 ON CREATE SET
                     n.${idField} = $id,
                     n.status = 'ACTIVE',
-                    n.created_at = datetime(),
+                    n.created_at = datetime({epochSeconds: $eventTs}),
                     n.created_by = $createdBy,
                     n.creation_source = $source,
                     n.event_hash = $eventHash,
@@ -647,6 +650,7 @@ class EventProcessor {
                 RETURN n.id as id, wasCreated`,
                 {
                     id: cid,
+                    eventTs: eventTs,
                     createdBy: actionData.author,  // Always use chain account as submitter-of-record
                     source: provenance.source || 'manual',
                     eventHash: actionData.hash,
@@ -671,7 +675,7 @@ class EventProcessor {
                          c.property = $property,
                          c.value = $value,
                          c.confidence = $confidence,
-                         c.created_at = datetime(),
+                         c.created_at = datetime({epochSeconds: $eventTs}),
                          c.created_by = $submitter,
                          c.provenance_submitter = $provenanceSubmitter,
                          c.event_hash = $eventHash
@@ -679,6 +683,7 @@ class EventProcessor {
                     {
                         entityId: cid,
                         claimId: claimId,
+                        eventTs: eventTs,
                         property: claim.property,
                         value: JSON.stringify(claim.value),
                         confidence: claim.confidence || 1.0,
