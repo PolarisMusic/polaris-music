@@ -1547,11 +1547,21 @@ constructor(config = {}) {
      * @param {*} claimData.value - New value
      * @param {Object} [claimData.source] - Optional source reference
      * @param {string} author - Account making the claim
+     * @param {number} [eventTimestamp] - Event timestamp (Unix seconds or millis). Falls back to Date.now().
      * @returns {Promise<Object>} Result with claimId
      */
-    async processAddClaim(eventHash, claimData, author) {
+    async processAddClaim(eventHash, claimData, author, eventTimestamp) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
+
+        // Deterministic event timestamp (same logic as processReleaseBundle)
+        let eventTs;
+        if (eventTimestamp != null) {
+            const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
+            eventTs = raw < 1e12 ? raw * 1000 : raw;
+        } else {
+            eventTs = Date.now();
+        }
 
         try {
             const claimId = this.generateOpId(eventHash, 0);
@@ -1592,13 +1602,14 @@ constructor(config = {}) {
             const updateRes = await tx.run(`
                 MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
                 SET n.\`${normalizedField}\` = $value,
-                    n.last_updated = datetime(),
+                    n.last_updated = datetime({epochMillis: $eventTs}),
                     n.last_updated_by = $author
                 RETURN n
             `, {
                 nodeId: node.id,
                 value: normalizedValue,
-                author
+                author,
+                eventTs
             });
 
             if (updateRes.records.length === 0) {
@@ -1607,7 +1618,7 @@ constructor(config = {}) {
 
             // Create claim record (idempotent via MERGE)
             await this.createClaim(tx, claimId, node.type, node.id,
-                                 normalizedField, value, eventHash);
+                                 normalizedField, value, eventHash, eventTs);
 
             // Link claim to target node (using validated label and idField from whitelist)
             // This creates the CLAIMS_ABOUT relationship for audit trail
@@ -1663,11 +1674,21 @@ constructor(config = {}) {
      * @param {*} editData.value - New value for the claim
      * @param {Object} [editData.source] - Optional source reference
      * @param {string} author - Account making the edit
+     * @param {number} [eventTimestamp] - Event timestamp (Unix seconds or millis). Falls back to Date.now().
      * @returns {Promise<Object>} Result with newClaimId and oldClaimId
      */
-    async processEditClaim(eventHash, editData, author) {
+    async processEditClaim(eventHash, editData, author, eventTimestamp) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
+
+        // Deterministic event timestamp (same logic as processReleaseBundle)
+        let eventTs;
+        if (eventTimestamp != null) {
+            const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
+            eventTs = raw < 1e12 ? raw * 1000 : raw;
+        } else {
+            eventTs = Date.now();
+        }
 
         try {
             const { claim_id: oldClaimId, value, source } = editData;
@@ -1726,7 +1747,7 @@ constructor(config = {}) {
 
             // Create new claim (idempotent via MERGE)
             await this.createClaim(tx, newClaimId, nodeType, nodeId,
-                                 normalizedField, value, eventHash);
+                                 normalizedField, value, eventHash, eventTs);
 
             // Link new claim to target node
             await tx.run(`
@@ -1744,10 +1765,11 @@ constructor(config = {}) {
                 MATCH (oldClaim:Claim {claim_id: $oldClaimId})
                 MERGE (newClaim)-[:SUPERSEDES]->(oldClaim)
                 SET oldClaim.superseded_by = $newClaimId,
-                    oldClaim.superseded_at = datetime()
+                    oldClaim.superseded_at = datetime({epochMillis: $eventTs})
             `, {
                 newClaimId,
-                oldClaimId
+                oldClaimId,
+                eventTs
             });
 
             // Normalize value for Neo4j storage (handle objects/complex types)
@@ -1759,13 +1781,14 @@ constructor(config = {}) {
             const updateRes = await tx.run(`
                 MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
                 SET n.\`${normalizedField}\` = $value,
-                    n.last_updated = datetime(),
+                    n.last_updated = datetime({epochMillis: $eventTs}),
                     n.last_updated_by = $author
                 RETURN n
             `, {
                 nodeId,
                 value: normalizedValue,
-                author
+                author,
+                eventTs
             });
 
             if (updateRes.records.length === 0) {

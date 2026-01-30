@@ -485,10 +485,13 @@ class EventProcessor {
     async handleAddClaim(event, actionData) {
         console.log(`  Adding claim to ${event.body.node?.type} ${event.body.node?.id}`);
 
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
         await this.db.processAddClaim(
             actionData.hash,
             event.body,
-            actionData.author  // Use chain account as submitter-of-record
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
         );
 
         console.log(`   Claim added`);
@@ -505,10 +508,13 @@ class EventProcessor {
         console.log(`  Editing claim: ${event.body.claim_id}`);
 
         // Edit creates a new claim that supersedes the old one (immutable claims)
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
         await this.db.processEditClaim(
             actionData.hash,
             event.body,
-            actionData.author  // Use chain account as submitter-of-record
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
         );
 
         console.log(`   Claim edited`);
