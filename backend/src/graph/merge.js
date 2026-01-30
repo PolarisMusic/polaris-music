@@ -46,8 +46,18 @@ export class MergeOperations {
             eventHash = null,
             evidence = '',
             rewireEdges = true,
-            moveClaims = true
+            moveClaims = true,
+            eventTimestamp = null
         } = options;
+
+        // Deterministic event timestamp (same pattern as processReleaseBundle)
+        let eventTs;
+        if (eventTimestamp != null) {
+            const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
+            eventTs = raw < 1e12 ? raw * 1000 : raw;
+        } else {
+            eventTs = Date.now();
+        }
 
         // Validate inputs
         if (!survivorId || !absorbedIds || absorbedIds.length === 0) {
@@ -160,10 +170,10 @@ export class MergeOperations {
                          DELETE r
                          CREATE (claim)-[:CLAIMS_ABOUT]->(survivor)
                          SET claim.merged_from = $absorbedId,
-                             claim.merged_at = datetime(),
+                             claim.merged_at = datetime({epochMillis: $eventTs}),
                              claim.merged_by = $submitter
                          RETURN count(*) as moved`,
-                        { absorbedId, survivorId, submitter }
+                        { absorbedId, survivorId, submitter, eventTs }
                     );
 
                     const claimsMoved = claimsResult.records[0]?.get('moved').toNumber() || 0;
@@ -184,7 +194,7 @@ export class MergeOperations {
                     `MATCH (absorbed {id: $absorbedId})
                      SET absorbed.status = $status,
                          absorbed.merged_into = $survivorId,
-                         absorbed.merged_at = datetime(),
+                         absorbed.merged_at = datetime({epochMillis: $eventTs}),
                          absorbed.merged_by = $submitter,
                          absorbed.merge_event_hash = $eventHash,
                          absorbed.merge_evidence = $evidence`,
@@ -194,7 +204,8 @@ export class MergeOperations {
                         survivorId,
                         submitter,
                         eventHash,
-                        evidence
+                        evidence,
+                        eventTs
                     }
                 );
 
@@ -205,9 +216,9 @@ export class MergeOperations {
             // 8. Update survivor metadata
             await tx.run(
                 `MATCH (survivor {id: $survivorId})
-                 SET survivor.last_merged_at = datetime(),
+                 SET survivor.last_merged_at = datetime({epochMillis: $eventTs}),
                      survivor.absorbed_count = coalesce(survivor.absorbed_count, 0) + $absorbedCount`,
-                { survivorId, absorbedCount: absorbedIds.length }
+                { survivorId, absorbedCount: absorbedIds.length, eventTs }
             );
 
             // 9. Safety check: Ensure no TEMP relationships remain

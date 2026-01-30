@@ -31,6 +31,9 @@ process.env.ALLOW_UNSIGNED_EVENTS = 'true';
 // Production enforces this by default; tests run without a blockchain node
 process.env.REQUIRE_ACCOUNT_AUTH = process.env.REQUIRE_ACCOUNT_AUTH || 'false';
 
+// Use dev ingest mode in tests (apply merges immediately, no chain anchoring required)
+process.env.INGEST_MODE = process.env.INGEST_MODE || 'dev';
+
 // Neo4j validation - warn if not set (tests will use mocks)
 if (!process.env.GRAPH_URI) {
     console.warn('⚠️  GRAPH_URI not set - Neo4j tests will use mocks');

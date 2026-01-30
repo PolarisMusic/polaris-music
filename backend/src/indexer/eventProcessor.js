@@ -833,6 +833,28 @@ class EventProcessor {
                 throw new Error(`Survivor must be canonical ID, got: ${survivor_id}`);
             }
 
+            // Idempotency guard: skip if any absorbed node already has this eventHash
+            // This prevents duplicate merge application during replay
+            const eventHash = actionData.hash;
+            if (eventHash) {
+                const idempotencyCheck = await session.run(
+                    `MATCH (n {merge_event_hash: $eventHash})
+                     RETURN count(n) as already_merged`,
+                    { eventHash }
+                );
+                const alreadyMerged = idempotencyCheck.records[0]?.get('already_merged');
+                const count = typeof alreadyMerged?.toNumber === 'function'
+                    ? alreadyMerged.toNumber()
+                    : Number(alreadyMerged || 0);
+                if (count > 0) {
+                    console.log(`  Merge already applied (eventHash=${eventHash}), skipping (idempotent)`);
+                    return;
+                }
+            }
+
+            // Deterministic timestamp from event/block time
+            const eventTimestamp = actionData.ts || event.created_at || null;
+
             // Execute merge with full provenance
             const stats = await MergeOperations.mergeEntities(
                 session,
@@ -840,10 +862,11 @@ class EventProcessor {
                 absorbed_ids,
                 {
                     submitter: submitter || actionData.author,
-                    eventHash: actionData.hash,
+                    eventHash: eventHash,
                     evidence,
                     rewireEdges: strategy.rewire_edges !== false,  // default true
-                    moveClaims: strategy.move_claims !== false     // default true
+                    moveClaims: strategy.move_claims !== false,    // default true
+                    eventTimestamp
                 }
             );
 

@@ -1188,20 +1188,24 @@ class APIServer {
          * POST /api/merge
          * Merge duplicate entities (event-sourced)
          *
-         * Creates a MERGE_ENTITY event, stores it, and performs the merge operation.
-         * Returns the event hash for provenance tracking and replay.
+         * Behavior depends on INGEST_MODE:
+         *   - "chain" (default): Creates + stores MERGE_ENTITY event only.
+         *     Neo4j mutation happens when the event is anchored on-chain and
+         *     ingested via POST /api/ingest/anchored-event → handleMergeEntity.
+         *     Client must anchor the returned eventHash on-chain.
+         *   - "dev": Creates + stores event AND applies merge immediately.
+         *     Fast feedback for local development; event is still stored for replay.
          */
-        this.app.post('/api/merge', async (req, res) => {
+        this.app.post('/api/merge', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
             try {
-                // CRITICAL: This endpoint creates unsigned events (sig: '', invalid author_pubkey)
-                // It will fail with strict signature verification unless explicitly allowed
-                // TODO: Implement proper signature flow for merge events
-                if (process.env.ALLOW_UNSIGNED_EVENTS !== 'true') {
+                // Signature gate: in chain mode, require proper signatures
+                // In dev mode, allow unsigned events for testing convenience
+                const ingestMode = process.env.INGEST_MODE || 'chain';
+                if (ingestMode === 'chain' && process.env.ALLOW_UNSIGNED_EVENTS !== 'true') {
                     return res.status(501).json({
                         success: false,
-                        error: 'This endpoint requires proper event signatures. ' +
-                               'Set ALLOW_UNSIGNED_EVENTS=true for testing only, ' +
-                               'or implement proper signature flow for merge events.'
+                        error: 'Merge events require proper signatures in chain mode. ' +
+                               'Use the prepare → sign → create flow, or set INGEST_MODE=dev for testing.'
                     });
                 }
 
@@ -1216,17 +1220,18 @@ class APIServer {
                 }
 
                 // Create MERGE_ENTITY event
+                const nowUnix = Math.floor(Date.now() / 1000);
                 const mergeEvent = {
                     v: 1,
                     type: 'MERGE_ENTITY',
                     author_pubkey: submitter || 'system',
-                    created_at: Math.floor(Date.now() / 1000),
+                    created_at: nowUnix,
                     parents: [],
                     body: {
                         survivor_id: survivorId,
                         absorbed_ids: absorbedIds,
                         evidence: evidence || '',
-                        merged_at: new Date().toISOString()
+                        submitter: submitter || 'system'
                     },
                     proofs: {
                         source_links: []
@@ -1238,31 +1243,46 @@ class APIServer {
                 const storeResult = await this.store.storeEvent(mergeEvent);
                 const eventHash = storeResult.hash;
 
-                console.log(`Merge event created: ${eventHash}`);
+                console.log(`Merge event created: ${eventHash} (mode=${ingestMode})`);
 
-                // Perform merge operation with event hash
-                const session = this.db.driver.session();
-                try {
-                    const mergeStats = await MergeOperations.mergeEntities(
-                        session,
-                        survivorId,
-                        absorbedIds,
-                        {
-                            submitter: submitter || 'system',
+                if (ingestMode === 'dev') {
+                    // DEV mode: apply merge immediately (fast feedback)
+                    const session = this.db.driver.session();
+                    try {
+                        const mergeStats = await MergeOperations.mergeEntities(
+                            session,
+                            survivorId,
+                            absorbedIds,
+                            {
+                                submitter: submitter || 'system',
+                                eventHash: eventHash,
+                                evidence: evidence || '',
+                                rewireEdges: true,
+                                moveClaims: true,
+                                eventTimestamp: nowUnix
+                            }
+                        );
+
+                        res.status(200).json({
+                            success: true,
+                            mode: 'dev',
                             eventHash: eventHash,
-                            evidence: evidence || '',
-                            rewireEdges: true,
-                            moveClaims: true
-                        }
-                    );
-
-                    res.status(200).json({
+                            merge: mergeStats
+                        });
+                    } finally {
+                        await session.close();
+                    }
+                } else {
+                    // CHAIN mode: event-only, no Neo4j mutation
+                    // Client must anchor eventHash on-chain via put(type=60, hash, event_cid, ...)
+                    // Neo4j mutation happens when ingestion sees the anchored event
+                    res.status(202).json({
                         success: true,
+                        mode: 'chain',
                         eventHash: eventHash,
-                        merge: mergeStats
+                        message: 'Merge event stored. Anchor on-chain to apply: ' +
+                                 `put(type=60, hash="${eventHash}", event_cid=...)`
                     });
-                } finally {
-                    await session.close();
                 }
             } catch (error) {
                 console.error('Merge operation failed:', error);
