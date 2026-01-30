@@ -203,17 +203,6 @@ const schema = buildSchema(`
   }
 
   """
-  Event storage result
-  """
-  type EventStoreResult {
-    hash: String!
-    ipfs: String
-    s3: String
-    redis: Boolean
-    errors: [String!]
-  }
-
-  """
   Root Query type
   """
   type Query {
@@ -245,13 +234,6 @@ const schema = buildSchema(`
     testConnectivity: Boolean!
   }
 
-  """
-  Root Mutation type
-  """
-  type Mutation {
-    """Submit a new event (returns event hash)"""
-    submitEvent(event: String!): EventStoreResult!
-  }
 `);
 
 /**
@@ -708,13 +690,6 @@ class APIServer {
             testConnectivity: async () => {
                 const dbConnected = await this.db.testConnection();
                 return dbConnected;
-            },
-
-            // ========== MUTATIONS ==========
-            submitEvent: async ({ event }) => {
-                const eventObj = JSON.parse(event);
-                const result = await this.store.storeEvent(eventObj);
-                return result;
             }
         };
 
@@ -722,7 +697,7 @@ class APIServer {
         this.app.use('/graphql', graphqlHTTP({
             schema: schema,
             rootValue: root,
-            graphiql: true, // Enable GraphiQL interface in development
+            graphiql: process.env.NODE_ENV !== 'production',
             customFormatErrorFn: (error) => ({
                 message: error.message,
                 locations: error.locations,
@@ -739,7 +714,7 @@ class APIServer {
     setupRESTEndpoints() {
         // ========== IDENTITY MANAGEMENT ==========
         // Mount identity routes
-        const identityRouter = createIdentityRoutes(this.db, this.store);
+        const identityRouter = createIdentityRoutes(this.db, this.store, this.eventProcessor);
         this.app.use('/api/identity', identityRouter);
         console.log(' Identity management endpoints mounted at /api/identity');
 
