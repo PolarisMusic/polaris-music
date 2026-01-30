@@ -703,8 +703,8 @@ class PolarisApp {
                 // active permission and tell us which one matched.
                 console.log('Wallet did not return signing key. Asking backend to resolve...');
                 actualSigningKey = await api.resolveSigningKey(
-                    sessionInfo.actor,
-                    'active',
+                    sessionInfo.accountName,
+                    sessionInfo.permission,
                     this.currentTransaction.canonicalPayload,
                     signResult.signature
                 );
