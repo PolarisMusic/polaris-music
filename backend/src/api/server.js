@@ -25,7 +25,7 @@ import EventProcessor from '../indexer/eventProcessor.js';
 import { createIdentityRoutes } from './routes/identity.js';
 import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
-import { MergeOperations } from '../graph/merge.js';
+
 import { IngestionHandler } from './ingestion.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
@@ -334,9 +334,11 @@ class APIServer {
             message: { error: 'Too many write requests, please try again later' }
         });
 
-        // API key middleware for write routes.
-        // When INGEST_API_KEY is set, all write endpoints require X-API-Key header.
-        // When unset (local dev), write endpoints are open.
+        // API key middleware for ingestion/admin routes only.
+        // Applied to: /api/ingest/anchored-event, /api/merge
+        // NOT applied to: /api/events/prepare, /api/events/create (public, signature-verified)
+        // When INGEST_API_KEY is set, protected endpoints require X-API-Key header.
+        // When unset (local dev), protected endpoints are open.
         this.requireApiKey = (req, res, next) => {
             const requiredKey = process.env.INGEST_API_KEY;
             if (!requiredKey) {
@@ -1184,114 +1186,10 @@ class APIServer {
             }
         });
 
-        /**
-         * POST /api/merge
-         * Merge duplicate entities (event-sourced)
-         *
-         * Behavior depends on INGEST_MODE:
-         *   - "chain" (default): Creates + stores MERGE_ENTITY event only.
-         *     Neo4j mutation happens when the event is anchored on-chain and
-         *     ingested via POST /api/ingest/anchored-event → handleMergeEntity.
-         *     Client must anchor the returned eventHash on-chain.
-         *   - "dev": Creates + stores event AND applies merge immediately.
-         *     Fast feedback for local development; event is still stored for replay.
-         */
-        this.app.post('/api/merge', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
-            try {
-                // Signature gate: in chain mode, require proper signatures
-                // In dev mode, allow unsigned events for testing convenience
-                const ingestMode = process.env.INGEST_MODE || 'chain';
-                if (ingestMode === 'chain' && process.env.ALLOW_UNSIGNED_EVENTS !== 'true') {
-                    return res.status(501).json({
-                        success: false,
-                        error: 'Merge events require proper signatures in chain mode. ' +
-                               'Use the prepare → sign → create flow, or set INGEST_MODE=dev for testing.'
-                    });
-                }
-
-                const { survivorId, absorbedIds, evidence, submitter } = req.body;
-
-                // Validate inputs
-                if (!survivorId || !absorbedIds || !Array.isArray(absorbedIds) || absorbedIds.length === 0) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'survivorId and absorbedIds (non-empty array) are required'
-                    });
-                }
-
-                // Create MERGE_ENTITY event
-                const nowUnix = Math.floor(Date.now() / 1000);
-                const mergeEvent = {
-                    v: 1,
-                    type: 'MERGE_ENTITY',
-                    author_pubkey: submitter || 'system',
-                    created_at: nowUnix,
-                    parents: [],
-                    body: {
-                        survivor_id: survivorId,
-                        absorbed_ids: absorbedIds,
-                        evidence: evidence || '',
-                        submitter: submitter || 'system'
-                    },
-                    proofs: {
-                        source_links: []
-                    },
-                    sig: '' // In production, should be signed by submitter
-                };
-
-                // Store event (creates hash)
-                const storeResult = await this.store.storeEvent(mergeEvent);
-                const eventHash = storeResult.hash;
-
-                console.log(`Merge event created: ${eventHash} (mode=${ingestMode})`);
-
-                if (ingestMode === 'dev') {
-                    // DEV mode: apply merge immediately (fast feedback)
-                    const session = this.db.driver.session();
-                    try {
-                        const mergeStats = await MergeOperations.mergeEntities(
-                            session,
-                            survivorId,
-                            absorbedIds,
-                            {
-                                submitter: submitter || 'system',
-                                eventHash: eventHash,
-                                evidence: evidence || '',
-                                rewireEdges: true,
-                                moveClaims: true,
-                                eventTimestamp: nowUnix
-                            }
-                        );
-
-                        res.status(200).json({
-                            success: true,
-                            mode: 'dev',
-                            eventHash: eventHash,
-                            merge: mergeStats
-                        });
-                    } finally {
-                        await session.close();
-                    }
-                } else {
-                    // CHAIN mode: event-only, no Neo4j mutation
-                    // Client must anchor eventHash on-chain via put(type=60, hash, event_cid, ...)
-                    // Neo4j mutation happens when ingestion sees the anchored event
-                    res.status(202).json({
-                        success: true,
-                        mode: 'chain',
-                        eventHash: eventHash,
-                        message: 'Merge event stored. Anchor on-chain to apply: ' +
-                                 `put(type=60, hash="${eventHash}", event_cid=...)`
-                    });
-                }
-            } catch (error) {
-                console.error('Merge operation failed:', error);
-                res.status(400).json({
-                    success: false,
-                    error: error.message
-                });
-            }
-        });
+        // NOTE: /api/merge has been removed. Merges go through:
+        //   - Chain mode: POST /api/events/prepare → sign → POST /api/events/create → anchor on-chain
+        //   - Dev mode: POST /api/identity/merge (applies immediately, stores event for replay)
+        // See docs/12-identity-protocol.md for the canonical merge workflow.
 
         // ========== CHAIN INGESTION ENDPOINT (T5) ==========
 
@@ -1964,7 +1862,7 @@ class APIServer {
         // Start listening
         return new Promise((resolve) => {
             this.server = this.app.listen(this.port, () => {
-                console.log(`\n=� Polaris Music Registry API Server`);
+                console.log(`\n== Polaris Music Registry API Server`);
                 console.log(`   GraphQL: http://localhost:${this.port}/graphql`);
                 console.log(`   REST:    http://localhost:${this.port}/api`);
                 console.log(`   Health:  http://localhost:${this.port}/health`);

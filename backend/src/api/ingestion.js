@@ -616,7 +616,7 @@ export class IngestionHandler {
             }
 
             // Step 5: Extract action metadata from payload
-            const { author, type, hash, parent, ts, tags = [] } = actionData;
+            const { author, type, hash, event_cid, parent, ts, tags = [] } = actionData;
 
             // Verify payload hash matches content_hash (normalize both for comparison)
             if (hash) {
@@ -637,10 +637,12 @@ export class IngestionHandler {
             };
 
             // Create put action data format
+            // CRITICAL: Include event_cid so processPutAction can prefer IPFS CID retrieval
             const putActionData = {
                 author,
                 type,
                 hash: contentHash, // Use normalized content_hash from anchored event
+                event_cid,
                 parent,
                 ts,
                 tags
