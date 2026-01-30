@@ -22,20 +22,7 @@ function normalizeApiUrl(url) {
 
 const API_BASE_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
-/**
- * Optional API key for write endpoints.
- * Set VITE_INGEST_API_KEY in .env if the backend requires X-API-Key.
- */
-const INGEST_API_KEY = import.meta.env.VITE_INGEST_API_KEY || null;
-
-/** Build headers for write requests, including API key when configured. */
-function writeHeaders() {
-    const headers = { 'Content-Type': 'application/json' };
-    if (INGEST_API_KEY) {
-        headers['X-API-Key'] = INGEST_API_KEY;
-    }
-    return headers;
-}
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 class APIClient {
     /**
@@ -44,7 +31,7 @@ class APIClient {
     async submitRelease(releaseData) {
         const response = await fetch(`${API_BASE_URL}/events/create`, {
             method: 'POST',
-            headers: writeHeaders(),
+            headers: JSON_HEADERS,
             body: JSON.stringify({
                 type: 'CREATE_RELEASE_BUNDLE',
                 body: releaseData,
@@ -55,7 +42,7 @@ class APIClient {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to submit release');
+            throw new Error(error.error || error.message || 'Failed to submit release');
         }
 
         return response.json();
@@ -69,13 +56,13 @@ class APIClient {
     async prepareEvent(event) {
         const response = await fetch(`${API_BASE_URL}/events/prepare`, {
             method: 'POST',
-            headers: writeHeaders(),
+            headers: JSON_HEADERS,
             body: JSON.stringify(event),
         });
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to prepare event');
+            throw new Error(error.error || error.message || 'Failed to prepare event');
         }
 
         return response.json();
@@ -92,13 +79,13 @@ class APIClient {
 
         const response = await fetch(`${API_BASE_URL}/events/create`, {
             method: 'POST',
-            headers: writeHeaders(),
+            headers: JSON_HEADERS,
             body: JSON.stringify(payload),
         });
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to store event');
+            throw new Error(error.error || error.message || 'Failed to store event');
         }
 
         return response.json();
@@ -114,7 +101,7 @@ class APIClient {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to retrieve event');
+            throw new Error(error.error || error.message || 'Failed to retrieve event');
         }
 
         const data = await response.json();

@@ -274,6 +274,19 @@ export function createIdentityRoutes(db, store) {
      */
     router.post('/merge', async (req, res) => {
         try {
+            // In chain mode, merges must go through the event-sourced pipeline:
+            // POST /api/events/prepare → sign → POST /api/events/create → anchor on-chain
+            // Neo4j mutation only happens via ingestion of chain-anchored MERGE_ENTITY event.
+            const ingestMode = process.env.INGEST_MODE || 'chain';
+            if (ingestMode === 'chain') {
+                return res.status(501).json({
+                    success: false,
+                    error: 'Direct merge is disabled in chain mode. ' +
+                           'Use the event-sourced pipeline: POST /api/events/prepare (type MERGE_ENTITY) ' +
+                           '→ sign → POST /api/events/create → anchor on-chain → ingestion applies merge.'
+                });
+            }
+
             const {
                 survivor_id,
                 absorbed_ids,
@@ -299,34 +312,35 @@ export function createIdentityRoutes(db, store) {
 
             console.log(`Merging ${absorbed_ids.length} entities into ${survivor_id}`);
 
-            // Create MERGE_ENTITY event for provenance
+            // DEV mode: create event + apply merge immediately
+            const nowUnix = Math.floor(Date.now() / 1000);
             const mergeEvent = {
                 v: 1,
                 type: 'MERGE_ENTITY',
                 author_pubkey: submitter,
-                created_at: Math.floor(Date.now() / 1000),
+                created_at: nowUnix,
                 parents: [],
                 body: {
                     survivor_id,
                     absorbed_ids,
                     evidence,
-                    merged_at: new Date().toISOString()
+                    submitter
                 },
                 proofs: {
                     source_links: []
                 },
-                sig: '' // In production, should be signed by submitter
+                sig: '' // Dev mode only; chain mode requires proper signatures
             };
 
             // Store event to get hash
             const storeResult = await store.storeEvent(mergeEvent);
             const eventHash = storeResult.hash;
 
-            console.log(`Merge event created: ${eventHash}`);
+            console.log(`Merge event created (dev mode): ${eventHash}`);
 
             const session = db.driver.session();
             try {
-                // Execute merge with event hash
+                // Execute merge with event hash and deterministic timestamp
                 const stats = await MergeOperations.mergeEntities(
                     session,
                     survivor_id,
@@ -334,9 +348,10 @@ export function createIdentityRoutes(db, store) {
                     {
                         submitter,
                         evidence,
-                        eventHash, // Now has proper event hash
+                        eventHash,
                         rewireEdges: true,
-                        moveClaims: true
+                        moveClaims: true,
+                        eventTimestamp: nowUnix
                     }
                 );
 

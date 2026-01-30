@@ -821,7 +821,7 @@ class APIServer {
          *
          * @returns {Object} { success: true, hash, normalizedEvent }
          */
-        this.app.post('/api/events/prepare', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
+        this.app.post('/api/events/prepare', this.writeRateLimiter, async (req, res) => {
             try {
                 const event = req.body;
 
@@ -1099,7 +1099,7 @@ class APIServer {
          * @param {string} req.body.expected_hash - Optional. Expected hash from /api/events/prepare.
          *                                          If provided and doesn't match computed hash, returns 400.
          */
-        this.app.post('/api/events/create', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
+        this.app.post('/api/events/create', this.writeRateLimiter, async (req, res) => {
             try {
                 const { expected_hash, ...event } = req.body;
 

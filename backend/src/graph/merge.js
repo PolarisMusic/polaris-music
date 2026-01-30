@@ -125,9 +125,9 @@ export class MergeOperations {
                 // 3. Rewire incoming edges
                 if (rewireEdges) {
                     const incomingResult = await tx.run(
-                        `MATCH (source)-[r]->(absorbed {id: $absorbedId})
-                         WHERE source.id <> $survivorId
-                         MATCH (survivor {id: $survivorId})
+                        `MATCH (survivor {id: $survivorId})
+                         MATCH (source)-[r]->(absorbed {id: $absorbedId})
+                         WHERE source <> survivor
                          WITH source, r, absorbed, survivor, type(r) as relType, properties(r) as props
                          CREATE (source)-[r2:TEMP]->(survivor)
                          SET r2 = props
@@ -145,9 +145,9 @@ export class MergeOperations {
                 // 4. Rewire outgoing edges
                 if (rewireEdges) {
                     const outgoingResult = await tx.run(
-                        `MATCH (absorbed {id: $absorbedId})-[r]->(target)
-                         WHERE target.id <> $survivorId
-                         MATCH (survivor {id: $survivorId})
+                        `MATCH (survivor {id: $survivorId})
+                         MATCH (absorbed {id: $absorbedId})-[r]->(target)
+                         WHERE target <> survivor
                          WITH absorbed, r, target, survivor, type(r) as relType, properties(r) as props
                          CREATE (survivor)-[r2:TEMP]->(target)
                          SET r2 = props
