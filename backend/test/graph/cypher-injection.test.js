@@ -30,6 +30,9 @@ describeOrSkip('Cypher Injection Prevention', () => {
         driver = graphDb.driver;
 
         await driver.verifyConnectivity();
+        // Clear DB to prevent pollution from prior test files
+        const cleanSession = driver.session();
+        try { await cleanSession.run('MATCH (n) DETACH DELETE n'); } finally { await cleanSession.close(); }
         await graphDb.initializeSchema();
 
     });

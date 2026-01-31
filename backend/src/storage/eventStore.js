@@ -63,6 +63,10 @@ class EventStore {
     constructor(config) {
         this.config = config;
 
+        // In-memory store for test mode: allows storeEvent → getEvent round-trip
+        // without real IPFS/S3/Redis. Keyed by hash.
+        this._testStore = process.env.NODE_ENV === 'test' ? new Map() : null;
+
         // Initialize IPFS client(s) - supports multiple nodes for redundancy
         // Priority: config.ipfs.urls > config.ipfs.url (backward compat)
         this.ipfsClients = [];
@@ -338,9 +342,10 @@ class EventStore {
         const successCount = [results.canonical_cid, results.event_cid, results.s3, results.redis].filter(Boolean).length;
 
         if (successCount === 0) {
-            // In test mode with no providers, return a mock result instead of failing.
-            // Graph/indexer tests need storeEvent to succeed but don't care about real storage.
-            if (process.env.NODE_ENV === 'test') {
+            // In test mode with no providers, use in-memory store so
+            // storeEvent → getEvent round-trips work without real storage.
+            if (process.env.NODE_ENV === 'test' && this._testStore) {
+                this._testStore.set(hash, event);
                 results.event_cid = `mock-cid-${hash.substring(0, 16)}`;
                 results.stored = { mock: true };
                 this.stats.stored++;
@@ -475,6 +480,14 @@ class EventStore {
                 }
             } catch (error) {
                 console.warn(`  ✗ S3 retrieval failed: ${error.message}`);
+            }
+        }
+
+        // Test-mode fallback: retrieve from in-memory store
+        if (!event && this._testStore) {
+            event = this._testStore.get(normalizedHash);
+            if (event) {
+                source = 'test-memory';
             }
         }
 

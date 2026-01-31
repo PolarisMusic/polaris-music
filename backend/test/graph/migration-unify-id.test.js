@@ -68,6 +68,9 @@ describeOrSkip('ID Unification Migration (001-unify-id-property)', () => {
         );
 
         await driver.verifyConnectivity();
+        // Clear DB to prevent pollution from prior test files
+        const cleanSession = driver.session();
+        try { await cleanSession.run('MATCH (n) DETACH DELETE n'); } finally { await cleanSession.close(); }
     });
 
     afterAll(async () => {
