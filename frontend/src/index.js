@@ -820,25 +820,28 @@ class PolarisApp {
             if (INGEST_MODE === 'dev') {
                 console.log('\n=== STEP 4: Dev-mode ingestion into graph ===');
                 try {
+                    const actionData = {
+                        author: this.currentTransaction.authorAccount,
+                        type: 21,
+                        hash: this.currentTransaction.eventHash,
+                        event_cid: eventCid,
+                        parent: null,
+                        ts: Math.floor(Date.now() / 1000),
+                        tags: ['release', 'submission'],
+                    };
+
                     const anchoredEvent = {
                         content_hash: this.currentTransaction.eventHash,
-                        payload: {
-                            author: this.currentTransaction.authorAccount,
-                            type: 21,
-                            hash: this.currentTransaction.eventHash,
-                            parent: null,
-                            ts: Math.floor(Date.now() / 1000),
-                            tags: ['release', 'submission'],
-                            event_cid: eventCid
-                        },
-                        contract: CONTRACT_ACCOUNT,
-                        action: 'put',
-                        trx_id: txResult.resolved?.transaction?.id || '',
-                        timestamp: new Date().toISOString(),
-                        block_num: txResult.resolved?.transaction?.block_num || 0,
+                        payload: JSON.stringify(actionData),
+                        contract_account: CONTRACT_ACCOUNT,
+                        action_name: 'put',
+                        trx_id: txResult?.resolved?.transaction?.id
+                            || txResult?.transaction_id || '',
+                        timestamp: Math.floor(Date.now() / 1000),
+                        block_num: txResult?.resolved?.transaction?.block_num || 0,
                         block_id: '',
-                        action_index: 0,
-                        global_sequence: 0
+                        action_ordinal: 0,
+                        source: 'ui-dev',
                     };
                     ingestResult = await api.ingestAnchoredEvent(anchoredEvent);
                     console.log('Dev-mode ingestion result:', ingestResult);

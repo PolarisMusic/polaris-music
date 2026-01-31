@@ -101,17 +101,14 @@ jobs:
         REDIS_PASSWORD: ''
         SKIP_GRAPH_TESTS: 'false'
 
-    - name: Generate coverage report
+    - name: Generate coverage report (unit tests only)
       working-directory: backend
       run: npm run test:coverage --if-present || echo "Coverage not configured"
       env:
         NODE_ENV: test
-        GRAPH_URI: bolt://localhost:7687
-        GRAPH_USER: neo4j
-        GRAPH_PASSWORD: testpassword
         REDIS_HOST: localhost
         REDIS_PORT: 6379
-        SKIP_GRAPH_TESTS: 'false'
+        SKIP_GRAPH_TESTS: 'true'
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

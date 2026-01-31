@@ -1206,7 +1206,7 @@ class APIServer {
          */
         this.app.post('/api/ingest/anchored-event', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
             try {
-                const anchoredEvent = req.body;
+                const anchoredEvent = req.body.anchoredEvent || req.body;
 
                 // Validate required fields (content_hash is canonical, event_hash is optional)
                 if (!anchoredEvent.content_hash || !anchoredEvent.payload) {
