@@ -77,7 +77,7 @@ jobs:
 
     - name: Run graph tests (serial, shared Neo4j)
       working-directory: backend
-      run: npx jest --runInBand --testPathPattern='test/(graph|indexer)/'
+      run: npm run test:graph:ci
       env:
         NODE_ENV: test
         GRAPH_URI: bolt://localhost:7687
