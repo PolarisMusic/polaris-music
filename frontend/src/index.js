@@ -866,7 +866,7 @@ class PolarisApp {
                 Release submitted successfully!
 
                 Event Hash: ${this.currentTransaction.eventHash.substring(0, 16)}...
-                Transaction ID: ${txResult.resolved?.transaction?.id || 'pending'}
+                Transaction ID: ${txResult?.resolved?.transaction?.id || txResult?.transaction_id || 'pending'}
 
                 Stored in:
                 ${storageInfo.join('\n')}${ingestStatus}

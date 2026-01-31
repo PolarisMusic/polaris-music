@@ -24,6 +24,8 @@ const API_BASE_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
+const INGEST_API_KEY = import.meta.env.VITE_INGEST_API_KEY || '';
+
 class APIClient {
     /**
      * Prepare event for signing by normalizing and getting canonical hash
@@ -190,9 +192,14 @@ class APIClient {
      * @returns {Promise<Object>} Ingestion result
      */
     async ingestAnchoredEvent(anchoredEvent) {
+        const headers = { ...JSON_HEADERS };
+        if (INGEST_API_KEY) {
+            headers['X-API-Key'] = INGEST_API_KEY;
+        }
+
         const response = await fetch(`${API_BASE_URL}/ingest/anchored-event`, {
             method: 'POST',
-            headers: JSON_HEADERS,
+            headers,
             body: JSON.stringify(anchoredEvent),
         });
 
