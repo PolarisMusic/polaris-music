@@ -9,6 +9,7 @@ import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
 import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
+import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
 
 class PolarisApp {
     constructor() {
@@ -813,7 +814,49 @@ class PolarisApp {
 
             console.log('Blockchain transaction result:', txResult);
 
+            // In dev mode, ingest the anchored event directly into Neo4j
+            // so the graph updates immediately without needing Substreams
+            let ingestResult = null;
+            if (INGEST_MODE === 'dev') {
+                console.log('\n=== STEP 4: Dev-mode ingestion into graph ===');
+                try {
+                    const anchoredEvent = {
+                        content_hash: this.currentTransaction.eventHash,
+                        payload: {
+                            author: this.currentTransaction.authorAccount,
+                            type: 21,
+                            hash: this.currentTransaction.eventHash,
+                            parent: null,
+                            ts: Math.floor(Date.now() / 1000),
+                            tags: ['release', 'submission'],
+                            event_cid: eventCid
+                        },
+                        contract: CONTRACT_ACCOUNT,
+                        action: 'put',
+                        trx_id: txResult.resolved?.transaction?.id || '',
+                        timestamp: new Date().toISOString(),
+                        block_num: txResult.resolved?.transaction?.block_num || 0,
+                        block_id: '',
+                        action_index: 0,
+                        global_sequence: 0
+                    };
+                    ingestResult = await api.ingestAnchoredEvent(anchoredEvent);
+                    console.log('Dev-mode ingestion result:', ingestResult);
+                } catch (ingestError) {
+                    console.error('Dev-mode ingestion failed:', ingestError);
+                    // Don't fail the overall submission — tx already succeeded
+                    ingestResult = { error: ingestError.message };
+                }
+            }
+
             this.showLoading(false);
+
+            // Build ingestion status line for dev mode
+            const ingestStatus = INGEST_MODE === 'dev'
+                ? (ingestResult?.error
+                    ? `\nIngestion: FAILED — ${ingestResult.error}`
+                    : '\nIngested into graph: ✓')
+                : '';
 
             // Show success with storage details
             const successMessage = `
@@ -823,7 +866,7 @@ class PolarisApp {
                 Transaction ID: ${txResult.resolved?.transaction?.id || 'pending'}
 
                 Stored in:
-                ${storageInfo.join('\n')}
+                ${storageInfo.join('\n')}${ingestStatus}
             `.trim();
 
             this.showToast(successMessage, 'success');

@@ -65,9 +65,19 @@ jobs:
       working-directory: backend
       run: npm run lint --if-present || echo "Linting not configured"
 
-    - name: Run unit tests
+    - name: Run unit tests (no graph)
       working-directory: backend
       run: npm test
+      env:
+        NODE_ENV: test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        REDIS_PASSWORD: ''
+        SKIP_GRAPH_TESTS: 'true'
+
+    - name: Run graph tests (serial, shared Neo4j)
+      working-directory: backend
+      run: npx jest --runInBand --testPathPattern='test/(graph|indexer)/'
       env:
         NODE_ENV: test
         GRAPH_URI: bolt://localhost:7687

@@ -21,7 +21,7 @@ describeOrSkip('ADD_CLAIM Event Processing', () => {
     let session;
 
     const testEventHash = 'test-event-hash-add-claim-123';
-    const testPersonId = 'polaris:person:11111111-1111-1111-1111-111111111111';
+    const testPersonId = 'polaris:person:add-claim-1111-1111-1111-111111111111';
 
     beforeAll(async () => {
         // Connect to test database

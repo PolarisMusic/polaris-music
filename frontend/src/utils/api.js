@@ -172,6 +172,38 @@ class APIClient {
     }
 
     /**
+     * Ingest an anchored event into the graph database (dev mode only).
+     *
+     * Called after a successful blockchain transaction so the graph is
+     * updated immediately without needing Substreams/SHiP running.
+     *
+     * @param {Object} anchoredEvent - Anchored event payload
+     * @param {string} anchoredEvent.content_hash - Canonical content hash from put.hash
+     * @param {Object} anchoredEvent.payload - Raw action data (author, type, hash, etc.)
+     * @param {string} anchoredEvent.trx_id - Blockchain transaction ID
+     * @param {string} anchoredEvent.timestamp - ISO timestamp (chain time or fallback)
+     * @param {number} anchoredEvent.block_num - Block number (0 in dev)
+     * @param {string} anchoredEvent.block_id - Block ID (empty in dev)
+     * @param {number} anchoredEvent.action_index - Action index (0 in dev)
+     * @param {number} anchoredEvent.global_sequence - Global sequence (0 in dev)
+     * @returns {Promise<Object>} Ingestion result
+     */
+    async ingestAnchoredEvent(anchoredEvent) {
+        const response = await fetch(`${API_BASE_URL}/ingest/anchored-event`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ anchoredEvent }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || error.message || 'Failed to ingest anchored event');
+        }
+
+        return response.json();
+    }
+
+    /**
      * Health check
      */
     async healthCheck() {
