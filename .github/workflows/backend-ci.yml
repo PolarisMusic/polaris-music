@@ -76,6 +76,7 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         REDIS_PASSWORD: ''
+        SKIP_GRAPH_TESTS: 'false'
 
     - name: Run integration tests
       working-directory: backend
@@ -88,6 +89,7 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         REDIS_PASSWORD: ''
+        SKIP_GRAPH_TESTS: 'false'
 
     - name: Generate coverage report
       working-directory: backend
@@ -99,6 +101,7 @@ jobs:
         GRAPH_PASSWORD: testpassword
         REDIS_HOST: localhost
         REDIS_PORT: 6379
+        SKIP_GRAPH_TESTS: 'false'
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
