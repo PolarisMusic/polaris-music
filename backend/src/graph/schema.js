@@ -23,6 +23,35 @@ import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js
 import { normalizeRole, normalizeRoles, normalizeRoleInput } from './roleNormalization.js';
 
 /**
+ * Normalize an event timestamp to a Neo4j Integer suitable for
+ * datetime({epochMillis: ...}).  Neo4j rejects JS doubles even when
+ * they look like whole numbers, so we must wrap the value with neo4j.int().
+ *
+ * Accepts Unix seconds, millis, numeric strings, or ISO date strings.
+ * Falls back to Date.now() when the input is null/undefined.
+ *
+ * @param {number|string|null|undefined} eventTimestamp
+ * @returns {import('neo4j-driver').Integer} Neo4j Integer (epoch millis)
+ */
+function toNeo4jEpochMillis(eventTimestamp) {
+    let raw;
+    if (eventTimestamp == null) {
+        raw = Date.now();
+    } else if (typeof eventTimestamp === 'number') {
+        raw = eventTimestamp;
+    } else {
+        raw = Number(eventTimestamp);
+        if (!Number.isFinite(raw)) {
+            const parsed = Date.parse(String(eventTimestamp));
+            raw = Number.isFinite(parsed) ? parsed : Date.now();
+        }
+    }
+    // Distinguish seconds (< 1e12) from millis (>= 1e12)
+    const ms = raw < 1e12 ? raw * 1000 : raw;
+    return neo4j.int(Math.trunc(ms));
+}
+
+/**
  * Whitelist mapping for safe node type validation.
  * Prevents Cypher injection by validating node.type against known entity types.
  *
@@ -475,7 +504,7 @@ constructor(config = {}) {
             // APOC plugin is required for merge operations
             try {
                 const apocResult = await session.run(
-                    `CALL dbms.procedures() YIELD name
+                    `SHOW PROCEDURES YIELD name
                      WHERE name STARTS WITH 'apoc.'
                      RETURN count(name) as apocCount`
                 );
@@ -531,18 +560,7 @@ constructor(config = {}) {
         const tx = session.beginTransaction();
 
         try {
-            // Compute deterministic event timestamp for replay consistency.
-            // eventTimestamp may be Unix seconds (from contract ts) or millis;
-            // normalize to milliseconds. Falls back to wall-clock time for
-            // older events that lack a timestamp.
-            let eventTs;
-            if (eventTimestamp != null) {
-                const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
-                // Distinguish seconds (< 1e12) from millis (>= 1e12)
-                eventTs = raw < 1e12 ? raw * 1000 : raw;
-            } else {
-                eventTs = Date.now();
-            }
+            const eventTs = toNeo4jEpochMillis(eventTimestamp);
 
             // Validate required fields
             if (!eventHash || !bundle || !bundle.release) {
@@ -1554,14 +1572,7 @@ constructor(config = {}) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
 
-        // Deterministic event timestamp (same logic as processReleaseBundle)
-        let eventTs;
-        if (eventTimestamp != null) {
-            const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
-            eventTs = raw < 1e12 ? raw * 1000 : raw;
-        } else {
-            eventTs = Date.now();
-        }
+        const eventTs = toNeo4jEpochMillis(eventTimestamp);
 
         try {
             const claimId = this.generateOpId(eventHash, 0);
@@ -1681,14 +1692,7 @@ constructor(config = {}) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
 
-        // Deterministic event timestamp (same logic as processReleaseBundle)
-        let eventTs;
-        if (eventTimestamp != null) {
-            const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
-            eventTs = raw < 1e12 ? raw * 1000 : raw;
-        } else {
-            eventTs = Date.now();
-        }
+        const eventTs = toNeo4jEpochMillis(eventTimestamp);
 
         try {
             const { claim_id: oldClaimId, value, source } = editData;
