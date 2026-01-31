@@ -352,6 +352,185 @@ describe('normalizeReleaseBundle', () => {
         });
     });
 
+    describe('Sample coercion (samples-as-objects)', () => {
+        it('should coerce string sample IDs into SampleCredit objects', () => {
+            const bundle = {
+                release: { name: 'Sample Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Beat Track',
+                        samples: [
+                            'polaris:track:abc123',
+                            'polaris:track:def456'
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { position: '1', track_title: 'Beat Track', track_id: 'trk_1' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            expect(normalized.tracks[0].samples).toHaveLength(2);
+            expect(normalized.tracks[0].samples[0]).toEqual({
+                sampled_track_id: 'polaris:track:abc123'
+            });
+            expect(normalized.tracks[0].samples[1]).toEqual({
+                sampled_track_id: 'polaris:track:def456'
+            });
+        });
+
+        it('should coerce legacy { track_id } to { sampled_track_id }', () => {
+            const bundle = {
+                release: { name: 'Sample Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Beat Track',
+                        samples: [
+                            { track_id: 'polaris:track:legacy1', title: 'Old Sample' }
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { position: '1', track_title: 'Beat Track', track_id: 'trk_1' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            expect(normalized.tracks[0].samples).toHaveLength(1);
+            expect(normalized.tracks[0].samples[0].sampled_track_id).toBe('polaris:track:legacy1');
+            expect(normalized.tracks[0].samples[0].sampled_track_title).toBe('Old Sample');
+            // Legacy key should not be present
+            expect(normalized.tracks[0].samples[0].track_id).toBeUndefined();
+            expect(normalized.tracks[0].samples[0].title).toBeUndefined();
+        });
+
+        it('should pass through canonical SampleCredit objects', () => {
+            const bundle = {
+                release: { name: 'Sample Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Beat Track',
+                        samples: [
+                            {
+                                sampled_track_id: 'polaris:track:canonical1',
+                                sampled_track_title: 'Original Song',
+                                portion_used: 'chorus melody',
+                                cleared: true,
+                                source: {
+                                    type: 'whosampled',
+                                    url: 'https://whosampled.com/example'
+                                }
+                            }
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { position: '1', track_title: 'Beat Track', track_id: 'trk_1' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            const sample = normalized.tracks[0].samples[0];
+            expect(sample.sampled_track_id).toBe('polaris:track:canonical1');
+            expect(sample.sampled_track_title).toBe('Original Song');
+            expect(sample.portion_used).toBe('chorus melody');
+            expect(sample.cleared).toBe(true);
+            expect(sample.source).toEqual({
+                type: 'whosampled',
+                url: 'https://whosampled.com/example'
+            });
+        });
+
+        it('should filter out invalid sample entries (no ID)', () => {
+            const bundle = {
+                release: { name: 'Sample Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Beat Track',
+                        samples: [
+                            { sampled_track_id: 'polaris:track:valid1' },
+                            { portion_used: 'drums' },  // Missing ID — should be filtered
+                            null,
+                            42
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { position: '1', track_title: 'Beat Track', track_id: 'trk_1' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            expect(normalized.tracks[0].samples).toHaveLength(1);
+            expect(normalized.tracks[0].samples[0].sampled_track_id).toBe('polaris:track:valid1');
+        });
+
+        it('should sanitize source to only allowed keys (type, url, accessed_at)', () => {
+            const bundle = {
+                release: { name: 'Sample Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Beat Track',
+                        samples: [
+                            {
+                                sampled_track_id: 'polaris:track:src1',
+                                source: {
+                                    type: 'whosampled',
+                                    url: 'https://whosampled.com/example',
+                                    accessed_at: '2025-01-01T00:00:00Z',
+                                    foo: 'bar',
+                                    extra_key: 'should be stripped'
+                                }
+                            }
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { position: '1', track_title: 'Beat Track', track_id: 'trk_1' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            const source = normalized.tracks[0].samples[0].source;
+            expect(source.type).toBe('whosampled');
+            expect(source.url).toBe('https://whosampled.com/example');
+            expect(source.accessed_at).toBe('2025-01-01T00:00:00Z');
+            // Extra keys should be stripped
+            expect(source.foo).toBeUndefined();
+            expect(source.extra_key).toBeUndefined();
+        });
+
+        it('should not include samples key when track has no samples', () => {
+            const bundle = {
+                release: { name: 'Clean Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Original Song'
+                    }
+                ],
+                tracklist: [
+                    { position: '1', track_title: 'Original Song', track_id: 'trk_1' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            expect(normalized.tracks[0].samples).toBeUndefined();
+        });
+    });
+
     describe('Frontend tracklist shape (Item 5 Revised)', () => {
         it('should accept frontend tracklist shape with track_id, disc_side, track_number', () => {
             // Frontend sends: { track_id, disc_side, track_number }

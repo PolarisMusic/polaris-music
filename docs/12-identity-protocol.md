@@ -180,7 +180,7 @@ Declares two or more entities are the same. Rewires edges and preserves claims.
 **Payload**:
 ```javascript
 {
-    survivor_cid: "polaris:person:550e8400-...",
+    survivor_id: "polaris:person:550e8400-...",
     absorbed_ids: [
         "polaris:person:123e4567-...",
         "prov:person:fedcba09"
@@ -403,7 +403,49 @@ Response:
 }
 ```
 
-### Merge entities
+### Merge entities (event-sourced)
+
+In **chain mode** (production), merges follow the standard event-sourced pipeline.
+Direct mutation via `POST /api/identity/merge` is disabled; use the prepare → sign → anchor flow:
+
+```http
+# Step 1: Prepare a MERGE_ENTITY event
+POST /api/events/prepare
+{
+    "v": 1,
+    "type": "MERGE_ENTITY",
+    "author_pubkey": "PUB_K1_...",
+    "created_at": 1700000000,
+    "parents": [],
+    "body": {
+        "survivor_id": "polaris:person:550e8400-...",
+        "absorbed_ids": ["polaris:person:123e4567-..."],
+        "evidence": "Same person, typo in second entry",
+        "submitter": "alice.polaris"
+    },
+    "proofs": { "source_links": [] }
+}
+
+Response:
+{
+    "success": true,
+    "hash": "abc123...",
+    "normalizedEvent": { ... }
+}
+
+# Step 2: Client signs the normalizedEvent with their wallet key
+# Step 3: Store the signed event
+POST /api/events/create
+{ ...signedEvent, "expected_hash": "abc123..." }
+
+# Step 4: Client anchors on-chain (7 args: author, type, hash, event_cid, parent, ts, tags)
+# event_cid is the IPFS CID from the /api/events/create response (required for IPFS-based ingestion)
+# cleos push action polaris put '["alice.polaris", 60, "abc123...", "bafy...", null, 1700000000, []]' -p alice.polaris
+
+# Step 5: Substreams → /api/ingest/anchored-event → handleMergeEntity applies merge
+```
+
+In **dev mode** (`INGEST_MODE=dev`), `POST /api/identity/merge` is available for convenience:
 
 ```http
 POST /api/identity/merge
@@ -416,11 +458,14 @@ POST /api/identity/merge
 
 Response:
 {
-    "survivor_id": "polaris:person:550e8400-...",
-    "absorbed_count": 1,
-    "edges_rewired": 47,
-    "claims_moved": 12,
-    "status": "completed"
+    "success": true,
+    "eventHash": "abc123...",
+    "merge_result": {
+        "absorbedCount": 1,
+        "edgesRewired": 47,
+        "claimsMoved": 12,
+        "tombstonesCreated": 1
+    }
 }
 ```
 

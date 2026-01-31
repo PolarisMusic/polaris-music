@@ -39,9 +39,12 @@ Comprehensive runbook including:
 
 ### 3. Event-Sourced Merge Endpoint ✅
 
-**File**: `backend/src/api/server.js` (lines 758-833)
+> **NOTE**: `POST /api/merge` has been **removed**. Merges now use the canonical
+> event-sourced pipeline: `POST /api/events/prepare` → sign → `POST /api/events/create`
+> → anchor on-chain → ingestion applies merge. In dev mode, `POST /api/identity/merge`
+> is available as a convenience wrapper. See `docs/12-identity-protocol.md`.
 
-**Endpoint**: `POST /api/merge`
+**Endpoint (removed)**: ~~`POST /api/merge`~~
 
 **Request Body**:
 ```json
@@ -217,9 +220,9 @@ MATCH (g:Group {id: $id})   // ✅ Always works
 ### Event-Sourced Merge Flow
 
 ```
-1. Client Request
-   POST /api/merge
-   { survivorId, absorbedIds, evidence }
+1. Client Request (chain mode: use /api/events/prepare → sign → /api/events/create → anchor)
+   (dev mode: POST /api/identity/merge for convenience)
+   { survivor_id, absorbed_ids, evidence }
 
 2. Create MERGE_ENTITY Event
    { type: MERGE_ENTITY, body: { survivor_id, absorbed_ids, ... } }
@@ -329,8 +332,8 @@ curl -X POST http://localhost:3000/api/releases \
   -H "Content-Type: application/json" \
   -d '{"release": {...}, "groups": [...], ...}'
 
-# 3. Perform merge
-curl -X POST http://localhost:3000/api/merge \
+# 3. Perform merge (dev mode — chain mode uses event-sourced pipeline)
+curl -X POST http://localhost:3000/api/identity/merge \
   -H "Content-Type: application/json" \
   -d '{
     "survivorId": "person:abc123",

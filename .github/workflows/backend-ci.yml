@@ -65,9 +65,19 @@ jobs:
       working-directory: backend
       run: npm run lint --if-present || echo "Linting not configured"
 
-    - name: Run unit tests
+    - name: Run unit tests (no graph)
       working-directory: backend
       run: npm test
+      env:
+        NODE_ENV: test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        REDIS_PASSWORD: ''
+        SKIP_GRAPH_TESTS: 'true'
+
+    - name: Run graph tests (serial, shared Neo4j)
+      working-directory: backend
+      run: npm run test:graph:ci
       env:
         NODE_ENV: test
         GRAPH_URI: bolt://localhost:7687
@@ -76,6 +86,7 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         REDIS_PASSWORD: ''
+        SKIP_GRAPH_TESTS: 'false'
 
     - name: Run integration tests
       working-directory: backend
@@ -88,17 +99,16 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         REDIS_PASSWORD: ''
+        SKIP_GRAPH_TESTS: 'false'
 
-    - name: Generate coverage report
+    - name: Generate coverage report (unit tests only)
       working-directory: backend
       run: npm run test:coverage --if-present || echo "Coverage not configured"
       env:
         NODE_ENV: test
-        GRAPH_URI: bolt://localhost:7687
-        GRAPH_USER: neo4j
-        GRAPH_PASSWORD: testpassword
         REDIS_HOST: localhost
         REDIS_PORT: 6379
+        SKIP_GRAPH_TESTS: 'true'
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

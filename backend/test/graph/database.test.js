@@ -302,7 +302,7 @@ describe.skip('MusicGraphDatabase', () => {
                         id: 'id:1',
                         name: 'The Beatles',
                         altNames: ['Fab Four'],
-                        status: 'canonical'
+                        status: 'ACTIVE'
                     }[field])
                 }
             ];

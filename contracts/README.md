@@ -114,11 +114,16 @@ cleos push action polaris init '["fractally", "eosio.token"]' -p polaris
 # Create a hash (in real usage, this comes from the off-chain event)
 HASH="0000000000000000000000000000000000000000000000000000000000000001"
 
+# IPFS CID of the full signed event JSON (returned by /api/events/create)
+EVENT_CID="bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenpcqywm4"
+
 # Submit a release bundle event
+# put(author, type, hash, event_cid, parent, ts, tags)
 cleos push action polaris put '[
   "alice",
   21,
   "'$HASH'",
+  "'$EVENT_CID'",
   null,
   '$(date +%s)',
   ["rock", "album", "1970s"]

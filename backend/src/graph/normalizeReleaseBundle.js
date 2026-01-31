@@ -452,7 +452,9 @@ function normalizeTrack(track) {
                     if (title) canonical.sampled_track_title = title;
                     if (s.portion_used) canonical.portion_used = s.portion_used;
                     if (s.cleared !== undefined) canonical.cleared = s.cleared;
-                    if (s.source) canonical.source = s.source;
+                    if (s.source && typeof s.source === 'object') {
+                        canonical.source = normalizeSource(s.source);
+                    }
                     return canonical;
                 }
                 return null;

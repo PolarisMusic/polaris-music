@@ -33,6 +33,8 @@ const config = {
     substreamsEndpoint: process.env.SUBSTREAMS_ENDPOINT || 'jungle4.substreams.pinax.network:443',
     // Accept either SUBSTREAMS_API_TOKEN or SUBSTREAMS_API_KEY (TOKEN preferred)
     apiToken: process.env.SUBSTREAMS_API_TOKEN || process.env.SUBSTREAMS_API_KEY || '',
+    // Backend ingestion API key (must match INGEST_API_KEY on the backend)
+    ingestApiKey: process.env.INGEST_API_KEY || '',
     startBlock: process.env.START_BLOCK || '0',
     contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
 
@@ -87,6 +89,8 @@ Options:
 
 Environment Variables:
   BACKEND_URL            Backend base URL (without /api suffix)
+  INGEST_API_KEY         Backend write endpoint API key (must match backend INGEST_API_KEY)
+                         If set, sent as X-API-Key header on every request
   SUBSTREAMS_ENDPOINT    Substreams endpoint (default: jungle4.substreams.pinax.network:443)
   SUBSTREAMS_API_TOKEN   Pinax API token (REQUIRED - get from https://app.pinax.network)
   SUBSTREAMS_API_KEY     Alias for SUBSTREAMS_API_TOKEN (either works)
@@ -162,6 +166,7 @@ const providerHost = config.substreamsEndpoint.split(':')[0];
 const isPinax = providerHost.includes('pinax.network');
 console.log(`Provider:            ${isPinax ? 'Pinax' : 'Custom'} (${providerHost})`);
 console.log(`API Token:           ${config.apiToken ? '✓ Configured' : '✗ Missing'}`);
+console.log(`Ingest API Key:      ${config.ingestApiKey ? '✓ Configured' : '- Not set (open access)'}`);
 console.log('');
 
 // Detect ingestion mode (local vs Pinax)
@@ -294,11 +299,14 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
     const timeoutId = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
     try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (config.ingestApiKey) {
+            headers['X-API-Key'] = config.ingestApiKey;
+        }
+
         const response = await fetch(`${config.backendUrl}/api/ingest/anchored-event`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers,
             body: JSON.stringify(anchoredEvent),
             signal: controller.signal, // AbortController signal for timeout
         });

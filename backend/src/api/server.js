@@ -16,6 +16,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { graphqlHTTP } from 'express-graphql';
 import { buildSchema } from 'graphql';
 import MusicGraphDatabase from '../graph/schema.js';
@@ -24,10 +25,12 @@ import EventProcessor from '../indexer/eventProcessor.js';
 import { createIdentityRoutes } from './routes/identity.js';
 import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
-import { MergeOperations } from '../graph/merge.js';
+
 import { IngestionHandler } from './ingestion.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
+import { createHash, timingSafeEqual } from 'crypto';
+import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
 
 /**
  * GraphQL Schema Definition
@@ -200,17 +203,6 @@ const schema = buildSchema(`
   }
 
   """
-  Event storage result
-  """
-  type EventStoreResult {
-    hash: String!
-    ipfs: String
-    s3: String
-    redis: Boolean
-    errors: [String!]
-  }
-
-  """
   Root Query type
   """
   type Query {
@@ -242,13 +234,6 @@ const schema = buildSchema(`
     testConnectivity: Boolean!
   }
 
-  """
-  Root Mutation type
-  """
-  type Mutation {
-    """Submit a new event (returns event hash)"""
-    submitEvent(event: String!): EventStoreResult!
-  }
 `);
 
 /**
@@ -307,7 +292,7 @@ class APIServer {
         this.app.use(cors({
             origin: corsOrigin,
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-            allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+            allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-API-Key'],
             credentials: false
         }));
         console.log(` CORS enabled for origin(s): ${origins.join(', ')}`);
@@ -320,6 +305,48 @@ class APIServer {
             console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
             next();
         });
+
+        // Rate limiting for write routes (coarse, IP-based)
+        // Prevents storage cost blow-up and graph pollution from spammy clients
+        this.writeRateLimiter = rateLimit({
+            windowMs: 60 * 1000, // 1-minute window
+            max: 30,             // 30 write requests per minute per IP
+            standardHeaders: true,
+            legacyHeaders: false,
+            message: { error: 'Too many write requests, please try again later' }
+        });
+
+        // API key middleware for ingestion endpoints only.
+        // Applied to: /api/ingest/anchored-event
+        // NOT applied to: /api/events/prepare, /api/events/create (public, signature-verified)
+        // When INGEST_API_KEY is set, protected endpoints require X-API-Key header.
+        // When unset (local dev), protected endpoints are open.
+        this.requireApiKey = (req, res, next) => {
+            const requiredKey = process.env.INGEST_API_KEY;
+            if (!requiredKey) {
+                // In chain mode / production, missing key is a server misconfiguration
+                const ingestMode = process.env.INGEST_MODE || 'chain';
+                if (ingestMode === 'chain' || process.env.NODE_ENV === 'production') {
+                    return res.status(500).json({
+                        error: 'Server misconfigured: INGEST_API_KEY is required in chain/production mode'
+                    });
+                }
+                return next(); // No key configured — open access (dev mode only)
+            }
+            const provided = req.headers['x-api-key'];
+            if (!provided) {
+                return res.status(401).json({ error: 'Missing X-API-Key header' });
+            }
+            // Constant-time comparison to prevent timing attacks
+            if (provided.length !== requiredKey.length ||
+                !timingSafeEqual(
+                    Buffer.from(provided),
+                    Buffer.from(requiredKey)
+                )) {
+                return res.status(403).json({ error: 'Invalid API key' });
+            }
+            next();
+        };
     }
 
     /**
@@ -663,13 +690,6 @@ class APIServer {
             testConnectivity: async () => {
                 const dbConnected = await this.db.testConnection();
                 return dbConnected;
-            },
-
-            // ========== MUTATIONS ==========
-            submitEvent: async ({ event }) => {
-                const eventObj = JSON.parse(event);
-                const result = await this.store.storeEvent(eventObj);
-                return result;
             }
         };
 
@@ -677,7 +697,7 @@ class APIServer {
         this.app.use('/graphql', graphqlHTTP({
             schema: schema,
             rootValue: root,
-            graphiql: true, // Enable GraphiQL interface in development
+            graphiql: process.env.NODE_ENV !== 'production',
             customFormatErrorFn: (error) => ({
                 message: error.message,
                 locations: error.locations,
@@ -685,7 +705,7 @@ class APIServer {
             })
         }));
 
-        console.log(' GraphQL endpoint configured at /graphql');
+        console.log(' GraphQL endpoint configured at /graphql');
     }
 
     /**
@@ -694,7 +714,7 @@ class APIServer {
     setupRESTEndpoints() {
         // ========== IDENTITY MANAGEMENT ==========
         // Mount identity routes
-        const identityRouter = createIdentityRoutes(this.db, this.store);
+        const identityRouter = createIdentityRoutes(this.db, this.store, this.eventProcessor);
         this.app.use('/api/identity', identityRouter);
         console.log(' Identity management endpoints mounted at /api/identity');
 
@@ -785,7 +805,7 @@ class APIServer {
          *
          * @returns {Object} { success: true, hash, normalizedEvent }
          */
-        this.app.post('/api/events/prepare', async (req, res) => {
+        this.app.post('/api/events/prepare', this.writeRateLimiter, async (req, res) => {
             try {
                 const event = req.body;
 
@@ -941,6 +961,119 @@ class APIServer {
         });
 
         /**
+         * POST /api/crypto/resolve-signing-key
+         * Determine which of an account's permission keys produced a given signature.
+         *
+         * When the wallet does not return the signing public key (signingKey is null
+         * on the frontend), the frontend calls this endpoint so the backend can
+         * try each key in the permission and return the one that verifies.
+         *
+         * Request body:
+         * {
+         *   "account":           "alice",            // blockchain account name
+         *   "permission":        "active",           // permission to inspect
+         *   "canonical_payload": "<json-string>",    // canonical JSON that was signed
+         *   "signature":         "SIG_K1_..."        // EOSIO signature to verify
+         * }
+         *
+         * Response (200):
+         * { "success": true, "signing_key": "EOS6..." }
+         *
+         * Response (400): missing/invalid fields
+         * Response (404): no matching key found
+         */
+        this.app.post('/api/crypto/resolve-signing-key', async (req, res) => {
+            try {
+                // RPC is required for key resolution — fail clearly if unavailable
+                const rpcUrl = process.env.RPC_URL || this.config.rpcUrl;
+                if (!rpcUrl) {
+                    return res.status(503).json({
+                        success: false,
+                        error: 'RPC_URL not configured — cannot resolve signing keys'
+                    });
+                }
+
+                const { account, permission, canonical_payload, signature } = req.body;
+
+                // Validate required fields
+                if (!account || !permission || !canonical_payload || !signature) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Missing required fields: account, permission, canonical_payload, signature'
+                    });
+                }
+
+                // Hash the canonical payload (same as verifyEventSignature)
+                const payloadHash = createHash('sha256')
+                    .update(canonical_payload)
+                    .digest();
+
+                // Parse the signature once
+                let sig;
+                try {
+                    sig = Signature.fromString(signature);
+                } catch (parseErr) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Invalid signature format: ${parseErr.message}`
+                    });
+                }
+
+                // Fetch account permissions via IngestionHandler's cached RPC helper
+                const accountData = await this.ingestionHandler.fetchAccountData(account);
+                if (!accountData) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Cannot fetch account data for '${account}'`
+                    });
+                }
+
+                const perm = accountData.permissions?.find(p => p.perm_name === permission);
+                if (!perm) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Permission '${permission}' not found for account '${account}'`
+                    });
+                }
+
+                const keys = perm.required_auth?.keys || [];
+                if (keys.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        error: `No keys found in permission '${permission}' for account '${account}'`
+                    });
+                }
+
+                // Try each key until one verifies
+                for (const keyEntry of keys) {
+                    try {
+                        const pubKey = PublicKey.fromString(keyEntry.key);
+                        if (sig.verify(payloadHash, pubKey)) {
+                            return res.json({
+                                success: true,
+                                signing_key: keyEntry.key
+                            });
+                        }
+                    } catch {
+                        // Key parse/verify failure — skip to next key
+                    }
+                }
+
+                // None matched
+                return res.status(404).json({
+                    success: false,
+                    error: 'Signature does not match any key in the specified permission'
+                });
+            } catch (error) {
+                console.error('resolve-signing-key failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
          * POST /api/events/create
          * Submit a new event to storage and blockchain
          *
@@ -950,7 +1083,7 @@ class APIServer {
          * @param {string} req.body.expected_hash - Optional. Expected hash from /api/events/prepare.
          *                                          If provided and doesn't match computed hash, returns 400.
          */
-        this.app.post('/api/events/create', async (req, res) => {
+        this.app.post('/api/events/create', this.writeRateLimiter, async (req, res) => {
             try {
                 const { expected_hash, ...event } = req.body;
 
@@ -1035,94 +1168,10 @@ class APIServer {
             }
         });
 
-        /**
-         * POST /api/merge
-         * Merge duplicate entities (event-sourced)
-         *
-         * Creates a MERGE_ENTITY event, stores it, and performs the merge operation.
-         * Returns the event hash for provenance tracking and replay.
-         */
-        this.app.post('/api/merge', async (req, res) => {
-            try {
-                // CRITICAL: This endpoint creates unsigned events (sig: '', invalid author_pubkey)
-                // It will fail with strict signature verification unless explicitly allowed
-                // TODO: Implement proper signature flow for merge events
-                if (process.env.ALLOW_UNSIGNED_EVENTS !== 'true') {
-                    return res.status(501).json({
-                        success: false,
-                        error: 'This endpoint requires proper event signatures. ' +
-                               'Set ALLOW_UNSIGNED_EVENTS=true for testing only, ' +
-                               'or implement proper signature flow for merge events.'
-                    });
-                }
-
-                const { survivorId, absorbedIds, evidence, submitter } = req.body;
-
-                // Validate inputs
-                if (!survivorId || !absorbedIds || !Array.isArray(absorbedIds) || absorbedIds.length === 0) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'survivorId and absorbedIds (non-empty array) are required'
-                    });
-                }
-
-                // Create MERGE_ENTITY event
-                const mergeEvent = {
-                    v: 1,
-                    type: 'MERGE_ENTITY',
-                    author_pubkey: submitter || 'system',
-                    created_at: Math.floor(Date.now() / 1000),
-                    parents: [],
-                    body: {
-                        survivor_id: survivorId,
-                        absorbed_ids: absorbedIds,
-                        evidence: evidence || '',
-                        merged_at: new Date().toISOString()
-                    },
-                    proofs: {
-                        source_links: []
-                    },
-                    sig: '' // In production, should be signed by submitter
-                };
-
-                // Store event (creates hash)
-                const storeResult = await this.store.storeEvent(mergeEvent);
-                const eventHash = storeResult.hash;
-
-                console.log(`Merge event created: ${eventHash}`);
-
-                // Perform merge operation with event hash
-                const session = this.db.driver.session();
-                try {
-                    const mergeStats = await MergeOperations.mergeEntities(
-                        session,
-                        survivorId,
-                        absorbedIds,
-                        {
-                            submitter: submitter || 'system',
-                            eventHash: eventHash,
-                            evidence: evidence || '',
-                            rewireEdges: true,
-                            moveClaims: true
-                        }
-                    );
-
-                    res.status(200).json({
-                        success: true,
-                        eventHash: eventHash,
-                        merge: mergeStats
-                    });
-                } finally {
-                    await session.close();
-                }
-            } catch (error) {
-                console.error('Merge operation failed:', error);
-                res.status(400).json({
-                    success: false,
-                    error: error.message
-                });
-            }
-        });
+        // NOTE: /api/merge has been removed. Merges go through:
+        //   - Chain mode: POST /api/events/prepare → sign → POST /api/events/create → anchor on-chain
+        //   - Dev mode: POST /api/identity/merge (applies immediately, stores event for replay)
+        // See docs/12-identity-protocol.md for the canonical merge workflow.
 
         // ========== CHAIN INGESTION ENDPOINT (T5) ==========
 
@@ -1155,9 +1204,9 @@ class APIServer {
          *   processing?: Object
          * }
          */
-        this.app.post('/api/ingest/anchored-event', async (req, res) => {
+        this.app.post('/api/ingest/anchored-event', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
             try {
-                const anchoredEvent = req.body;
+                const anchoredEvent = req.body.anchoredEvent || req.body;
 
                 // Validate required fields (content_hash is canonical, event_hash is optional)
                 if (!anchoredEvent.content_hash || !anchoredEvent.payload) {
@@ -1702,7 +1751,7 @@ class APIServer {
             }
         });
 
-        console.log(' REST endpoints configured');
+        console.log(' REST endpoints configured');
     }
 
     /**
@@ -1739,10 +1788,10 @@ class APIServer {
         // Test database connection
         const dbConnected = await this.db.testConnection();
         if (!dbConnected) {
-            console.error(' Failed to connect to database');
+            console.error(' Failed to connect to database');
             throw new Error('Database connection failed');
         }
-        console.log(' Database connected');
+        console.log(' Database connected');
 
         // Initialize database schema (constraints, indexes)
         // Controlled by GRAPH_INIT_SCHEMA env var (default: true in dev, configurable in prod)
@@ -1774,14 +1823,49 @@ class APIServer {
             }
         }
 
+        // Fail fast: if account auth is required but RPC is not configured,
+        // the server cannot verify signing keys and should not start.
+        const requireAuth = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
+        const rpcUrl = process.env.RPC_URL || this.config.rpcUrl;
+        if (requireAuth && !rpcUrl) {
+            throw new Error(
+                'REQUIRE_ACCOUNT_AUTH is enabled but RPC_URL is not configured. ' +
+                'Set RPC_URL to a blockchain RPC endpoint, or set REQUIRE_ACCOUNT_AUTH=false for development.'
+            );
+        }
+        if (!rpcUrl) {
+            console.warn('Warning: RPC_URL not configured - account auth and signing-key resolution disabled');
+        }
+
+        // Fail fast: if in chain mode / production and INGEST_API_KEY is not set,
+        // the ingestion endpoint would be unprotected — refuse to start.
+        const ingestMode = process.env.INGEST_MODE || 'chain';
+        const hasIngestKey = !!process.env.INGEST_API_KEY;
+        if (!hasIngestKey && (ingestMode === 'chain' || process.env.NODE_ENV === 'production')) {
+            throw new Error(
+                'INGEST_API_KEY is required in chain/production mode to protect ingestion endpoints. ' +
+                'Set INGEST_API_KEY to a strong random value (e.g., openssl rand -hex 32), ' +
+                'or set INGEST_MODE=dev for local development.'
+            );
+        }
+
+        // Fail fast: block ALLOW_UNSIGNED_EVENTS=true in production
+        if (process.env.ALLOW_UNSIGNED_EVENTS === 'true' && process.env.NODE_ENV === 'production') {
+            throw new Error(
+                'ALLOW_UNSIGNED_EVENTS=true is forbidden in production. ' +
+                'This bypasses cryptographic signature verification and undermines event integrity. ' +
+                'Remove ALLOW_UNSIGNED_EVENTS or set NODE_ENV to a non-production value.'
+            );
+        }
+
         // Test storage connectivity
         const storageStatus = await this.store.testConnectivity();
-        console.log(' Storage status:', storageStatus);
+        console.log(' Storage status:', storageStatus);
 
         // Start listening
         return new Promise((resolve) => {
             this.server = this.app.listen(this.port, () => {
-                console.log(`\n=� Polaris Music Registry API Server`);
+                console.log(`\n== Polaris Music Registry API Server`);
                 console.log(`   GraphQL: http://localhost:${this.port}/graphql`);
                 console.log(`   REST:    http://localhost:${this.port}/api`);
                 console.log(`   Health:  http://localhost:${this.port}/health`);
@@ -1795,7 +1879,7 @@ class APIServer {
                 console.log(`     NODE_ENV: ${nodeEnv}`);
                 console.log(`     DEV_SIGNER_PRIVATE_KEY: ${hasDevKey ? 'set' : 'not set'}`);
 
-                console.log(`\n Server ready\n`);
+                console.log(`\n Server ready\n`);
                 resolve();
             });
         });
@@ -1822,7 +1906,7 @@ class APIServer {
             });
         }
 
-        console.log(' Server stopped');
+        console.log(' Server stopped');
     }
 }
 

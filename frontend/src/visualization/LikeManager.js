@@ -2,8 +2,10 @@
  * LikeManager - Handles blockchain submission of likes
  *
  * Integrates with WalletManager to submit likes to the blockchain
- * via the polaris smart contract.
+ * via the polaris smart contract's like(account, node_id, node_path) action.
  */
+
+import { CONTRACT_ACCOUNT } from '../config/chain.js';
 
 export class LikeManager {
     constructor(walletManager, pathTracker) {
@@ -113,28 +115,32 @@ export class LikeManager {
 
             // Convert path to checksum256 array (truncate if too long)
             const maxPathLength = 20; // Blockchain limit
-            const truncatedPath = nodePath.slice(-maxPathLength).map(id => {
-                // Convert node ID to checksum256 format if needed
-                return this.nodeIdToChecksum256(id);
-            });
+            const truncatedPath = [];
+            for (const id of nodePath.slice(-maxPathLength)) {
+                truncatedPath.push(await this.nodeIdToChecksum256(id));
+            }
 
-            // Prepare action
+            const nodeHash = await this.nodeIdToChecksum256(nodeId);
+            const actor = this.walletManager.session.actor.toString();
+
+            // Use the contract's dedicated like(account, node_id, node_path) action.
+            // This is a separate action from put() — it records node likes directly.
             const action = {
-                account: 'polaris', // Contract account
+                account: CONTRACT_ACCOUNT,
                 name: 'like',
                 authorization: [{
                     actor: this.walletManager.session.actor,
                     permission: this.walletManager.session.permission
                 }],
                 data: {
-                    account: this.walletManager.session.actor.toString(),
-                    node_id: this.nodeIdToChecksum256(nodeId),
+                    account: actor,
+                    node_id: nodeHash,
                     node_path: truncatedPath
                 }
             };
 
             // Submit transaction
-            const result = await this.walletManager.transact([action]);
+            const result = await this.walletManager.transact(action);
 
             console.log('Like submitted to blockchain:', result);
 
@@ -158,34 +164,18 @@ export class LikeManager {
 
     /**
      * Convert node ID to checksum256 format
+     * Always returns a Promise so callers can consistently await the result.
      * @param {string} nodeId - Node ID
-     * @returns {string} Checksum256 format
+     * @returns {Promise<string>} Checksum256 hex string
      */
-    nodeIdToChecksum256(nodeId) {
+    async nodeIdToChecksum256(nodeId) {
         // If already in checksum256 format (64 hex characters), return as-is
         if (/^[a-f0-9]{64}$/i.test(nodeId)) {
             return nodeId.toLowerCase();
         }
 
-        // Otherwise, hash the node ID to get checksum256
-        // This is a simple implementation; production should use proper SHA-256
-        const crypto = window.crypto || window.msCrypto;
-        if (crypto && crypto.subtle) {
-            // Use Web Crypto API for proper hashing
-            // Note: This returns a Promise, so caller should await
-            return this.sha256(nodeId);
-        }
-
-        // Fallback: Simple hash (NOT SECURE - only for development)
-        let hash = 0;
-        for (let i = 0; i < nodeId.length; i++) {
-            const char = nodeId.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32bit integer
-        }
-
-        // Pad to 64 hex characters
-        return Math.abs(hash).toString(16).padStart(64, '0');
+        // Use Web Crypto API for SHA-256 hashing
+        return this.sha256(nodeId);
     }
 
     /**

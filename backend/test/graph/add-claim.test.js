@@ -13,7 +13,7 @@ import neo4j from 'neo4j-driver';
 import GraphDatabaseService from '../../src/graph/schema.js';
 
 // Skip these tests if no database is configured
-const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
 
 describeOrSkip('ADD_CLAIM Event Processing', () => {
     let driver;
@@ -21,7 +21,7 @@ describeOrSkip('ADD_CLAIM Event Processing', () => {
     let session;
 
     const testEventHash = 'test-event-hash-add-claim-123';
-    const testPersonId = 'polaris:person:11111111-1111-1111-1111-111111111111';
+    const testPersonId = 'polaris:person:add-claim-1111-1111-1111-111111111111';
 
     beforeAll(async () => {
         // Connect to test database

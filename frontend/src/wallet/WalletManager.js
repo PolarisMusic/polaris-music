@@ -253,15 +253,27 @@ export class WalletManager {
 
     /**
      * Perform a transaction
-     * @param {Object} action - Transaction action
+     * @param {Object|Array<Object>} actionsOrAction - Single action or array of actions
      * @returns {Promise<Object>} Transaction result
      */
-    async transact(action) {
+    async transact(actionsOrAction) {
         if (!this.session) {
             throw new Error('No active session. Please connect your wallet first.');
         }
 
+        // Normalize to array — WharfKit expects { actions: [...] }
+        const actions = Array.isArray(actionsOrAction)
+            ? actionsOrAction
+            : [actionsOrAction];
+
         try {
+            console.log('Transact:', {
+                actionCount: actions.length,
+                account: actions[0]?.account,
+                name: actions[0]?.name,
+                actor: actions[0]?.authorization?.[0]?.actor
+            });
+
             // Conditionally provide ABI based on USE_LOCAL_ABI flag
             // Production: WharfKit fetches ABI from deployed contract (no abiProvider)
             // Dev/Test: Use local ABI fallback for resilience
@@ -269,20 +281,19 @@ export class WalletManager {
                 ? {
                     abiProvider: {
                         getAbi: async (account) => {
-                            // Provide Polaris ABI if requested for configured contract account
-                            if (account === this.config.contractAccount) {
+                            // Convert to string to handle WharfKit Name objects
+                            const accountStr = typeof account === 'string'
+                                ? account : String(account);
+                            if (accountStr === this.config.contractAccount) {
                                 return POLARIS_ABI;
                             }
-                            // Otherwise fetch from blockchain
                             return null;
                         }
                     }
                 }
                 : {}; // No abiProvider - WharfKit fetches from chain
 
-            const result = await this.session.transact({
-                action
-            }, transactOptions);
+            const result = await this.session.transact({ actions }, transactOptions);
 
             console.log('Transaction successful:', result);
             return result;
@@ -295,8 +306,14 @@ export class WalletManager {
 
     /**
      * Sign a message with the wallet's private key
-     * @param {string} message - Message to sign (typically a hash)
-     * @returns {Promise<string>} Signature string (e.g., SIG_K1_...)
+     *
+     * Returns an object with both the signature and the public key that
+     * produced it (when the wallet provides one). This lets callers detect
+     * whether the signing key differs from the pre-fetched author_pubkey
+     * (e.g. multi-key permissions where Anchor picks a different key).
+     *
+     * @param {string} message - Message to sign (typically canonical payload)
+     * @returns {Promise<{signature: string, signingKey: string|null}>}
      */
     async signMessage(message) {
         if (!this.session) {
@@ -306,11 +323,25 @@ export class WalletManager {
         try {
             console.log('Signing message with wallet...');
 
-            // WharfKit's signMessage method
-            const signature = await this.session.signMessage(message);
+            // WharfKit's signMessage — some wallet plugins return an object
+            // with { signature, publicKey } while others return just the signature.
+            const result = await this.session.signMessage(message);
 
-            console.log('Message signed successfully');
-            return signature.toString();
+            let signature;
+            let signingKey = null;
+
+            if (result && typeof result === 'object' && result.signature) {
+                signature = result.signature.toString();
+                signingKey = result.publicKey ? result.publicKey.toString() : null;
+            } else {
+                signature = result.toString();
+            }
+
+            console.log('Message signed successfully', {
+                signingKey: signingKey || '(not returned by wallet)'
+            });
+
+            return { signature, signingKey };
         } catch (error) {
             console.error('Message signing failed:', error);
             this.emit('onError', error);

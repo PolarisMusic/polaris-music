@@ -300,6 +300,109 @@ describe('SHiP and Substreams Output Parity', () => {
         });
     });
 
+    describe('event_cid passthrough', () => {
+        it('should use event_cid for IPFS retrieval when present in payload', async () => {
+            const testCid = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi';
+
+            // Mock retrieveByEventCid
+            mockEventStore.retrieveByEventCid = jest.fn().mockResolvedValue(mockStoredEvent);
+
+            const anchoredEvent = {
+                content_hash: testContentHash,
+                event_hash: 'action_hash_xyz',
+                payload: JSON.stringify({
+                    author: 'testuser1234',
+                    type: 21,
+                    hash: testContentHash,
+                    event_cid: testCid,
+                    ts: 1700000000,
+                    tags: []
+                }),
+                block_num: 12345,
+                block_id: 'block_abc123',
+                trx_id: 'trx_def456',
+                action_ordinal: 0,
+                timestamp: 1700000000,
+                source: 'substreams-eos',
+                contract_account: 'polaris',
+                action_name: 'put'
+            };
+
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            expect(result.status).toBe('processed');
+            // Should prefer CID-based retrieval over hash-based
+            expect(mockEventStore.retrieveByEventCid).toHaveBeenCalledWith(testCid);
+            // Hash-based retrieval should NOT be called (CID succeeded)
+            expect(mockEventStore.retrieveEvent).not.toHaveBeenCalled();
+        });
+
+        it('should fall back to hash retrieval when event_cid retrieval fails', async () => {
+            const testCid = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi';
+
+            // Mock CID retrieval failure, hash retrieval success
+            mockEventStore.retrieveByEventCid = jest.fn().mockRejectedValue(new Error('IPFS timeout'));
+
+            const anchoredEvent = {
+                content_hash: testContentHash,
+                event_hash: 'action_hash_xyz',
+                payload: JSON.stringify({
+                    author: 'testuser1234',
+                    type: 21,
+                    hash: testContentHash,
+                    event_cid: testCid,
+                    ts: 1700000000,
+                    tags: []
+                }),
+                block_num: 12345,
+                block_id: 'block_abc123',
+                trx_id: 'trx_def456',
+                action_ordinal: 0,
+                timestamp: 1700000000,
+                source: 'substreams-eos',
+                contract_account: 'polaris',
+                action_name: 'put'
+            };
+
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            expect(result.status).toBe('processed');
+            // CID was attempted first
+            expect(mockEventStore.retrieveByEventCid).toHaveBeenCalledWith(testCid);
+            // Fell back to hash retrieval
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
+        });
+
+        it('should use hash retrieval when no event_cid in payload', async () => {
+            const anchoredEvent = {
+                content_hash: testContentHash,
+                event_hash: 'action_hash_xyz',
+                payload: JSON.stringify({
+                    author: 'testuser1234',
+                    type: 21,
+                    hash: testContentHash,
+                    // No event_cid
+                    ts: 1700000000,
+                    tags: []
+                }),
+                block_num: 12345,
+                block_id: 'block_abc123',
+                trx_id: 'trx_def456',
+                action_ordinal: 0,
+                timestamp: 1700000000,
+                source: 'substreams-eos',
+                contract_account: 'polaris',
+                action_name: 'put'
+            };
+
+            const result = await ingestionHandler.processAnchoredEvent(anchoredEvent);
+
+            expect(result.status).toBe('processed');
+            // Should use hash-based retrieval (legacy path)
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
+        });
+    });
+
     describe('content_hash vs event_hash', () => {
         it('should use content_hash for dedupe even when event_hash differs', async () => {
             // Two events with same content_hash but different event_hash

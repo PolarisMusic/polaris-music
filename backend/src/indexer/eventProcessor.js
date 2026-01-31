@@ -461,10 +461,15 @@ class EventProcessor {
             'Unknown';
         console.log(`  Processing release bundle: ${releaseTitle}`);
 
+        // Pass event timestamp for deterministic replay.
+        // Prefer contract-anchored ts (Unix seconds); fall back to event.created_at.
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
         const result = await this.db.processReleaseBundle(
             actionData.hash,
             event.body,
-            actionData.author  // Use chain account as submitter-of-record
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
         );
 
         console.log(`   Created: ${result.stats.groups_created} groups, ${result.stats.tracks_created} tracks`);
@@ -480,10 +485,13 @@ class EventProcessor {
     async handleAddClaim(event, actionData) {
         console.log(`  Adding claim to ${event.body.node?.type} ${event.body.node?.id}`);
 
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
         await this.db.processAddClaim(
             actionData.hash,
             event.body,
-            actionData.author  // Use chain account as submitter-of-record
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
         );
 
         console.log(`   Claim added`);
@@ -500,10 +508,13 @@ class EventProcessor {
         console.log(`  Editing claim: ${event.body.claim_id}`);
 
         // Edit creates a new claim that supersedes the old one (immutable claims)
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
         await this.db.processEditClaim(
             actionData.hash,
             event.body,
-            actionData.author  // Use chain account as submitter-of-record
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
         );
 
         console.log(`   Claim edited`);
@@ -618,12 +629,15 @@ class EventProcessor {
             // CRITICAL: Must set both 'id' (universal) and entity-specific field (person_id, group_id, etc.)
             // to satisfy Neo4j uniqueness constraints (e.g., REQUIRE p.person_id IS UNIQUE)
             // Uses MERGE to handle replays: if entity exists, do nothing (idempotent)
+            // Deterministic timestamp from event/block time for replay purity
+            const eventTs = actionData.ts || event.created_at || Math.floor(Date.now() / 1000);
+
             const entityResult = await session.run(
                 `MERGE (n:${nodeLabel} {id: $id})
                 ON CREATE SET
                     n.${idField} = $id,
                     n.status = 'ACTIVE',
-                    n.created_at = datetime(),
+                    n.created_at = datetime({epochSeconds: $eventTs}),
                     n.created_by = $createdBy,
                     n.creation_source = $source,
                     n.event_hash = $eventHash,
@@ -636,6 +650,7 @@ class EventProcessor {
                 RETURN n.id as id, wasCreated`,
                 {
                     id: cid,
+                    eventTs: eventTs,
                     createdBy: actionData.author,  // Always use chain account as submitter-of-record
                     source: provenance.source || 'manual',
                     eventHash: actionData.hash,
@@ -660,7 +675,7 @@ class EventProcessor {
                          c.property = $property,
                          c.value = $value,
                          c.confidence = $confidence,
-                         c.created_at = datetime(),
+                         c.created_at = datetime({epochSeconds: $eventTs}),
                          c.created_by = $submitter,
                          c.provenance_submitter = $provenanceSubmitter,
                          c.event_hash = $eventHash
@@ -668,6 +683,7 @@ class EventProcessor {
                     {
                         entityId: cid,
                         claimId: claimId,
+                        eventTs: eventTs,
                         property: claim.property,
                         value: JSON.stringify(claim.value),
                         confidence: claim.confidence || 1.0,
@@ -822,6 +838,28 @@ class EventProcessor {
                 throw new Error(`Survivor must be canonical ID, got: ${survivor_id}`);
             }
 
+            // Idempotency guard: skip if any absorbed node already has this eventHash
+            // This prevents duplicate merge application during replay
+            const eventHash = actionData.hash;
+            if (eventHash) {
+                const idempotencyCheck = await session.run(
+                    `MATCH (n {merge_event_hash: $eventHash})
+                     RETURN count(n) as already_merged`,
+                    { eventHash }
+                );
+                const alreadyMerged = idempotencyCheck.records[0]?.get('already_merged');
+                const count = typeof alreadyMerged?.toNumber === 'function'
+                    ? alreadyMerged.toNumber()
+                    : Number(alreadyMerged || 0);
+                if (count > 0) {
+                    console.log(`  Merge already applied (eventHash=${eventHash}), skipping (idempotent)`);
+                    return;
+                }
+            }
+
+            // Deterministic timestamp from event/block time
+            const eventTimestamp = actionData.ts || event.created_at || null;
+
             // Execute merge with full provenance
             const stats = await MergeOperations.mergeEntities(
                 session,
@@ -829,10 +867,11 @@ class EventProcessor {
                 absorbed_ids,
                 {
                     submitter: submitter || actionData.author,
-                    eventHash: actionData.hash,
+                    eventHash: eventHash,
                     evidence,
                     rewireEdges: strategy.rewire_edges !== false,  // default true
-                    moveClaims: strategy.move_claims !== false     // default true
+                    moveClaims: strategy.move_claims !== false,    // default true
+                    eventTimestamp
                 }
             );
 
