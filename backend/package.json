@@ -18,7 +18,7 @@
     "test:performance": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --testPathPattern=performance",
     "test:load": "artillery run test/performance/artillery.yml",
     "test:debug": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --runInBand --detectOpenHandles",
-    "test:graph:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --runInBand --testPathPattern='test/(graph|indexer)/'",
+    "test:graph:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --runInBand --verbose --testPathPattern='test/(graph|indexer)/'",
     "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --ci --coverage --maxWorkers=2",
     "start": "node src/api/index.js",
     "verify": "npm run test:ci"
