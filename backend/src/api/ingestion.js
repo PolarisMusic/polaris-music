@@ -101,6 +101,11 @@ export class IngestionHandler {
         // Example: MATCH (m:ProcessedHash {hash: $hash}) to check before processing
         this.processedHashes = new Set();
 
+        // Secondary dedup: track (blockNum, trxId, actionOrdinal) tuples to avoid
+        // reprocessing the same action within a single ingestion run.
+        // Tests and SHiP-based ingestion clear this between blocks.
+        this.processedBlockTrxAction = new Map();
+
         // Cache for account permission data (reduces RPC calls)
         // Format: { cacheKey: { data: accountData, expires: timestamp } }
         // TTL: 5 minutes (permissions can change, multisig rotations, etc.)

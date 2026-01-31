@@ -210,9 +210,14 @@ function normalizeValueForNeo4j(value) {
         return null;
     }
 
-    // Primitives are fine (string, number, boolean)
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    // Primitives: strings and booleans pass through; integers wrap as neo4j.int()
+    // to prevent the driver from sending them as Double (which Neo4j rejects for
+    // integer-typed properties and which lacks .toNumber() on read-back).
+    if (typeof value === 'string' || typeof value === 'boolean') {
         return value;
+    }
+    if (typeof value === 'number') {
+        return Number.isInteger(value) ? neo4j.int(value) : value;
     }
 
     // Arrays need special handling

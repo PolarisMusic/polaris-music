@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import { Api, JsonRpc } from 'eosjs';
 import { JsSignatureProvider } from 'eosjs/dist/eosjs-jssig.js';
 import fetch from 'node-fetch';
+import neo4j from 'neo4j-driver';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
 
@@ -630,7 +631,9 @@ class EventProcessor {
             // to satisfy Neo4j uniqueness constraints (e.g., REQUIRE p.person_id IS UNIQUE)
             // Uses MERGE to handle replays: if entity exists, do nothing (idempotent)
             // Deterministic timestamp from event/block time for replay purity
-            const eventTs = actionData.ts || event.created_at || Math.floor(Date.now() / 1000);
+            // Wrap in neo4j.int() because datetime({epochSeconds:}) rejects Double values
+            const rawTs = actionData.ts || event.created_at || Math.floor(Date.now() / 1000);
+            const eventTs = neo4j.int(typeof rawTs === 'number' ? Math.trunc(rawTs) : Number(rawTs));
 
             const entityResult = await session.run(
                 `MERGE (n:${nodeLabel} {id: $id})
