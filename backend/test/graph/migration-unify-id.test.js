@@ -80,19 +80,12 @@ describeOrSkip('ID Unification Migration (001-unify-id-property)', () => {
 
     beforeEach(async () => {
         session = driver.session();
+        // Full DB clear to prevent pollution (migration verification checks ALL nodes)
+        await session.run('MATCH (n) DETACH DELETE n');
     });
 
     afterEach(async () => {
         if (session) {
-            // Clean up test data
-            await session.run(`
-                MATCH (n)
-                WHERE n.id STARTS WITH 'mig-test-'
-                   OR n.person_id STARTS WITH 'mig-test-'
-                   OR n.group_id STARTS WITH 'mig-test-'
-                   OR n.track_id STARTS WITH 'mig-test-'
-                DETACH DELETE n
-            `);
             await session.close();
         }
     });

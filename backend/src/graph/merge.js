@@ -11,6 +11,7 @@
  * - Operations are transaction-based for atomicity
  */
 
+import neo4j from 'neo4j-driver';
 import { IdentityService } from '../identity/idService.js';
 
 /**
@@ -51,13 +52,15 @@ export class MergeOperations {
         } = options;
 
         // Deterministic event timestamp (same pattern as processReleaseBundle)
-        let eventTs;
+        // Must wrap in neo4j.int() because datetime({epochMillis:}) rejects Double in Neo4j 5+
+        let rawTs;
         if (eventTimestamp != null) {
             const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
-            eventTs = raw < 1e12 ? raw * 1000 : raw;
+            rawTs = raw < 1e12 ? raw * 1000 : raw;
         } else {
-            eventTs = Date.now();
+            rawTs = Date.now();
         }
+        const eventTs = neo4j.int(Math.trunc(rawTs));
 
         // Validate inputs
         if (!survivorId || !absorbedIds || absorbedIds.length === 0) {
@@ -133,6 +136,7 @@ export class MergeOperations {
                          SET r2 = props
                          WITH r2, relType
                          CALL apoc.refactor.rename.type('TEMP', relType, [r2])
+                         YIELD batches, total, timeTaken, committedOperations, failedOperations, errorMessages
                          RETURN count(*) as rewired`,
                         { absorbedId, survivorId }
                     );
@@ -153,6 +157,7 @@ export class MergeOperations {
                          SET r2 = props
                          WITH r2, relType
                          CALL apoc.refactor.rename.type('TEMP', relType, [r2])
+                         YIELD batches, total, timeTaken, committedOperations, failedOperations, errorMessages
                          RETURN count(*) as rewired`,
                         { absorbedId, survivorId }
                     );

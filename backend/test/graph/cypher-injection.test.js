@@ -43,36 +43,8 @@ describeOrSkip('Cypher Injection Prevention', () => {
 
     beforeEach(async () => {
         session = driver.session();
-
-        // Clean up test nodes
-        await session.run(`
-            MATCH (n)
-            WHERE (n.id IS NOT NULL AND n.id STARTS WITH 'test-cypher-injection-')
-                OR n.id IN [
-                    'polaris:person:11111111-1111-1111-1111-111111111111',
-                    'polaris:person:22222222-2222-2222-2222-222222222222',
-                    'polaris:person:33333333-3333-3333-3333-333333333333',
-                    'polaris:person:44444444-4444-4444-4444-444444444444',
-                    'polaris:person:55555555-5555-5555-5555-555555555555',
-                    'polaris:person:66666666-6666-6666-6666-666666666666',
-                    'polaris:person:77777777-7777-7777-7777-777777777777',
-                    'polaris:person:88888888-8888-8888-8888-888888888888',
-                    'polaris:person:99999999-9999-9999-9999-999999999999'
-                ]
-                OR n.person_id IN [
-                    'polaris:person:11111111-1111-1111-1111-111111111111',
-                    'polaris:person:22222222-2222-2222-2222-222222222222',
-                    'polaris:person:33333333-3333-3333-3333-333333333333',
-                    'polaris:person:44444444-4444-4444-4444-444444444444',
-                    'polaris:person:55555555-5555-5555-5555-555555555555',
-                    'polaris:person:66666666-6666-6666-6666-666666666666',
-                    'polaris:person:77777777-7777-7777-7777-777777777777',
-                    'polaris:person:88888888-8888-8888-8888-888888888888',
-                    'polaris:person:99999999-9999-9999-9999-999999999999'
-                ]
-            DETACH DELETE n
-        `);
-
+        // Full DB clear to prevent constraint violations from prior test pollution
+        await session.run('MATCH (n) DETACH DELETE n');
     });
 
     afterEach(async () => {
