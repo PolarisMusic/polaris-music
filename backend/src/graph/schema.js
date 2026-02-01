@@ -505,8 +505,9 @@ constructor(config = {}) {
                 }
             }
 
-            // ========== CHECK APOC AVAILABILITY ==========
-            // APOC plugin is required for merge operations
+            // ========== CHECK APOC AVAILABILITY (optional) ==========
+            // APOC is no longer required — merge operations use native Cypher.
+            // Detection kept for informational purposes only.
             try {
                 const apocResult = await session.run(
                     `SHOW PROCEDURES YIELD name
@@ -517,17 +518,12 @@ constructor(config = {}) {
                 const apocCount = apocResult.records[0]?.get('apocCount').toNumber() || 0;
 
                 if (apocCount === 0) {
-                    console.warn('WARNING: APOC plugin not detected!');
-                    console.warn('  Merge operations require APOC plugin.');
-                    console.warn('  Install with: neo4j-admin dbms install-plugin apoc');
-                    console.warn('  Or download from: https://github.com/neo4j-contrib/neo4j-apoc-procedures/releases');
-                    console.warn('  Continuing without APOC - merge operations will fail if attempted.');
+                    console.log('  APOC plugin not detected (not required — merge uses native Cypher)');
                 } else {
                     console.log(`  APOC plugin detected (${apocCount} procedures available)`);
                 }
             } catch (error) {
-                console.warn(' Could not check APOC availability:', error.message);
-                console.warn('  Merge operations may fail if APOC is not installed.');
+                console.log('  Could not check APOC availability (not required)');
             }
 
             console.log(' Database schema initialized successfully');
@@ -2001,29 +1997,69 @@ constructor(config = {}) {
                 RETURN target
             `, { sourceId, targetId });
 
-            // Transfer all incoming relationships
-            await tx.run(`
+            // Transfer all incoming relationships (native Cypher — no APOC)
+            const incomingRels = await tx.run(`
                 MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
                 MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
                 MATCH (other)-[r]->(source)
-
-                WITH other, type(r) as relType, properties(r) as props, target
-                CALL apoc.create.relationship(other, relType, props, target) YIELD rel
-
-                RETURN count(rel) as transferred
+                WHERE other <> target
+                RETURN id(other) as otherNodeId, type(r) as relType, properties(r) as props
             `, { sourceId, targetId });
 
-            // Transfer all outgoing relationships
-            await tx.run(`
+            if (incomingRels.records.length > 0) {
+                await tx.run(`
+                    MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
+                    MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
+                    MATCH (other)-[r]->(source)
+                    WHERE other <> target
+                    DELETE r
+                `, { sourceId, targetId });
+            }
+
+            for (const record of incomingRels.records) {
+                const relType = record.get('relType');
+                const props = record.get('props');
+                const otherNodeId = record.get('otherNodeId');
+                await tx.run(
+                    `MATCH (other) WHERE id(other) = $otherNodeId
+                     MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
+                     CREATE (other)-[r:\`${relType}\`]->(target)
+                     SET r = $props`,
+                    { otherNodeId, targetId, props }
+                );
+            }
+
+            // Transfer all outgoing relationships (native Cypher — no APOC)
+            const outgoingRels = await tx.run(`
                 MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
                 MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
                 MATCH (source)-[r]->(other)
-
-                WITH target, type(r) as relType, properties(r) as props, other
-                CALL apoc.create.relationship(target, relType, props, other) YIELD rel
-
-                RETURN count(rel) as transferred
+                WHERE other <> target
+                RETURN id(other) as otherNodeId, type(r) as relType, properties(r) as props
             `, { sourceId, targetId });
+
+            if (outgoingRels.records.length > 0) {
+                await tx.run(`
+                    MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
+                    MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
+                    MATCH (source)-[r]->(other)
+                    WHERE other <> target
+                    DELETE r
+                `, { sourceId, targetId });
+            }
+
+            for (const record of outgoingRels.records) {
+                const relType = record.get('relType');
+                const props = record.get('props');
+                const otherNodeId = record.get('otherNodeId');
+                await tx.run(
+                    `MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
+                     MATCH (other) WHERE id(other) = $otherNodeId
+                     CREATE (target)-[r:\`${relType}\`]->(other)
+                     SET r = $props`,
+                    { targetId, otherNodeId, props }
+                );
+            }
 
             // Delete the source node
             await tx.run(`
@@ -2055,11 +2091,6 @@ constructor(config = {}) {
         } catch (error) {
             await tx.rollback();
             console.error(' Failed to merge nodes:', error.message);
-
-            // Check if APOC is missing
-            if (error.message.includes('apoc')) {
-                throw new Error('APOC plugin required for merge operations. Install with: neo4j-admin install apoc');
-            }
 
             throw error;
         } finally {
