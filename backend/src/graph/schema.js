@@ -1977,6 +1977,9 @@ constructor(config = {}) {
             console.log(`Merging ${mapping.label} ${sourceId.substring(0, 12)}... into ${targetId.substring(0, 12)}...`);
 
             // Copy properties from source to target (if not already set)
+            // IMPORTANT: Cannot use SET target = source because it copies ID fields
+            // (person_id, group_id, etc.) which violates uniqueness constraints while
+            // the source node still exists. Instead, selectively copy non-identity fields.
             await tx.run(`
                 MATCH (source:${mapping.label} {${mapping.idField}: $sourceId})
                 MATCH (target:${mapping.label} {${mapping.idField}: $targetId})
@@ -1985,11 +1988,11 @@ constructor(config = {}) {
                 SET target.alt_names = target.alt_names +
                     [name IN source.alt_names WHERE NOT name IN target.alt_names]
 
-                // Copy any null fields from source
-                SET target = CASE
-                    WHEN target.bio IS NULL THEN source
-                    ELSE target
-                END
+                // Copy bio from source if target has none
+                SET target.bio = coalesce(target.bio, source.bio)
+
+                // Copy name from source if target has none
+                SET target.name = coalesce(target.name, source.name)
 
                 SET target.status = 'ACTIVE',
                     target.id_kind = 'canonical'
