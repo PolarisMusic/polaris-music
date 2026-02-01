@@ -9,6 +9,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
+import { randomUUID } from 'crypto';
 import GraphDatabaseService from '../../src/graph/schema.js';
 
 // Skip these tests if no database is configured
@@ -240,29 +241,35 @@ describeOrSkip('Cypher Injection Prevention', () => {
     });
 
     describe('mergeNodes - Injection Prevention', () => {
+        // Use dynamic IDs per test to avoid constraint violations from static ID reuse
+        let sourceId, targetId;
+
         beforeEach(async () => {
+            sourceId = `polaris:person:${randomUUID()}`;
+            targetId = `polaris:person:${randomUUID()}`;
+
             // Create test persons for merge tests
             await session.run(`
-              MERGE (p1:Person { id: 'polaris:person:88888888-8888-8888-8888-888888888888' })
-              ON CREATE SET
-                p1.person_id = 'polaris:person:88888888-8888-8888-8888-888888888888',
-                p1.name = 'Source Person',
-                p1.status = 'ACTIVE'
-
-              MERGE (p2:Person { id: 'polaris:person:99999999-9999-9999-9999-999999999999' })
-              ON CREATE SET
-                p2.person_id = 'polaris:person:99999999-9999-9999-9999-999999999999',
-                p2.name = 'Target Person',
-                p2.status = 'ACTIVE'
-            `);
-
+              CREATE (p1:Person {
+                id: $sourceId,
+                person_id: $sourceId,
+                name: 'Source Person',
+                status: 'ACTIVE'
+              })
+              CREATE (p2:Person {
+                id: $targetId,
+                person_id: $targetId,
+                name: 'Target Person',
+                status: 'ACTIVE'
+              })
+            `, { sourceId, targetId });
         });
 
         test('should accept valid lowercase type (person)', async () => {
             // Act: Merge with lowercase type
             const result = await graphDb.mergeNodes(
-                'polaris:person:88888888-8888-8888-8888-888888888888',
-                'polaris:person:99999999-9999-9999-9999-999999999999',
+                sourceId,
+                targetId,
                 'person',
                 'test merge'
             );
@@ -274,26 +281,16 @@ describeOrSkip('Cypher Injection Prevention', () => {
             const verifyResult = await session.run(`
                 MATCH (p:Person {id: $id})
                 RETURN count(p) as count
-            `, { id: 'polaris:person:88888888-8888-8888-8888-888888888888' });
+            `, { id: sourceId });
 
             expect(verifyResult.records[0].get('count').toNumber()).toBe(0);
         });
 
         test('should accept valid capitalized type (Person)', async () => {
-            // Recreate source (previous test deleted it)
-            await session.run(`
-                MERGE (p:Person { id: 'polaris:person:66666666-6666-6666-6666-666666666666' })
-                ON CREATE SET
-                  p.person_id = 'polaris:person:66666666-6666-6666-6666-666666666666',
-                  p.name = 'Source Person 2',
-                  p.status = 'ACTIVE'
-
-            `);
-
             // Act: Merge with capitalized type
             const result = await graphDb.mergeNodes(
-                'polaris:person:66666666-6666-6666-6666-666666666666',
-                'polaris:person:99999999-9999-9999-9999-999999999999',
+                sourceId,
+                targetId,
                 'Person',
                 'test merge 2'
             );
@@ -320,19 +317,18 @@ describeOrSkip('Cypher Injection Prevention', () => {
 
             await expect(
               graphDb.mergeNodes(
-                'polaris:person:88888888-8888-8888-8888-888888888888', // existing
-                'polaris:person:99999999-9999-9999-9999-999999999999', // existing
+                sourceId,
+                targetId,
                 maliciousType,
                 'malicious merge'
               )
             ).rejects.toThrow('Invalid nodeType');
 
-
             // Verify target person still exists (not deleted by injection)
             const verifyResult = await session.run(`
                 MATCH (p:Person {id: $id})
                 RETURN count(p) as count
-            `, { id: 'polaris:person:99999999-9999-9999-9999-999999999999' });
+            `, { id: targetId });
 
             expect(verifyResult.records[0].get('count').toNumber()).toBe(1);
         });
