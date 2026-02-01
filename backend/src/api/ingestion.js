@@ -101,6 +101,11 @@ export class IngestionHandler {
         // Example: MATCH (m:ProcessedHash {hash: $hash}) to check before processing
         this.processedHashes = new Set();
 
+        // Secondary dedup: track (blockNum, trxId, actionOrdinal) tuples to avoid
+        // reprocessing the same action within a single ingestion run.
+        // Tests and SHiP-based ingestion clear this between blocks.
+        this.processedBlockTrxAction = new Map();
+
         // Cache for account permission data (reduces RPC calls)
         // Format: { cacheKey: { data: accountData, expires: timestamp } }
         // TTL: 5 minutes (permissions can change, multisig rotations, etc.)
@@ -186,10 +191,18 @@ export class IngestionHandler {
      * @returns {Promise<boolean>} True if key is authorized
      */
     async isKeyAuthorizedForPermission(accountName, permissionName, publicKey, depth = 0, visited = new Set()) {
-        // Skip verification if no RPC URL configured
+        // Skip verification if no RPC URL configured.
+        // Only safe when REQUIRE_ACCOUNT_AUTH is explicitly false (dev mode).
+        // When auth is required, the server should have failed at startup
+        // before reaching this path — but guard defensively anyway.
         if (!this.config.rpcUrl) {
-            console.warn('⚠ RPC URL not configured - skipping account key verification');
-            return true; // Allow if we can't verify
+            const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
+            if (authRequired) {
+                console.error('RPC URL not configured but REQUIRE_ACCOUNT_AUTH is enabled - denying');
+                return false;
+            }
+            console.warn('RPC URL not configured - skipping account key verification (dev mode)');
+            return true;
         }
 
         // Hard limit: prevent excessive recursion (cycles, abuse)
@@ -210,15 +223,23 @@ export class IngestionHandler {
         // Fetch account data
         const accountData = await this.fetchAccountData(accountName);
         if (!accountData) {
-            // Graceful degradation: allow if we can't verify
+            // RPC failure: behavior depends on auth mode
+            const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
+            if (authRequired) {
+                console.error(`Account data fetch failed for ${accountName} - denying (REQUIRE_ACCOUNT_AUTH=true)`);
+                return false;
+            }
+            console.warn(`Account data fetch failed for ${accountName} - allowing (REQUIRE_ACCOUNT_AUTH=false)`);
             return true;
         }
 
         // Find the permission
         const perm = accountData.permissions?.find(p => p.perm_name === permissionName);
         if (!perm) {
-            console.warn(`⚠ Permission '${permissionName}' not found for ${accountName}`);
-            return true; // Allow if permission not found (graceful degradation)
+            console.warn(`Permission '${permissionName}' not found for ${accountName}`);
+            // Missing permission likely means wrong account or stale data — deny when auth required
+            const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
+            return !authRequired;
         }
 
         // Check 1: Direct keys in required_auth.keys
@@ -329,7 +350,7 @@ export class IngestionHandler {
             let source; // Track which retrieval path was used
 
             if (event_cid) {
-                console.log(`  Using event_cid: ${event_cid.substring(0, 20)}...`);
+                console.log(`  Using event_cid: ${typeof event_cid === 'string' ? event_cid.substring(0, 20) : '<non-string>'}...`);
                 try {
                     event = await this.store.retrieveByEventCid(event_cid);
                     source = 'ipfs_cid';
@@ -600,7 +621,7 @@ export class IngestionHandler {
             }
 
             // Step 5: Extract action metadata from payload
-            const { author, type, hash, parent, ts, tags = [] } = actionData;
+            const { author, type, hash, event_cid, parent, ts, tags = [] } = actionData;
 
             // Verify payload hash matches content_hash (normalize both for comparison)
             if (hash) {
@@ -621,10 +642,12 @@ export class IngestionHandler {
             };
 
             // Create put action data format
+            // CRITICAL: Include event_cid so processPutAction can prefer IPFS CID retrieval
             const putActionData = {
                 author,
                 type,
                 hash: contentHash, // Use normalized content_hash from anchored event
+                event_cid,
                 parent,
                 ts,
                 tags

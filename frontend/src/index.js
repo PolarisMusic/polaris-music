@@ -9,6 +9,7 @@ import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
 import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
+import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
 
 class PolarisApp {
     constructor() {
@@ -686,13 +687,70 @@ class PolarisApp {
             // The backend verifies signatures against sha256(canonical_payload)
             // Signing the hash string would produce an invalid signature
             console.log('Signing canonical payload (length: ' + this.currentTransaction.canonicalPayload.length + ' bytes)');
-            const signature = await this.walletManager.signMessage(this.currentTransaction.canonicalPayload);
+            const signResult = await this.walletManager.signMessage(this.currentTransaction.canonicalPayload);
+            const signature = signResult.signature;
             console.log('Signature:', signature);
+
+            // Determine the actual signing key. Three paths:
+            //   1. Wallet returned signingKey directly → use it
+            //   2. Wallet didn't return signingKey → ask backend to resolve it
+            //   3. Backend can't resolve → fall through with pre-fetched key (best effort)
+            const sessionInfo = this.walletManager.getSessionInfo();
+            let actualSigningKey = signResult.signingKey;
+
+            if (!actualSigningKey) {
+                // Wallet did not return the signing pubkey — ask the backend
+                // to verify the signature against each key in the account's
+                // active permission and tell us which one matched.
+                console.log('Wallet did not return signing key. Asking backend to resolve...');
+                actualSigningKey = await api.resolveSigningKey(
+                    sessionInfo.accountName,
+                    sessionInfo.permission,
+                    this.currentTransaction.canonicalPayload,
+                    signResult.signature
+                );
+                if (actualSigningKey) {
+                    console.log('Backend resolved signing key:', actualSigningKey);
+                } else {
+                    console.warn(
+                        'Backend could not resolve signing key. ' +
+                        'Proceeding with pre-fetched key (may fail if multi-key).'
+                    );
+                }
+            }
+
+            // If the actual signing key differs from the pre-fetched author_pubkey,
+            // re-prepare the event with the correct key so the backend's signature
+            // verification succeeds.
+            if (actualSigningKey && actualSigningKey !== sessionInfo.publicKey) {
+                console.warn(
+                    'Signing key differs from pre-fetched key. ' +
+                    `Pre-fetched: ${sessionInfo.publicKey}, Actual: ${actualSigningKey}. ` +
+                    'Re-preparing event with actual signing key...'
+                );
+
+                // Rebuild event with correct author_pubkey
+                this.currentTransaction.event.author_pubkey = actualSigningKey;
+
+                // Re-prepare to get correct canonical hash
+                const rePrepared = await api.prepareEvent(this.currentTransaction.event);
+                this.currentTransaction.event = rePrepared.normalizedEvent;
+                this.currentTransaction.eventHash = rePrepared.hash;
+                this.currentTransaction.canonicalPayload = rePrepared.canonical_payload;
+
+                // Re-sign with the corrected canonical payload
+                console.log('Re-signing with corrected canonical payload...');
+                const reSignResult = await this.walletManager.signMessage(
+                    this.currentTransaction.canonicalPayload
+                );
+                // Use the new signature (key should be the same on second pass)
+                signResult.signature = reSignResult.signature;
+            }
 
             // Create signed event
             const eventWithSig = {
                 ...this.currentTransaction.event,
-                sig: signature
+                sig: signResult.signature
             };
 
             console.log('\n=== STEP 1: Store event off-chain ===');
@@ -756,17 +814,62 @@ class PolarisApp {
 
             console.log('Blockchain transaction result:', txResult);
 
+            // In dev mode, ingest the anchored event directly into Neo4j
+            // so the graph updates immediately without needing Substreams
+            let ingestResult = null;
+            if (INGEST_MODE === 'dev') {
+                console.log('\n=== STEP 4: Dev-mode ingestion into graph ===');
+                try {
+                    const actionData = {
+                        author: this.currentTransaction.authorAccount,
+                        type: 21,
+                        hash: this.currentTransaction.eventHash,
+                        event_cid: eventCid,
+                        parent: null,
+                        ts: Math.floor(Date.now() / 1000),
+                        tags: ['release', 'submission'],
+                    };
+
+                    const anchoredEvent = {
+                        content_hash: this.currentTransaction.eventHash,
+                        payload: JSON.stringify(actionData),
+                        contract_account: CONTRACT_ACCOUNT,
+                        action_name: 'put',
+                        trx_id: txResult?.resolved?.transaction?.id
+                            || txResult?.transaction_id || '',
+                        timestamp: Math.floor(Date.now() / 1000),
+                        block_num: txResult?.resolved?.transaction?.block_num || 0,
+                        block_id: '',
+                        action_ordinal: 0,
+                        source: 'ui-dev',
+                    };
+                    ingestResult = await api.ingestAnchoredEvent(anchoredEvent);
+                    console.log('Dev-mode ingestion result:', ingestResult);
+                } catch (ingestError) {
+                    console.error('Dev-mode ingestion failed:', ingestError);
+                    // Don't fail the overall submission — tx already succeeded
+                    ingestResult = { error: ingestError.message };
+                }
+            }
+
             this.showLoading(false);
+
+            // Build ingestion status line for dev mode
+            const ingestStatus = INGEST_MODE === 'dev'
+                ? (ingestResult?.error
+                    ? `\nIngestion: FAILED — ${ingestResult.error}`
+                    : '\nIngested into graph: ✓')
+                : '';
 
             // Show success with storage details
             const successMessage = `
                 Release submitted successfully!
 
                 Event Hash: ${this.currentTransaction.eventHash.substring(0, 16)}...
-                Transaction ID: ${txResult.resolved?.transaction?.id || 'pending'}
+                Transaction ID: ${txResult?.resolved?.transaction?.id || txResult?.transaction_id || 'pending'}
 
                 Stored in:
-                ${storageInfo.join('\n')}
+                ${storageInfo.join('\n')}${ingestStatus}
             `.trim();
 
             this.showToast(successMessage, 'success');
@@ -782,6 +885,7 @@ class PolarisApp {
             setTimeout(() => {
                 document.getElementById('release-form').reset();
                 document.getElementById('labels-container').innerHTML = '';
+                document.getElementById('release-groups-container').innerHTML = '';
                 document.getElementById('release-guests-container').innerHTML = '';
                 document.getElementById('tracks-container').innerHTML = '';
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };

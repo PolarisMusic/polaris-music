@@ -97,14 +97,15 @@ assertion failure with message: Too many tags (max 10)
 
 #### Valid Tag Submissions
 ```javascript
-// Using cleos
-cleos push action polaris put '["alice", 21, "hash123...", null, 1234567890, ["rock", "indie", "alt.rock"]]' -p alice
+// Using cleos — put(author, type, hash, event_cid, parent, ts, tags)
+cleos push action polaris put '["alice", 21, "hash123...", "bafkrei...", null, 1234567890, ["rock", "indie", "alt.rock"]]' -p alice
 
 // Using eosjs
 await contract.put({
   author: 'alice',
   type: 21,
   hash: 'hash123...',
+  event_cid: 'bafkrei...',
   parent: null,
   ts: 1234567890,
   tags: ['rock', 'indie', 'alt.rock']
@@ -114,19 +115,19 @@ await contract.put({
 #### Invalid Tag Submissions (should fail)
 ```javascript
 // Too short
-cleos push action polaris put '["alice", 21, "hash123...", null, 1234567890, ["r"]]' -p alice
+cleos push action polaris put '["alice", 21, "hash123...", "bafkrei...", null, 1234567890, ["r"]]' -p alice
 // Expected: "Tag too short (minimum 3 characters): r"
 
 // Too long
-cleos push action polaris put '["alice", 21, "hash123...", null, 1234567890, ["progressiverock"]]' -p alice
+cleos push action polaris put '["alice", 21, "hash123...", "bafkrei...", null, 1234567890, ["progressiverock"]]' -p alice
 // Expected: "Tag too long (maximum 12 characters): progressiverock"
 
 // Invalid characters
-cleos push action polaris put '["alice", 21, "hash123...", null, 1234567890, ["Rock"]]' -p alice
+cleos push action polaris put '["alice", 21, "hash123...", "bafkrei...", null, 1234567890, ["Rock"]]' -p alice
 // Expected: "character is not in allowed character set for names"
 
 // Too many tags
-cleos push action polaris put '["alice", 21, "hash123...", null, 1234567890, ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11"]]' -p alice
+cleos push action polaris put '["alice", 21, "hash123...", "bafkrei...", null, 1234567890, ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11"]]' -p alice
 // Expected: "Too many tags (max 10)"
 ```
 

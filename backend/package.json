@@ -18,6 +18,7 @@
     "test:performance": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --testPathPattern=performance",
     "test:load": "artillery run test/performance/artillery.yml",
     "test:debug": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --runInBand --detectOpenHandles",
+    "test:graph:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --runInBand --verbose --testPathPattern='test/(graph|indexer)/'",
     "test:ci": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --ci --coverage --maxWorkers=2",
     "start": "node src/api/index.js",
     "verify": "npm run test:ci"
@@ -30,6 +31,7 @@
     "eosjs": "^22.0.0",
     "express": "^4.19.0",
     "express-graphql": "^0.12.0",
+    "express-rate-limit": "^8.2.1",
     "fast-json-stable-stringify": "^2.1.0",
     "graphql": "^15.8.0",
     "ioredis": "^5.4.1",

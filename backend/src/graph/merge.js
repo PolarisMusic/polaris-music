@@ -11,6 +11,7 @@
  * - Operations are transaction-based for atomicity
  */
 
+import neo4j from 'neo4j-driver';
 import { IdentityService } from '../identity/idService.js';
 
 /**
@@ -46,8 +47,20 @@ export class MergeOperations {
             eventHash = null,
             evidence = '',
             rewireEdges = true,
-            moveClaims = true
+            moveClaims = true,
+            eventTimestamp = null
         } = options;
+
+        // Deterministic event timestamp (same pattern as processReleaseBundle)
+        // Must wrap in neo4j.int() because datetime({epochMillis:}) rejects Double in Neo4j 5+
+        let rawTs;
+        if (eventTimestamp != null) {
+            const raw = typeof eventTimestamp === 'number' ? eventTimestamp : Number(eventTimestamp);
+            rawTs = raw < 1e12 ? raw * 1000 : raw;
+        } else {
+            rawTs = Date.now();
+        }
+        const eventTs = neo4j.int(Math.trunc(rawTs));
 
         // Validate inputs
         if (!survivorId || !absorbedIds || absorbedIds.length === 0) {
@@ -112,44 +125,85 @@ export class MergeOperations {
                     );
                 }
 
-                // 3. Rewire incoming edges
+                // 3. Rewire incoming edges (native Cypher — no APOC dependency)
                 if (rewireEdges) {
-                    const incomingResult = await tx.run(
-                        `MATCH (source)-[r]->(absorbed {id: $absorbedId})
-                         WHERE source.id <> $survivorId
-                         MATCH (survivor {id: $survivorId})
-                         WITH source, r, absorbed, survivor, type(r) as relType, properties(r) as props
-                         CREATE (source)-[r2:TEMP]->(survivor)
-                         SET r2 = props
-                         WITH r2, relType
-                         CALL apoc.refactor.rename.type('TEMP', relType, [r2])
-                         RETURN count(*) as rewired`,
-                        { absorbedId, survivorId }
+                    // Collect incoming edge data before deletion
+                    const incomingEdges = await tx.run(
+                        `MATCH (survivor {id: $survivorId})
+                         MATCH (source)-[r]->(absorbed {id: $absorbedId})
+                         WHERE source <> survivor
+                         RETURN id(source) as sourceNodeId, type(r) as relType, properties(r) as props`,
+                        { survivorId, absorbedId }
                     );
 
-                    const incomingRewired = incomingResult.records[0]?.get('rewired').toNumber() || 0;
-                    stats.edgesRewired += incomingRewired;
-                    console.log(`    Rewired ${incomingRewired} incoming edges`);
+                    // Delete original incoming edges
+                    if (incomingEdges.records.length > 0) {
+                        await tx.run(
+                            `MATCH (survivor {id: $survivorId})
+                             MATCH (source)-[r]->(absorbed {id: $absorbedId})
+                             WHERE source <> survivor
+                             DELETE r`,
+                            { survivorId, absorbedId }
+                        );
+                    }
+
+                    // Recreate edges pointing to survivor with correct dynamic type
+                    for (const record of incomingEdges.records) {
+                        const relType = record.get('relType');
+                        const props = record.get('props');
+                        const sourceNodeId = record.get('sourceNodeId');
+                        // relType from existing DB relationships — safe for backtick interpolation
+                        await tx.run(
+                            `MATCH (source) WHERE id(source) = $sourceNodeId
+                             MATCH (survivor {id: $survivorId})
+                             CREATE (source)-[r:\`${relType}\`]->(survivor)
+                             SET r = $props`,
+                            { sourceNodeId, survivorId, props }
+                        );
+                    }
+
+                    stats.edgesRewired += incomingEdges.records.length;
+                    console.log(`    Rewired ${incomingEdges.records.length} incoming edges`);
                 }
 
-                // 4. Rewire outgoing edges
+                // 4. Rewire outgoing edges (native Cypher — no APOC dependency)
                 if (rewireEdges) {
-                    const outgoingResult = await tx.run(
-                        `MATCH (absorbed {id: $absorbedId})-[r]->(target)
-                         WHERE target.id <> $survivorId
-                         MATCH (survivor {id: $survivorId})
-                         WITH absorbed, r, target, survivor, type(r) as relType, properties(r) as props
-                         CREATE (survivor)-[r2:TEMP]->(target)
-                         SET r2 = props
-                         WITH r2, relType
-                         CALL apoc.refactor.rename.type('TEMP', relType, [r2])
-                         RETURN count(*) as rewired`,
-                        { absorbedId, survivorId }
+                    // Collect outgoing edge data before deletion
+                    const outgoingEdges = await tx.run(
+                        `MATCH (survivor {id: $survivorId})
+                         MATCH (absorbed {id: $absorbedId})-[r]->(target)
+                         WHERE target <> survivor
+                         RETURN id(target) as targetNodeId, type(r) as relType, properties(r) as props`,
+                        { survivorId, absorbedId }
                     );
 
-                    const outgoingRewired = outgoingResult.records[0]?.get('rewired').toNumber() || 0;
-                    stats.edgesRewired += outgoingRewired;
-                    console.log(`    Rewired ${outgoingRewired} outgoing edges`);
+                    // Delete original outgoing edges
+                    if (outgoingEdges.records.length > 0) {
+                        await tx.run(
+                            `MATCH (survivor {id: $survivorId})
+                             MATCH (absorbed {id: $absorbedId})-[r]->(target)
+                             WHERE target <> survivor
+                             DELETE r`,
+                            { survivorId, absorbedId }
+                        );
+                    }
+
+                    // Recreate edges from survivor with correct dynamic type
+                    for (const record of outgoingEdges.records) {
+                        const relType = record.get('relType');
+                        const props = record.get('props');
+                        const targetNodeId = record.get('targetNodeId');
+                        await tx.run(
+                            `MATCH (survivor {id: $survivorId})
+                             MATCH (target) WHERE id(target) = $targetNodeId
+                             CREATE (survivor)-[r:\`${relType}\`]->(target)
+                             SET r = $props`,
+                            { survivorId, targetNodeId, props }
+                        );
+                    }
+
+                    stats.edgesRewired += outgoingEdges.records.length;
+                    console.log(`    Rewired ${outgoingEdges.records.length} outgoing edges`);
                 }
 
                 // 5. Move claims (if using Claim nodes)
@@ -160,10 +214,10 @@ export class MergeOperations {
                          DELETE r
                          CREATE (claim)-[:CLAIMS_ABOUT]->(survivor)
                          SET claim.merged_from = $absorbedId,
-                             claim.merged_at = datetime(),
+                             claim.merged_at = datetime({epochMillis: $eventTs}),
                              claim.merged_by = $submitter
                          RETURN count(*) as moved`,
-                        { absorbedId, survivorId, submitter }
+                        { absorbedId, survivorId, submitter, eventTs }
                     );
 
                     const claimsMoved = claimsResult.records[0]?.get('moved').toNumber() || 0;
@@ -184,7 +238,7 @@ export class MergeOperations {
                     `MATCH (absorbed {id: $absorbedId})
                      SET absorbed.status = $status,
                          absorbed.merged_into = $survivorId,
-                         absorbed.merged_at = datetime(),
+                         absorbed.merged_at = datetime({epochMillis: $eventTs}),
                          absorbed.merged_by = $submitter,
                          absorbed.merge_event_hash = $eventHash,
                          absorbed.merge_evidence = $evidence`,
@@ -194,7 +248,8 @@ export class MergeOperations {
                         survivorId,
                         submitter,
                         eventHash,
-                        evidence
+                        evidence,
+                        eventTs
                     }
                 );
 
@@ -205,30 +260,10 @@ export class MergeOperations {
             // 8. Update survivor metadata
             await tx.run(
                 `MATCH (survivor {id: $survivorId})
-                 SET survivor.last_merged_at = datetime(),
+                 SET survivor.last_merged_at = datetime({epochMillis: $eventTs}),
                      survivor.absorbed_count = coalesce(survivor.absorbed_count, 0) + $absorbedCount`,
-                { survivorId, absorbedCount: absorbedIds.length }
+                { survivorId, absorbedCount: absorbedIds.length, eventTs }
             );
-
-            // 9. Safety check: Ensure no TEMP relationships remain
-            const tempCheckResult = await tx.run(
-                `
-                MATCH (a)-[r:TEMP]->(b)
-                WHERE a.id = $survivorId
-                   OR b.id = $survivorId
-                   OR a.id IN $absorbedIds
-                   OR b.id IN $absorbedIds
-                RETURN count(r) as tempCount
-                `,
-                { survivorId, absorbedIds }
-            );
-
-            const tempCount = tempCheckResult.records[0]?.get('tempCount').toNumber() || 0;
-            if (tempCount > 0) {
-                console.error(`⚠️  ERROR: ${tempCount} TEMP relationships remain after merge!`);
-                console.error('   This indicates the APOC rename failed - rolling back to prevent corruption');
-                throw new Error(`Merge failed: ${tempCount} TEMP relationships remain (APOC rename failed)`);
-            }
 
             // Commit transaction
             await tx.commit();

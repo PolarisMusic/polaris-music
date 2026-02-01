@@ -29,14 +29,14 @@ const MIGRATIONS = [
         name: 'Unify ID property across all entities',
         file: './migrations/001-unify-id-property.js',
         exportName: 'migrateUnifyIdProperty'
+    },
+    {
+        id: '002-normalize-status-values',
+        name: 'Normalize status values to uppercase convention',
+        file: './migrations/002-normalize-status-values.js',
+        exportName: 'migrateNormalizeStatusValues'
     }
     // Add future migrations here in order
-    // {
-    //     id: '002-example',
-    //     name: 'Example migration',
-    //     file: './migrations/002-example.js',
-    //     exportName: 'migrateExample'
-    // }
 ];
 
 /**

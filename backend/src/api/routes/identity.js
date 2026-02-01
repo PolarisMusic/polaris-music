@@ -13,17 +13,18 @@
 import express from 'express';
 import { IdentityService, EntityType, IDKind } from '../../identity/idService.js';
 import { MergeOperations } from '../../graph/merge.js';
-
-const router = express.Router();
+import { getDevSigner } from '../../crypto/devSigner.js';
 
 /**
  * Initialize identity routes with database and event store
  *
  * @param {MusicGraphDatabase} db - Graph database instance
  * @param {EventStore} store - Event store instance
+ * @param {EventProcessor} eventProcessor - Event processor with canonical handlers
  * @returns {express.Router} Configured router
  */
-export function createIdentityRoutes(db, store) {
+export function createIdentityRoutes(db, store, eventProcessor) {
+    const router = express.Router();
     /**
      * POST /api/identity/mint
      * Create a new canonical entity
@@ -49,6 +50,17 @@ export function createIdentityRoutes(db, store) {
      */
     router.post('/mint', async (req, res) => {
         try {
+            // In chain mode, entity minting must go through the event-sourced pipeline
+            const ingestMode = process.env.INGEST_MODE || 'chain';
+            if (ingestMode === 'chain') {
+                return res.status(501).json({
+                    success: false,
+                    error: 'Direct minting is disabled in chain mode. ' +
+                           'Use the event-sourced pipeline: POST /api/events/prepare (type MINT_ENTITY) ' +
+                           '→ sign → POST /api/events/create → anchor on-chain → ingestion applies mint.'
+                });
+            }
+
             const { entity_type, initial_claims = [], provenance = {} } = req.body;
 
             // Validate entity type
@@ -61,62 +73,61 @@ export function createIdentityRoutes(db, store) {
 
             // Generate canonical ID
             const canonicalId = IdentityService.mintCanonicalId(entity_type);
+            const nowUnix = Math.floor(Date.now() / 1000);
 
-            console.log(`Minting new canonical ${entity_type}: ${canonicalId}`);
+            console.log(`Minting new canonical ${entity_type}: ${canonicalId} (dev mode)`);
 
-            // Create the entity node in the graph
-            const session = db.driver.session();
-            try {
-                await session.run(
-                    `CREATE (n:${capitalizeFirst(entity_type)} {
-                        id: $id,
-                        status: 'ACTIVE',
-                        created_at: datetime(),
-                        created_by: $submitter,
-                        creation_source: $source
-                    })
-                    RETURN n.id as id`,
-                    {
-                        id: canonicalId,
-                        submitter: provenance.submitter || 'system',
-                        source: provenance.source || 'manual'
-                    }
-                );
-
-                // Add initial claims if provided
-                for (const claim of initial_claims) {
-                    await session.run(
-                        `MATCH (n {id: $entityId})
-                         CREATE (c:Claim {
-                             claim_id: randomUUID(),
-                             property: $property,
-                             value: $value,
-                             confidence: $confidence,
-                             created_at: datetime(),
-                             created_by: $submitter
-                         })
-                         CREATE (c)-[:CLAIMS_ABOUT]->(n)`,
-                        {
-                            entityId: canonicalId,
-                            property: claim.property,
-                            value: JSON.stringify(claim.value),
-                            confidence: claim.confidence || 1.0,
-                            submitter: provenance.submitter || 'system'
-                        }
-                    );
-                }
-
-                res.status(201).json({
-                    success: true,
-                    canonical_id: canonicalId,
-                    status: 'ACTIVE',
-                    initial_claims: initial_claims.length,
-                    message: `Created canonical ${entity_type}`
+            // DEV mode: create event, sign with DevSigner, apply immediately via EventProcessor
+            const devSigner = getDevSigner();
+            if (!devSigner.isEnabled()) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY in environment.'
                 });
-
-            } finally {
-                await session.close();
             }
+
+            const unsignedMintEvent = {
+                v: 1,
+                type: 'MINT_ENTITY',
+                created_at: nowUnix,
+                parents: [],
+                body: {
+                    entity_type,
+                    canonical_id: canonicalId,
+                    initial_claims,
+                    provenance
+                },
+                proofs: { source_links: [] }
+            };
+
+            // Sign with DevSigner — sets author_pubkey and sig
+            const mintEvent = devSigner.signEvent(unsignedMintEvent);
+
+            // Store event for replay (signature verification passes)
+            const storeResult = await store.storeEvent(mintEvent);
+            const eventHash = storeResult.hash;
+            console.log(`Mint event created (dev mode): ${eventHash}`);
+
+            // Apply immediately via canonical EventProcessor handler
+            // This ensures dev-mode and replay produce identical graph state:
+            // - NODE_LABELS whitelist (no Cypher label injection)
+            // - Both 'id' and entity-specific fields (person_id, group_id, etc.)
+            // - Deterministic claim IDs (sha256(eventHash:mint_claim:i))
+            // - MERGE-based idempotency
+            await eventProcessor.handleMintEntity(mintEvent, {
+                hash: eventHash,
+                author: provenance.submitter || 'system',
+                ts: nowUnix
+            });
+
+            res.status(201).json({
+                success: true,
+                canonical_id: canonicalId,
+                status: 'ACTIVE',
+                eventHash,
+                initial_claims: initial_claims.length,
+                message: `Created canonical ${entity_type}`
+            });
 
         } catch (error) {
             console.error('Mint entity failed:', error);
@@ -153,6 +164,17 @@ export function createIdentityRoutes(db, store) {
      */
     router.post('/resolve', async (req, res) => {
         try {
+            // In chain mode, ID resolution must go through the event-sourced pipeline
+            const ingestMode = process.env.INGEST_MODE || 'chain';
+            if (ingestMode === 'chain') {
+                return res.status(501).json({
+                    success: false,
+                    error: 'Direct ID resolution is disabled in chain mode. ' +
+                           'Use the event-sourced pipeline: POST /api/events/prepare (type RESOLVE_ID) ' +
+                           '→ sign → POST /api/events/create → anchor on-chain → ingestion applies resolution.'
+                });
+            }
+
             const {
                 subject_id,
                 canonical_id,
@@ -190,54 +212,61 @@ export function createIdentityRoutes(db, store) {
                 });
             }
 
-            console.log(`Resolving ${subject_id} → ${canonical_id} (${method}, confidence: ${confidence})`);
+            const nowUnix = Math.floor(Date.now() / 1000);
 
-            const session = db.driver.session();
-            try {
-                let mapping;
+            console.log(`Resolving ${subject_id} → ${canonical_id} (${method}, confidence: ${confidence}) (dev mode)`);
 
-                // If subject is external ID, create IdentityMap entry
-                if (subjectParsed.kind === IDKind.EXTERNAL) {
-                    mapping = await MergeOperations.createIdentityMapping(session, {
-                        source: subjectParsed.source,
-                        externalType: subjectParsed.externalType,
-                        externalId: subjectParsed.externalId,
-                        canonicalId: canonical_id,
-                        confidence,
-                        submitter,
-                        evidence
-                    });
-                }
-
-                // If subject is provisional, create ALIAS_OF relationship
-                if (subjectParsed.kind === IDKind.PROVISIONAL) {
-                    await MergeOperations.createAlias(session, subject_id, canonical_id, {
-                        createdBy: submitter,
-                        aliasKind: 'provisional',
-                        method
-                    });
-
-                    mapping = {
-                        key: subject_id,
-                        canonical_id: canonical_id
-                    };
-                }
-
-                res.status(200).json({
-                    success: true,
-                    mapping: {
-                        ...mapping,
-                        subject_id,
-                        canonical_id,
-                        status: 'mapped',
-                        method,
-                        confidence
-                    }
+            // DEV mode: create event, sign with DevSigner, apply immediately via EventProcessor
+            const devSigner = getDevSigner();
+            if (!devSigner.isEnabled()) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY in environment.'
                 });
-
-            } finally {
-                await session.close();
             }
+
+            const unsignedResolveEvent = {
+                v: 1,
+                type: 'RESOLVE_ID',
+                created_at: nowUnix,
+                parents: [],
+                body: {
+                    subject_id,
+                    canonical_id,
+                    confidence,
+                    method,
+                    evidence
+                },
+                proofs: { source_links: [] }
+            };
+
+            // Sign with DevSigner — sets author_pubkey and sig
+            const resolveEvent = devSigner.signEvent(unsignedResolveEvent);
+
+            // Store event for replay (signature verification passes)
+            const storeResult = await store.storeEvent(resolveEvent);
+            const eventHash = storeResult.hash;
+            console.log(`Resolve event created (dev mode): ${eventHash}`);
+
+            // Apply immediately via canonical EventProcessor handler
+            // This ensures dev-mode and replay produce identical graph state
+            await eventProcessor.handleResolveId(resolveEvent, {
+                hash: eventHash,
+                author: submitter,
+                ts: nowUnix
+            });
+
+            res.status(200).json({
+                success: true,
+                eventHash,
+                mapping: {
+                    subject_id,
+                    canonical_id,
+                    status: 'mapped',
+                    method,
+                    confidence
+                }
+            });
 
         } catch (error) {
             console.error('Resolve ID failed:', error);
@@ -274,6 +303,19 @@ export function createIdentityRoutes(db, store) {
      */
     router.post('/merge', async (req, res) => {
         try {
+            // In chain mode, merges must go through the event-sourced pipeline:
+            // POST /api/events/prepare → sign → POST /api/events/create → anchor on-chain
+            // Neo4j mutation only happens via ingestion of chain-anchored MERGE_ENTITY event.
+            const ingestMode = process.env.INGEST_MODE || 'chain';
+            if (ingestMode === 'chain') {
+                return res.status(501).json({
+                    success: false,
+                    error: 'Direct merge is disabled in chain mode. ' +
+                           'Use the event-sourced pipeline: POST /api/events/prepare (type MERGE_ENTITY) ' +
+                           '→ sign → POST /api/events/create → anchor on-chain → ingestion applies merge.'
+                });
+            }
+
             const {
                 survivor_id,
                 absorbed_ids,
@@ -299,57 +341,54 @@ export function createIdentityRoutes(db, store) {
 
             console.log(`Merging ${absorbed_ids.length} entities into ${survivor_id}`);
 
-            // Create MERGE_ENTITY event for provenance
-            const mergeEvent = {
+            // DEV mode: create event, sign with DevSigner, apply merge immediately via EventProcessor
+            const nowUnix = Math.floor(Date.now() / 1000);
+            const devSigner = getDevSigner();
+            if (!devSigner.isEnabled()) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'DevSigner not enabled. Set DEV_SIGNER_PRIVATE_KEY in environment.'
+                });
+            }
+
+            const unsignedMergeEvent = {
                 v: 1,
                 type: 'MERGE_ENTITY',
-                author_pubkey: submitter,
-                created_at: Math.floor(Date.now() / 1000),
+                created_at: nowUnix,
                 parents: [],
                 body: {
                     survivor_id,
                     absorbed_ids,
                     evidence,
-                    merged_at: new Date().toISOString()
+                    submitter
                 },
-                proofs: {
-                    source_links: []
-                },
-                sig: '' // In production, should be signed by submitter
+                proofs: { source_links: [] }
             };
 
-            // Store event to get hash
+            // Sign with DevSigner — sets author_pubkey and sig
+            const mergeEvent = devSigner.signEvent(unsignedMergeEvent);
+
+            // Store event for replay (signature verification passes)
             const storeResult = await store.storeEvent(mergeEvent);
             const eventHash = storeResult.hash;
 
-            console.log(`Merge event created: ${eventHash}`);
+            console.log(`Merge event created (dev mode): ${eventHash}`);
 
-            const session = db.driver.session();
-            try {
-                // Execute merge with event hash
-                const stats = await MergeOperations.mergeEntities(
-                    session,
-                    survivor_id,
-                    absorbed_ids,
-                    {
-                        submitter,
-                        evidence,
-                        eventHash, // Now has proper event hash
-                        rewireEdges: true,
-                        moveClaims: true
-                    }
-                );
+            // Apply immediately via canonical EventProcessor handler
+            // This ensures dev-mode and replay produce identical graph state:
+            // - Idempotency guard (merge_event_hash check)
+            // - Deterministic timestamps from event time
+            await eventProcessor.handleMergeEntity(mergeEvent, {
+                hash: eventHash,
+                author: submitter,
+                ts: nowUnix
+            });
 
-                res.status(200).json({
-                    success: true,
-                    eventHash,
-                    merge_result: stats,
-                    message: `Successfully merged ${stats.absorbedCount} entities into ${survivor_id}`
-                });
-
-            } finally {
-                await session.close();
-            }
+            res.status(200).json({
+                success: true,
+                eventHash,
+                message: `Successfully merged ${absorbed_ids.length} entities into ${survivor_id}`
+            });
 
         } catch (error) {
             console.error('Merge entities failed:', error);
@@ -490,13 +529,6 @@ export function createIdentityRoutes(db, store) {
     });
 
     return router;
-}
-
-/**
- * Helper function to capitalize first letter
- */
-function capitalizeFirst(str) {
-    return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 export default createIdentityRoutes;

@@ -55,7 +55,7 @@ jest.mock('neo4j-driver', () => ({
 }));
 
 // Skip these integration tests if no database is configured
-const describeOrSkip = (process.env.GRAPH_URI && !process.env.CI) ? describe : describe.skip;
+const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
 
 describeOrSkip('Event-Sourced Merge Operations', () => {
     let graphDb;
@@ -82,8 +82,10 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             store: eventStore
         });
 
-        // Verify connection
+        // Verify connection and clear DB to prevent pollution from prior test files
         await driver.verifyConnectivity();
+        const cleanSession = driver.session();
+        try { await cleanSession.run('MATCH (n) DETACH DELETE n'); } finally { await cleanSession.close(); }
     });
 
     afterAll(async () => {
@@ -93,8 +95,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
     beforeEach(async () => {
         session = driver.session();
 
-        // Clean up test data
-        await session.run('MATCH (n) WHERE n.id STARTS WITH "test-" DETACH DELETE n');
+        // Clean up all test data between tests (safe with --runInBand)
+        await session.run('MATCH (n) DETACH DELETE n');
     });
 
     afterEach(async () => {
@@ -107,8 +109,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('Merge operation creates MERGE_ENTITY event with hash', async () => {
             // Create test entities with universal ID
             await session.run(`
-                CREATE (p1:Person {id: 'test-person-1', person_id: 'test-person-1', name: 'John Lennon'})
-                CREATE (p2:Person {id: 'test-person-2', person_id: 'test-person-2', name: 'John Winston Lennon'})
+                CREATE (p1:Person {id: 'polaris:person:00000000-0000-0000-0001-000000000001', person_id: 'polaris:person:00000000-0000-0000-0001-000000000001', name: 'John Lennon'})
+                CREATE (p2:Person {id: 'polaris:person:00000000-0000-0000-0001-000000000002', person_id: 'polaris:person:00000000-0000-0000-0001-000000000002', name: 'John Winston Lennon'})
             `);
 
             // Create MERGE_ENTITY event (simulating endpoint)
@@ -119,8 +121,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000),
                 parents: [],
                 body: {
-                    survivor_id: 'test-person-1',
-                    absorbed_ids: ['test-person-2'],
+                    survivor_id: 'polaris:person:00000000-0000-0000-0001-000000000001',
+                    absorbed_ids: ['polaris:person:00000000-0000-0000-0001-000000000002'],
                     evidence: 'Same person, different name variants',
                     merged_at: new Date().toISOString()
                 },
@@ -141,15 +143,15 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             const retrievedEvent = await eventStore.getEvent(storeResult.hash);
             expect(retrievedEvent).toBeDefined();
             expect(retrievedEvent.type).toBe('MERGE_ENTITY');
-            expect(retrievedEvent.body.survivor_id).toBe('test-person-1');
-            expect(retrievedEvent.body.absorbed_ids).toEqual(['test-person-2']);
+            expect(retrievedEvent.body.survivor_id).toBe('polaris:person:00000000-0000-0000-0001-000000000001');
+            expect(retrievedEvent.body.absorbed_ids).toEqual(['polaris:person:00000000-0000-0000-0001-000000000002']);
         });
 
         test('Merge operation links eventHash to tombstone nodes', async () => {
             // Create test entities
             await session.run(`
-                CREATE (p1:Person {id: 'test-person-3', person_id: 'test-person-3', name: 'Paul McCartney'})
-                CREATE (p2:Person {id: 'test-person-4', person_id: 'test-person-4', name: 'James Paul McCartney'})
+                CREATE (p1:Person {id: 'polaris:person:00000000-0000-0000-0001-000000000003', person_id: 'polaris:person:00000000-0000-0000-0001-000000000003', name: 'Paul McCartney'})
+                CREATE (p2:Person {id: 'polaris:person:00000000-0000-0000-0001-000000000004', person_id: 'polaris:person:00000000-0000-0000-0001-000000000004', name: 'James Paul McCartney'})
             `);
 
             // Create and store event
@@ -160,8 +162,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000),
                 parents: [],
                 body: {
-                    survivor_id: 'test-person-3',
-                    absorbed_ids: ['test-person-4'],
+                    survivor_id: 'polaris:person:00000000-0000-0000-0001-000000000003',
+                    absorbed_ids: ['polaris:person:00000000-0000-0000-0001-000000000004'],
                     evidence: 'Same person',
                     merged_at: new Date().toISOString()
                 },
@@ -175,8 +177,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             // Perform merge with eventHash
             const stats = await MergeOperations.mergeEntities(
                 session,
-                'test-person-3',
-                ['test-person-4'],
+                'polaris:person:00000000-0000-0000-0001-000000000003',
+                ['polaris:person:00000000-0000-0000-0001-000000000004'],
                 {
                     submitter: 'test-user',
                     eventHash: eventHash,
@@ -191,7 +193,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
 
             // Verify tombstone has merge_event_hash
             const tombstoneResult = await session.run(`
-                MATCH (p:Person {id: 'test-person-4'})
+                MATCH (p:Person {id: 'polaris:person:00000000-0000-0000-0001-000000000004'})
                 RETURN p.status as status, p.merge_event_hash as eventHash
             `);
 
@@ -206,8 +208,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('MERGE_ENTITY event can be replayed via event processor', async () => {
             // Create test entities
             await session.run(`
-                CREATE (g1:Group {id: 'test-group-1', group_id: 'test-group-1', name: 'The Beatles'})
-                CREATE (g2:Group {id: 'test-group-2', group_id: 'test-group-2', name: 'Beatles'})
+                CREATE (g1:Group {id: 'polaris:group:00000000-0000-0000-0002-000000000001', group_id: 'polaris:group:00000000-0000-0000-0002-000000000001', name: 'The Beatles'})
+                CREATE (g2:Group {id: 'polaris:group:00000000-0000-0000-0002-000000000002', group_id: 'polaris:group:00000000-0000-0000-0002-000000000002', name: 'Beatles'})
             `);
 
             // Create MERGE_ENTITY event
@@ -218,8 +220,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000),
                 parents: [],
                 body: {
-                    survivor_id: 'test-group-1',
-                    absorbed_ids: ['test-group-2'],
+                    survivor_id: 'polaris:group:00000000-0000-0000-0002-000000000001',
+                    absorbed_ids: ['polaris:group:00000000-0000-0000-0002-000000000002'],
                     evidence: 'Same band, name variants',
                     merged_at: new Date().toISOString()
                 },
@@ -238,7 +240,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
 
             // Verify merge occurred
             const survivorResult = await session.run(`
-                MATCH (g:Group {id: 'test-group-1'})
+                MATCH (g:Group {id: 'polaris:group:00000000-0000-0000-0002-000000000001'})
                 RETURN g.name as name, g.status as status
             `);
             expect(survivorResult.records.length).toBe(1);
@@ -246,7 +248,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             expect(survivorResult.records[0].get('status')).toBeNull(); // Active
 
             const tombstoneResult = await session.run(`
-                MATCH (g:Group {id: 'test-group-2'})
+                MATCH (g:Group {id: 'polaris:group:00000000-0000-0000-0002-000000000002'})
                 RETURN g.status as status, g.merge_event_hash as eventHash
             `);
             expect(tombstoneResult.records.length).toBe(1);
@@ -257,8 +259,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('Replaying same MERGE_ENTITY event is idempotent', async () => {
             // Create test entities
             await session.run(`
-                CREATE (t1:Track {id: 'test-track-1', track_id: 'test-track-1', title: 'Yesterday'})
-                CREATE (t2:Track {id: 'test-track-2', track_id: 'test-track-2', title: 'Yesterday (Remaster)'})
+                CREATE (t1:Track {id: 'polaris:track:00000000-0000-0000-0003-000000000001', track_id: 'polaris:track:00000000-0000-0000-0003-000000000001', title: 'Yesterday'})
+                CREATE (t2:Track {id: 'polaris:track:00000000-0000-0000-0003-000000000002', track_id: 'polaris:track:00000000-0000-0000-0003-000000000002', title: 'Yesterday (Remaster)'})
             `);
 
             const mergeEvent = {
@@ -268,8 +270,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000),
                 parents: [],
                 body: {
-                    survivor_id: 'test-track-1',
-                    absorbed_ids: ['test-track-2'],
+                    survivor_id: 'polaris:track:00000000-0000-0000-0003-000000000001',
+                    absorbed_ids: ['polaris:track:00000000-0000-0000-0003-000000000002'],
                     evidence: 'Same track',
                     merged_at: new Date().toISOString()
                 },
@@ -289,7 +291,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             // Get state after first merge
             const firstMergeState = await session.run(`
                 MATCH (t:Track)
-                WHERE t.id IN ['test-track-1', 'test-track-2']
+                WHERE t.id IN ['polaris:track:00000000-0000-0000-0003-000000000001', 'polaris:track:00000000-0000-0000-0003-000000000002']
                 RETURN t.id as id, t.status as status, t.merge_event_hash as eventHash
                 ORDER BY t.id
             `);
@@ -303,7 +305,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             // Get state after second merge
             const secondMergeState = await session.run(`
                 MATCH (t:Track)
-                WHERE t.id IN ['test-track-1', 'test-track-2']
+                WHERE t.id IN ['polaris:track:00000000-0000-0000-0003-000000000001', 'polaris:track:00000000-0000-0000-0003-000000000002']
                 RETURN t.id as id, t.status as status, t.merge_event_hash as eventHash
                 ORDER BY t.id
             `);
@@ -322,9 +324,9 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('Wipe graph + replay events reproduces merges', async () => {
             // STEP 1: Create initial entities
             await session.run(`
-                CREATE (p1:Person {id: 'test-replay-1', person_id: 'test-replay-1', name: 'George Harrison'})
-                CREATE (p2:Person {id: 'test-replay-2', person_id: 'test-replay-2', name: 'George H. Harrison'})
-                CREATE (p3:Person {id: 'test-replay-3', person_id: 'test-replay-3', name: 'George Harold Harrison'})
+                CREATE (p1:Person {id: 'polaris:person:00000000-0000-0000-0004-000000000001', person_id: 'polaris:person:00000000-0000-0000-0004-000000000001', name: 'George Harrison'})
+                CREATE (p2:Person {id: 'polaris:person:00000000-0000-0000-0004-000000000002', person_id: 'polaris:person:00000000-0000-0000-0004-000000000002', name: 'George H. Harrison'})
+                CREATE (p3:Person {id: 'polaris:person:00000000-0000-0000-0004-000000000003', person_id: 'polaris:person:00000000-0000-0000-0004-000000000003', name: 'George Harold Harrison'})
             `);
 
             // STEP 2: Perform first merge and store event
@@ -335,8 +337,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000),
                 parents: [],
                 body: {
-                    survivor_id: 'test-replay-1',
-                    absorbed_ids: ['test-replay-2'],
+                    survivor_id: 'polaris:person:00000000-0000-0000-0004-000000000001',
+                    absorbed_ids: ['polaris:person:00000000-0000-0000-0004-000000000002'],
                     evidence: 'Name variant',
                     merged_at: new Date().toISOString()
                 },
@@ -357,8 +359,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000) + 1,
                 parents: [],
                 body: {
-                    survivor_id: 'test-replay-1',
-                    absorbed_ids: ['test-replay-3'],
+                    survivor_id: 'polaris:person:00000000-0000-0000-0004-000000000001',
+                    absorbed_ids: ['polaris:person:00000000-0000-0000-0004-000000000003'],
                     evidence: 'Full name variant',
                     merged_at: new Date().toISOString()
                 },
@@ -374,7 +376,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             // STEP 4: Capture final state
             const originalState = await session.run(`
                 MATCH (p:Person)
-                WHERE p.id STARTS WITH 'test-replay-'
+                WHERE p.id STARTS WITH 'polaris:person:00000000-0000-0000-0004-'
                 RETURN p.id as id, p.status as status, p.merge_event_hash as eventHash,
                        p.merged_into as mergedInto
                 ORDER BY p.id
@@ -391,23 +393,23 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             // STEP 5: Wipe graph (delete test nodes)
             await session.run(`
                 MATCH (p:Person)
-                WHERE p.id STARTS WITH 'test-replay-'
+                WHERE p.id STARTS WITH 'polaris:person:00000000-0000-0000-0004-'
                 DETACH DELETE p
             `);
 
             // Verify wipe
             const wipeCheck = await session.run(`
                 MATCH (p:Person)
-                WHERE p.id STARTS WITH 'test-replay-'
+                WHERE p.id STARTS WITH 'polaris:person:00000000-0000-0000-0004-'
                 RETURN count(p) as count
             `);
             expect(wipeCheck.records[0].get('count').toInt()).toBe(0);
 
             // STEP 6: Recreate initial entities
             await session.run(`
-                CREATE (p1:Person {id: 'test-replay-1', person_id: 'test-replay-1', name: 'George Harrison'})
-                CREATE (p2:Person {id: 'test-replay-2', person_id: 'test-replay-2', name: 'George H. Harrison'})
-                CREATE (p3:Person {id: 'test-replay-3', person_id: 'test-replay-3', name: 'George Harold Harrison'})
+                CREATE (p1:Person {id: 'polaris:person:00000000-0000-0000-0004-000000000001', person_id: 'polaris:person:00000000-0000-0000-0004-000000000001', name: 'George Harrison'})
+                CREATE (p2:Person {id: 'polaris:person:00000000-0000-0000-0004-000000000002', person_id: 'polaris:person:00000000-0000-0000-0004-000000000002', name: 'George H. Harrison'})
+                CREATE (p3:Person {id: 'polaris:person:00000000-0000-0000-0004-000000000003', person_id: 'polaris:person:00000000-0000-0000-0004-000000000003', name: 'George Harold Harrison'})
             `);
 
             // STEP 7: Replay events in order
@@ -426,7 +428,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             // STEP 8: Verify replayed state matches original
             const replayedState = await session.run(`
                 MATCH (p:Person)
-                WHERE p.id STARTS WITH 'test-replay-'
+                WHERE p.id STARTS WITH 'polaris:person:00000000-0000-0000-0004-'
                 RETURN p.id as id, p.status as status, p.merge_event_hash as eventHash,
                        p.merged_into as mergedInto
                 ORDER BY p.id
@@ -449,7 +451,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
     describe('Universal ID System', () => {
         test('Entities created by different endpoints use consistent ID', async () => {
             // Simulate entity created via different code paths
-            const testId = 'test-consistent-id-1';
+            const testId = 'polaris:person:00000000-0000-0000-0006-000000000001';
 
             // Path 1: Direct creation with universal ID
             await session.run(`
@@ -476,7 +478,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         });
 
         test('Universal ID constraint prevents duplicates', async () => {
-            const testId = 'test-unique-id-1';
+            const testId = 'polaris:person:00000000-0000-0000-0007-000000000001';
 
             // Create first entity
             await session.run(`
@@ -496,15 +498,15 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('Merge rewires relationships to survivor', async () => {
             // Create entities with relationships
             await session.run(`
-                CREATE (p1:Person {id: 'test-edge-1', person_id: 'test-edge-1', name: 'Original'})
-                CREATE (p2:Person {id: 'test-edge-2', person_id: 'test-edge-2', name: 'Duplicate'})
-                CREATE (g:Group {id: 'test-edge-group', group_id: 'test-edge-group', name: 'Test Band'})
+                CREATE (p1:Person {id: 'polaris:person:00000000-0000-0000-0005-000000000001', person_id: 'polaris:person:00000000-0000-0000-0005-000000000001', name: 'Original'})
+                CREATE (p2:Person {id: 'polaris:person:00000000-0000-0000-0005-000000000002', person_id: 'polaris:person:00000000-0000-0000-0005-000000000002', name: 'Duplicate'})
+                CREATE (g:Group {id: 'polaris:group:00000000-0000-0000-0005-000000000003', group_id: 'polaris:group:00000000-0000-0000-0005-000000000003', name: 'Test Band'})
                 CREATE (p2)-[:MEMBER_OF {from_date: '2020-01-01'}]->(g)
             `);
 
             // Verify relationship exists on p2
             const beforeMerge = await session.run(`
-                MATCH (p:Person {id: 'test-edge-2'})-[r:MEMBER_OF]->(g:Group)
+                MATCH (p:Person {id: 'polaris:person:00000000-0000-0000-0005-000000000002'})-[r:MEMBER_OF]->(g:Group)
                 RETURN count(r) as count
             `);
             expect(beforeMerge.records[0].get('count').toInt()).toBe(1);
@@ -517,8 +519,8 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
                 created_at: Math.floor(Date.now() / 1000),
                 parents: [],
                 body: {
-                    survivor_id: 'test-edge-1',
-                    absorbed_ids: ['test-edge-2'],
+                    survivor_id: 'polaris:person:00000000-0000-0000-0005-000000000001',
+                    absorbed_ids: ['polaris:person:00000000-0000-0000-0005-000000000002'],
                     evidence: 'Duplicate person',
                     merged_at: new Date().toISOString()
                 },
@@ -534,14 +536,14 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
 
             // Verify relationship now exists on survivor
             const afterMerge = await session.run(`
-                MATCH (p:Person {id: 'test-edge-1'})-[r:MEMBER_OF]->(g:Group)
+                MATCH (p:Person {id: 'polaris:person:00000000-0000-0000-0005-000000000001'})-[r:MEMBER_OF]->(g:Group)
                 RETURN count(r) as count
             `);
             expect(afterMerge.records[0].get('count').toInt()).toBe(1);
 
             // Verify relationship no longer on absorbed node
             const absorbedEdges = await session.run(`
-                MATCH (p:Person {id: 'test-edge-2'})-[r:MEMBER_OF]->(g:Group)
+                MATCH (p:Person {id: 'polaris:person:00000000-0000-0000-0005-000000000002'})-[r:MEMBER_OF]->(g:Group)
                 RETURN count(r) as count
             `);
             expect(absorbedEdges.records[0].get('count').toInt()).toBe(0);
