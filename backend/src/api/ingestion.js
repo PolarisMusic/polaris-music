@@ -45,6 +45,7 @@
 import { createHash } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
 import { verifyEventSignature } from '../crypto/verifyEventSignature.js';
+import { createLogger } from '../utils/logger.js';
 
 /**
  * Maximum size of in-memory dedup cache before clearing.
@@ -92,6 +93,7 @@ export class IngestionHandler {
         this.store = eventStore;
         this.processor = eventProcessor;
         this.config = config;
+        this.log = createLogger('ingestion');
 
         // In-memory deduplication cache
         // LIMITATION: Lost on restart - Substreams replays will reprocess events
@@ -323,16 +325,23 @@ export class IngestionHandler {
 
         // Normalize hash to lowercase hex string (do this early for logging)
         const content_hash = this.normalizeHash(hash);
+        const timer = this.log.startTimer();
+        const logCtx = {
+            event_hash: content_hash,
+            event_type: type,
+            author,
+            event_cid: event_cid || undefined,
+            block_num: blockchainMetadata.block_num || undefined,
+            trx_id: blockchainMetadata.trx_id || undefined,
+            action_ordinal: blockchainMetadata.action_ordinal || undefined,
+            source: blockchainMetadata.source || undefined
+        };
 
-        console.log(`\nProcessing put action:`);
-        console.log(`  Hash: ${content_hash.substring(0, 12)}...`);
-        console.log(`  Author: ${author}`);
-        console.log(`  Type: ${type}`);
-        console.log(`  Block: ${blockchainMetadata.block_num || 'N/A'}`);
+        this.log.info('put_action_start', logCtx);
 
         // Step 2: Check for duplicates
         if (this.processedHashes.has(content_hash)) {
-            console.log(`   Duplicate event (already processed)`);
+            this.log.info('put_action_dedup_hit', { event_hash: content_hash, dedup_key: 'hash_cache' });
             this.stats.eventsDuplicate++;
             return {
                 status: 'duplicate',
@@ -345,12 +354,14 @@ export class IngestionHandler {
             // Step 3: Fetch full event from off-chain storage
             // Prefer event_cid for faster IPFS retrieval (skips CID derivation)
             // Fall back to hash-based retrieval for backward compatibility
-            console.log(`  Fetching event from storage...`);
+            const retrieveTimer = this.log.startTimer();
             let event;
             let source; // Track which retrieval path was used
+            const retrievalKey = event_cid || content_hash;
+
+            this.log.info('retrieve_start', { event_hash: content_hash, retrieval_key: event_cid ? 'event_cid' : 'hash' });
 
             if (event_cid) {
-                console.log(`  Using event_cid: ${typeof event_cid === 'string' ? event_cid.substring(0, 20) : '<non-string>'}...`);
                 try {
                     event = await this.store.retrieveByEventCid(event_cid);
                     source = 'ipfs_cid';
@@ -358,24 +369,25 @@ export class IngestionHandler {
                     // CRITICAL: If IPFS retrieval fails (node down, not pinned, timeout, etc.),
                     // fall back to hash-based retrieval which can use S3 or other storage.
                     // This makes ingestion resilient to temporary IPFS unavailability.
-                    console.warn(
-                        `  ⚠️  IPFS CID retrieval failed, falling back to hash-based retrieval:\n` +
-                        `      event_cid: ${event_cid}\n` +
-                        `      content_hash: ${content_hash}\n` +
-                        `      error: ${ipfsError.message}`
-                    );
+                    this.log.warn('retrieve_cid_fallback', {
+                        event_hash: content_hash,
+                        event_cid,
+                        error: ipfsError.message
+                    });
                     event = await this.store.retrieveEvent(content_hash, { requireSig: true });
                     source = 'hash_fallback';
                 }
             } else {
                 // Legacy path: derive CID from hash or use S3 fallback
-                console.log(`  Using hash (no event_cid provided)`);
                 event = await this.store.retrieveEvent(content_hash, { requireSig: true });
                 source = 'hash_legacy';
             }
 
             if (!event) {
-                console.error(`   Event not found in storage: ${content_hash}`);
+                retrieveTimer.endWarn('retrieve_not_found', {
+                    event_hash: content_hash,
+                    attempted_layers: event_cid ? ['ipfs_cid', 'redis', 'ipfs', 's3'] : ['redis', 'ipfs', 's3']
+                });
                 this.stats.eventsNotFound++;
                 return {
                     status: 'not_found',
@@ -384,7 +396,7 @@ export class IngestionHandler {
                 };
             }
 
-            console.log(`   Retrieved via ${source}`);
+            retrieveTimer.end('retrieve_end', { event_hash: content_hash, source });
 
             // Step 4: Verify the fetched event hash matches
             const computedHash = this.store.calculateHash(event);
@@ -397,25 +409,28 @@ export class IngestionHandler {
             // Step 4.1: CRITICAL - Verify cryptographic signature
             // This ensures the event was actually signed by the claimed author_pubkey
             // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
-            console.log(`  Verifying event signature...`);
+            const sigTimer = this.log.startTimer();
             const sigResult = verifyEventSignature(event, {
                 requireSignature: true,
                 allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
             });
 
             if (!sigResult.valid) {
-                const errorMsg = `Invalid signature: ${sigResult.reason}`;
-                console.error(`   ${errorMsg}`);
+                sigTimer.endError('sig_verify_fail', {
+                    event_hash: content_hash,
+                    reason: sigResult.reason,
+                    pubkey: event.author_pubkey ? event.author_pubkey.substring(0, 12) + '...' : undefined
+                });
                 this.stats.eventsInvalidSignature++;
                 return {
                     status: 'invalid_signature',
                     contentHash: content_hash,
-                    error: errorMsg,
+                    error: `Invalid signature: ${sigResult.reason}`,
                     reason: sigResult.reason
                 };
             }
 
-            console.log(`   Signature valid`);
+            sigTimer.end('sig_verify_pass', { event_hash: content_hash });
 
             // Step 4.2: Verify signing key is authorized for chain author
             // This binds the event signer to the account that anchored it
@@ -432,22 +447,26 @@ export class IngestionHandler {
                 );
 
                 if (!isAuthorized) {
-                    const errorMsg = `Unauthorized key: ${event.author_pubkey} not authorized for ${author}@${permission}`;
-                    console.error(`   ${errorMsg}`);
+                    this.log.error('auth_key_unauthorized', {
+                        event_hash: content_hash,
+                        account: author,
+                        permission,
+                        pubkey: event.author_pubkey ? event.author_pubkey.substring(0, 12) + '...' : undefined
+                    });
                     this.stats.eventsUnauthorizedKey++;
                     return {
                         status: 'unauthorized_key',
                         contentHash: content_hash,
-                        error: errorMsg,
+                        error: `Unauthorized key: ${event.author_pubkey} not authorized for ${author}@${permission}`,
                         account: author,
                         permission,
                         publicKey: event.author_pubkey
                     };
                 }
 
-                console.log(`   Key authorized for ${author}@${permission}`);
+                this.log.info('auth_key_verified', { event_hash: content_hash, account: author, permission });
             } else {
-                console.log(`   ⚠️  Account authorization check skipped (REQUIRE_ACCOUNT_AUTH=false)`);
+                this.log.warn('auth_check_skipped', { event_hash: content_hash, reason: 'REQUIRE_ACCOUNT_AUTH=false' });
             }
 
             // Step 4.5: Verify on-chain type matches off-chain event.type
@@ -460,7 +479,7 @@ export class IngestionHandler {
 
                 if (!typeMatches) {
                     const errorMsg = `Type mismatch: on-chain type ${type} (${expectedTypeString}) != off-chain event.type ${eventType}`;
-                    console.error(`   ${errorMsg}`);
+                    this.log.error('type_mismatch', { event_hash: content_hash, onchain_type: type, offchain_type: eventType });
                     this.stats.eventsFailed++;
                     return {
                         status: 'error',
@@ -470,7 +489,7 @@ export class IngestionHandler {
                 }
             } else {
                 // Unknown type code - warn but allow (for backward compatibility)
-                console.warn(`  Warning: Unknown event type code ${type} - cannot verify type match`);
+                this.log.warn('unknown_type_code', { event_hash: content_hash, type_code: type });
             }
 
             // Step 5: Attach blockchain metadata to event
@@ -501,17 +520,17 @@ export class IngestionHandler {
             };
 
             // Step 7: Process event by type using EventProcessor handlers
+            const dispatchTimer = this.log.startTimer();
+            this.log.info('dispatch_start', { event_hash: content_hash, event_type: type, handler: TYPE_CODE_TO_EVENT_TYPE[type] || 'unknown' });
             await this.processEventByType(enrichedEvent, actionMetadata);
+            dispatchTimer.end('dispatch_end', { event_hash: content_hash, event_type: type });
 
             // Mark as processed
             this.processedHashes.add(content_hash);
 
             // Prevent unbounded memory growth on long-running ingestion
             if (this.processedHashes.size > MAX_PROCESSED_HASHES) {
-                console.warn(
-                    `Dedup cache exceeded ${MAX_PROCESSED_HASHES} entries, clearing. ` +
-                    `This is safe (events still deduplicated by Neo4j MERGE).`
-                );
+                this.log.warn('dedup_cache_cleared', { max: MAX_PROCESSED_HASHES });
                 this.processedHashes.clear();
                 this.stats.cacheClears++;
             }
@@ -519,7 +538,7 @@ export class IngestionHandler {
             this.stats.eventsProcessed++;
             this.stats.lastProcessedTime = new Date();
 
-            console.log(`   ✓ Event processed successfully`);
+            timer.end('put_action_end', { event_hash: content_hash, event_type: type, status: 'processed' });
 
             return {
                 status: 'processed',
@@ -528,7 +547,12 @@ export class IngestionHandler {
             };
 
         } catch (error) {
-            console.error(`   Failed to process event:`, error.message);
+            timer.endError('put_action_error', {
+                event_hash: content_hash,
+                event_type: type,
+                error: error.message,
+                error_class: error.constructor.name
+            });
             this.stats.eventsFailed++;
 
             return {
@@ -589,14 +613,19 @@ export class IngestionHandler {
         // This prevents crashes on .substring() and ensures correct deduplication
         const contentHash = this.normalizeHash(content_hash);
 
-        console.log(`\nProcessing anchored event from ${source}:`);
-        console.log(`  Content Hash: ${contentHash.substring(0, 12)}...`);
-        console.log(`  Action: ${action_name}`);
-        console.log(`  Block: ${block_num}`);
+        this.log.info('anchored_event_start', {
+            event_hash: contentHash,
+            source,
+            block_num,
+            trx_id,
+            action_ordinal,
+            action_name,
+            contract_account
+        });
 
         // Step 2: Check for duplicates by content_hash
         if (this.processedHashes.has(contentHash)) {
-            console.log(`   Duplicate event (already processed)`);
+            this.log.info('anchored_event_dedup_hit', { event_hash: contentHash });
             this.stats.eventsDuplicate++;
             return {
                 status: 'duplicate',
@@ -612,7 +641,7 @@ export class IngestionHandler {
 
             // Step 4: Only process 'put' actions (event anchoring)
             if (action_name !== 'put') {
-                console.log(`  Skipping non-put action: ${action_name}`);
+                this.log.info('anchored_event_skip', { event_hash: contentHash, action_name });
                 return {
                     status: 'skipped',
                     contentHash,  // Use normalized contentHash
@@ -657,7 +686,7 @@ export class IngestionHandler {
             return await this.processPutAction(putActionData, blockchainMetadata);
 
         } catch (error) {
-            console.error(`   Failed to process anchored event:`, error.message);
+            this.log.error('anchored_event_error', { event_hash: contentHash, error: error.message, error_class: error.constructor.name });
             this.stats.eventsFailed++;
 
             return {
@@ -682,7 +711,7 @@ export class IngestionHandler {
         const handler = this.processor.eventHandlers[actionData.type];
 
         if (!handler) {
-            console.warn(`  No handler for event type ${actionData.type}`);
+            this.log.warn('no_handler', { event_type: actionData.type, event_hash: actionData.hash });
             return;
         }
 
@@ -750,7 +779,7 @@ export class IngestionHandler {
     clearCache() {
         const size = this.processedHashes.size;
         this.processedHashes.clear();
-        console.log(`Cleared ingestion cache (${size} hashes)`);
+        this.log.info('cache_cleared', { cleared_entries: size });
         return size;
     }
 }

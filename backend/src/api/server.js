@@ -31,6 +31,7 @@ import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
+import { createLogger, generateRequestId } from '../utils/logger.js';
 
 /**
  * GraphQL Schema Definition
@@ -300,9 +301,32 @@ class APIServer {
         // Parse JSON bodies
         this.app.use(express.json({ limit: '10mb' }));
 
-        // Request logging
+        // Structured request logging with correlation ID
         this.app.use((req, res, next) => {
-            console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
+            const requestId = req.headers['x-request-id'] || generateRequestId();
+            req.requestId = requestId;
+            res.setHeader('X-Request-Id', requestId);
+
+            const log = createLogger('api.server', { request_id: requestId });
+            const timer = log.startTimer();
+
+            log.info('request_start', {
+                method: req.method,
+                path: req.path,
+                remote_ip: req.ip,
+                user_agent: req.get('user-agent')
+            });
+
+            const originalEnd = res.end;
+            res.end = function(...args) {
+                timer.end('request_end', {
+                    method: req.method,
+                    path: req.path,
+                    status: res.statusCode
+                });
+                originalEnd.apply(res, args);
+            };
+
             next();
         });
 
@@ -693,17 +717,38 @@ class APIServer {
             }
         };
 
-        // Setup GraphQL endpoint
-        this.app.use('/graphql', graphqlHTTP({
-            schema: schema,
-            rootValue: root,
-            graphiql: process.env.NODE_ENV !== 'production',
-            customFormatErrorFn: (error) => ({
-                message: error.message,
-                locations: error.locations,
-                path: error.path
-            })
-        }));
+        // Setup GraphQL endpoint with structured logging
+        this.app.use('/graphql', (req, res, next) => {
+            const gqlLog = createLogger('api.graphql', { request_id: req.requestId });
+            const timer = gqlLog.startTimer();
+
+            const originalEnd = res._origEnd || res.end;
+            res.end = function(...args) {
+                const operationName = req.body?.operationName || undefined;
+                timer.end('graphql_request', {
+                    operation_name: operationName,
+                    status: res.statusCode
+                });
+                originalEnd.apply(res, args);
+            };
+
+            graphqlHTTP({
+                schema: schema,
+                rootValue: root,
+                graphiql: process.env.NODE_ENV !== 'production',
+                customFormatErrorFn: (error) => {
+                    gqlLog.error('graphql_error', {
+                        message: error.message,
+                        path: error.path
+                    });
+                    return {
+                        message: error.message,
+                        locations: error.locations,
+                        path: error.path
+                    };
+                }
+            })(req, res, next);
+        });
 
         console.log(' GraphQL endpoint configured at /graphql');
     }
@@ -1084,8 +1129,11 @@ class APIServer {
          *                                          If provided and doesn't match computed hash, returns 400.
          */
         this.app.post('/api/events/create', this.writeRateLimiter, async (req, res) => {
+            const evtLog = createLogger('api.events.create', { request_id: req.requestId });
+            const timer = evtLog.startTimer();
             try {
                 const { expected_hash, ...event } = req.body;
+                evtLog.info('event_create_start', { event_type: event.type, expected_hash: expected_hash || undefined });
 
                 // Validate CREATE_RELEASE_BUNDLE events at ingress
                 if (event.type === 'CREATE_RELEASE_BUNDLE' && event.body) {
@@ -1125,6 +1173,7 @@ class APIServer {
                     });
                 }
 
+                timer.end('event_create_end', { event_hash: result.hash, event_cid: result.event_cid });
                 res.status(201).json({
                     success: true,
                     hash: result.hash,
@@ -1139,7 +1188,7 @@ class APIServer {
                     errors: result.errors
                 });
             } catch (error) {
-                console.error('Event creation failed:', error);
+                timer.endError('event_create_error', { error: error.message });
                 res.status(400).json({
                     success: false,
                     error: error.message
@@ -1152,15 +1201,19 @@ class APIServer {
          * Retrieve an event by its hash
          */
         this.app.get('/api/events/:hash', async (req, res) => {
+            const retLog = createLogger('api.events.retrieve', { request_id: req.requestId });
+            const timer = retLog.startTimer();
             try {
+                retLog.info('event_retrieve_start', { event_hash: req.params.hash });
                 const event = await this.store.retrieveEvent(req.params.hash);
 
+                timer.end('event_retrieve_end', { event_hash: req.params.hash });
                 res.json({
                     success: true,
                     event
                 });
             } catch (error) {
-                console.error('Event retrieval failed:', error);
+                timer.endError('event_retrieve_error', { event_hash: req.params.hash, error: error.message });
                 res.status(404).json({
                     success: false,
                     error: error.message
@@ -1205,6 +1258,8 @@ class APIServer {
          * }
          */
         this.app.post('/api/ingest/anchored-event', this.writeRateLimiter, this.requireApiKey, async (req, res) => {
+            const ingestLog = createLogger('api.ingest', { request_id: req.requestId });
+            const timer = ingestLog.startTimer();
             try {
                 const anchoredEvent = req.body.anchoredEvent || req.body;
 
@@ -1216,16 +1271,33 @@ class APIServer {
                     });
                 }
 
+                ingestLog.info('ingest_start', {
+                    event_hash: anchoredEvent.content_hash,
+                    source: anchoredEvent.source,
+                    block_num: anchoredEvent.block_num,
+                    trx_id: anchoredEvent.trx_id,
+                    action_name: anchoredEvent.action_name
+                });
+
                 // Process anchored event
                 const result = await this.ingestionHandler.processAnchoredEvent(anchoredEvent);
 
                 // Return appropriate status code
                 const statusCode = result.status === 'duplicate' ? 200 : 201;
 
+                timer.end('ingest_end', {
+                    event_hash: anchoredEvent.content_hash,
+                    result_status: result.status,
+                    status: statusCode
+                });
+
                 res.status(statusCode).json(result);
 
             } catch (error) {
-                console.error('Chain ingestion error:', error);
+                timer.endError('ingest_error', {
+                    error: error.message,
+                    error_class: error.constructor.name
+                });
                 res.status(500).json({
                     status: 'error',
                     error: error.message,

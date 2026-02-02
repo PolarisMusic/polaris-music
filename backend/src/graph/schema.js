@@ -21,6 +21,7 @@ import { MergeOperations } from './merge.js';
 import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 import { normalizeRole, normalizeRoles, normalizeRoleInput } from './roleNormalization.js';
+import { createLogger } from '../utils/logger.js';
 
 /**
  * Normalize an event timestamp to a Neo4j Integer suitable for
@@ -294,6 +295,7 @@ constructor(config = {}) {
         );
 
         this.resolved = resolved;
+        this.log = createLogger('graph.schema');
     }
 
     /**
@@ -306,9 +308,10 @@ constructor(config = {}) {
      */
     async initializeSchema() {
         const session = this.driver.session();
+        const timer = this.log.startTimer();
 
         try {
-            console.log('Initializing database schema...');
+            this.log.info('schema_init_start');
 
             // ========== NODE CONSTRAINTS ==========
             // These ensure each entity has a unique identifier
@@ -436,11 +439,11 @@ constructor(config = {}) {
             for (const constraint of constraints) {
                 try {
                     await session.run(constraint.query);
-                    console.log(`   Created constraint: ${constraint.name}`);
+                    this.log.debug('constraint_created', { name: constraint.name });
                 } catch (error) {
                     // Constraint might already exist - this is fine
                     if (!error.message.includes('already exists')) {
-                        console.warn(`  � Warning creating constraint ${constraint.name}:`, error.message);
+                        this.log.warn('constraint_warning', { name: constraint.name, error: error.message });
                     }
                 }
             }
@@ -497,10 +500,10 @@ constructor(config = {}) {
             for (const index of indexes) {
                 try {
                     await session.run(index.query);
-                    console.log(`   Created index: ${index.name}`);
+                    this.log.debug('index_created', { name: index.name });
                 } catch (error) {
                     if (!error.message.includes('already exists')) {
-                        console.warn(`  � Warning creating index ${index.name}:`, error.message);
+                        this.log.warn('index_warning', { name: index.name, error: error.message });
                     }
                 }
             }
@@ -518,18 +521,18 @@ constructor(config = {}) {
                 const apocCount = apocResult.records[0]?.get('apocCount').toNumber() || 0;
 
                 if (apocCount === 0) {
-                    console.log('  APOC plugin not detected (not required — merge uses native Cypher)');
+                    this.log.info('apoc_not_detected');
                 } else {
-                    console.log(`  APOC plugin detected (${apocCount} procedures available)`);
+                    this.log.info('apoc_detected', { count: apocCount });
                 }
             } catch (error) {
-                console.log('  Could not check APOC availability (not required)');
+                this.log.debug('apoc_check_failed');
             }
 
-            console.log(' Database schema initialized successfully');
+            timer.end('schema_init_end', { constraints: constraints.length, indexes: indexes.length });
 
         } catch (error) {
-            console.error(' Failed to initialize database schema:', error);
+            timer.endError('schema_init_fail', { error: error.message });
             throw error;
         } finally {
             await session.close();
@@ -559,6 +562,7 @@ constructor(config = {}) {
     async processReleaseBundle(eventHash, bundle, submitterAccount, eventTimestamp) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
+        const timer = this.log.startTimer();
 
         try {
             const eventTs = toNeo4jEpochMillis(eventTimestamp);
@@ -570,15 +574,15 @@ constructor(config = {}) {
 
             // Step 1: Normalize bundle to canonical schema format
             // Handles legacy field names (release_name → name, releaseDate → release_date, etc.)
-            console.log(`Normalizing release bundle from event ${eventHash.substring(0, 8)}...`);
+            this.log.info('release_bundle_normalize', { event_hash: eventHash.substring(0, 16) });
             const normalizedBundle = normalizeReleaseBundle(bundle);
 
             // Step 2: Validate normalized bundle against canonical schema
             // This ensures data integrity and prevents partial writes
-            console.log(`Validating canonical bundle from event ${eventHash.substring(0, 8)}...`);
+            this.log.debug('release_bundle_validate', { event_hash: eventHash.substring(0, 16) });
             validateReleaseBundleOrThrow(normalizedBundle);
 
-            console.log(`Processing release bundle from event ${eventHash.substring(0, 8)}...`);
+            this.log.info('release_bundle_start', { event_hash: eventHash.substring(0, 16) });
 
             // Generate deterministic operation IDs for each sub-operation
             // This ensures idempotency - replaying the same event is safe
@@ -604,7 +608,7 @@ constructor(config = {}) {
                 const groupId = await this.resolveEntityId(tx, 'group', group);
 
                 const idKind = IdentityService.parseId(groupId).kind;
-                console.log(`  Creating/updating group: ${group.name} (${groupId.substring(0, 12)}...) [${idKind}]`);
+                this.log.debug('group_upsert', { group_id: groupId, name: group.name, id_kind: idKind });
 
                 await tx.run(`
                     MERGE (g:Group {group_id: $groupId})
@@ -668,7 +672,7 @@ constructor(config = {}) {
                     const personId = await this.resolveEntityId(tx, 'person', member);
                     const personIdKind = IdentityService.parseId(personId).kind;
 
-                    console.log(`    Adding member: ${member.name} [${personIdKind}]`);
+                    this.log.debug('member_add', { person_id: personId, group_id: groupId, name: member.name });
 
                     // Normalize roles from member (handles comma-separated strings)
                     const memberRoles = normalizeRoleInput(member.roles || member.role || []);
@@ -749,7 +753,7 @@ constructor(config = {}) {
             const releaseOpId = opId();
             const releaseId = await this.resolveEntityId(tx, 'release', normalizedBundle.release);
 
-            console.log(`  Creating release: ${normalizedBundle.release.name} (${releaseId.substring(0, 12)}...)`);
+            this.log.debug('release_create', { release_id: releaseId, name: normalizedBundle.release.name });
 
             await tx.run(`
                 MERGE (r:Release {release_id: $releaseId})
@@ -839,7 +843,7 @@ constructor(config = {}) {
                 const songOpId = opId();
                 const songId = await this.resolveEntityId(tx, 'song', song);
 
-                console.log(`  Creating song: ${song.title} (${songId.substring(0, 12)}...)`);
+                this.log.debug('song_create', { song_id: songId, title: song.title });
 
                 await tx.run(`
                     MERGE (s:Song {song_id: $songId})
@@ -913,7 +917,7 @@ constructor(config = {}) {
                 const trackOpId = opId();
                 const trackId = await this.resolveEntityId(tx, 'track', track);
 
-                console.log(`  Creating track: ${track.title} (${trackId.substring(0, 12)}...)`);
+                this.log.debug('track_create', { track_id: trackId, title: track.title });
 
                 await tx.run(`
                     MERGE (t:Track {track_id: $trackId})
@@ -963,7 +967,7 @@ constructor(config = {}) {
                 // Single-artist album fallback: if no per-track performer attribution but bundle has group(s),
                 // assume all tracks are performed by the bundle's group(s)
                 if (performingGroups.length === 0 && Array.isArray(normalizedBundle.groups) && normalizedBundle.groups.length > 0) {
-                    console.log(`    Track "${track.title}" has no performer attribution; using bundle groups as fallback`);
+                    this.log.debug('track_fallback_groups', { track_title: track.title });
                     performingGroups = normalizedBundle.groups.map(g => ({
                         group_id: g.group_id || g.id,
                         name: g.name,
@@ -987,15 +991,12 @@ constructor(config = {}) {
                             ...(groupName ? { name: groupName } : {})
                         });
                     } catch (e) {
-                        console.warn(`    Warning: Could not resolve performing group for track "${track.title}": ${e.message}`);
+                        this.log.warn('group_resolve_fail', { track_title: track.title, error: e.message });
                         continue;
                     }
 
                     if (!groupId) {
-                        console.warn(`    Warning: Track "${track.title}" has performing group with no resolvable id/name`, {
-                            performingGroup,
-                            trackId
-                        });
+                        this.log.warn('group_no_id', { track_title: track.title, track_id: trackId });
                         continue;
                     }
 
@@ -1026,7 +1027,7 @@ constructor(config = {}) {
                             role: normalizeRole(performingGroup.role),
                             claimId: trackOpId
                         });
-                        console.log(`    Created PERFORMED_ON: ${groupName} -> ${track.title}`);
+                        this.log.debug('performed_on_create', { group: groupName, track: track.title });
 
                         // ========== PROPAGATE Person -> Track PERFORMED_ON for group members ==========
                         // Option B Semantics:
@@ -1070,7 +1071,7 @@ constructor(config = {}) {
                                         instruments: member.instruments || []
                                     });
                                 } catch (memberResolveError) {
-                                    console.warn(`    Warning: Could not resolve explicit member "${member.name}": ${memberResolveError.message}`);
+                                    this.log.warn('explicit_member_resolve_fail', { name: member.name, error: memberResolveError.message });
                                 }
                             }
 
@@ -1098,12 +1099,12 @@ constructor(config = {}) {
                                     claimId: trackOpId,
                                     groupId
                                 });
-                                console.log(`      Created ${explicitPayload.length} explicit PERFORMED_ON edges (derived=false)`);
+                                this.log.debug('performed_on_explicit', { count: explicitPayload.length, track_id: trackId });
                             }
 
                             // If members_are_complete, skip derived propagation for this group
                             if (membersAreComplete) {
-                                console.log(`      Skipping derived propagation (members_are_complete=true)`);
+                                this.log.debug('performed_on_skip_derived', { track_id: trackId });
                                 continue; // Skip to next performingGroup
                             }
                         }
@@ -1154,7 +1155,7 @@ constructor(config = {}) {
                                         instruments: member.instruments || []
                                     });
                                 } catch (memberResolveError) {
-                                    console.warn(`    Warning: Could not resolve member "${member.name}" for derived PERFORMED_ON: ${memberResolveError.message}`);
+                                    this.log.warn('derived_member_resolve_fail', { name: member.name, error: memberResolveError.message });
                                 }
                             }
 
@@ -1183,17 +1184,11 @@ constructor(config = {}) {
                                     groupId,
                                     lineupSource
                                 });
-                                console.log(`      Propagated PERFORMED_ON to ${derivedPayload.length} members (derived=true, ${lineupSource})`);
+                                this.log.debug('performed_on_derived', { count: derivedPayload.length, track_id: trackId, lineup_source: lineupSource });
                             }
                         }
                     } catch (performedOnError) {
-                        console.error(`    PERFORMED_ON FAILED:`, {
-                            groupId,
-                            groupName,
-                            trackId,
-                            trackTitle: track.title,
-                            error: performedOnError.message
-                        });
+                        this.log.error('performed_on_fail', { group_id: groupId, group_name: groupName, track_id: trackId, track_title: track.title, error: performedOnError.message });
                         // Re-throw to fail the transaction rather than silently continue
                         throw performedOnError;
                     }
@@ -1393,7 +1388,7 @@ constructor(config = {}) {
             // ========== 5. CREATE TRACKLIST ==========
             // Link tracks to the release with order information
 
-            console.log(`  Linking ${normalizedBundle.tracklist?.length || 0} tracks to release...`);
+            this.log.debug('tracklist_link', { count: normalizedBundle.tracklist?.length || 0, release_id: releaseId });
 
             const tracklist = Array.isArray(normalizedBundle.tracklist) ? normalizedBundle.tracklist : [];
             for (let idx = 0; idx < tracklist.length; idx++) {
@@ -1534,8 +1529,7 @@ constructor(config = {}) {
                 tracks_created: processedTracks.length
             };
 
-            console.log(` Processed release bundle ${releaseId.substring(0, 12)}... successfully`);
-            console.log(`  Groups: ${stats.groups_created}, Songs: ${stats.songs_created}, Tracks: ${stats.tracks_created}`);
+            timer.end('release_bundle_end', { event_hash: eventHash.substring(0, 16), release_id: releaseId, ...stats });
 
             return {
                 success: true,
@@ -1546,7 +1540,7 @@ constructor(config = {}) {
         } catch (error) {
             // Rollback on any error
             await tx.rollback();
-            console.error(' Failed to process release bundle:', error.message);
+            timer.endError('release_bundle_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
             throw error;
         } finally {
             await session.close();
@@ -1572,6 +1566,7 @@ constructor(config = {}) {
     async processAddClaim(eventHash, claimData, author, eventTimestamp) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
+        const timer = this.log.startTimer();
 
         const eventTs = toNeo4jEpochMillis(eventTimestamp);
 
@@ -1603,7 +1598,7 @@ constructor(config = {}) {
             // Validate field name is safe for Neo4j property syntax
             assertSafePropertyName(normalizedField);
 
-            console.log(`Adding claim to ${mapping.label} ${node.id}: ${normalizedField}`);
+            this.log.info('add_claim_start', { event_hash: eventHash.substring(0, 16), node_type: mapping.label, node_id: node.id, field: normalizedField });
 
             // Normalize value for Neo4j storage (handle objects/complex types)
             const normalizedValue = normalizeValueForNeo4j(value);
@@ -1663,13 +1658,13 @@ constructor(config = {}) {
             }
 
             await tx.commit();
-            console.log(` Added claim ${claimId.substring(0, 12)}...`);
+            timer.end('add_claim_end', { claim_id: claimId.substring(0, 12) });
 
             return { success: true, claimId };
 
         } catch (error) {
             await tx.rollback();
-            console.error(' Failed to process claim:', error.message);
+            timer.endError('add_claim_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
             throw error;
         } finally {
             await session.close();
@@ -1692,6 +1687,7 @@ constructor(config = {}) {
     async processEditClaim(eventHash, editData, author, eventTimestamp) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
+        const timer = this.log.startTimer();
 
         const eventTs = toNeo4jEpochMillis(eventTimestamp);
 
@@ -1706,7 +1702,7 @@ constructor(config = {}) {
                 throw new Error('Invalid edit data: missing value');
             }
 
-            console.log(`Editing claim ${oldClaimId.substring(0, 12)}...`);
+            this.log.info('edit_claim_start', { event_hash: eventHash.substring(0, 16), claim_id: oldClaimId.substring(0, 12) });
 
             // Load the old claim to get node type, node ID, and field name
             const oldClaimResult = await tx.run(`
@@ -1748,7 +1744,7 @@ constructor(config = {}) {
             // Generate deterministic new claim ID from edit event hash
             const newClaimId = this.generateOpId(eventHash, 0);
 
-            console.log(`Creating new claim ${newClaimId.substring(0, 12)}... superseding ${oldClaimId.substring(0, 12)}...`);
+            this.log.debug('edit_claim_supersede', { new_claim_id: newClaimId.substring(0, 12), old_claim_id: oldClaimId.substring(0, 12) });
 
             // Create new claim (idempotent via MERGE)
             await this.createClaim(tx, newClaimId, nodeType, nodeId,
@@ -1820,13 +1816,13 @@ constructor(config = {}) {
             }
 
             await tx.commit();
-            console.log(` Edited claim: ${oldClaimId.substring(0, 12)}... → ${newClaimId.substring(0, 12)}...`);
+            timer.end('edit_claim_end', { new_claim_id: newClaimId.substring(0, 12), old_claim_id: oldClaimId.substring(0, 12) });
 
             return { success: true, newClaimId, oldClaimId };
 
         } catch (error) {
             await tx.rollback();
-            console.error(' Failed to process edit claim:', error.message);
+            timer.endError('edit_claim_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
             throw error;
         } finally {
             await session.close();
@@ -1843,9 +1839,10 @@ constructor(config = {}) {
      */
     async calculateGroupMemberParticipation(groupId) {
         const session = this.driver.session();
+        const timer = this.log.startTimer();
 
         try {
-            console.log(`Calculating member participation for group ${groupId.substring(0, 12)}...`);
+            this.log.info('participation_start', { group_id: groupId.substring(0, 12) });
 
             const result = await session.run(`
                 MATCH (g:Group {group_id: $groupId})
@@ -1885,12 +1882,12 @@ constructor(config = {}) {
                 releaseCount: record.get('releaseCount').toNumber()
             }));
 
-            console.log(` Found ${participation.length} members`);
+            timer.end('participation_end', { group_id: groupId.substring(0, 12), member_count: participation.length });
 
             return participation;
 
         } catch (error) {
-            console.error(' Failed to calculate participation:', error.message);
+            timer.endError('participation_fail', { group_id: groupId.substring(0, 12), error: error.message });
             throw error;
         } finally {
             await session.close();
@@ -1918,7 +1915,7 @@ constructor(config = {}) {
                 throw new Error(`Invalid type: ${type}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
             }
 
-            console.log(`Searching for duplicates of ${mapping.label}: ${name}`);
+            this.log.info('find_duplicates_start', { type: mapping.label, name });
 
             // Simple string matching (Levenshtein requires APOC plugin)
             // In production, you'd use apoc.text.levenshteinDistance
@@ -1940,12 +1937,12 @@ constructor(config = {}) {
                 status: record.get('status')
             }));
 
-            console.log(` Found ${duplicates.length} potential duplicates`);
+            this.log.info('find_duplicates_end', { type: mapping.label, name, count: duplicates.length });
 
             return duplicates;
 
         } catch (error) {
-            console.error(' Failed to find duplicates:', error.message);
+            this.log.error('find_duplicates_fail', { error: error.message });
             throw error;
         } finally {
             await session.close();
@@ -1965,6 +1962,7 @@ constructor(config = {}) {
     async mergeNodes(sourceId, targetId, nodeType, reason) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
+        const timer = this.log.startTimer();
 
         try {
             // Validate nodeType against whitelist to prevent Cypher injection
@@ -1974,7 +1972,7 @@ constructor(config = {}) {
                 throw new Error(`Invalid nodeType: ${nodeType}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
             }
 
-            console.log(`Merging ${mapping.label} ${sourceId.substring(0, 12)}... into ${targetId.substring(0, 12)}...`);
+            this.log.info('merge_nodes_start', { type: mapping.label, source_id: sourceId.substring(0, 12), target_id: targetId.substring(0, 12) });
 
             // Copy properties from source to target (if not already set)
             // IMPORTANT: Cannot use SET target = source because it copies ID fields
@@ -2087,13 +2085,13 @@ constructor(config = {}) {
             `, { mergeId, sourceId, targetId, nodeType, reason });
 
             await tx.commit();
-            console.log(` Merged nodes successfully`);
+            timer.end('merge_nodes_end', { source_id: sourceId.substring(0, 12), target_id: targetId.substring(0, 12), merge_id: mergeId.substring(0, 12) });
 
             return { success: true, mergeId };
 
         } catch (error) {
             await tx.rollback();
-            console.error(' Failed to merge nodes:', error.message);
+            timer.endError('merge_nodes_fail', { source_id: sourceId.substring(0, 12), target_id: targetId.substring(0, 12), error: error.message });
 
             throw error;
         } finally {
@@ -2170,12 +2168,12 @@ constructor(config = {}) {
                 );
 
                 if (canonicalId) {
-                    console.log(`    Resolved ${data[explicitIdField]} → ${canonicalId.substring(0, 20)}...`);
+                    this.log.debug('external_id_resolved', { external_id: data[explicitIdField], canonical_id: canonicalId.substring(0, 20) });
                     return canonicalId;
                 }
 
                 // External ID not mapped yet, will create provisional
-                console.log(`    External ID ${data[explicitIdField]} not mapped, creating provisional`);
+                this.log.debug('external_id_unmapped', { external_id: data[explicitIdField] });
             }
         }
 
@@ -2199,7 +2197,7 @@ constructor(config = {}) {
                 );
 
                 if (canonicalId) {
-                    console.log(`    Resolved ${source}:${type}:${data[field]} → ${canonicalId.substring(0, 20)}...`);
+                    this.log.debug('external_field_resolved', { source, type, external_id: data[field], canonical_id: canonicalId.substring(0, 20) });
                     return canonicalId;
                 }
             }
@@ -2398,7 +2396,7 @@ constructor(config = {}) {
             await session.run('RETURN 1');
             return true;
         } catch (error) {
-            console.error('Database connection test failed:', error.message);
+            this.log.error('connection_test_fail', { error: error.message });
             return false;
         } finally {
             await session.close();
@@ -2439,9 +2437,9 @@ constructor(config = {}) {
      * @returns {Promise<void>}
      */
     async close() {
-        console.log('Closing database connections...');
+        this.log.info('db_close_start');
         await this.driver.close();
-        console.log(' Database connections closed');
+        this.log.info('db_close_end');
     }
 }
 

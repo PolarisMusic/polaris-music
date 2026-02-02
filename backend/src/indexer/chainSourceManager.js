@@ -15,6 +15,9 @@
  */
 
 import ShipEventSource from './shipEventSource.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('indexer.chainSourceManager');
 
 /**
  * Chain Source Manager
@@ -39,7 +42,7 @@ export class ChainSourceManager {
      * Start the configured chain source
      */
     async start() {
-        console.log(`Starting chain source: ${this.sourceType}`);
+        log.info('Starting chain source', { source_type: this.sourceType });
         this.stats.startTime = new Date();
 
         switch (this.sourceType) {
@@ -64,7 +67,7 @@ export class ChainSourceManager {
             return;
         }
 
-        console.log(`Stopping chain source: ${this.sourceType}`);
+        log.info('Stopping chain source', { source_type: this.sourceType });
 
         if (this.sourceType === 'ship' && this.currentSource.stop) {
             await this.currentSource.stop();
@@ -88,10 +91,10 @@ export class ChainSourceManager {
             reconnectMaxAttempts: 10
         };
 
-        console.log('Initializing SHiP event source:', {
+        log.info('Initializing SHiP event source', {
             url: shipConfig.shipUrl,
             contract: shipConfig.contractAccount,
-            startBlock: shipConfig.startBlock
+            start_block: shipConfig.startBlock
         });
 
         const ship = new ShipEventSource(shipConfig);
@@ -103,15 +106,16 @@ export class ChainSourceManager {
 
         // Handle progress updates
         ship.on('progress', (progress) => {
-            console.log(
-                `SHiP Progress: Block ${progress.currentBlock}, ` +
-                `Blocks: ${progress.blocksProcessed}, Events: ${progress.eventsExtracted}`
-            );
+            log.info('SHiP progress', {
+                current_block: progress.currentBlock,
+                blocks_processed: progress.blocksProcessed,
+                events_extracted: progress.eventsExtracted
+            });
         });
 
         // Handle errors
         ship.on('error', (error) => {
-            console.error('SHiP error:', error);
+            log.error('SHiP error', { error: error.message || String(error) });
             this.stats.errors++;
         });
 
@@ -126,8 +130,7 @@ export class ChainSourceManager {
      * Note: Substreams runs externally via HTTP sink
      */
     async startSubstreamsSource() {
-        console.log('Substreams mode: Events will be received via HTTP sink');
-        console.log('Run: node substreams/sink/http-sink.mjs');
+        log.info('Substreams mode active, events received via HTTP sink', {});
 
         // For Substreams, we just log instructions
         // The HTTP sink POSTs directly to the ingestion endpoint
@@ -159,14 +162,15 @@ export class ChainSourceManager {
 
             // Log progress periodically
             if ((this.stats.eventsIngested + this.stats.eventsDeduped) % 100 === 0) {
-                console.log(
-                    `Ingestion stats: ${this.stats.eventsIngested} processed, ` +
-                    `${this.stats.eventsDeduped} deduped, ${this.stats.errors} errors`
-                );
+                log.info('Ingestion stats', {
+                    events_ingested: this.stats.eventsIngested,
+                    events_deduped: this.stats.eventsDeduped,
+                    errors: this.stats.errors
+                });
             }
 
         } catch (error) {
-            console.error('Error handling anchored event:', error);
+            log.error('Error handling anchored event', { error: error.message });
             this.stats.errors++;
         }
     }
@@ -178,11 +182,14 @@ export class ChainSourceManager {
      */
     async switchSource(newSource) {
         if (newSource === this.sourceType) {
-            console.log(`Already using source: ${newSource}`);
+            log.info('Already using requested source', { source_type: newSource });
             return;
         }
 
-        console.log(`Switching from ${this.sourceType} to ${newSource}`);
+        log.info('Switching chain source', {
+            from_source: this.sourceType,
+            to_source: newSource
+        });
 
         // Stop current source
         await this.stop();
@@ -193,7 +200,7 @@ export class ChainSourceManager {
         // Start new source
         await this.start();
 
-        console.log(`Switched to ${newSource} successfully`);
+        log.info('Chain source switched successfully', { source_type: newSource });
     }
 
     /**

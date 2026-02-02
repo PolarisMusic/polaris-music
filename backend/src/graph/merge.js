@@ -13,6 +13,9 @@
 
 import neo4j from 'neo4j-driver';
 import { IdentityService } from '../identity/idService.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('graph.merge');
 
 /**
  * Merge status constants
@@ -42,6 +45,7 @@ export class MergeOperations {
      * @returns {Promise<Object>} Merge result statistics
      */
     static async mergeEntities(session, survivorId, absorbedIds, options = {}) {
+        const timer = log.startTimer();
         const {
             submitter = 'system',
             eventHash = null,
@@ -80,7 +84,7 @@ export class MergeOperations {
             tombstonesCreated: 0
         };
 
-        console.log(`Merging ${absorbedIds.length} entities into ${survivorId}...`);
+        log.info('merge_start', { survivor_id: survivorId, absorbed_count: absorbedIds.length });
 
         // Use transaction for atomicity
         const tx = session.beginTransaction();
@@ -98,11 +102,11 @@ export class MergeOperations {
             }
 
             const survivorType = survivorCheck.records[0].get('type');
-            console.log(`  Survivor type: ${survivorType}`);
+            log.debug('merge_survivor_type', { type: survivorType });
 
             // 2. For each absorbed entity
             for (const absorbedId of absorbedIds) {
-                console.log(`  Processing absorbed entity: ${absorbedId}`);
+                log.debug('merge_absorb', { absorbed_id: absorbedId });
 
                 // Verify absorbed entity exists
                 const absorbedCheck = await tx.run(
@@ -112,7 +116,7 @@ export class MergeOperations {
                 );
 
                 if (absorbedCheck.records.length === 0) {
-                    console.warn(`    Absorbed entity not found, skipping: ${absorbedId}`);
+                    log.warn('merge_absorbed_not_found', { absorbed_id: absorbedId });
                     continue;
                 }
 
@@ -163,7 +167,7 @@ export class MergeOperations {
                     }
 
                     stats.edgesRewired += incomingEdges.records.length;
-                    console.log(`    Rewired ${incomingEdges.records.length} incoming edges`);
+                    log.debug('merge_rewire_incoming', { absorbed_id: absorbedId, count: incomingEdges.records.length });
                 }
 
                 // 4. Rewire outgoing edges (native Cypher — no APOC dependency)
@@ -203,7 +207,7 @@ export class MergeOperations {
                     }
 
                     stats.edgesRewired += outgoingEdges.records.length;
-                    console.log(`    Rewired ${outgoingEdges.records.length} outgoing edges`);
+                    log.debug('merge_rewire_outgoing', { absorbed_id: absorbedId, count: outgoingEdges.records.length });
                 }
 
                 // 5. Move claims (if using Claim nodes)
@@ -222,7 +226,7 @@ export class MergeOperations {
 
                     const claimsMoved = claimsResult.records[0]?.get('moved').toNumber() || 0;
                     stats.claimsMoved += claimsMoved;
-                    console.log(`    Moved ${claimsMoved} claims`);
+                    log.debug('merge_claims_moved', { absorbed_id: absorbedId, count: claimsMoved });
                 }
 
                 // 6. Delete all edges from absorbed node
@@ -254,7 +258,7 @@ export class MergeOperations {
                 );
 
                 stats.tombstonesCreated++;
-                console.log(`    Marked as tombstone redirecting to ${survivorId}`);
+                log.debug('merge_tombstone', { absorbed_id: absorbedId, survivor_id: survivorId });
             }
 
             // 8. Update survivor metadata
@@ -268,13 +272,13 @@ export class MergeOperations {
             // Commit transaction
             await tx.commit();
 
-            console.log(` Merge completed: ${JSON.stringify(stats)}`);
+            timer.end('merge_end', { survivor_id: survivorId, ...stats });
             return stats;
 
         } catch (error) {
             // Rollback on error
             await tx.rollback();
-            console.error(' Merge failed, rolled back:', error);
+            timer.endError('merge_fail', { survivor_id: survivorId, error: error.message });
             throw error;
         }
     }
@@ -317,7 +321,7 @@ export class MergeOperations {
         // Create unique key
         const key = `${source}:${externalType}:${externalId}`;
 
-        console.log(`Creating identity mapping: ${key} → ${canonicalId}`);
+        log.info('identity_map_create', { key, canonical_id: canonicalId });
 
         const result = await session.run(
             `MERGE (im:IdentityMap {key: $key})
@@ -449,7 +453,7 @@ export class MergeOperations {
             { aliasId, canonicalId, createdBy, aliasKind, method }
         );
 
-        console.log(`Created alias: ${aliasId} → ${canonicalId}`);
+        log.info('alias_created', { alias_id: aliasId, canonical_id: canonicalId });
     }
 }
 

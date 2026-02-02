@@ -20,6 +20,7 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import { createLogger } from '../utils/logger.js';
 
 /**
  * SHiP Event Source
@@ -49,6 +50,7 @@ export class ShipEventSource extends EventEmitter {
             reconnections: 0,
             errors: 0
         };
+        this.log = createLogger('indexer.ship');
     }
 
     /**
@@ -64,19 +66,15 @@ export class ShipEventSource extends EventEmitter {
         // Current implementation drops binary messages (see handleMessage)
         // Recommended: Use CHAIN_SOURCE=substreams instead
         // If SHiP support needed: Use library like eosio-ship-reader or @greymass/eosio
+        // Structured log for pipeline tracing
+        this.log.error('ship_not_implemented', { message: 'SHiP binary deserialization not implemented, use CHAIN_SOURCE=substreams' });
+
+        // Console banner for operator visibility (tested by shipEventSource.test.js)
         console.error('═════════════════════════════════════════════════════════════');
         console.error('ERROR: SHiP event source is not fully implemented');
-        console.error('');
-        console.error('SHiP streams binary frames that require ABI deserialization.');
-        console.error('Current implementation drops binary messages (non-functional).');
-        console.error('');
-        console.error('Recommended: Set CHAIN_SOURCE=substreams in .env');
-        console.error('');
-        console.error('If SHiP support is required, binary deserialization must be');
-        console.error('implemented using a library like:');
-        console.error('  - eosio-ship-reader (TypeScript)');
-        console.error('  - @greymass/eosio (JavaScript)');
+        console.error('Recommended: Set CHAIN_SOURCE=substreams in your environment');
         console.error('═════════════════════════════════════════════════════════════');
+
         throw new Error('SHiP event source not implemented (binary deserialization required). Use CHAIN_SOURCE=substreams instead.');
     }
 
@@ -89,7 +87,7 @@ export class ShipEventSource extends EventEmitter {
             this.ws.close();
             this.ws = null;
         }
-        console.log('SHiP event source stopped');
+        this.log.info('ship_stopped');
     }
 
     /**
@@ -97,12 +95,12 @@ export class ShipEventSource extends EventEmitter {
      */
     async connect() {
         try {
-            console.log(`Connecting to SHiP at ${this.config.shipUrl}`);
+            this.log.info('ship_connecting', { url: this.config.shipUrl });
 
             this.ws = new WebSocket(this.config.shipUrl);
 
             this.ws.on('open', () => {
-                console.log('SHiP WebSocket connected');
+                this.log.info('ship_connected');
                 this.reconnectAttempts = 0;
                 this.sendGetBlocksRequest();
             });
@@ -112,20 +110,20 @@ export class ShipEventSource extends EventEmitter {
             });
 
             this.ws.on('error', (error) => {
-                console.error('SHiP WebSocket error:', error.message);
+                this.log.error('ship_ws_error', { error: error.message });
                 this.stats.errors++;
                 this.emit('error', error);
             });
 
             this.ws.on('close', () => {
-                console.log('SHiP WebSocket closed');
+                this.log.info('ship_ws_closed');
                 if (this.isRunning) {
                     this.handleReconnect();
                 }
             });
 
         } catch (error) {
-            console.error('Failed to connect to SHiP:', error);
+            this.log.error('ship_connect_fail', { error: error.message });
             this.stats.errors++;
             this.handleReconnect();
         }
@@ -149,7 +147,7 @@ export class ShipEventSource extends EventEmitter {
             }
         ];
 
-        console.log(`Requesting blocks from ${this.currentBlock} to ${this.config.endBlock}`);
+        this.log.info('ship_request_blocks', { start_block: this.currentBlock, end_block: this.config.endBlock });
         this.ws.send(JSON.stringify(request));
     }
 
@@ -177,7 +175,7 @@ export class ShipEventSource extends EventEmitter {
             } catch (error) {
                 // Binary format (normal SHiP behavior) - drops message (NON-FUNCTIONAL)
                 // This causes SHiP mode to ingest almost nothing
-                console.warn('Received binary SHiP message, dropping (ABI deserialization not implemented)');
+                this.log.warn('ship_binary_message_dropped');
                 this.stats.errors++;
                 return;
             }
@@ -196,11 +194,11 @@ export class ShipEventSource extends EventEmitter {
                     break;
 
                 default:
-                    console.warn(`Unknown SHiP message type: ${messageType}`);
+                    this.log.warn('ship_unknown_message', { type: messageType });
             }
 
         } catch (error) {
-            console.error('Error handling SHiP message:', error);
+            this.log.error('ship_message_error', { error: error.message });
             this.stats.errors++;
             this.emit('error', error);
         }
@@ -221,7 +219,7 @@ export class ShipEventSource extends EventEmitter {
             const blockId = this_block.block_id;
             const timestamp = block.timestamp ? new Date(block.timestamp).getTime() / 1000 : Math.floor(Date.now() / 1000);
 
-            console.log(`Processing block ${blockNum}`);
+            this.log.debug('ship_block', { block_num: blockNum });
 
             // Extract action traces
             if (traces && Array.isArray(traces)) {
@@ -244,7 +242,7 @@ export class ShipEventSource extends EventEmitter {
             }
 
         } catch (error) {
-            console.error(`Error processing block:`, error);
+            this.log.error('ship_block_error', { error: error.message });
             this.stats.errors++;
             throw error;
         }
@@ -278,7 +276,7 @@ export class ShipEventSource extends EventEmitter {
             }
 
         } catch (error) {
-            console.error('Error processing trace:', error);
+            this.log.error('ship_trace_error', { error: error.message });
             this.stats.errors++;
         }
     }
@@ -325,7 +323,7 @@ export class ShipEventSource extends EventEmitter {
             this.stats.eventsExtracted++;
 
         } catch (error) {
-            console.error('Error processing action trace:', error);
+            this.log.error('ship_action_error', { error: error.message });
             this.stats.errors++;
         }
     }
@@ -352,7 +350,7 @@ export class ShipEventSource extends EventEmitter {
                 } catch (e) {
                     // Not JSON - might be hex/base64
                     // For now, return null (would need ABI deserialization)
-                    console.warn('Action data is not JSON, skipping (implement ABI deserialization)');
+                    this.log.warn('ship_action_data_not_json');
                     return null;
                 }
             }
@@ -360,7 +358,7 @@ export class ShipEventSource extends EventEmitter {
             return null;
 
         } catch (error) {
-            console.error('Error extracting action data:', error);
+            this.log.error('ship_extract_error', { error: error.message });
             return null;
         }
     }
@@ -418,16 +416,13 @@ export class ShipEventSource extends EventEmitter {
         this.reconnectAttempts++;
 
         if (this.reconnectAttempts > this.config.reconnectMaxAttempts) {
-            console.error('Max reconnection attempts reached, stopping');
+            this.log.error('ship_max_reconnects', { attempts: this.reconnectAttempts, max: this.config.reconnectMaxAttempts });
             this.isRunning = false;
             this.emit('error', new Error('Max reconnection attempts reached'));
             return;
         }
 
-        console.log(
-            `Reconnecting in ${this.config.reconnectDelay}ms ` +
-            `(attempt ${this.reconnectAttempts}/${this.config.reconnectMaxAttempts})`
-        );
+        this.log.warn('ship_reconnecting', { delay_ms: this.config.reconnectDelay, attempt: this.reconnectAttempts, max: this.config.reconnectMaxAttempts });
 
         setTimeout(() => {
             if (this.isRunning) {
