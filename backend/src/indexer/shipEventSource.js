@@ -66,7 +66,15 @@ export class ShipEventSource extends EventEmitter {
         // Current implementation drops binary messages (see handleMessage)
         // Recommended: Use CHAIN_SOURCE=substreams instead
         // If SHiP support needed: Use library like eosio-ship-reader or @greymass/eosio
+        // Structured log for pipeline tracing
         this.log.error('ship_not_implemented', { message: 'SHiP binary deserialization not implemented, use CHAIN_SOURCE=substreams' });
+
+        // Console banner for operator visibility (tested by shipEventSource.test.js)
+        console.error('═════════════════════════════════════════════════════════════');
+        console.error('ERROR: SHiP event source is not fully implemented');
+        console.error('Recommended: Set CHAIN_SOURCE=substreams in your environment');
+        console.error('═════════════════════════════════════════════════════════════');
+
         throw new Error('SHiP event source not implemented (binary deserialization required). Use CHAIN_SOURCE=substreams instead.');
     }
 
