@@ -12,6 +12,9 @@
 import { createHash } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
 import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('crypto.verifySignature');
 
 /**
  * Verify an event's signature against its author_pubkey
@@ -28,10 +31,13 @@ export function verifyEventSignature(event, options = {}) {
         allowUnsigned = false
     } = options;
 
+    const timer = log.startTimer();
+
     // Explicit bypass: allow unsigned events ONLY when explicitly enabled
     // This requires setting ALLOW_UNSIGNED_EVENTS=true environment variable
     // DO NOT use in production - undermines verifiability guarantees
     if (allowUnsigned && (!event.sig || !event.author_pubkey)) {
+        log.warn('unsigned_event_bypass', { has_sig: !!event?.sig, has_pubkey: !!event?.author_pubkey });
         return {
             valid: true,
             reason: 'UNSIGNED_EVENT_ALLOWED: Bypassing signature verification (testing only!)'
@@ -40,12 +46,14 @@ export function verifyEventSignature(event, options = {}) {
 
     // Validate event structure
     if (!event || typeof event !== 'object') {
+        log.error('verify_fail', { reason: 'not_an_object' });
         return { valid: false, reason: 'Event must be an object' };
     }
 
     // Check for signature
     if (!event.sig) {
         if (requireSignature) {
+            log.error('verify_fail', { reason: 'missing_sig' });
             return { valid: false, reason: 'Event signature missing' };
         }
         return { valid: true, reason: 'Signature not required' };
@@ -53,6 +61,7 @@ export function verifyEventSignature(event, options = {}) {
 
     // Check for author_pubkey
     if (!event.author_pubkey) {
+        log.error('verify_fail', { reason: 'missing_pubkey' });
         return { valid: false, reason: 'Event author_pubkey missing' };
     }
 
@@ -76,12 +85,21 @@ export function verifyEventSignature(event, options = {}) {
         const isValid = signature.verify(payloadHash, publicKey);
 
         if (!isValid) {
+            timer.endError('verify_fail', {
+                reason: 'bad_sig',
+                pubkey: event.author_pubkey.substring(0, 12) + '...'
+            });
             return { valid: false, reason: 'Signature verification failed' };
         }
 
+        timer.end('verify_pass', {});
         return { valid: true };
 
     } catch (error) {
+        timer.endError('verify_fail', {
+            reason: error.message.includes('parse') ? 'pubkey_parse_fail' : 'verify_error',
+            error: error.message
+        });
         return {
             valid: false,
             reason: `Signature verification error: ${error.message}`

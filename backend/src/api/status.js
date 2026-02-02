@@ -8,6 +8,9 @@
  */
 
 import fetch from 'node-fetch';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('api.status');
 
 /**
  * Make a POST request to IPFS HTTP API and parse JSON response
@@ -86,6 +89,7 @@ async function ipfsPostJson(baseUrl, path) {
  * }
  */
 export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningProvider }) {
+    const timer = log.startTimer();
     const timestamp = new Date().toISOString();
 
     const status = {
@@ -245,6 +249,33 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
     // - Pinning provider (best-effort external backup)
     //
     // status.ok is already set correctly above
+
+    const ipfsPrimaryOk = status.summary.ipfs.primary_ok;
+    const neo4jOk = status.services.neo4j.ok;
+    const redisOk = status.services.redis.ok;
+    const s3Ok = status.services.s3.ok;
+
+    if (status.ok) {
+        timer.end('status_check_end', {
+            ok: true,
+            ipfs_primary: ipfsPrimaryOk,
+            neo4j: neo4jOk,
+            redis: redisOk,
+            s3: s3Ok
+        });
+    } else {
+        const failedCritical = [];
+        if (!ipfsPrimaryOk) failedCritical.push('ipfs_primary');
+        if (!neo4jOk) failedCritical.push('neo4j');
+        timer.endWarn('status_check_end', {
+            ok: false,
+            failed_critical: failedCritical,
+            ipfs_primary: ipfsPrimaryOk,
+            neo4j: neo4jOk,
+            redis: redisOk,
+            s3: s3Ok
+        });
+    }
 
     return status;
 }

@@ -12,6 +12,9 @@
  */
 
 import fetch from 'node-fetch';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('storage.pinning');
 
 export class PinningProvider {
     /**
@@ -32,14 +35,21 @@ export class PinningProvider {
         // Validate configuration
         if (this.provider !== 'none') {
             if (['pinata', 'web3storage'].includes(this.provider) && !this.token) {
-                console.warn(`⚠️  PIN_PROVIDER=${this.provider} requires PIN_PROVIDER_TOKEN`);
+                log.warn('provider_disabled_no_token', { provider: this.provider });
                 this.provider = 'none'; // Disable if misconfigured
             }
             if (this.provider === 'custom' && !this.endpoint) {
-                console.warn(`⚠️  PIN_PROVIDER=custom requires PIN_PROVIDER_ENDPOINT`);
+                log.warn('provider_disabled_no_endpoint', { provider: 'custom' });
                 this.provider = 'none'; // Disable if misconfigured
             }
         }
+
+        log.info('provider_init', {
+            provider: this.provider,
+            enabled: this.provider !== 'none',
+            endpoint: this.provider === 'custom' ? this.endpoint : undefined,
+            timeout: this.timeout
+        });
 
         this.stats = {
             attempted: 0,
@@ -69,6 +79,9 @@ export class PinningProvider {
         }
 
         this.stats.attempted++;
+        const timer = log.startTimer();
+
+        log.info('pin_attempt_start', { cid, provider: this.provider, timeout: this.timeout });
 
         try {
             switch (this.provider) {
@@ -86,11 +99,11 @@ export class PinningProvider {
             }
 
             this.stats.succeeded++;
-            console.log(`✓ Pinned ${cid} to ${this.provider}`);
+            timer.end('pin_attempt_end', { cid, provider: this.provider, status: 'ok' });
             return true;
         } catch (error) {
             this.stats.failed++;
-            console.warn(`⚠️  Failed to pin ${cid} to ${this.provider}: ${error.message}`);
+            timer.endWarn('pin_attempt_end', { cid, provider: this.provider, status: 'fail', error: error.message });
             return false;
         }
     }

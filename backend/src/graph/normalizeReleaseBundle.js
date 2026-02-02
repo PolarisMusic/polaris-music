@@ -17,6 +17,9 @@
 
 import crypto from 'crypto';
 import { normalizeRoles, normalizeRole, normalizeRoleInput } from './roleNormalization.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('graph.normalize');
 
 /**
  * Normalize a ReleaseBundle from frontend format to canonical format
@@ -108,6 +111,15 @@ export function normalizeReleaseBundle(bundle) {
         throw new Error(`ReleaseBundle validation failed:\n  - ${errors.join('\n  - ')}`);
     }
 
+    log.info('normalize_end', {
+        tracks_in: trackDefs.length,
+        tracks_out: normalizedTracks.length,
+        groups: normalizedGroups.length,
+        tracklist: normalizedTracklist.length,
+        songs: normalizedSongs.length,
+        sources: normalizedSources.length
+    });
+
     // Return normalized bundle
     return {
         release: normalizedRelease,
@@ -143,10 +155,7 @@ function normalizeTrackCatalog(trackDefs, errors) {
 
             // Deduplicate by track_id
             if (seenIds.has(normalized.track_id)) {
-                // Skip duplicate, but note it in console (not an error) - suppress in tests
-                if (process.env.NODE_ENV !== 'test') {
-                    console.log(`Note: Skipping duplicate track_id: ${normalized.track_id}`);
-                }
+                log.debug('track_dedup_skip', { track_id: normalized.track_id });
                 continue;
             }
 

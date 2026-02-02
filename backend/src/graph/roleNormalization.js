@@ -6,6 +6,9 @@
  *
  * @module graph/roleNormalization
  */
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('graph.roles');
 
 /**
  * Common role synonyms mapped to canonical forms
@@ -89,6 +92,7 @@ export function normalizeRole(role) {
     // Apply synonym mapping if exists
     if (ROLE_SYNONYMS[normalized]) {
         normalized = ROLE_SYNONYMS[normalized];
+        log.debug('role_synonym', { original: role.trim().toLowerCase(), normalized });
     }
 
     return normalized;

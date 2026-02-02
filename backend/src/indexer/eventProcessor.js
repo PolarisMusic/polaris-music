@@ -8,7 +8,7 @@
  * 4. Handles different event types with specific handlers
  *
  * Event Flow:
- * Blockchain � Fetch from Storage � Validate � Process � Update Graph
+ * Blockchain -> Fetch from Storage -> Validate -> Process -> Update Graph
  *
  * @module indexer/eventProcessor
  */
@@ -20,6 +20,7 @@ import fetch from 'node-fetch';
 import neo4j from 'neo4j-driver';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
+import { createLogger } from '../utils/logger.js';
 
 /**
  * Event types from smart contract
@@ -35,6 +36,13 @@ const EVENT_TYPES = {
     FINALIZE: 50,
     MERGE_ENTITY: 60           // Merge duplicate entities (renamed from MERGE_NODE)
 };
+
+/**
+ * Reverse lookup: event type number -> handler name (for logging)
+ */
+const EVENT_TYPE_NAMES = Object.fromEntries(
+    Object.entries(EVENT_TYPES).map(([name, num]) => [num, name])
+);
 
 /**
  * Safe mapping of entity types to Neo4j node labels
@@ -89,6 +97,7 @@ class EventProcessor {
      */
     constructor(config) {
         this.config = config;
+        this.log = createLogger('indexer.eventProcessor');
 
         // Detect injection mode: if db and store are already provided, use them directly
         const injectionMode = !!(config.db && config.store);
@@ -103,7 +112,7 @@ class EventProcessor {
             this.pollInterval = null;
             this.lastProcessedBlock = 0;
             this.currentBlock = 0;
-            console.log('EventProcessor initialized in injection mode (blockchain disabled)');
+            this.log.info('Initialized in injection mode', { blockchain_enabled: false });
         } else {
             // NORMAL MODE: Initialize from config (standalone processor mode)
             if (!config.blockchain?.rpcUrl) {
@@ -168,31 +177,31 @@ class EventProcessor {
         }
 
         if (this.isRunning) {
-            console.warn('Event processor already running');
+            this.log.warn('Event processor already running', {});
             return;
         }
 
-        console.log('=� Starting Event Processor...');
+        this.log.info('Starting event processor', {});
 
         // Test connections
         const dbConnected = await this.db.testConnection();
         if (!dbConnected) {
             throw new Error('Failed to connect to database');
         }
-        console.log(' Database connected');
+        this.log.info('Database connected', {});
 
         const storageStatus = await this.store.testConnectivity();
-        console.log(' Storage status:', storageStatus);
+        this.log.info('Storage connectivity checked', { storage_status: storageStatus });
 
         // Get current blockchain head
         const info = await this.rpc.get_info();
         this.currentBlock = info.head_block_num;
-        console.log(` Blockchain head: block ${this.currentBlock}`);
+        this.log.info('Blockchain head retrieved', { head_block: this.currentBlock });
 
         // If no start block specified, start from recent history
         if (this.lastProcessedBlock === 0) {
             this.lastProcessedBlock = Math.max(0, this.currentBlock - 1000);
-            console.log(`Starting from block ${this.lastProcessedBlock}`);
+            this.log.info('No start block specified, using recent history', { start_block: this.lastProcessedBlock });
         }
 
         this.isRunning = true;
@@ -201,10 +210,11 @@ class EventProcessor {
         // Start processing loop
         this.processLoop();
 
-        console.log(`\n Event Processor started`);
-        console.log(`  Contract: ${this.contractAccount}`);
-        console.log(`  Poll interval: ${this.pollInterval}ms`);
-        console.log(`  Processing from block: ${this.lastProcessedBlock}\n`);
+        this.log.info('Event processor started', {
+            contract: this.contractAccount,
+            poll_interval_ms: this.pollInterval,
+            start_block: this.lastProcessedBlock
+        });
     }
 
     /**
@@ -213,7 +223,7 @@ class EventProcessor {
      * @returns {Promise<void>}
      */
     async stop() {
-        console.log('\nStopping Event Processor...');
+        this.log.info('Stopping event processor', {});
         this.isRunning = false;
 
         // Wait for current operation to complete
@@ -223,7 +233,7 @@ class EventProcessor {
         await this.db.close();
         await this.store.close();
 
-        console.log(' Event Processor stopped');
+        this.log.info('Event processor stopped', {});
     }
 
     /**
@@ -257,7 +267,7 @@ class EventProcessor {
                 await new Promise(resolve => setTimeout(resolve, this.pollInterval));
 
             } catch (error) {
-                console.error('Error in process loop:', error.message);
+                this.log.error('Error in process loop', { error: error.message });
                 this.stats.errors++;
                 this.stats.lastError = error.message;
 
@@ -281,7 +291,7 @@ class EventProcessor {
             throw new Error('processBlockRange() not available in injection mode');
         }
 
-        console.log(`Processing blocks ${fromBlock} to ${toBlock}...`);
+        this.log.info('Processing block range', { from_block: fromBlock, to_block: toBlock });
 
         // Process in chunks to avoid overwhelming the system
         const chunkSize = 100;
@@ -303,7 +313,11 @@ class EventProcessor {
                 this.stats.lastProcessedTime = new Date();
 
             } catch (error) {
-                console.error(`Error processing blocks ${start}-${end}:`, error.message);
+                this.log.error('Error processing block chunk', {
+                    from_block: start,
+                    to_block: end,
+                    error: error.message
+                });
                 this.stats.errors++;
                 this.stats.lastError = error.message;
 
@@ -343,7 +357,7 @@ class EventProcessor {
 
         } catch (error) {
             // Fallback: get blocks individually if history plugin unavailable
-            console.warn('History API unavailable, using fallback method');
+            this.log.warn('History API unavailable, using fallback method', { error: error.message });
             return this.getActionsInRangeFallback(fromBlock, toBlock);
         }
     }
@@ -390,7 +404,7 @@ class EventProcessor {
                     }
                 }
             } catch (error) {
-                console.warn(`Failed to fetch block ${blockNum}:`, error.message);
+                this.log.warn('Failed to fetch block', { block_num: blockNum, error: error.message });
             }
         }
 
@@ -404,14 +418,26 @@ class EventProcessor {
      * @param {Object} action - Blockchain action
      */
     async processAction(action) {
+        const timer = this.log.startTimer();
+        let eventHash;
+        let eventType;
+
         try {
             const act = action.action_trace.act;
             const data = act.data;
+            eventHash = data.hash;
+            eventType = data.type;
+            const blockNum = action.action_trace.block_num;
 
-            console.log(`\nProcessing event: ${data.hash.substring(0, 12)}...`);
-            console.log(`  Type: ${data.type}`);
-            console.log(`  Author: ${data.author}`);
-            console.log(`  Block: ${action.action_trace.block_num}`);
+            const handlerName = EVENT_TYPE_NAMES[eventType] || 'UNKNOWN';
+
+            this.log.info('Processing event', {
+                event_hash: eventHash,
+                event_type: eventType,
+                handler: handlerName,
+                author: data.author,
+                block_num: blockNum
+            });
 
             // Fetch event data from storage
             const event = await this.store.retrieveEvent(data.hash);
@@ -425,7 +451,7 @@ class EventProcessor {
             // Process event based on type
             const handler = this.eventHandlers[data.type];
             if (!handler) {
-                console.warn(`No handler for event type ${data.type}`);
+                this.log.warn('No handler for event type', { event_type: eventType, event_hash: eventHash });
                 return;
             }
 
@@ -435,10 +461,18 @@ class EventProcessor {
             this.stats.eventsProcessed++;
             this.stats.eventsByType[data.type] = (this.stats.eventsByType[data.type] || 0) + 1;
 
-            console.log(` Event processed successfully`);
+            timer.end('Event processed successfully', {
+                event_hash: eventHash,
+                event_type: eventType,
+                handler: handlerName
+            });
 
         } catch (error) {
-            console.error('Failed to process action:', error.message);
+            timer.endError('Failed to process event', {
+                event_hash: eventHash,
+                event_type: eventType,
+                error: error.message
+            });
             this.stats.errors++;
             this.stats.lastError = error.message;
 
@@ -454,13 +488,18 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleReleaseBundle(event, actionData) {
+        const timer = this.log.startTimer();
         // Use correct release_name field with fallbacks
         const releaseTitle =
             event?.body?.release?.release_name ||
             event?.body?.release?.name ||
             event?.body?.release_name ||
             'Unknown';
-        console.log(`  Processing release bundle: ${releaseTitle}`);
+
+        this.log.info('handleReleaseBundle start', {
+            event_hash: actionData.hash,
+            release_title: releaseTitle
+        });
 
         // Pass event timestamp for deterministic replay.
         // Prefer contract-anchored ts (Unix seconds); fall back to event.created_at.
@@ -473,7 +512,11 @@ class EventProcessor {
             eventTimestamp
         );
 
-        console.log(`   Created: ${result.stats.groups_created} groups, ${result.stats.tracks_created} tracks`);
+        timer.end('handleReleaseBundle complete', {
+            event_hash: actionData.hash,
+            groups_created: result.stats.groups_created,
+            tracks_created: result.stats.tracks_created
+        });
     }
 
     /**
@@ -484,7 +527,12 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleAddClaim(event, actionData) {
-        console.log(`  Adding claim to ${event.body.node?.type} ${event.body.node?.id}`);
+        const timer = this.log.startTimer();
+        this.log.info('handleAddClaim start', {
+            event_hash: actionData.hash,
+            node_type: event.body.node?.type,
+            node_id: event.body.node?.id
+        });
 
         const eventTimestamp = actionData.ts || event.created_at || null;
 
@@ -495,7 +543,7 @@ class EventProcessor {
             eventTimestamp
         );
 
-        console.log(`   Claim added`);
+        timer.end('handleAddClaim complete', { event_hash: actionData.hash });
     }
 
     /**
@@ -506,7 +554,11 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleEditClaim(event, actionData) {
-        console.log(`  Editing claim: ${event.body.claim_id}`);
+        const timer = this.log.startTimer();
+        this.log.info('handleEditClaim start', {
+            event_hash: actionData.hash,
+            claim_id: event.body.claim_id
+        });
 
         // Edit creates a new claim that supersedes the old one (immutable claims)
         const eventTimestamp = actionData.ts || event.created_at || null;
@@ -518,7 +570,7 @@ class EventProcessor {
             eventTimestamp
         );
 
-        console.log(`   Claim edited`);
+        timer.end('handleEditClaim complete', { event_hash: actionData.hash });
     }
 
     /**
@@ -529,12 +581,13 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleVote(event, actionData) {
-        console.log(`  Recording vote on ${event.body.target_hash}`);
+        this.log.info('handleVote', {
+            event_hash: actionData.hash,
+            target_hash: event.body.target_hash
+        });
 
         // Vote data is stored on blockchain, not in graph
         // Could optionally record vote metadata in graph for analytics
-
-        console.log(`   Vote recorded`);
     }
 
     /**
@@ -545,12 +598,13 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleLike(event, actionData) {
-        console.log(`  Recording like on ${event.body.node_id}`);
+        this.log.info('handleLike', {
+            event_hash: actionData.hash,
+            node_id: event.body.node_id
+        });
 
         // Like data with path tracking (planned feature)
         // Store in graph for visualization weighting
-
-        console.log(`   Like recorded`);
     }
 
     /**
@@ -561,12 +615,13 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleFinalize(event, actionData) {
-        console.log(`  Finalizing event ${event.body.target_hash}`);
+        this.log.info('handleFinalize', {
+            event_hash: actionData.hash,
+            target_hash: event.body.target_hash
+        });
 
         // Finalization triggers reward distribution on blockchain
-        // Could update entity status in graph (provisional � canonical)
-
-        console.log(`   Finalized`);
+        // Could update entity status in graph (provisional -> canonical)
     }
 
     /**
@@ -590,9 +645,15 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleMintEntity(event, actionData) {
+        const timer = this.log.startTimer();
         const { entity_type, canonical_id, initial_claims = [], provenance = {} } = event.body;
 
-        console.log(`  Minting canonical ${entity_type}: ${canonical_id || '(auto-generated)'}`);
+        this.log.info('handleMintEntity start', {
+            event_hash: actionData.hash,
+            entity_type,
+            canonical_id: canonical_id || '(auto-generated)',
+            initial_claims_count: initial_claims.length
+        });
 
         const session = this.db.driver.session();
         try {
@@ -612,7 +673,11 @@ class EventProcessor {
                 throw new Error(`Invalid canonical ID: ${cid}`);
             }
 
-            console.log(`    Creating entity: ${cid}`);
+            this.log.info('Creating entity node', {
+                event_hash: actionData.hash,
+                canonical_id: cid,
+                entity_type
+            });
 
             // Get safe node label from whitelist mapping (prevents Cypher injection)
             const nodeLabel = NODE_LABELS[entity_type];
@@ -700,11 +765,22 @@ class EventProcessor {
             // Check if entity was newly created or already existed
             // wasCreated is a boolean from Cypher: true if ON CREATE fired, false if ON MATCH
             const wasCreated = entityResult.records[0]?.get('wasCreated') === true;
-            const action = wasCreated ? 'Created' : 'Found existing';
-            console.log(`   ${action} ${entity_type} ${cid.substring(0, 24)}... with ${initial_claims.length} claims`);
+            const action = wasCreated ? 'created' : 'found_existing';
+
+            timer.end('handleMintEntity complete', {
+                event_hash: actionData.hash,
+                entity_type,
+                canonical_id: cid,
+                action,
+                claims_count: initial_claims.length
+            });
 
         } catch (error) {
-            console.error(`   Failed to mint entity:`, error.message);
+            timer.endError('handleMintEntity failed', {
+                event_hash: actionData.hash,
+                entity_type,
+                error: error.message
+            });
             throw error;
         } finally {
             await session.close();
@@ -729,6 +805,7 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleResolveId(event, actionData) {
+        const timer = this.log.startTimer();
         const {
             subject_id,
             canonical_id,
@@ -737,7 +814,12 @@ class EventProcessor {
             evidence = ''
         } = event.body;
 
-        console.log(`  Resolving ID: ${subject_id} -> ${canonical_id}`);
+        this.log.info('handleResolveId start', {
+            event_hash: actionData.hash,
+            subject_id,
+            canonical_id,
+            method
+        });
 
         const session = this.db.driver.session();
         try {
@@ -759,7 +841,10 @@ class EventProcessor {
                 throw new Error(`Subject must be provisional or external, not canonical. Use MERGE_ENTITY for canonical->canonical.`);
             }
 
-            console.log(`    Subject kind: ${subjectParsed.kind}`);
+            this.log.info('Resolved subject kind', {
+                event_hash: actionData.hash,
+                subject_kind: subjectParsed.kind
+            });
 
             // Handle based on subject ID kind
             if (subjectParsed.kind === IDKind.EXTERNAL) {
@@ -774,7 +859,11 @@ class EventProcessor {
                     evidence: typeof evidence === 'object' ? JSON.stringify(evidence) : evidence
                 });
 
-                console.log(`   Created IdentityMap: ${subject_id} -> ${canonical_id}`);
+                this.log.info('Created IdentityMap', {
+                    event_hash: actionData.hash,
+                    subject_id,
+                    canonical_id
+                });
             }
 
             if (subjectParsed.kind === IDKind.PROVISIONAL) {
@@ -786,11 +875,25 @@ class EventProcessor {
                     method
                 });
 
-                console.log(`   Created alias: ${subject_id} -> ${canonical_id}`);
+                this.log.info('Created alias', {
+                    event_hash: actionData.hash,
+                    subject_id,
+                    canonical_id
+                });
             }
 
+            timer.end('handleResolveId complete', {
+                event_hash: actionData.hash,
+                subject_kind: subjectParsed.kind
+            });
+
         } catch (error) {
-            console.error(`   Failed to resolve ID:`, error.message);
+            timer.endError('handleResolveId failed', {
+                event_hash: actionData.hash,
+                subject_id,
+                canonical_id,
+                error: error.message
+            });
             throw error;
         } finally {
             await session.close();
@@ -820,6 +923,7 @@ class EventProcessor {
      * @param {Object} actionData - Blockchain action data
      */
     async handleMergeEntity(event, actionData) {
+        const timer = this.log.startTimer();
         const {
             survivor_id,
             absorbed_ids,
@@ -828,7 +932,11 @@ class EventProcessor {
             strategy = {}
         } = event.body;
 
-        console.log(`  Merging ${absorbed_ids.length} entities into ${survivor_id}`);
+        this.log.info('handleMergeEntity start', {
+            event_hash: actionData.hash,
+            survivor_id,
+            absorbed_count: absorbed_ids.length
+        });
 
         const session = this.db.driver.session();
         try {
@@ -855,7 +963,10 @@ class EventProcessor {
                     ? alreadyMerged.toNumber()
                     : Number(alreadyMerged || 0);
                 if (count > 0) {
-                    console.log(`  Merge already applied (eventHash=${eventHash}), skipping (idempotent)`);
+                    this.log.info('Merge already applied, skipping (idempotent)', {
+                        event_hash: eventHash,
+                        survivor_id
+                    });
                     return;
                 }
             }
@@ -878,13 +989,21 @@ class EventProcessor {
                 }
             );
 
-            console.log(`   Merged ${stats.absorbedCount} entities:`);
-            console.log(`      - Rewired ${stats.edgesRewired} edges`);
-            console.log(`      - Moved ${stats.claimsMoved} claims`);
-            console.log(`      - Created ${stats.tombstonesCreated} tombstones`);
+            timer.end('handleMergeEntity complete', {
+                event_hash: actionData.hash,
+                survivor_id,
+                absorbed_count: stats.absorbedCount,
+                edges_rewired: stats.edgesRewired,
+                claims_moved: stats.claimsMoved,
+                tombstones_created: stats.tombstonesCreated
+            });
 
         } catch (error) {
-            console.error(`   Merge failed:`, error.message);
+            timer.endError('handleMergeEntity failed', {
+                event_hash: actionData.hash,
+                survivor_id,
+                error: error.message
+            });
             throw error;
         } finally {
             await session.close();
@@ -941,7 +1060,7 @@ class EventProcessor {
      * @param {number} fromBlock - Block to start reprocessing from
      */
     async reprocessFrom(fromBlock) {
-        console.log(`Reprocessing from block ${fromBlock}...`);
+        this.log.info('Reprocessing from block', { from_block: fromBlock });
         this.lastProcessedBlock = fromBlock - 1;
     }
 }

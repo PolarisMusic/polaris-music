@@ -8,6 +8,9 @@
  */
 
 import EventProcessor from './eventProcessor.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('indexer.runProcessor');
 
 // Load configuration from environment variables
 const config = {
@@ -49,24 +52,33 @@ const config = {
         : undefined
 };
 
+// Log config summary at startup (redact secrets)
+log.info('Processor configuration loaded', {
+    rpc_url_host: new URL(config.blockchain.rpcUrl).host,
+    contract: config.blockchain.contractAccount,
+    poll_interval_ms: config.blockchain.pollInterval,
+    start_block: config.startBlock || '(auto)',
+    graph_uri: config.database.uri
+});
+
 // Create processor instance
 const processor = new EventProcessor(config);
 
 // Start processor
 processor.start().catch((error) => {
-    console.error('Failed to start processor:', error);
+    log.error('Failed to start processor', { error: error.message });
     process.exit(1);
 });
 
 // Graceful shutdown
 const shutdown = async (signal) => {
-    console.log(`\n${signal} received, shutting down gracefully...`);
+    log.info('Shutdown signal received', { signal });
 
     try {
         await processor.stop();
         process.exit(0);
     } catch (error) {
-        console.error('Error during shutdown:', error);
+        log.error('Error during shutdown', { signal, error: error.message });
         process.exit(1);
     }
 };
@@ -76,12 +88,12 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
-    console.error('Uncaught exception:', error);
+    log.error('Uncaught exception', { error: error.message, stack: error.stack });
     shutdown('UNCAUGHT_EXCEPTION');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled rejection at:', promise, 'reason:', reason);
+    log.error('Unhandled rejection', { reason: String(reason) });
     shutdown('UNHANDLED_REJECTION');
 });
 
@@ -89,23 +101,17 @@ process.on('unhandledRejection', (reason, promise) => {
 setInterval(() => {
     if (processor.isRunning) {
         const stats = processor.getStats();
-        console.log(`\n=Ê Processor Stats:`);
-        console.log(`   Uptime: ${stats.uptimeFormatted}`);
-        console.log(`   Current block: ${stats.currentBlock}`);
-        console.log(`   Last processed: ${stats.lastProcessedBlock}`);
-        console.log(`   Blocks behind: ${stats.blocksBehind}`);
-        console.log(`   Events processed: ${stats.eventsProcessed}`);
-        console.log(`   Events/sec: ${stats.eventsPerSecond}`);
-        console.log(`   Errors: ${stats.errors}`);
-
-        if (Object.keys(stats.eventsByType).length > 0) {
-            console.log(`   By type:`);
-            for (const [type, count] of Object.entries(stats.eventsByType)) {
-                console.log(`     Type ${type}: ${count}`);
-            }
-        }
+        log.info('Processor stats', {
+            uptime: stats.uptimeFormatted,
+            current_block: stats.currentBlock,
+            last_processed_block: stats.lastProcessedBlock,
+            blocks_behind: stats.blocksBehind,
+            events_processed: stats.eventsProcessed,
+            events_per_second: stats.eventsPerSecond,
+            errors: stats.errors,
+            events_by_type: stats.eventsByType
+        });
     }
 }, 60000); // Every minute
 
-console.log('\n=á Event Processor monitoring started');
-console.log('   Press Ctrl+C to stop\n');
+log.info('Event processor monitoring started', {});

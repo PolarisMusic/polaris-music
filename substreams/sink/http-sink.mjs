@@ -22,6 +22,7 @@
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { randomUUID } from 'crypto';
 
 // ESM __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -293,13 +294,24 @@ function normalizeModuleParams(params) {
  * @param {number} attempt - Current retry attempt (1-indexed)
  * @returns {Promise<boolean>} Success status
  */
-async function postAnchoredEvent(anchoredEvent, attempt = 1) {
+async function postAnchoredEvent(anchoredEvent, attempt = 1, requestId = null) {
+    // Generate request_id on first attempt for end-to-end correlation
+    if (!requestId) {
+        requestId = randomUUID().replace(/-/g, '');
+    }
+
+    const hashPreview = safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 12);
+    const startTime = performance.now();
+
     // Create AbortController for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
     try {
-        const headers = { 'Content-Type': 'application/json' };
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Request-Id': requestId
+        };
         if (config.ingestApiKey) {
             headers['X-API-Key'] = config.ingestApiKey;
         }
@@ -312,29 +324,35 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
         });
 
         clearTimeout(timeoutId); // Clear timeout on success
+        const durationMs = Math.round(performance.now() - startTime);
 
         if (response.ok) {
             const result = await response.json();
             console.log(
-                `✓ Posted event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)} ` +
-                `(block ${anchoredEvent.block_num}, action: ${anchoredEvent.action_name})`
+                `✓ Posted ${hashPreview} block=${anchoredEvent.block_num} ` +
+                `action=${anchoredEvent.action_name} status=${result.status} ` +
+                `duration_ms=${durationMs} request_id=${requestId}`
             );
             stats.eventsPosted++;
             return true;
         } else {
             const errorText = await response.text();
+            const errorPreview = errorText.length > 500 ? errorText.substring(0, 500) + '...' : errorText;
             console.error(
-                `✗ Failed to post event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)}`,
-                `HTTP ${response.status}: ${errorText}`
+                `✗ POST failed ${hashPreview} HTTP ${response.status} ` +
+                `duration_ms=${durationMs} request_id=${requestId} body=${errorPreview}`
             );
 
             // Retry on server errors (5xx) or rate limit (429)
             if ((response.status >= 500 || response.status === 429) && attempt < config.maxRetries) {
                 const delayMs = config.retryDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
-                console.log(`  Retrying in ${delayMs}ms (attempt ${attempt + 1}/${config.maxRetries})...`);
+                console.log(
+                    `  Retry attempt ${attempt + 1}/${config.maxRetries} in ${delayMs}ms ` +
+                    `reason=http_${response.status} request_id=${requestId}`
+                );
                 stats.retries++;
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                return postAnchoredEvent(anchoredEvent, attempt + 1);
+                return postAnchoredEvent(anchoredEvent, attempt + 1, requestId);
             }
 
             stats.eventsFailed++;
@@ -342,27 +360,25 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1) {
         }
     } catch (error) {
         clearTimeout(timeoutId); // Clear timeout on error
+        const durationMs = Math.round(performance.now() - startTime);
 
         // Handle AbortController timeout
-        if (error.name === 'AbortError') {
-            console.error(
-                `✗ Timeout posting event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)} ` +
-                `(exceeded ${config.requestTimeoutMs}ms)`
-            );
-        } else {
-            console.error(
-                `✗ Network error posting event ${safeHashPreview(anchoredEvent.content_hash || anchoredEvent.event_hash, 8)}:`,
-                error.message
-            );
-        }
+        const reason = error.name === 'AbortError' ? 'timeout' : 'network_error';
+        console.error(
+            `✗ POST error ${hashPreview} reason=${reason} ` +
+            `error=${error.message} duration_ms=${durationMs} request_id=${requestId}`
+        );
 
         // Retry on network errors and timeouts
         if (attempt < config.maxRetries) {
             const delayMs = config.retryDelayMs * Math.pow(2, attempt - 1);
-            console.log(`  Retrying in ${delayMs}ms (attempt ${attempt + 1}/${config.maxRetries})...`);
+            console.log(
+                `  Retry attempt ${attempt + 1}/${config.maxRetries} in ${delayMs}ms ` +
+                `reason=${reason} request_id=${requestId}`
+            );
             stats.retries++;
             await new Promise(resolve => setTimeout(resolve, delayMs));
-            return postAnchoredEvent(anchoredEvent, attempt + 1);
+            return postAnchoredEvent(anchoredEvent, attempt + 1, requestId);
         }
 
         stats.eventsFailed++;

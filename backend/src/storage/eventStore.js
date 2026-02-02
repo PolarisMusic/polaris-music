@@ -33,6 +33,7 @@ import { sha256 } from 'multiformats/hashes/sha2';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { verifyEventSignatureOrThrow } from '../crypto/verifyEventSignature.js';
 import { PinningProvider } from './pinningProvider.js';
+import { createLogger } from '../utils/logger.js';
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -62,6 +63,7 @@ class EventStore {
      */
     constructor(config) {
         this.config = config;
+        this.log = createLogger('storage.eventStore');
 
         // In-memory store for test mode: allows storeEvent → getEvent round-trip
         // without real IPFS/S3/Redis. Keyed by hash.
@@ -201,6 +203,8 @@ class EventStore {
      * @throws {Error} If all storage methods fail or if expectedHash doesn't match computed hash
      */
     async storeEvent(event, expectedHash = null) {
+        const overallTimer = this.log.startTimer();
+
         // Validate event structure
         this.validateEvent(event);
 
@@ -236,7 +240,11 @@ class EventStore {
         const fullEventJSON = JSON.stringify(event, null, 2);
         const fullEventBuffer = Buffer.from(fullEventJSON, 'utf-8');
 
-        console.log(`Storing event ${hash.substring(0, 12)}... (${fullEventBuffer.length} bytes)`);
+        this.log.info('store_event_start', {
+            event_hash: hash,
+            event_type: event.type,
+            byte_size: fullEventBuffer.length
+        });
 
         const results = {
             hash,
@@ -247,79 +255,129 @@ class EventStore {
             errors: []
         };
 
+        // Track which layers succeeded for final summary
+        const layers = {};
+
         // Store to all locations in parallel
         const storagePromises = [];
 
         // 1. Store to IPFS (canonical bytes for CID derivability)
         if (this.ipfsEnabled) {
             storagePromises.push(
-                this.storeToIPFS(canonicalBuffer, hash)
-                    .then(result => {
+                (async () => {
+                    const ipfsCanonicalTimer = this.log.startTimer();
+                    try {
+                        const result = await this.storeToIPFS(canonicalBuffer, hash);
                         results.canonical_cid = result.cid;
                         results.replication = results.replication || { canonical: {}, event: {} };
                         results.replication.canonical = result.replication;
                         this.stats.ipfsStores++;
-                        const secondaryCount = result.replication.secondary.filter(x => x).length;
-                        console.log(`  ✓ IPFS canonical: ${result.cid} (${secondaryCount}/${result.replication.secondary.length} secondary)`);
-                    })
-                    .catch(error => {
+                        const secondaryOk = result.replication.secondary.filter(x => x).length;
+                        const secondaryTotal = result.replication.secondary.length;
+                        layers.ipfs_canonical = true;
+                        ipfsCanonicalTimer.end('store_ipfs_canonical_ok', {
+                            event_hash: hash,
+                            cid: result.cid,
+                            secondary_ok: secondaryOk,
+                            secondary_total: secondaryTotal
+                        });
+                    } catch (error) {
                         const err = `IPFS canonical storage failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`  ✗ ${err}`);
-                    })
+                        layers.ipfs_canonical = false;
+                        ipfsCanonicalTimer.endError('store_ipfs_canonical_fail', {
+                            event_hash: hash,
+                            error: error.message
+                        });
+                    }
+                })()
             );
 
             // Store full event JSON (with signature for auditability and retrieval)
             storagePromises.push(
-                this.storeFullEventToIPFS(fullEventBuffer)
-                    .then(result => {
+                (async () => {
+                    const ipfsEventTimer = this.log.startTimer();
+                    try {
+                        const result = await this.storeFullEventToIPFS(fullEventBuffer);
                         results.event_cid = result.cid;
                         results.replication = results.replication || { canonical: {}, event: {} };
                         results.replication.event = result.replication;
                         results.pinning = result.provider;
                         this.stats.ipfsStores++;
-                        const secondaryCount = result.replication.secondary.filter(x => x).length;
-                        const pinStatus = result.provider.success ? '✓ pinned' : (result.provider.attempted ? '✗ pin failed' : '');
-                        console.log(`  ✓ IPFS full event: ${result.cid} (${secondaryCount}/${result.replication.secondary.length} secondary) ${pinStatus}`);
-                    })
-                    .catch(error => {
+                        const secondaryOk = result.replication.secondary.filter(x => x).length;
+                        const secondaryTotal = result.replication.secondary.length;
+                        layers.ipfs_event = true;
+                        ipfsEventTimer.end('store_ipfs_event_ok', {
+                            event_hash: hash,
+                            cid: result.cid,
+                            secondary_ok: secondaryOk,
+                            secondary_total: secondaryTotal,
+                            external_pin_attempted: result.provider.attempted,
+                            external_pin_success: result.provider.success
+                        });
+                    } catch (error) {
                         const err = `IPFS full event storage failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`   ${err}`);
-                    })
+                        layers.ipfs_event = false;
+                        ipfsEventTimer.endError('store_ipfs_event_fail', {
+                            event_hash: hash,
+                            error: error.message
+                        });
+                    }
+                })()
             );
         }
 
         // 2. Store to S3 (full event with signature for auditability)
         if (this.s3Enabled) {
             storagePromises.push(
-                this.storeToS3(fullEventBuffer, hash)
-                    .then(location => {
+                (async () => {
+                    const s3Timer = this.log.startTimer();
+                    try {
+                        const location = await this.storeToS3(fullEventBuffer, hash);
                         results.s3 = location;
                         this.stats.s3Stores++;
-                        console.log(`  ✓ S3: ${location}`);
-                    })
-                    .catch(error => {
+                        layers.s3 = true;
+                        s3Timer.end('store_s3_ok', {
+                            event_hash: hash,
+                            location
+                        });
+                    } catch (error) {
                         const err = `S3 storage failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`  ✗ ${err}`);
-                    })
+                        layers.s3 = false;
+                        s3Timer.endError('store_s3_fail', {
+                            event_hash: hash,
+                            error: error.message
+                        });
+                    }
+                })()
             );
         }
 
         // 3. Store to Redis cache
         if (this.redisEnabled) {
             storagePromises.push(
-                this.storeToRedis(fullEventJSON, hash)
-                    .then(() => {
+                (async () => {
+                    const redisTimer = this.log.startTimer();
+                    try {
+                        await this.storeToRedis(fullEventJSON, hash);
                         results.redis = true;
-                        console.log(`  ✓ Redis (TTL: ${this.redisTTL}s)`);
-                    })
-                    .catch(error => {
+                        layers.redis = true;
+                        redisTimer.end('store_redis_ok', {
+                            event_hash: hash,
+                            ttl: this.redisTTL
+                        });
+                    } catch (error) {
                         const err = `Redis cache failed: ${error.message}`;
                         results.errors.push(err);
-                        console.warn(`  ✗ ${err}`);
-                    })
+                        layers.redis = false;
+                        redisTimer.endError('store_redis_fail', {
+                            event_hash: hash,
+                            error: error.message
+                        });
+                    }
+                })()
             );
         }
 
@@ -331,6 +389,13 @@ class EventStore {
         // when the smart contract checks !event_cid.empty()
         if (this.ipfsEnabled && !results.event_cid) {
             this.stats.errors++;
+            overallTimer.endError('store_event_fail', {
+                event_hash: hash,
+                event_type: event.type,
+                reason: 'missing_event_cid',
+                layers,
+                errors: results.errors
+            });
             throw new Error(
                 `IPFS full event storage failed: event_cid is required to anchor on-chain. ` +
                 `Errors: ${results.errors.join(', ') || 'Unknown IPFS failure'}. ` +
@@ -352,20 +417,33 @@ class EventStore {
                 return results;
             }
             this.stats.errors++;
+            overallTimer.endError('store_event_fail', {
+                event_hash: hash,
+                event_type: event.type,
+                reason: 'all_layers_failed',
+                layers,
+                errors: results.errors
+            });
             throw new Error(`Failed to store event: ${results.errors.join(', ')}`);
         }
 
         // IMPORTANT: If IPFS is disabled in non-test environments, warn loudly
         // The system cannot function without event_cid for blockchain anchoring
         if (!this.ipfsEnabled && process.env.NODE_ENV !== 'test') {
-            console.error(
-                '⚠️  WARNING: IPFS is disabled but required for blockchain anchoring. ' +
-                'Event stored to fallback storage only. Cannot submit to blockchain without event_cid.'
-            );
+            this.log.error('store_event_no_ipfs', {
+                event_hash: hash,
+                message: 'IPFS is disabled but required for blockchain anchoring. Event stored to fallback storage only.'
+            });
         }
 
         this.stats.stored++;
-        console.log(`✓ Event stored successfully (${successCount}/${storagePromises.length} locations)`);
+        overallTimer.end('store_event_ok', {
+            event_hash: hash,
+            event_type: event.type,
+            success_count: successCount,
+            total_layers: storagePromises.length,
+            layers
+        });
 
         return results;
     }
@@ -406,31 +484,43 @@ class EventStore {
      * @throws {Error} If event not found, or requireSig=true but only canonical exists
      */
     async retrieveEvent(hash, { requireSig = false } = {}) {
+        const overallTimer = this.log.startTimer();
+
         // Normalize hash to handle different input formats (defensive)
         const normalizedHash = this.normalizeHash(hash);
 
-        console.log(`Retrieving event ${normalizedHash.substring(0, 12)}...`);
+        this.log.info('retrieve_event_start', { event_hash: normalizedHash });
 
         let event = null;
         let source = null;
+        const attempted = [];
 
         // 1. Try Redis cache first (fastest)
         if (this.redisEnabled) {
+            const redisTimer = this.log.startTimer();
             try {
                 const cached = await this.retrieveFromRedis(normalizedHash);
                 if (cached) {
                     event = JSON.parse(cached);
                     source = 'redis';
                     this.stats.cacheHits++;
-                    console.log(`  ✓ Retrieved from Redis (cache hit)`);
+                    redisTimer.end('retrieve_redis_hit', { event_hash: normalizedHash });
+                } else {
+                    redisTimer.end('retrieve_redis_miss', { event_hash: normalizedHash });
                 }
+                attempted.push('redis');
             } catch (error) {
-                console.warn(`  ✗ Redis retrieval failed: ${error.message}`);
+                attempted.push('redis');
+                redisTimer.endError('retrieve_redis_fail', {
+                    event_hash: normalizedHash,
+                    error: error.message
+                });
             }
         }
 
         // 2. Try IPFS if not in cache
         if (!event && this.ipfsEnabled) {
+            const ipfsTimer = this.log.startTimer();
             try {
                 const data = await this.retrieveFromIPFS(normalizedHash);
                 if (data) {
@@ -439,47 +529,74 @@ class EventStore {
                     // CRITICAL: IPFS stores canonical (no sig) for CID derivability
                     // If requireSig=true and IPFS event lacks sig, fallback to S3
                     if (requireSig && !ipfsEvent.sig) {
-                        console.log(`   Retrieved canonical from IPFS (no sig), falling back to S3 for full event`);
+                        ipfsTimer.endWarn('retrieve_ipfs_canonical_only', {
+                            event_hash: normalizedHash,
+                            message: 'no signature, falling back to S3'
+                        });
                         // Don't set event yet, let S3 section handle it
                     } else {
                         event = ipfsEvent;
                         source = 'ipfs';
                         this.stats.cacheMisses++;
-                        console.log(`   Retrieved from IPFS`);
+                        ipfsTimer.end('retrieve_ipfs_ok', { event_hash: normalizedHash });
 
                         // Only cache to Redis if event has signature
                         // This prevents Redis cache poisoning with signature-less events
                         if (this.redisEnabled && event.sig) {
                             await this.storeToRedis(JSON.stringify(event), normalizedHash)
-                                .catch(err => console.warn(`   Failed to cache: ${err.message}`));
+                                .catch(err => this.log.warn('retrieve_ipfs_cache_backfill_fail', {
+                                    event_hash: normalizedHash,
+                                    error: err.message
+                                }));
                         } else if (this.redisEnabled && !event.sig) {
-                            console.log(`   Not caching canonical event to Redis (no signature)`);
+                            this.log.debug('retrieve_ipfs_skip_cache', {
+                                event_hash: normalizedHash,
+                                reason: 'no_signature'
+                            });
                         }
                     }
+                } else {
+                    ipfsTimer.end('retrieve_ipfs_miss', { event_hash: normalizedHash });
                 }
+                attempted.push('ipfs');
             } catch (error) {
-                console.warn(`  ✗ IPFS retrieval failed: ${error.message}`);
+                attempted.push('ipfs');
+                ipfsTimer.endError('retrieve_ipfs_fail', {
+                    event_hash: normalizedHash,
+                    error: error.message
+                });
             }
         }
 
         // 3. Try S3 as last resort
         if (!event && this.s3Enabled) {
+            const s3Timer = this.log.startTimer();
             try {
                 const data = await this.retrieveFromS3(normalizedHash);
                 if (data) {
                     event = JSON.parse(data.toString('utf-8'));
                     source = 's3';
                     this.stats.cacheMisses++;
-                    console.log(`  ✓ Retrieved from S3`);
+                    s3Timer.end('retrieve_s3_ok', { event_hash: normalizedHash });
 
                     // Populate Redis cache for future requests
                     if (this.redisEnabled) {
                         await this.storeToRedis(JSON.stringify(event), normalizedHash)
-                            .catch(err => console.warn(`  ⚠ Failed to cache: ${err.message}`));
+                            .catch(err => this.log.warn('retrieve_s3_cache_backfill_fail', {
+                                event_hash: normalizedHash,
+                                error: err.message
+                            }));
                     }
+                } else {
+                    s3Timer.end('retrieve_s3_miss', { event_hash: normalizedHash });
                 }
+                attempted.push('s3');
             } catch (error) {
-                console.warn(`  ✗ S3 retrieval failed: ${error.message}`);
+                attempted.push('s3');
+                s3Timer.endError('retrieve_s3_fail', {
+                    event_hash: normalizedHash,
+                    error: error.message
+                });
             }
         }
 
@@ -493,6 +610,11 @@ class EventStore {
 
         if (!event) {
             this.stats.errors++;
+
+            overallTimer.endError('retrieve_event_not_found', {
+                event_hash: normalizedHash,
+                attempted_layers: attempted
+            });
 
             // Provide helpful error message if requireSig but only canonical available
             if (requireSig && this.ipfsEnabled && !this.s3Enabled) {
@@ -520,7 +642,10 @@ class EventStore {
         }
 
         this.stats.retrieved++;
-        console.log(`✓ Event retrieved successfully from ${source}`);
+        overallTimer.end('retrieve_event_ok', {
+            event_hash: normalizedHash,
+            source
+        });
 
         return event;
     }
@@ -555,11 +680,17 @@ class EventStore {
      * @throws {Error} If event not found, IPFS unavailable, or event invalid
      */
     async retrieveByEventCid(event_cid) {
-        console.log(`Retrieving event by CID ${event_cid.substring(0, 20)}...`);
+        const overallTimer = this.log.startTimer();
+
+        this.log.info('retrieve_by_cid_start', { event_cid });
 
         // Check if IPFS is enabled
         if (!this.ipfsEnabled) {
             this.stats.errors++;
+            overallTimer.endError('retrieve_by_cid_fail', {
+                event_cid,
+                reason: 'ipfs_not_configured'
+            });
             throw new Error(
                 `Cannot retrieve by event_cid: IPFS not configured. ` +
                 `Event CID: ${event_cid}`
@@ -571,6 +702,7 @@ class EventStore {
         for (const { client, url, isPrimary } of this.ipfsClients) {
             let data;
             let retrievalMethod;
+            const nodeTimer = this.log.startTimer();
 
             try {
                 // Path 1: Try UnixFS cat() first (new format, works with gateways)
@@ -595,19 +727,42 @@ class EventStore {
 
                 // Verify hash matches (important for integrity)
                 const computedHash = this.calculateHash(event);
-                const nodeInfo = !isPrimary ? ` from secondary node ${url}` : '';
-                console.log(` Event retrieved successfully from IPFS via ${retrievalMethod}${nodeInfo} (hash: ${computedHash.substring(0, 12)}...)`);
+
+                nodeTimer.end('retrieve_by_cid_ipfs_node_ok', {
+                    event_cid,
+                    ipfs_node: url,
+                    is_primary: isPrimary,
+                    retrieval_method: retrievalMethod,
+                    event_hash: computedHash
+                });
 
                 this.stats.retrieved++;
+                overallTimer.end('retrieve_by_cid_ok', {
+                    event_cid,
+                    source: 'ipfs',
+                    ipfs_node: url,
+                    retrieval_method: retrievalMethod,
+                    event_hash: computedHash
+                });
                 return event;
             } catch (error) {
                 errors.push(`${url}: ${error.message}`);
-                console.warn(`   Failed to retrieve from IPFS node ${url}: ${error.message}`);
+                nodeTimer.endError('retrieve_by_cid_ipfs_node_fail', {
+                    event_cid,
+                    ipfs_node: url,
+                    is_primary: isPrimary,
+                    error: error.message
+                });
             }
         }
 
         // All nodes failed
         this.stats.errors++;
+        overallTimer.endError('retrieve_by_cid_not_found', {
+            event_cid,
+            attempted_nodes: this.ipfsClients.map(c => c.url),
+            errors
+        });
         throw new Error(
             `Event not found in IPFS from any node. CID: ${event_cid}. ` +
             `Errors: ${errors.join('; ')}. ` +
