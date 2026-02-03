@@ -121,7 +121,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 hash: eventHash,
                 author: provenance.submitter || 'system',
                 ts: nowUnix
-            });
+            }, { request_id: req.requestId });
 
             timer.end('mint_end', { event_hash: eventHash, entity_type, canonical_id: canonicalId });
 
@@ -261,7 +261,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 hash: eventHash,
                 author: submitter,
                 ts: nowUnix
-            });
+            }, { request_id: req.requestId });
 
             timer.end('resolve_end', { event_hash: eventHash, subject_id, canonical_id, method, confidence });
 
@@ -393,7 +393,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 hash: eventHash,
                 author: submitter,
                 ts: nowUnix
-            });
+            }, { request_id: req.requestId });
 
             timer.end('merge_end', { event_hash: eventHash, survivor_id, absorbed_count: absorbed_ids.length });
 

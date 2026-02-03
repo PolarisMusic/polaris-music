@@ -526,7 +526,7 @@ export class IngestionHandler {
             // Step 7: Process event by type using EventProcessor handlers
             const dispatchTimer = log.startTimer();
             log.info('dispatch_start', { event_hash: content_hash, event_type: type, handler: TYPE_CODE_TO_EVENT_TYPE[type] || 'unknown' });
-            await this.processEventByType(enrichedEvent, actionMetadata);
+            await this.processEventByType(enrichedEvent, actionMetadata, { request_id });
             dispatchTimer.end('dispatch_end', { event_hash: content_hash, event_type: type });
 
             // Mark as processed
@@ -724,8 +724,8 @@ export class IngestionHandler {
             return;
         }
 
-        // Call the appropriate event handler
-        await handler(event, actionData);
+        // Call the appropriate event handler with ctx for request correlation
+        await handler(event, actionData, { request_id });
     }
 
     /**

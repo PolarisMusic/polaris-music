@@ -253,6 +253,7 @@ class APIServer {
         this.config = config;
         this.app = express();
         this.port = config.port || 3000;
+        this.log = createLogger('api.server');
 
         // Initialize database and storage
         this.db = new MusicGraphDatabase(config.database);
@@ -851,6 +852,7 @@ class APIServer {
          * @returns {Object} { success: true, hash, normalizedEvent }
          */
         this.app.post('/api/events/prepare', this.writeRateLimiter, async (req, res) => {
+            const prepLog = createLogger('api.events.prepare', { request_id: req.requestId });
             try {
                 const event = req.body;
 
@@ -878,6 +880,7 @@ class APIServer {
                 // This ensures signature verification will succeed in backend
                 const canonical_payload = this.store.getCanonicalPayload(preparedEvent);
 
+                prepLog.info('event_prepared', { event_hash: hash, event_type: preparedEvent.type });
                 res.json({
                     success: true,
                     hash,
@@ -885,7 +888,7 @@ class APIServer {
                     canonical_payload
                 });
             } catch (error) {
-                this.log.error('event_preparation_failed', { error: error.message });
+                prepLog.error('event_preparation_failed', { error: error.message, event_type: req.body?.type });
                 res.status(400).json({
                     success: false,
                     error: error.message

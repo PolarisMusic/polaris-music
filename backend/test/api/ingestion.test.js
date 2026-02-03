@@ -132,7 +132,8 @@ describe('IngestionHandler', () => {
                     hash: 'abc123def456',
                     type: 21,
                     author: 'testuser1234'
-                })
+                }),
+                expect.objectContaining({})
             );
         });
 
@@ -361,7 +362,8 @@ describe('IngestionHandler', () => {
                         source: 'unknown'
                     })
                 }),
-                expect.any(Object)
+                expect.any(Object),
+                expect.objectContaining({})
             );
         });
     });

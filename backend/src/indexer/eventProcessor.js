@@ -487,8 +487,11 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleReleaseBundle(event, actionData) {
-        const timer = this.log.startTimer();
+    async handleReleaseBundle(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        const timer = log.startTimer();
         // Use correct release_name field with fallbacks
         const releaseTitle =
             event?.body?.release?.release_name ||
@@ -496,7 +499,7 @@ class EventProcessor {
             event?.body?.release_name ||
             'Unknown';
 
-        this.log.info('handleReleaseBundle start', {
+        log.info('handleReleaseBundle start', {
             event_hash: actionData.hash,
             release_title: releaseTitle
         });
@@ -526,9 +529,12 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleAddClaim(event, actionData) {
-        const timer = this.log.startTimer();
-        this.log.info('handleAddClaim start', {
+    async handleAddClaim(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        const timer = log.startTimer();
+        log.info('handleAddClaim start', {
             event_hash: actionData.hash,
             node_type: event.body.node?.type,
             node_id: event.body.node?.id
@@ -553,9 +559,12 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleEditClaim(event, actionData) {
-        const timer = this.log.startTimer();
-        this.log.info('handleEditClaim start', {
+    async handleEditClaim(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        const timer = log.startTimer();
+        log.info('handleEditClaim start', {
             event_hash: actionData.hash,
             claim_id: event.body.claim_id
         });
@@ -580,8 +589,11 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleVote(event, actionData) {
-        this.log.info('handleVote', {
+    async handleVote(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        log.info('handleVote', {
             event_hash: actionData.hash,
             target_hash: event.body.target_hash
         });
@@ -597,8 +609,11 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleLike(event, actionData) {
-        this.log.info('handleLike', {
+    async handleLike(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        log.info('handleLike', {
             event_hash: actionData.hash,
             node_id: event.body.node_id
         });
@@ -614,8 +629,11 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleFinalize(event, actionData) {
-        this.log.info('handleFinalize', {
+    async handleFinalize(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        log.info('handleFinalize', {
             event_hash: actionData.hash,
             target_hash: event.body.target_hash
         });
@@ -644,11 +662,14 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleMintEntity(event, actionData) {
-        const timer = this.log.startTimer();
+    async handleMintEntity(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        const timer = log.startTimer();
         const { entity_type, canonical_id, initial_claims = [], provenance = {} } = event.body;
 
-        this.log.info('handleMintEntity start', {
+        log.info('handleMintEntity start', {
             event_hash: actionData.hash,
             entity_type,
             canonical_id: canonical_id || '(auto-generated)',
@@ -673,7 +694,7 @@ class EventProcessor {
                 throw new Error(`Invalid canonical ID: ${cid}`);
             }
 
-            this.log.info('Creating entity node', {
+            log.info('Creating entity node', {
                 event_hash: actionData.hash,
                 canonical_id: cid,
                 entity_type
@@ -804,8 +825,11 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleResolveId(event, actionData) {
-        const timer = this.log.startTimer();
+    async handleResolveId(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        const timer = log.startTimer();
         const {
             subject_id,
             canonical_id,
@@ -814,7 +838,7 @@ class EventProcessor {
             evidence = ''
         } = event.body;
 
-        this.log.info('handleResolveId start', {
+        log.info('handleResolveId start', {
             event_hash: actionData.hash,
             subject_id,
             canonical_id,
@@ -841,7 +865,7 @@ class EventProcessor {
                 throw new Error(`Subject must be provisional or external, not canonical. Use MERGE_ENTITY for canonical->canonical.`);
             }
 
-            this.log.info('Resolved subject kind', {
+            log.info('Resolved subject kind', {
                 event_hash: actionData.hash,
                 subject_kind: subjectParsed.kind
             });
@@ -859,7 +883,7 @@ class EventProcessor {
                     evidence: typeof evidence === 'object' ? JSON.stringify(evidence) : evidence
                 });
 
-                this.log.info('Created IdentityMap', {
+                log.info('Created IdentityMap', {
                     event_hash: actionData.hash,
                     subject_id,
                     canonical_id
@@ -875,7 +899,7 @@ class EventProcessor {
                     method
                 });
 
-                this.log.info('Created alias', {
+                log.info('Created alias', {
                     event_hash: actionData.hash,
                     subject_id,
                     canonical_id
@@ -922,8 +946,11 @@ class EventProcessor {
      * @param {Object} event - Event data
      * @param {Object} actionData - Blockchain action data
      */
-    async handleMergeEntity(event, actionData) {
-        const timer = this.log.startTimer();
+    async handleMergeEntity(event, actionData, ctx = {}) {
+        const log = ctx.request_id
+            ? createLogger('indexer.eventProcessor', { request_id: ctx.request_id, event_hash: actionData.hash })
+            : this.log;
+        const timer = log.startTimer();
         const {
             survivor_id,
             absorbed_ids,
@@ -932,7 +959,7 @@ class EventProcessor {
             strategy = {}
         } = event.body;
 
-        this.log.info('handleMergeEntity start', {
+        log.info('handleMergeEntity start', {
             event_hash: actionData.hash,
             survivor_id,
             absorbed_count: absorbed_ids.length
@@ -963,7 +990,7 @@ class EventProcessor {
                     ? alreadyMerged.toNumber()
                     : Number(alreadyMerged || 0);
                 if (count > 0) {
-                    this.log.info('Merge already applied, skipping (idempotent)', {
+                    log.info('Merge already applied, skipping (idempotent)', {
                         event_hash: eventHash,
                         survivor_id
                     });
