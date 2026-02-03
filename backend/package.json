@@ -34,6 +34,7 @@
     "express-rate-limit": "^8.2.1",
     "fast-json-stable-stringify": "^2.1.0",
     "graphql": "^15.8.0",
+    "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
     "ipfs-http-client": "^60.0.1",
     "multiformats": "^13.4.2",

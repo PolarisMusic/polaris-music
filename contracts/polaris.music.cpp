@@ -1028,23 +1028,36 @@ public:
     /**
      * @brief Clear all data (for testing only)
      *
+     * =========================================================================
+     * ⚠️  DANGER: This action is DISABLED by default for production safety ⚠️
+     * =========================================================================
+     *
      * COMPILE-TIME GUARD:
      * - Only available when compiled with -DTESTNET flag
      * - Automatically excluded from production builds
+     * - Production builds should NEVER include -DTESTNET flag
      *
      * RUNTIME SAFETY GUARDS:
      * - Only works if total anchors <= 100 (prevents production misuse)
      * - Only works if total stake == 0 (prevents destroying value)
      * - Requires contract authority
      *
-     * To enable: compile with eosio-cpp -DTESTNET ...
+     * PRODUCTION DEPLOYMENT CHECKLIST:
+     * ❌ DO NOT compile with -DTESTNET flag
+     * ❌ DO NOT enable this action in production
+     * ✅ Compile for production: eosio-cpp -o polaris.wasm polaris.music.cpp
+     * ✅ Verify clear() is not in ABI before deployment
+     *
+     * To enable for testnet: eosio-cpp -DTESTNET -o polaris.wasm polaris.music.cpp
      */
 #ifdef TESTNET
     /**
      * @brief Clear all contract data (DEVELOPMENT/TESTING ONLY)
      *
+     * ⚠️⚠️⚠️ EXTREMELY DANGEROUS - USE WITH CAUTION ⚠️⚠️⚠️
+     *
      * Resets the contract to initial state by erasing all table data.
-     * Intended for development, testing, and testnet resets.
+     * Intended ONLY for development, testing, and testnet resets.
      *
      * **SAFETY CHECKS** (prevent accidental production data loss):
      * 1. Anchor limit: Fails if >100 anchors exist (indicates production use)
@@ -1064,11 +1077,13 @@ public:
      * @pre Requires contract authority (get_self())
      * @pre Anchor count <= 100
      * @pre Total staked tokens = 0
+     * @pre Contract compiled with -DTESTNET flag
      *
      * **WARNING**: This action is DANGEROUS in production. Only use on testnets
-     * or for local development. Production contracts should NEVER call this.
+     * or for local development. Production contracts should NEVER include this action.
+     * Ensure -DTESTNET is NOT used when compiling for production deployment.
      *
-     * **Example usage** (testnet reset):
+     * **Example usage** (testnet reset only):
      * ```
      * cleos push action polaris clear '[]' -p polaris@active
      * ```

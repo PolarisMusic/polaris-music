@@ -16,6 +16,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { graphqlHTTP } from 'express-graphql';
 import { buildSchema } from 'graphql';
@@ -278,6 +279,14 @@ class APIServer {
      * Setup Express middleware
      */
     setupMiddleware() {
+        // Helmet - Security headers (XSS, CSP, etc.)
+        // Configure for compatibility with GraphiQL in development
+        this.app.use(helmet({
+            contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+            crossOriginEmbedderPolicy: false
+        }));
+        console.log(' Helmet security headers enabled');
+
         // CORS - Enable cross-origin requests from frontend
         // Supports comma-separated list of origins for multiple dev environments
         // Example: CORS_ORIGIN=http://localhost:5173,http://localhost:4173
