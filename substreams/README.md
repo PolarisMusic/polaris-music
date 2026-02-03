@@ -179,6 +179,29 @@ substreams run \
 
 **Output:** `polaris.v1.Stats` - Aggregated statistics
 
+### map_anchored_events
+
+**Type:** Map module (primary chain ingestion output)
+
+**Input:**
+- `params: string` - Contract account name (default: "polaris")
+- `Block` - Antelope block from Firehose
+
+**Output:** `polaris.v1.AnchoredEvents` - Events with blockchain provenance
+
+**Purpose:** Primary output for T5 ingestion pipeline. Extracts anchored events with complete blockchain metadata including event hash, payload, block metadata, transaction metadata, and source identifier.
+
+**Example:**
+```bash
+substreams run \
+  -e eos.firehose.pinax.network:443 \
+  ./substreams.yaml \
+  map_anchored_events \
+  -p map_anchored_events="polaris" \
+  --start-block 100000000 \
+  --stop-block +1000
+```
+
 ## Development
 
 ### Project Structure

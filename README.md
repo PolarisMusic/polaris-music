@@ -1035,11 +1035,13 @@ polaris-music-registry/
 │   ├── src/
 │   │   ├── api/            # API server
 │   │   ├── graph/          # Graph database
-│   │   ├── config/         # Configuration files
+│   │   ├── schema/         # JSON Schema validation
 │   │   ├── storage/        # Event storage
+│   │   ├── crypto/         # Signature verification
+│   │   ├── utils/          # Utilities and logging
 │   │   └── indexer/        # Event processor
 │   └── test/
-│       ├── api/            # API tesets
+│       ├── api/            # API tests
 │       ├── graph/          # Graph tests
 │       ├── e2e/            # End-to-end tests
 │       ├── storage/        # Event storage tests
@@ -1282,11 +1284,10 @@ This section documents discrepancies between the English-language descriptions i
 - **Purpose**: Batch update Respect values from Fractally elections (oracle-only)
 - **Location**: `contracts/polaris.music.cpp` lines 242-243, README.md lines 864-867
 
-#### 4. **Missing Backend Directory Structure**
-- **README States** (line 958): Backend should have `config/` directory
-- **Implementation**: No `backend/src/config/` directory exists - configuration is handled via environment variables in code
-- **Impact**: Documentation incorrectly describes file structure
-- **Location**: `backend/src/` directory
+#### 4. **Missing Backend Directory Structure** ✅ FIXED
+- **Previously**: README listed non-existent `config/` directory
+- **Resolution**: Updated directory tree to reflect actual structure (schema/, crypto/, utils/)
+- **Note**: Configuration is handled via environment variables (.env), not config files
 
 #### 5. **Docker Compose File Missing** ✅ FIXED
 - **Previously**: No `docker-compose.yml` file existed in repository
