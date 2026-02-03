@@ -14,6 +14,7 @@ import express from 'express';
 import { IdentityService, EntityType, IDKind } from '../../identity/idService.js';
 import { MergeOperations } from '../../graph/merge.js';
 import { getDevSigner } from '../../crypto/devSigner.js';
+import { createLogger } from '../../utils/logger.js';
 
 /**
  * Initialize identity routes with database and event store
@@ -49,6 +50,8 @@ export function createIdentityRoutes(db, store, eventProcessor) {
      * }
      */
     router.post('/mint', async (req, res) => {
+        const log = createLogger('api.identity', { request_id: req.requestId });
+        const timer = log.startTimer();
         try {
             // In chain mode, entity minting must go through the event-sourced pipeline
             const ingestMode = process.env.INGEST_MODE || 'chain';
@@ -75,7 +78,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             const canonicalId = IdentityService.mintCanonicalId(entity_type);
             const nowUnix = Math.floor(Date.now() / 1000);
 
-            console.log(`Minting new canonical ${entity_type}: ${canonicalId} (dev mode)`);
+            log.info('mint_start', { entity_type, canonical_id: canonicalId });
 
             // DEV mode: create event, sign with DevSigner, apply immediately via EventProcessor
             const devSigner = getDevSigner();
@@ -106,7 +109,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             // Store event for replay (signature verification passes)
             const storeResult = await store.storeEvent(mintEvent);
             const eventHash = storeResult.hash;
-            console.log(`Mint event created (dev mode): ${eventHash}`);
+            log.info('mint_event_stored', { event_hash: eventHash, entity_type, canonical_id: canonicalId });
 
             // Apply immediately via canonical EventProcessor handler
             // This ensures dev-mode and replay produce identical graph state:
@@ -120,6 +123,8 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 ts: nowUnix
             });
 
+            timer.end('mint_end', { event_hash: eventHash, entity_type, canonical_id: canonicalId });
+
             res.status(201).json({
                 success: true,
                 canonical_id: canonicalId,
@@ -130,7 +135,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             });
 
         } catch (error) {
-            console.error('Mint entity failed:', error);
+            timer.endError('mint_error', { entity_type: req.body?.entity_type, error: error.message, error_class: error.constructor.name });
             res.status(500).json({
                 success: false,
                 error: error.message
@@ -163,6 +168,8 @@ export function createIdentityRoutes(db, store, eventProcessor) {
      * }
      */
     router.post('/resolve', async (req, res) => {
+        const log = createLogger('api.identity', { request_id: req.requestId });
+        const timer = log.startTimer();
         try {
             // In chain mode, ID resolution must go through the event-sourced pipeline
             const ingestMode = process.env.INGEST_MODE || 'chain';
@@ -214,7 +221,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
             const nowUnix = Math.floor(Date.now() / 1000);
 
-            console.log(`Resolving ${subject_id} → ${canonical_id} (${method}, confidence: ${confidence}) (dev mode)`);
+            log.info('resolve_start', { subject_id, canonical_id, method, confidence });
 
             // DEV mode: create event, sign with DevSigner, apply immediately via EventProcessor
             const devSigner = getDevSigner();
@@ -246,7 +253,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             // Store event for replay (signature verification passes)
             const storeResult = await store.storeEvent(resolveEvent);
             const eventHash = storeResult.hash;
-            console.log(`Resolve event created (dev mode): ${eventHash}`);
+            log.info('resolve_event_stored', { event_hash: eventHash, subject_id, canonical_id });
 
             // Apply immediately via canonical EventProcessor handler
             // This ensures dev-mode and replay produce identical graph state
@@ -255,6 +262,8 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 author: submitter,
                 ts: nowUnix
             });
+
+            timer.end('resolve_end', { event_hash: eventHash, subject_id, canonical_id, method, confidence });
 
             res.status(200).json({
                 success: true,
@@ -269,7 +278,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             });
 
         } catch (error) {
-            console.error('Resolve ID failed:', error);
+            timer.endError('resolve_error', { subject_id: req.body?.subject_id, canonical_id: req.body?.canonical_id, error: error.message, error_class: error.constructor.name });
             res.status(500).json({
                 success: false,
                 error: error.message
@@ -302,6 +311,8 @@ export function createIdentityRoutes(db, store, eventProcessor) {
      * }
      */
     router.post('/merge', async (req, res) => {
+        const log = createLogger('api.identity', { request_id: req.requestId });
+        const timer = log.startTimer();
         try {
             // In chain mode, merges must go through the event-sourced pipeline:
             // POST /api/events/prepare → sign → POST /api/events/create → anchor on-chain
@@ -339,7 +350,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 });
             }
 
-            console.log(`Merging ${absorbed_ids.length} entities into ${survivor_id}`);
+            log.info('merge_start', { survivor_id, absorbed_count: absorbed_ids.length });
 
             // DEV mode: create event, sign with DevSigner, apply merge immediately via EventProcessor
             const nowUnix = Math.floor(Date.now() / 1000);
@@ -372,7 +383,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             const storeResult = await store.storeEvent(mergeEvent);
             const eventHash = storeResult.hash;
 
-            console.log(`Merge event created (dev mode): ${eventHash}`);
+            log.info('merge_event_stored', { event_hash: eventHash, survivor_id, absorbed_count: absorbed_ids.length });
 
             // Apply immediately via canonical EventProcessor handler
             // This ensures dev-mode and replay produce identical graph state:
@@ -384,6 +395,8 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 ts: nowUnix
             });
 
+            timer.end('merge_end', { event_hash: eventHash, survivor_id, absorbed_count: absorbed_ids.length });
+
             res.status(200).json({
                 success: true,
                 eventHash,
@@ -391,7 +404,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             });
 
         } catch (error) {
-            console.error('Merge entities failed:', error);
+            timer.endError('merge_error', { survivor_id: req.body?.survivor_id, error: error.message, error_class: error.constructor.name });
             res.status(500).json({
                 success: false,
                 error: error.message
@@ -416,6 +429,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
      * }
      */
     router.get('/lookup/:external_id', async (req, res) => {
+        const log = createLogger('api.identity', { request_id: req.requestId });
         try {
             const externalId = req.params.external_id;
 
@@ -429,7 +443,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 });
             }
 
-            console.log(`Looking up ${externalId}...`);
+            log.info('lookup_start', { external_id: externalId });
 
             const session = db.driver.session();
             try {
@@ -462,7 +476,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             }
 
         } catch (error) {
-            console.error('Lookup failed:', error);
+            log.error('lookup_error', { external_id: req.params.external_id, error: error.message, error_class: error.constructor.name });
             res.status(500).json({
                 success: false,
                 error: error.message
@@ -484,6 +498,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
      * }
      */
     router.get('/info/:id', async (req, res) => {
+        const log = createLogger('api.identity', { request_id: req.requestId });
         try {
             const id = req.params.id;
             const parsed = IdentityService.parseId(id);
@@ -520,7 +535,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
             });
 
         } catch (error) {
-            console.error('ID info failed:', error);
+            log.error('info_error', { id: req.params.id, error: error.message, error_class: error.constructor.name });
             res.status(500).json({
                 success: false,
                 error: error.message

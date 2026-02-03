@@ -14,6 +14,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { performance } from 'perf_hooks';
 
 /**
  * Log levels (numeric for filtering)

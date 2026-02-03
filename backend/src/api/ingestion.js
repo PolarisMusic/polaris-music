@@ -156,7 +156,7 @@ export class IngestionHandler {
             });
 
             if (!response.ok) {
-                console.warn(`⚠ Failed to fetch account ${accountName}: ${response.status}`);
+                this.log.warn('fetch_account_fail', { account: accountName, status: response.status });
                 return null;
             }
 
@@ -170,7 +170,7 @@ export class IngestionHandler {
 
             return accountData;
         } catch (error) {
-            console.warn(`⚠ Error fetching account ${accountName}:`, error.message);
+            this.log.warn('fetch_account_error', { account: accountName, error: error.message });
             return null;
         }
     }
@@ -200,24 +200,24 @@ export class IngestionHandler {
         if (!this.config.rpcUrl) {
             const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
             if (authRequired) {
-                console.error('RPC URL not configured but REQUIRE_ACCOUNT_AUTH is enabled - denying');
+                this.log.error('auth_rpc_missing', { message: 'RPC URL not configured but REQUIRE_ACCOUNT_AUTH is enabled' });
                 return false;
             }
-            console.warn('RPC URL not configured - skipping account key verification (dev mode)');
+            this.log.warn('auth_rpc_skip', { message: 'RPC URL not configured - skipping account key verification (dev mode)' });
             return true;
         }
 
         // Hard limit: prevent excessive recursion (cycles, abuse)
         const MAX_DEPTH = 5;
         if (depth > MAX_DEPTH) {
-            console.warn(`⚠ Max recursion depth ${MAX_DEPTH} exceeded for ${accountName}@${permissionName}`);
+            this.log.warn('auth_max_depth', { account: accountName, permission: permissionName, max_depth: MAX_DEPTH });
             return false;
         }
 
         // Track visited permissions to prevent infinite loops
         const permKey = `${accountName}@${permissionName}`;
         if (visited.has(permKey)) {
-            console.warn(`⚠ Loop detected: ${permKey} already visited`);
+            this.log.warn('auth_loop_detected', { permission_key: permKey });
             return false;
         }
         visited.add(permKey);
@@ -228,17 +228,17 @@ export class IngestionHandler {
             // RPC failure: behavior depends on auth mode
             const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
             if (authRequired) {
-                console.error(`Account data fetch failed for ${accountName} - denying (REQUIRE_ACCOUNT_AUTH=true)`);
+                this.log.error('auth_account_fetch_fail', { account: accountName, auth_required: true });
                 return false;
             }
-            console.warn(`Account data fetch failed for ${accountName} - allowing (REQUIRE_ACCOUNT_AUTH=false)`);
+            this.log.warn('auth_account_fetch_fail', { account: accountName, auth_required: false });
             return true;
         }
 
         // Find the permission
         const perm = accountData.permissions?.find(p => p.perm_name === permissionName);
         if (!perm) {
-            console.warn(`Permission '${permissionName}' not found for ${accountName}`);
+            this.log.warn('auth_permission_not_found', { account: accountName, permission: permissionName });
             // Missing permission likely means wrong account or stale data — deny when auth required
             const authRequired = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
             return !authRequired;
@@ -315,7 +315,7 @@ export class IngestionHandler {
      * @param {string} [blockchainMetadata.source] - Source (e.g., "substreams-eos")
      * @returns {Promise<Object>} Processing result
      */
-    async processPutAction(actionData, blockchainMetadata = {}) {
+    async processPutAction(actionData, blockchainMetadata = {}, { request_id } = {}) {
         const { author, type, hash, event_cid, parent, ts, tags = [] } = actionData;
 
         // Step 1: Validate required fields
@@ -325,7 +325,11 @@ export class IngestionHandler {
 
         // Normalize hash to lowercase hex string (do this early for logging)
         const content_hash = this.normalizeHash(hash);
-        const timer = this.log.startTimer();
+        // Create scoped logger with request_id for end-to-end correlation
+        const log = request_id
+            ? createLogger('ingestion', { request_id, event_hash: content_hash })
+            : this.log;
+        const timer = log.startTimer();
         const logCtx = {
             event_hash: content_hash,
             event_type: type,
@@ -337,11 +341,11 @@ export class IngestionHandler {
             source: blockchainMetadata.source || undefined
         };
 
-        this.log.info('put_action_start', logCtx);
+        log.info('put_action_start', logCtx);
 
         // Step 2: Check for duplicates
         if (this.processedHashes.has(content_hash)) {
-            this.log.info('put_action_dedup_hit', { event_hash: content_hash, dedup_key: 'hash_cache' });
+            log.info('put_action_dedup_hit', { event_hash: content_hash, dedup_key: 'hash_cache' });
             this.stats.eventsDuplicate++;
             return {
                 status: 'duplicate',
@@ -354,12 +358,12 @@ export class IngestionHandler {
             // Step 3: Fetch full event from off-chain storage
             // Prefer event_cid for faster IPFS retrieval (skips CID derivation)
             // Fall back to hash-based retrieval for backward compatibility
-            const retrieveTimer = this.log.startTimer();
+            const retrieveTimer = log.startTimer();
             let event;
             let source; // Track which retrieval path was used
             const retrievalKey = event_cid || content_hash;
 
-            this.log.info('retrieve_start', { event_hash: content_hash, retrieval_key: event_cid ? 'event_cid' : 'hash' });
+            log.info('retrieve_start', { event_hash: content_hash, retrieval_key: event_cid ? 'event_cid' : 'hash' });
 
             if (event_cid) {
                 try {
@@ -369,7 +373,7 @@ export class IngestionHandler {
                     // CRITICAL: If IPFS retrieval fails (node down, not pinned, timeout, etc.),
                     // fall back to hash-based retrieval which can use S3 or other storage.
                     // This makes ingestion resilient to temporary IPFS unavailability.
-                    this.log.warn('retrieve_cid_fallback', {
+                    log.warn('retrieve_cid_fallback', {
                         event_hash: content_hash,
                         event_cid,
                         error: ipfsError.message
@@ -409,7 +413,7 @@ export class IngestionHandler {
             // Step 4.1: CRITICAL - Verify cryptographic signature
             // This ensures the event was actually signed by the claimed author_pubkey
             // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
-            const sigTimer = this.log.startTimer();
+            const sigTimer = log.startTimer();
             const sigResult = verifyEventSignature(event, {
                 requireSignature: true,
                 allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
@@ -447,7 +451,7 @@ export class IngestionHandler {
                 );
 
                 if (!isAuthorized) {
-                    this.log.error('auth_key_unauthorized', {
+                    log.error('auth_key_unauthorized', {
                         event_hash: content_hash,
                         account: author,
                         permission,
@@ -464,9 +468,9 @@ export class IngestionHandler {
                     };
                 }
 
-                this.log.info('auth_key_verified', { event_hash: content_hash, account: author, permission });
+                log.info('auth_key_verified', { event_hash: content_hash, account: author, permission });
             } else {
-                this.log.warn('auth_check_skipped', { event_hash: content_hash, reason: 'REQUIRE_ACCOUNT_AUTH=false' });
+                log.warn('auth_check_skipped', { event_hash: content_hash, reason: 'REQUIRE_ACCOUNT_AUTH=false' });
             }
 
             // Step 4.5: Verify on-chain type matches off-chain event.type
@@ -479,7 +483,7 @@ export class IngestionHandler {
 
                 if (!typeMatches) {
                     const errorMsg = `Type mismatch: on-chain type ${type} (${expectedTypeString}) != off-chain event.type ${eventType}`;
-                    this.log.error('type_mismatch', { event_hash: content_hash, onchain_type: type, offchain_type: eventType });
+                    log.error('type_mismatch', { event_hash: content_hash, onchain_type: type, offchain_type: eventType });
                     this.stats.eventsFailed++;
                     return {
                         status: 'error',
@@ -489,7 +493,7 @@ export class IngestionHandler {
                 }
             } else {
                 // Unknown type code - warn but allow (for backward compatibility)
-                this.log.warn('unknown_type_code', { event_hash: content_hash, type_code: type });
+                log.warn('unknown_type_code', { event_hash: content_hash, type_code: type });
             }
 
             // Step 5: Attach blockchain metadata to event
@@ -520,8 +524,8 @@ export class IngestionHandler {
             };
 
             // Step 7: Process event by type using EventProcessor handlers
-            const dispatchTimer = this.log.startTimer();
-            this.log.info('dispatch_start', { event_hash: content_hash, event_type: type, handler: TYPE_CODE_TO_EVENT_TYPE[type] || 'unknown' });
+            const dispatchTimer = log.startTimer();
+            log.info('dispatch_start', { event_hash: content_hash, event_type: type, handler: TYPE_CODE_TO_EVENT_TYPE[type] || 'unknown' });
             await this.processEventByType(enrichedEvent, actionMetadata);
             dispatchTimer.end('dispatch_end', { event_hash: content_hash, event_type: type });
 
@@ -530,7 +534,7 @@ export class IngestionHandler {
 
             // Prevent unbounded memory growth on long-running ingestion
             if (this.processedHashes.size > MAX_PROCESSED_HASHES) {
-                this.log.warn('dedup_cache_cleared', { max: MAX_PROCESSED_HASHES });
+                log.warn('dedup_cache_cleared', { max: MAX_PROCESSED_HASHES });
                 this.processedHashes.clear();
                 this.stats.cacheClears++;
             }
@@ -584,7 +588,7 @@ export class IngestionHandler {
      * @param {string} anchoredEvent.action_name - Action name (put, vote, etc.)
      * @returns {Promise<Object>} Processing result
      */
-    async processAnchoredEvent(anchoredEvent) {
+    async processAnchoredEvent(anchoredEvent, { request_id } = {}) {
         const {
             content_hash,
             event_hash,
@@ -613,7 +617,12 @@ export class IngestionHandler {
         // This prevents crashes on .substring() and ensures correct deduplication
         const contentHash = this.normalizeHash(content_hash);
 
-        this.log.info('anchored_event_start', {
+        // Create scoped logger with request_id for end-to-end correlation
+        const log = request_id
+            ? createLogger('ingestion', { request_id, event_hash: contentHash })
+            : this.log;
+
+        log.info('anchored_event_start', {
             event_hash: contentHash,
             source,
             block_num,
@@ -625,7 +634,7 @@ export class IngestionHandler {
 
         // Step 2: Check for duplicates by content_hash
         if (this.processedHashes.has(contentHash)) {
-            this.log.info('anchored_event_dedup_hit', { event_hash: contentHash });
+            log.info('anchored_event_dedup_hit', { event_hash: contentHash });
             this.stats.eventsDuplicate++;
             return {
                 status: 'duplicate',
@@ -641,7 +650,7 @@ export class IngestionHandler {
 
             // Step 4: Only process 'put' actions (event anchoring)
             if (action_name !== 'put') {
-                this.log.info('anchored_event_skip', { event_hash: contentHash, action_name });
+                log.info('anchored_event_skip', { event_hash: contentHash, action_name });
                 return {
                     status: 'skipped',
                     contentHash,  // Use normalized contentHash
@@ -656,7 +665,7 @@ export class IngestionHandler {
             if (hash) {
                 const payloadHash = this.normalizeHash(hash);
                 if (payloadHash !== contentHash) {
-                    console.warn(`  Warning: payload.hash (${payloadHash}) != content_hash (${contentHash})`);
+                    log.warn('payload_hash_mismatch', { payload_hash: payloadHash, content_hash: contentHash });
                 }
             }
 
@@ -683,10 +692,10 @@ export class IngestionHandler {
             };
 
             // Process using existing logic
-            return await this.processPutAction(putActionData, blockchainMetadata);
+            return await this.processPutAction(putActionData, blockchainMetadata, { request_id });
 
         } catch (error) {
-            this.log.error('anchored_event_error', { event_hash: contentHash, error: error.message, error_class: error.constructor.name });
+            log.error('anchored_event_error', { event_hash: contentHash, error: error.message, error_class: error.constructor.name });
             this.stats.eventsFailed++;
 
             return {
@@ -707,11 +716,11 @@ export class IngestionHandler {
      * @param {Object} event - Full event with blockchain metadata
      * @param {Object} actionData - Blockchain action metadata
      */
-    async processEventByType(event, actionData) {
+    async processEventByType(event, actionData, { request_id } = {}) {
         const handler = this.processor.eventHandlers[actionData.type];
 
         if (!handler) {
-            this.log.warn('no_handler', { event_type: actionData.type, event_hash: actionData.hash });
+            this.log.warn('no_handler', { event_type: actionData.type, event_hash: actionData.hash, request_id });
             return;
         }
 

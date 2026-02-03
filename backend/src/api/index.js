@@ -8,6 +8,9 @@
  */
 
 import APIServer from './server.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('api.bootstrap');
 
 // Load configuration from environment variables
 const config = {
@@ -53,20 +56,31 @@ const config = {
 // Create and start server
 const server = new APIServer(config);
 
-server.start().catch((error) => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
+log.info('boot_start', {
+    port: config.port,
+    node_env: process.env.NODE_ENV || 'development',
+    ingest_mode: process.env.INGEST_MODE || 'chain'
 });
+
+server.start()
+    .then(() => {
+        log.info('boot_success', { port: config.port });
+    })
+    .catch((error) => {
+        log.error('boot_fail', { error: error.message, error_class: error.constructor.name, stack: error.stack });
+        process.exit(1);
+    });
 
 // Graceful shutdown
 const shutdown = async (signal) => {
-    console.log(`\n${signal} received, shutting down gracefully...`);
+    log.info('shutdown_start', { signal });
 
     try {
         await server.stop();
+        log.info('shutdown_end', { signal });
         process.exit(0);
     } catch (error) {
-        console.error('Error during shutdown:', error);
+        log.error('shutdown_error', { signal, error: error.message, error_class: error.constructor.name, stack: error.stack });
         process.exit(1);
     }
 };
@@ -76,11 +90,11 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {
-    console.error('Uncaught exception:', error);
+    log.error('uncaught_exception', { error: error.message, error_class: error.constructor.name, stack: error.stack });
     shutdown('UNCAUGHT_EXCEPTION');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled rejection at:', promise, 'reason:', reason);
+    log.error('unhandled_rejection', { error: reason?.message || String(reason), error_class: reason?.constructor?.name });
     shutdown('UNHANDLED_REJECTION');
 });

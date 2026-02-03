@@ -296,7 +296,7 @@ class APIServer {
             allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-API-Key'],
             credentials: false
         }));
-        console.log(` CORS enabled for origin(s): ${origins.join(', ')}`);
+        this.log.info('cors_enabled', { origins });
 
         // Parse JSON bodies
         this.app.use(express.json({ limit: '10mb' }));
@@ -678,7 +678,7 @@ class APIServer {
                     });
                 } catch (error) {
                     // Fallback to simple name matching if fulltext index doesn't exist
-                    console.warn('Fulltext search failed, using fallback:', error.message);
+                    this.log.warn('fulltext_search_fallback', { error: error.message });
                     const result = await session.run(`
                         MATCH (n)
                         WHERE n.name CONTAINS $query
@@ -750,7 +750,7 @@ class APIServer {
             })(req, res, next);
         });
 
-        console.log(' GraphQL endpoint configured at /graphql');
+        this.log.info('graphql_configured', { path: '/graphql' });
     }
 
     /**
@@ -761,7 +761,7 @@ class APIServer {
         // Mount identity routes
         const identityRouter = createIdentityRoutes(this.db, this.store, this.eventProcessor);
         this.app.use('/api/identity', identityRouter);
-        console.log(' Identity management endpoints mounted at /api/identity');
+        this.log.info('identity_routes_mounted', { path: '/api/identity' });
 
         // ========== HEALTH CHECK ==========
         this.app.get('/health', (req, res) => {
@@ -817,7 +817,7 @@ class APIServer {
                 const httpStatus = status.ok ? 200 : 503;
                 res.status(httpStatus).json(status);
             } catch (error) {
-                console.error('Status check failed:', error);
+                this.log.error('status_check_failed', { error: error.message });
                 res.status(500).json({
                     ok: false,
                     timestamp: new Date().toISOString(),
@@ -885,7 +885,7 @@ class APIServer {
                     canonical_payload
                 });
             } catch (error) {
-                console.error('Event preparation failed:', error);
+                this.log.error('event_preparation_failed', { error: error.message });
                 res.status(400).json({
                     success: false,
                     error: error.message
@@ -997,7 +997,7 @@ class APIServer {
                     author_pubkey
                 });
             } catch (error) {
-                console.error('Dev signing failed:', error);
+                this.log.error('dev_signing_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1110,7 +1110,7 @@ class APIServer {
                     error: 'Signature does not match any key in the specified permission'
                 });
             } catch (error) {
-                console.error('resolve-signing-key failed:', error);
+                this.log.error('resolve_signing_key_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1155,7 +1155,7 @@ class APIServer {
                 // If storage succeeded but event_cid is missing, return 503 (Service Unavailable)
                 // This prevents the frontend from attempting blockchain submission with null event_cid
                 if (!result.event_cid) {
-                    console.error('Event storage incomplete: missing event_cid');
+                    this.log.error('event_storage_incomplete', { error: 'missing event_cid' });
                     return res.status(503).json({
                         success: false,
                         error: 'IPFS required: could not produce event_cid for blockchain anchoring',
@@ -1279,8 +1279,8 @@ class APIServer {
                     action_name: anchoredEvent.action_name
                 });
 
-                // Process anchored event
-                const result = await this.ingestionHandler.processAnchoredEvent(anchoredEvent);
+                // Process anchored event (pass request_id for end-to-end correlation)
+                const result = await this.ingestionHandler.processAnchoredEvent(anchoredEvent, { request_id: req.requestId });
 
                 // Return appropriate status code
                 const statusCode = result.status === 'duplicate' ? 200 : 201;
@@ -1322,7 +1322,7 @@ class APIServer {
                     members: participation
                 });
             } catch (error) {
-                console.error('Participation calculation failed:', error);
+                this.log.error('participation_calculation_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1379,7 +1379,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Person details failed:', error);
+                this.log.error('person_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1436,7 +1436,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Group details failed:', error);
+                this.log.error('group_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1493,7 +1493,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Release details failed:', error);
+                this.log.error('release_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1557,7 +1557,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Track details failed:', error);
+                this.log.error('track_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1611,7 +1611,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Song details failed:', error);
+                this.log.error('song_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1662,7 +1662,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Label details failed:', error);
+                this.log.error('label_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1718,7 +1718,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Group details failed:', error);
+                this.log.error('group_details_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1744,7 +1744,7 @@ class APIServer {
                     timestamp: new Date().toISOString()
                 });
             } catch (error) {
-                console.error('Stats retrieval failed:', error);
+                this.log.error('stats_retrieval_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1815,7 +1815,7 @@ class APIServer {
                     await session.close();
                 }
             } catch (error) {
-                console.error('Initial graph failed:', error);
+                this.log.error('initial_graph_failed', { error: error.message });
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -1823,7 +1823,7 @@ class APIServer {
             }
         });
 
-        console.log(' REST endpoints configured');
+        this.log.info('rest_endpoints_configured', {});
     }
 
     /**
@@ -1841,7 +1841,7 @@ class APIServer {
 
         // Global error handler
         this.app.use((err, req, res, next) => {
-            console.error('Unhandled error:', err);
+            this.log.error('unhandled_error', { error: err.message, stack: err.stack });
 
             res.status(err.status || 500).json({
                 success: false,
@@ -1860,10 +1860,10 @@ class APIServer {
         // Test database connection
         const dbConnected = await this.db.testConnection();
         if (!dbConnected) {
-            console.error(' Failed to connect to database');
+            this.log.error('db_connect_fail', {});
             throw new Error('Database connection failed');
         }
-        console.log(' Database connected');
+        this.log.info('db_connected', {});
 
         // Initialize database schema (constraints, indexes)
         // Controlled by GRAPH_INIT_SCHEMA env var (default: true in dev, configurable in prod)
@@ -1871,15 +1871,15 @@ class APIServer {
         if (shouldInitSchema) {
             try {
                 await this.db.initializeSchema();
-                console.log(' Database schema initialized');
+                this.log.info('schema_initialized', {});
             } catch (error) {
-                console.error(' Schema initialization failed:', error.message);
+                this.log.error('schema_init_fail', { error: error.message });
                 // Don't throw - allow server to start even if schema init fails
                 // This is safe because queries will still work, just without constraints
-                console.warn('  Continuing without schema initialization');
+                this.log.warn('schema_init_continue', {});
             }
         } else {
-            console.log(' Schema initialization skipped (GRAPH_INIT_SCHEMA=false)');
+            this.log.info('schema_init_skipped', {});
         }
 
         // Run pending migrations (optional, controlled by env var)
@@ -1888,10 +1888,10 @@ class APIServer {
             try {
                 const { runPendingMigrations } = await import('../graph/migrationRunner.js');
                 await runPendingMigrations(this.db.driver);
-                console.log(' Migrations completed');
+                this.log.info('migrations_completed', {});
             } catch (error) {
-                console.error(' Migration failed:', error.message);
-                console.warn('  Continuing despite migration failure');
+                this.log.error('migration_fail', { error: error.message });
+                this.log.warn('migration_continue', {});
             }
         }
 
@@ -1906,7 +1906,7 @@ class APIServer {
             );
         }
         if (!rpcUrl) {
-            console.warn('Warning: RPC_URL not configured - account auth and signing-key resolution disabled');
+            this.log.warn('rpc_not_configured', { message: 'account auth and signing-key resolution disabled' });
         }
 
         // Fail fast: if in chain mode / production and INGEST_API_KEY is not set,
@@ -1932,26 +1932,33 @@ class APIServer {
 
         // Test storage connectivity
         const storageStatus = await this.store.testConnectivity();
-        console.log(' Storage status:', storageStatus);
+        this.log.info('storage_status', { ...storageStatus });
 
         // Start listening
         return new Promise((resolve) => {
             this.server = this.app.listen(this.port, () => {
-                console.log(`\n== Polaris Music Registry API Server`);
-                console.log(`   GraphQL: http://localhost:${this.port}/graphql`);
-                console.log(`   REST:    http://localhost:${this.port}/api`);
-                console.log(`   Health:  http://localhost:${this.port}/health`);
-
                 // Log DevSigner status for development visibility
                 const devSigner = getDevSigner();
                 const devSignerEnabled = devSigner?.isEnabled?.() || false;
                 const hasDevKey = !!process.env.DEV_SIGNER_PRIVATE_KEY;
                 const nodeEnv = process.env.NODE_ENV || 'development';
-                console.log(`\n   DevSigner: ${devSignerEnabled ? '✓ enabled' : '✗ disabled'}`);
-                console.log(`     NODE_ENV: ${nodeEnv}`);
-                console.log(`     DEV_SIGNER_PRIVATE_KEY: ${hasDevKey ? 'set' : 'not set'}`);
 
-                console.log(`\n Server ready\n`);
+                this.log.info('server_ready', {
+                    port: this.port,
+                    graphql: `/graphql`,
+                    rest: `/api`,
+                    health: `/health`,
+                    dev_signer_enabled: devSignerEnabled,
+                    node_env: nodeEnv,
+                    dev_signer_key_set: hasDevKey
+                });
+
+                // Keep human-readable banner for interactive use
+                console.error(`\n== Polaris Music Registry API Server`);
+                console.error(`   http://localhost:${this.port}`);
+                console.error(`   DevSigner: ${devSignerEnabled ? 'enabled' : 'disabled'}`);
+                console.error(``);
+
                 resolve();
             });
         });
@@ -1963,7 +1970,7 @@ class APIServer {
      * @returns {Promise<void>}
      */
     async stop() {
-        console.log('\nShutting down server...');
+        this.log.info('server_shutdown_start', {});
 
         // Close database connections
         await this.db.close();
@@ -1978,7 +1985,7 @@ class APIServer {
             });
         }
 
-        console.log(' Server stopped');
+        this.log.info('server_stopped', {});
     }
 }
 
