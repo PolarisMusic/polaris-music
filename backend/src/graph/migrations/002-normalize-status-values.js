@@ -19,11 +19,16 @@
 /**
  * Run the status normalization migration
  *
- * @param {Object} driver - Neo4j driver instance
+ * @param {Object} tx - Neo4j transaction instance (when called by migration runner)
+ *                      or driver instance (when called directly)
  * @returns {Promise<Object>} Migration statistics
  */
-export async function migrateNormalizeStatusValues(driver) {
-    const session = driver.session();
+export async function migrateNormalizeStatusValues(tx) {
+    // Support both transaction and driver for backward compatibility
+    // Migration runner passes transaction, CLI runner passes driver
+    const session = tx.run ? null : tx.session();
+    const runner = tx.run ? tx : session;
+
     const stats = {
         canonical_to_active: 0,
         provisional_normalized: 0,
@@ -35,7 +40,7 @@ export async function migrateNormalizeStatusValues(driver) {
         console.log('Migration 002: Normalizing status values...');
 
         // Step 1: Convert 'canonical' → 'ACTIVE' and backfill id_kind
-        const canonicalResult = await session.run(`
+        const canonicalResult = await runner.run(`
             MATCH (n)
             WHERE n.status = 'canonical'
             SET n.status = 'ACTIVE',
@@ -46,7 +51,7 @@ export async function migrateNormalizeStatusValues(driver) {
         console.log(`  Converted ${stats.canonical_to_active} nodes from 'canonical' to 'ACTIVE'`);
 
         // Step 2: Normalize 'provisional' → 'PROVISIONAL' (case) and backfill id_kind
-        const provisionalResult = await session.run(`
+        const provisionalResult = await runner.run(`
             MATCH (n)
             WHERE n.status = 'provisional'
             SET n.status = 'PROVISIONAL',
@@ -58,7 +63,7 @@ export async function migrateNormalizeStatusValues(driver) {
 
         // Step 3: Backfill id_kind for nodes that already have correct uppercase status
         // but are missing id_kind (e.g., from earlier partial migrations)
-        const backfillResult = await session.run(`
+        const backfillResult = await runner.run(`
             MATCH (n)
             WHERE n.status IN ['ACTIVE', 'PROVISIONAL'] AND n.id_kind IS NULL
             SET n.id_kind = CASE n.status
@@ -79,7 +84,10 @@ export async function migrateNormalizeStatusValues(driver) {
         console.error('Migration 002 failed:', error.message);
         throw error;
     } finally {
-        await session.close();
+        // Only close session if we created it (CLI runner mode)
+        if (session) {
+            await session.close();
+        }
     }
 }
 
