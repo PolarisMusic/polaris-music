@@ -27,6 +27,272 @@ export const MergeStatus = {
 };
 
 /**
+ * Conflict resolution strategies for property merging
+ */
+export const ConflictStrategy = {
+    PREFER_CANONICAL: 'prefer_canonical',  // Prefer survivor's values
+    PREFER_EXTERNAL: 'prefer_external',    // Prefer values from external IDs
+    PREFER_NEWER: 'prefer_newer',          // Prefer newer timestamps
+    PREFER_LONGER: 'prefer_longer',        // Prefer longer strings (more detail)
+    PREFER_NON_NULL: 'prefer_non_null',    // Prefer non-null values
+    CONCATENATE: 'concatenate',            // Combine values (for arrays, strings)
+    KEEP_ALL: 'keep_all'                   // Store all conflicting values
+};
+
+/**
+ * Default conflict resolution rules by property name
+ */
+const DEFAULT_RESOLUTION_RULES = {
+    // Identity properties - prefer canonical
+    'id': ConflictStrategy.PREFER_CANONICAL,
+    'person_id': ConflictStrategy.PREFER_CANONICAL,
+    'group_id': ConflictStrategy.PREFER_CANONICAL,
+    'track_id': ConflictStrategy.PREFER_CANONICAL,
+    'release_id': ConflictStrategy.PREFER_CANONICAL,
+
+    // Names - prefer external, then longer
+    'name': ConflictStrategy.PREFER_EXTERNAL,
+    'legal_name': ConflictStrategy.PREFER_EXTERNAL,
+    'display_name': ConflictStrategy.PREFER_EXTERNAL,
+
+    // Descriptions - prefer longer (more detail)
+    'bio': ConflictStrategy.PREFER_LONGER,
+    'description': ConflictStrategy.PREFER_LONGER,
+    'notes': ConflictStrategy.PREFER_LONGER,
+
+    // Dates - prefer external sources
+    'birth_date': ConflictStrategy.PREFER_EXTERNAL,
+    'death_date': ConflictStrategy.PREFER_EXTERNAL,
+    'formed_date': ConflictStrategy.PREFER_EXTERNAL,
+    'disbanded_date': ConflictStrategy.PREFER_EXTERNAL,
+    'release_date': ConflictStrategy.PREFER_EXTERNAL,
+
+    // Arrays - concatenate and deduplicate
+    'genres': ConflictStrategy.CONCATENATE,
+    'styles': ConflictStrategy.CONCATENATE,
+    'tags': ConflictStrategy.CONCATENATE,
+    'aliases': ConflictStrategy.CONCATENATE,
+
+    // Status and metadata - prefer canonical
+    'status': ConflictStrategy.PREFER_CANONICAL,
+    'id_kind': ConflictStrategy.PREFER_CANONICAL,
+    'visibility': ConflictStrategy.PREFER_CANONICAL,
+
+    // Provenance - keep non-null
+    'source': ConflictStrategy.PREFER_NON_NULL,
+    'external_url': ConflictStrategy.PREFER_NON_NULL,
+    'external_id': ConflictStrategy.PREFER_EXTERNAL,
+
+    // Timestamps - prefer newer
+    'created_at': ConflictStrategy.PREFER_CANONICAL,
+    'updated_at': ConflictStrategy.PREFER_NEWER,
+    'last_edited_at': ConflictStrategy.PREFER_NEWER
+};
+
+/**
+ * Resolve property conflicts using configured strategy
+ *
+ * @param {string} propName - Property name
+ * @param {*} survivorValue - Survivor's property value
+ * @param {*} absorbedValue - Absorbed entity's property value
+ * @param {Object} metadata - Additional metadata for resolution
+ * @param {boolean} metadata.survivorIsExternal - Survivor has external ID
+ * @param {boolean} metadata.absorbedIsExternal - Absorbed has external ID
+ * @param {string} strategy - Override default strategy
+ * @returns {Object} Resolution result {value, conflicts, strategy}
+ */
+function resolvePropertyConflict(propName, survivorValue, absorbedValue, metadata = {}, strategy = null) {
+    // If values are equal, no conflict
+    if (survivorValue === absorbedValue) {
+        return { value: survivorValue, conflicts: [], strategy: 'no_conflict' };
+    }
+
+    // If one is null, prefer non-null
+    if (survivorValue == null && absorbedValue != null) {
+        return {
+            value: absorbedValue,
+            conflicts: [{ property: propName, survivor: null, absorbed: absorbedValue }],
+            strategy: ConflictStrategy.PREFER_NON_NULL
+        };
+    }
+    if (absorbedValue == null && survivorValue != null) {
+        return {
+            value: survivorValue,
+            conflicts: [],
+            strategy: ConflictStrategy.PREFER_NON_NULL
+        };
+    }
+
+    // Determine strategy
+    const resolvedStrategy = strategy || DEFAULT_RESOLUTION_RULES[propName] || ConflictStrategy.PREFER_CANONICAL;
+
+    const conflict = {
+        property: propName,
+        survivor: survivorValue,
+        absorbed: absorbedValue,
+        resolution: resolvedStrategy
+    };
+
+    let resolvedValue;
+
+    switch (resolvedStrategy) {
+        case ConflictStrategy.PREFER_CANONICAL:
+            resolvedValue = survivorValue;
+            break;
+
+        case ConflictStrategy.PREFER_EXTERNAL:
+            // If survivor has external ID, prefer survivor; otherwise prefer absorbed if it's external
+            if (metadata.survivorIsExternal) {
+                resolvedValue = survivorValue;
+            } else if (metadata.absorbedIsExternal) {
+                resolvedValue = absorbedValue;
+            } else {
+                // Neither is external, prefer canonical (survivor)
+                resolvedValue = survivorValue;
+            }
+            break;
+
+        case ConflictStrategy.PREFER_NEWER:
+            // For timestamps, prefer the newer one
+            if (typeof survivorValue === 'string' && typeof absorbedValue === 'string') {
+                const survivorDate = new Date(survivorValue);
+                const absorbedDate = new Date(absorbedValue);
+                resolvedValue = survivorDate > absorbedDate ? survivorValue : absorbedValue;
+            } else {
+                resolvedValue = survivorValue;
+            }
+            break;
+
+        case ConflictStrategy.PREFER_LONGER:
+            // For strings, prefer the longer one (more detail)
+            if (typeof survivorValue === 'string' && typeof absorbedValue === 'string') {
+                resolvedValue = survivorValue.length >= absorbedValue.length ? survivorValue : absorbedValue;
+            } else {
+                resolvedValue = survivorValue;
+            }
+            break;
+
+        case ConflictStrategy.CONCATENATE:
+            // For arrays or strings, combine and deduplicate
+            if (Array.isArray(survivorValue) && Array.isArray(absorbedValue)) {
+                resolvedValue = [...new Set([...survivorValue, ...absorbedValue])];
+            } else if (typeof survivorValue === 'string' && typeof absorbedValue === 'string') {
+                // Combine strings with separator, deduplicate
+                const combined = `${survivorValue}; ${absorbedValue}`;
+                resolvedValue = combined;
+            } else {
+                resolvedValue = survivorValue;
+            }
+            break;
+
+        case ConflictStrategy.KEEP_ALL:
+            // Store both values in an array
+            resolvedValue = [survivorValue, absorbedValue];
+            break;
+
+        case ConflictStrategy.PREFER_NON_NULL:
+            resolvedValue = survivorValue != null ? survivorValue : absorbedValue;
+            break;
+
+        default:
+            // Default to canonical (survivor)
+            resolvedValue = survivorValue;
+    }
+
+    return {
+        value: resolvedValue,
+        conflicts: [conflict],
+        strategy: resolvedStrategy
+    };
+}
+
+/**
+ * Merge properties from absorbed node into survivor node
+ *
+ * @param {Object} tx - Neo4j transaction
+ * @param {string} survivorId - Survivor node ID
+ * @param {string} absorbedId - Absorbed node ID
+ * @param {Object} options - Merge options
+ * @param {Object} options.resolutionRules - Custom resolution rules
+ * @returns {Promise<Object>} Merge result {merged: {}, conflicts: []}
+ */
+async function mergeProperties(tx, survivorId, absorbedId, options = {}) {
+    const { resolutionRules = {} } = options;
+
+    // Fetch both nodes' properties
+    const result = await tx.run(
+        `MATCH (survivor {id: $survivorId})
+         MATCH (absorbed {id: $absorbedId})
+         RETURN properties(survivor) as survivorProps,
+                properties(absorbed) as absorbedProps,
+                survivor.id_kind as survivorIdKind,
+                absorbed.id_kind as absorbedIdKind`,
+        { survivorId, absorbedId }
+    );
+
+    if (result.records.length === 0) {
+        throw new Error('Could not fetch properties for merge');
+    }
+
+    const record = result.records[0];
+    const survivorProps = record.get('survivorProps');
+    const absorbedProps = record.get('absorbedProps');
+    const survivorIdKind = record.get('survivorIdKind');
+    const absorbedIdKind = record.get('absorbedIdKind');
+
+    // Determine if IDs are external (not provisional)
+    const metadata = {
+        survivorIsExternal: survivorIdKind === 'external' || !survivorId.startsWith('prov:'),
+        absorbedIsExternal: absorbedIdKind === 'external' || !absorbedId.startsWith('prov:')
+    };
+
+    const mergedProps = { ...survivorProps };
+    const conflicts = [];
+
+    // Protected properties that should never be overwritten
+    const protectedProps = new Set(['id', 'person_id', 'group_id', 'track_id', 'release_id', 'song_id', 'master_id', 'label_id']);
+
+    // Merge each property from absorbed into survivor
+    for (const [propName, absorbedValue] of Object.entries(absorbedProps)) {
+        // Skip protected properties
+        if (protectedProps.has(propName)) {
+            continue;
+        }
+
+        const survivorValue = survivorProps[propName];
+        const customStrategy = resolutionRules[propName];
+
+        const resolution = resolvePropertyConflict(
+            propName,
+            survivorValue,
+            absorbedValue,
+            metadata,
+            customStrategy
+        );
+
+        mergedProps[propName] = resolution.value;
+        if (resolution.conflicts.length > 0) {
+            conflicts.push(...resolution.conflicts);
+        }
+    }
+
+    // Update survivor with merged properties
+    if (conflicts.length > 0) {
+        // Store conflict log in survivor node for audit trail
+        mergedProps.merge_conflicts = JSON.stringify(conflicts);
+        mergedProps.merge_conflicts_count = conflicts.length;
+    }
+
+    await tx.run(
+        `MATCH (survivor {id: $survivorId})
+         SET survivor = $mergedProps`,
+        { survivorId, mergedProps }
+    );
+
+    return { merged: mergedProps, conflicts };
+}
+
+/**
  * Merge operations for Neo4j graph
  */
 export class MergeOperations {
@@ -42,7 +308,8 @@ export class MergeOperations {
      * @param {string} options.evidence - Evidence/justification for merge
      * @param {boolean} options.rewireEdges - Whether to rewire edges (default: true)
      * @param {boolean} options.moveClaims - Whether to move claims (default: true)
-     * @returns {Promise<Object>} Merge result statistics
+     * @param {Object} options.resolutionRules - Custom property conflict resolution rules
+     * @returns {Promise<Object>} Merge result statistics (includes conflictsResolved)
      */
     static async mergeEntities(session, survivorId, absorbedIds, options = {}) {
         const timer = log.startTimer();
@@ -81,7 +348,8 @@ export class MergeOperations {
             absorbedCount: absorbedIds.length,
             edgesRewired: 0,
             claimsMoved: 0,
-            tombstonesCreated: 0
+            tombstonesCreated: 0,
+            conflictsResolved: 0
         };
 
         log.info('merge_start', { survivor_id: survivorId, absorbed_count: absorbedIds.length });
@@ -129,7 +397,24 @@ export class MergeOperations {
                     );
                 }
 
-                // 3. Rewire incoming edges (native Cypher — no APOC dependency)
+                // 3. Merge properties with conflict resolution
+                log.debug('merge_properties', { absorbed_id: absorbedId, survivor_id: survivorId });
+                const propertyMergeResult = await mergeProperties(tx, survivorId, absorbedId, {
+                    resolutionRules: options.resolutionRules || {}
+                });
+
+                if (propertyMergeResult.conflicts.length > 0) {
+                    log.info('merge_conflicts_resolved', {
+                        absorbed_id: absorbedId,
+                        survivor_id: survivorId,
+                        conflict_count: propertyMergeResult.conflicts.length,
+                        conflicts: propertyMergeResult.conflicts
+                    });
+                }
+
+                stats.conflictsResolved = (stats.conflictsResolved || 0) + propertyMergeResult.conflicts.length;
+
+                // 4. Rewire incoming edges (native Cypher — no APOC dependency)
                 if (rewireEdges) {
                     // Collect incoming edge data before deletion
                     const incomingEdges = await tx.run(
@@ -170,7 +455,7 @@ export class MergeOperations {
                     log.debug('merge_rewire_incoming', { absorbed_id: absorbedId, count: incomingEdges.records.length });
                 }
 
-                // 4. Rewire outgoing edges (native Cypher — no APOC dependency)
+                // 5. Rewire outgoing edges (native Cypher — no APOC dependency)
                 if (rewireEdges) {
                     // Collect outgoing edge data before deletion
                     const outgoingEdges = await tx.run(
@@ -210,7 +495,7 @@ export class MergeOperations {
                     log.debug('merge_rewire_outgoing', { absorbed_id: absorbedId, count: outgoingEdges.records.length });
                 }
 
-                // 5. Move claims (if using Claim nodes)
+                // 6. Move claims (if using Claim nodes)
                 if (moveClaims) {
                     const claimsResult = await tx.run(
                         `MATCH (absorbed {id: $absorbedId})<-[r:CLAIMS_ABOUT]-(claim:Claim)
@@ -229,7 +514,7 @@ export class MergeOperations {
                     log.debug('merge_claims_moved', { absorbed_id: absorbedId, count: claimsMoved });
                 }
 
-                // 6. Delete all edges from absorbed node
+                // 7. Delete all edges from absorbed node
                 await tx.run(
                     `MATCH (absorbed {id: $absorbedId})
                      OPTIONAL MATCH (absorbed)-[r]-()
@@ -237,7 +522,7 @@ export class MergeOperations {
                     { absorbedId }
                 );
 
-                // 7. Mark absorbed node as tombstone
+                // 8. Mark absorbed node as tombstone
                 await tx.run(
                     `MATCH (absorbed {id: $absorbedId})
                      SET absorbed.status = $status,
@@ -261,7 +546,7 @@ export class MergeOperations {
                 log.debug('merge_tombstone', { absorbed_id: absorbedId, survivor_id: survivorId });
             }
 
-            // 8. Update survivor metadata
+            // 9. Update survivor metadata
             await tx.run(
                 `MATCH (survivor {id: $survivorId})
                  SET survivor.last_merged_at = datetime({epochMillis: $eventTs}),
