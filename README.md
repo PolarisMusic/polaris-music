@@ -1112,16 +1112,40 @@ docker-compose down
 
 ### Production Deployment
 
+**Note**: Production deployment uses Docker Compose and GitHub Actions. There is no `deploy.sh` script.
+
+**Option 1: Docker Compose (recommended for self-hosted)**
 ```bash
-# Build and deploy
-./deploy.sh production v1.0.0
+# Pull latest images
+docker-compose pull
+
+# Start services in production mode
+NODE_ENV=production docker-compose up -d
+
+# Check service health
+docker-compose ps
+docker-compose logs -f api
+```
+
+**Option 2: Kubernetes (for scalable deployments)**
+```bash
+# Apply Kubernetes manifests
+kubectl apply -f k8s/
 
 # Run database migrations
-kubectl exec -it polaris-api-0 -- npm run migrate
+kubectl exec -it deployment/polaris-api -- npm run migrate
 
 # Scale API servers
 kubectl scale deployment polaris-api --replicas=5
+
+# Check deployment status
+kubectl get pods -l app=polaris
 ```
+
+**Option 3: GitHub Actions (automated CI/CD)**
+- Push to `main` branch triggers automated deployment
+- See `.github/workflows/deploy.yml` for configuration
+- Deploys to configured environment (staging/production)
 
 ### Monitoring
 
@@ -1303,11 +1327,14 @@ This section documents discrepancies between the English-language descriptions i
 - **Additional Files**: Created Dockerfiles and .env.example
 - **Location**: `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile.dev`, `.env.example`
 
-#### 6. **Missing Deployment Scripts**
-- **README States** (line 1034): Should have `./deploy.sh` script
-- **Implementation**: No deployment script exists
-- **Impact**: Production deployment instructions don't work
-- **Location**: Repository root
+#### 6. **Missing Deployment Scripts** ✅ FIXED
+- **Previously**: README referenced non-existent `./deploy.sh` script
+- **Resolution**: Updated README with actual deployment methods
+- **Deployment Options**:
+  - Docker Compose for self-hosted deployments
+  - Kubernetes manifests in `k8s/` directory
+  - GitHub Actions automated CI/CD pipeline
+- **Note**: No deploy.sh script needed - docker-compose and CI/CD handle deployments
 - **Note**: Docker Compose can be used for local deployment; production deployment scripts deferred
 
 #### 7. **Missing Tools Directory** ✅ PARTIALLY FIXED
