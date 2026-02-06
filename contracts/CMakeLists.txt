@@ -7,5 +7,11 @@ find_package(cdt REQUIRED)
 add_contract(polaris.music polaris.music polaris.music.cpp)
 target_include_directories(polaris.music PUBLIC ${CMAKE_SOURCE_DIR})
 
+# Compile options for WASM and ABI generation
+target_compile_options(polaris.music PUBLIC
+    -abigen  # Generate ABI file
+    -abigen_output=${CMAKE_CURRENT_BINARY_DIR}/polaris.music.abi  # ABI output path
+)
+
 # Ricardian contracts (optional)
 target_ricardian_directory(polaris.music ${CMAKE_SOURCE_DIR}/ricardian)
