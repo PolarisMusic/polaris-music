@@ -114,6 +114,23 @@ export class IngestionHandler {
         this.accountPermissionCache = new Map();
         this.accountPermissionCacheTTL = 5 * 60 * 1000; // 5 minutes
 
+        // PERF-03: Batch processing queue for high-volume ingestion
+        // Events are queued and processed in batches to improve throughput
+        this.batchQueue = [];
+        this.batchSize = parseInt(config.batchSize || process.env.INGESTION_BATCH_SIZE || '100', 10);
+        this.batchTimeoutMs = parseInt(config.batchTimeoutMs || process.env.INGESTION_BATCH_TIMEOUT_MS || '1000', 10);
+        this.batchProcessing = false;
+        this.batchTimer = null;
+        this.batchingEnabled = (config.enableBatching !== undefined)
+            ? config.enableBatching
+            : (process.env.INGESTION_ENABLE_BATCHING !== 'false'); // Default: enabled
+
+        this.log.info('ingestion_handler_init', {
+            batching_enabled: this.batchingEnabled,
+            batch_size: this.batchSize,
+            batch_timeout_ms: this.batchTimeoutMs
+        });
+
         // Statistics
         this.stats = {
             eventsProcessed: 0,
@@ -123,8 +140,117 @@ export class IngestionHandler {
             eventsInvalidSignature: 0,
             eventsUnauthorizedKey: 0,
             lastProcessedTime: null,
-            cacheClears: 0
+            cacheClears: 0,
+            batchesProcessed: 0,
+            avgBatchSize: 0
         };
+    }
+
+    /**
+     * PERF-03: Process batched events in parallel
+     *
+     * @private
+     * @returns {Promise<void>}
+     */
+    async processBatch() {
+        if (this.batchProcessing || this.batchQueue.length === 0) {
+            return;
+        }
+
+        this.batchProcessing = true;
+
+        try {
+            // Extract batch to process (swap with empty array for thread safety)
+            const batch = this.batchQueue.splice(0, this.batchQueue.length);
+            const batchSize = batch.length;
+
+            this.log.info('batch_process_start', {
+                batch_size: batchSize,
+                queue_remaining: this.batchQueue.length
+            });
+
+            const startTime = Date.now();
+
+            // Process all events in parallel
+            const results = await Promise.allSettled(
+                batch.map(({ event, resolve, reject }) =>
+                    this._processAnchoredEventDirect(event)
+                        .then(result => {
+                            resolve(result);
+                            return result;
+                        })
+                        .catch(error => {
+                            reject(error);
+                            throw error;
+                        })
+                )
+            );
+
+            const duration = Date.now() - startTime;
+
+            // Update batch statistics
+            const successful = results.filter(r => r.status === 'fulfilled').length;
+            const failed = results.filter(r => r.status === 'rejected').length;
+
+            this.stats.batchesProcessed++;
+            this.stats.avgBatchSize = (this.stats.avgBatchSize * (this.stats.batchesProcessed - 1) + batchSize) / this.stats.batchesProcessed;
+
+            this.log.info('batch_process_complete', {
+                batch_size: batchSize,
+                successful,
+                failed,
+                duration_ms: duration,
+                events_per_second: (batchSize / (duration / 1000)).toFixed(2)
+            });
+
+        } catch (error) {
+            this.log.error('batch_process_error', { error: error.message });
+        } finally {
+            this.batchProcessing = false;
+
+            // If more events queued, schedule next batch
+            if (this.batchQueue.length > 0) {
+                setImmediate(() => this.processBatch());
+            }
+        }
+    }
+
+    /**
+     * PERF-03: Schedule batch processing after timeout
+     *
+     * @private
+     */
+    scheduleBatchTimeout() {
+        // Clear existing timer
+        if (this.batchTimer) {
+            clearTimeout(this.batchTimer);
+        }
+
+        // Schedule batch processing after timeout
+        this.batchTimer = setTimeout(() => {
+            this.batchTimer = null;
+            this.processBatch();
+        }, this.batchTimeoutMs);
+    }
+
+    /**
+     * PERF-03: Flush all pending batched events
+     * Used during shutdown or when immediate processing is needed
+     *
+     * @returns {Promise<void>}
+     */
+    async flushBatch() {
+        if (this.batchTimer) {
+            clearTimeout(this.batchTimer);
+            this.batchTimer = null;
+        }
+
+        await this.processBatch();
+
+        // Wait for any in-flight batch processing
+        while (this.batchProcessing) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
     }
 
     /**
@@ -566,11 +692,52 @@ export class IngestionHandler {
     /**
      * Process an AnchoredEvent from Substreams or SHiP
      *
+     * PERF-03: If batching is enabled, events are queued and processed in batches.
+     * Otherwise, events are processed immediately.
+     *
+     * @param {Object} anchoredEvent - Anchored event from chain source
+     * @returns {Promise<Object>} Processing result (or queued promise)
+     */
+    async processAnchoredEvent(anchoredEvent) {
+        // PERF-03: Use batching if enabled
+        if (this.batchingEnabled) {
+            return new Promise((resolve, reject) => {
+                // Add to batch queue
+                this.batchQueue.push({ event: anchoredEvent, resolve, reject });
+
+                this.log.debug('anchored_event_queued', {
+                    queue_size: this.batchQueue.length,
+                    batch_size: this.batchSize
+                });
+
+                // Process batch immediately if it reaches batch size
+                if (this.batchQueue.length >= this.batchSize) {
+                    // Clear timeout and process immediately
+                    if (this.batchTimer) {
+                        clearTimeout(this.batchTimer);
+                        this.batchTimer = null;
+                    }
+                    setImmediate(() => this.processBatch());
+                } else {
+                    // Schedule batch processing after timeout
+                    this.scheduleBatchTimeout();
+                }
+            });
+        }
+
+        // Non-batching mode: process immediately
+        return this._processAnchoredEventDirect(anchoredEvent);
+    }
+
+    /**
+     * Direct processing of an anchored event (used by batch processor or non-batching mode)
+     *
      * This method handles the AnchoredEvent format emitted by both
      * Substreams and SHiP chain ingestion sources.
      *
      * Stage 4: Uses content_hash for deduplication (stable across sources)
      *
+     * @private
      * @param {Object} anchoredEvent - Anchored event from chain source
      * @param {string} anchoredEvent.content_hash - Canonical content hash (put.hash)
      * @param {string} anchoredEvent.event_hash - Action payload hash (debugging)
@@ -584,7 +751,7 @@ export class IngestionHandler {
      * @param {string} anchoredEvent.action_name - Action name (put, vote, etc.)
      * @returns {Promise<Object>} Processing result
      */
-    async processAnchoredEvent(anchoredEvent) {
+    async _processAnchoredEventDirect(anchoredEvent) {
         const {
             content_hash,
             event_hash,

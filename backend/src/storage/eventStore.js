@@ -25,7 +25,7 @@
 import { create as createIPFS } from 'ipfs-http-client';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
-import { createHash } from 'crypto';
+import { createHash, randomBytes, createCipheriv, createDecipheriv } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
@@ -34,6 +34,102 @@ import { create as createDigest } from 'multiformats/hashes/digest';
 import { verifyEventSignatureOrThrow } from '../crypto/verifyEventSignature.js';
 import { PinningProvider } from './pinningProvider.js';
 import { createLogger } from '../utils/logger.js';
+
+/**
+ * Encryption utilities for securing event data at rest (SEC-04)
+ *
+ * Uses AES-256-GCM for authenticated encryption with:
+ * - 256-bit key derived from STORAGE_ENCRYPTION_KEY environment variable
+ * - 12-byte random IV (nonce) per encryption operation
+ * - 16-byte authentication tag for integrity verification
+ *
+ * Format of encrypted data: <iv:12 bytes><encrypted:variable><authTag:16 bytes>
+ */
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12; // GCM standard nonce size
+const AUTH_TAG_LENGTH = 16; // GCM authentication tag size
+const KEY_LENGTH = 32; // 256 bits
+
+/**
+ * Get encryption key from environment
+ * Returns null if encryption is not configured
+ */
+function getEncryptionKey() {
+    const keyHex = process.env.STORAGE_ENCRYPTION_KEY;
+
+    if (!keyHex) {
+        return null;
+    }
+
+    // Key should be 64 hex characters (32 bytes = 256 bits)
+    if (keyHex.length !== KEY_LENGTH * 2) {
+        throw new Error(
+            `STORAGE_ENCRYPTION_KEY must be ${KEY_LENGTH * 2} hex characters (${KEY_LENGTH} bytes). ` +
+            `Got ${keyHex.length} characters. Generate with: openssl rand -hex ${KEY_LENGTH}`
+        );
+    }
+
+    try {
+        const key = Buffer.from(keyHex, 'hex');
+        if (key.length !== KEY_LENGTH) {
+            throw new Error(`Invalid key length: ${key.length} bytes`);
+        }
+        return key;
+    } catch (error) {
+        throw new Error(`Invalid STORAGE_ENCRYPTION_KEY format: ${error.message}`);
+    }
+}
+
+/**
+ * Encrypt data buffer using AES-256-GCM
+ *
+ * @param {Buffer} data - Data to encrypt
+ * @param {Buffer} key - 32-byte encryption key
+ * @returns {Buffer} Encrypted data with IV and auth tag prepended
+ */
+function encryptData(data, key) {
+    // Generate random IV (nonce) for this encryption
+    const iv = randomBytes(IV_LENGTH);
+
+    // Create cipher with AES-256-GCM
+    const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+
+    // Encrypt data
+    const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+
+    // Get authentication tag (ensures integrity and authenticity)
+    const authTag = cipher.getAuthTag();
+
+    // Return: IV + encrypted data + auth tag
+    return Buffer.concat([iv, encrypted, authTag]);
+}
+
+/**
+ * Decrypt data buffer using AES-256-GCM
+ *
+ * @param {Buffer} encryptedData - Data with IV and auth tag
+ * @param {Buffer} key - 32-byte encryption key
+ * @returns {Buffer} Decrypted data
+ * @throws {Error} If decryption fails or authentication tag is invalid
+ */
+function decryptData(encryptedData, key) {
+    // Extract IV, encrypted data, and auth tag
+    const iv = encryptedData.subarray(0, IV_LENGTH);
+    const authTag = encryptedData.subarray(encryptedData.length - AUTH_TAG_LENGTH);
+    const encrypted = encryptedData.subarray(IV_LENGTH, encryptedData.length - AUTH_TAG_LENGTH);
+
+    // Create decipher
+    const decipher = createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+
+    // Decrypt and verify authentication tag
+    try {
+        const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+        return decrypted;
+    } catch (error) {
+        throw new Error(`Decryption failed: ${error.message}. Data may be corrupted or key is incorrect.`);
+    }
+}
 
 /**
  * Multi-layered event storage with IPFS, S3, and Redis.
@@ -168,6 +264,28 @@ class EventStore {
 
         // Initialize external pinning provider (best-effort)
         this.pinningProvider = new PinningProvider(config.pinning || {});
+
+        // Initialize encryption (SEC-04)
+        // Optional: if STORAGE_ENCRYPTION_KEY is set, encrypt data at rest in S3/Redis
+        // IPFS canonical bytes remain unencrypted for CID derivability
+        try {
+            this.encryptionKey = getEncryptionKey();
+            this.encryptionEnabled = !!this.encryptionKey;
+
+            if (this.encryptionEnabled) {
+                this.log.info('Storage encryption enabled', {
+                    algorithm: ENCRYPTION_ALGORITHM,
+                    key_bits: KEY_LENGTH * 8
+                });
+            } else {
+                this.log.warn('Storage encryption disabled - set STORAGE_ENCRYPTION_KEY to enable', {
+                    recommendation: `Generate key: openssl rand -hex ${KEY_LENGTH}`
+                });
+            }
+        } catch (error) {
+            this.log.error('Failed to initialize encryption', { error: error.message });
+            throw error;
+        }
 
         // Statistics tracking
         this.stats = {
@@ -1026,14 +1144,26 @@ class EventStore {
         // Store with hash as key for easy retrieval
         const key = `events/${hash.substring(0, 2)}/${hash}.json`;
 
+        // Encrypt data if encryption is enabled (SEC-04)
+        let bodyData = data;
+        let contentType = 'application/json';
+        let isEncrypted = false;
+
+        if (this.encryptionEnabled) {
+            bodyData = encryptData(data, this.encryptionKey);
+            contentType = 'application/octet-stream'; // Binary encrypted data
+            isEncrypted = true;
+        }
+
         const command = new PutObjectCommand({
             Bucket: this.s3Bucket,
             Key: key,
-            Body: data,
-            ContentType: 'application/json',
+            Body: bodyData,
+            ContentType: contentType,
             Metadata: {
                 'event-hash': hash,
-                'stored-at': new Date().toISOString()
+                'stored-at': new Date().toISOString(),
+                'encrypted': isEncrypted.toString() // Track encryption status
             }
         });
 
@@ -1065,7 +1195,26 @@ class EventStore {
             chunks.push(chunk);
         }
 
-        return Buffer.concat(chunks);
+        let data = Buffer.concat(chunks);
+
+        // Decrypt if data was encrypted (SEC-04)
+        // Check metadata to determine if decryption is needed
+        const isEncrypted = response.Metadata?.encrypted === 'true';
+
+        if (isEncrypted && this.encryptionEnabled) {
+            try {
+                data = decryptData(data, this.encryptionKey);
+            } catch (error) {
+                throw new Error(`Failed to decrypt S3 data for hash ${hash}: ${error.message}`);
+            }
+        } else if (isEncrypted && !this.encryptionEnabled) {
+            throw new Error(
+                `Cannot retrieve encrypted data - STORAGE_ENCRYPTION_KEY not set. ` +
+                `Event ${hash} was stored with encryption but cannot be decrypted.`
+            );
+        }
+
+        return data;
     }
 
     /**
@@ -1078,7 +1227,19 @@ class EventStore {
      */
     async storeToRedis(eventJSON, hash) {
         const key = `event:${hash}`;
-        await this.redis.setex(key, this.redisTTL, eventJSON);
+
+        // Encrypt if encryption is enabled (SEC-04)
+        if (this.encryptionEnabled) {
+            const buffer = Buffer.from(eventJSON, 'utf-8');
+            const encrypted = encryptData(buffer, this.encryptionKey);
+
+            // Store encrypted data as Buffer
+            // Also store a flag indicating encryption
+            await this.redis.setex(key, this.redisTTL, encrypted);
+            await this.redis.setex(`${key}:encrypted`, this.redisTTL, 'true');
+        } else {
+            await this.redis.setex(key, this.redisTTL, eventJSON);
+        }
     }
 
     /**
@@ -1090,7 +1251,31 @@ class EventStore {
      */
     async retrieveFromRedis(hash) {
         const key = `event:${hash}`;
-        return await this.redis.get(key);
+        const data = await this.redis.getBuffer(key);
+
+        if (!data) {
+            return null;
+        }
+
+        // Check if data is encrypted (SEC-04)
+        const isEncrypted = await this.redis.get(`${key}:encrypted`) === 'true';
+
+        if (isEncrypted && this.encryptionEnabled) {
+            try {
+                const decrypted = decryptData(data, this.encryptionKey);
+                return decrypted.toString('utf-8');
+            } catch (error) {
+                throw new Error(`Failed to decrypt Redis data for hash ${hash}: ${error.message}`);
+            }
+        } else if (isEncrypted && !this.encryptionEnabled) {
+            throw new Error(
+                `Cannot retrieve encrypted data - STORAGE_ENCRYPTION_KEY not set. ` +
+                `Event ${hash} was stored with encryption but cannot be decrypted.`
+            );
+        }
+
+        // Data is not encrypted, return as string
+        return data.toString('utf-8');
     }
 
     /**

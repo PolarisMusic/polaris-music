@@ -19,11 +19,16 @@ import neo4j from 'neo4j-driver';
 /**
  * Run the ID unification migration
  *
- * @param {Object} driver - Neo4j driver instance
+ * @param {Object} tx - Neo4j transaction instance (when called by migration runner)
+ *                      or driver instance (when called directly)
  * @returns {Promise<Object>} Migration statistics
  */
-export async function migrateUnifyIdProperty(driver) {
-    const session = driver.session();
+export async function migrateUnifyIdProperty(tx) {
+    // Support both transaction and driver for backward compatibility
+    // Migration runner passes transaction, CLI runner passes driver
+    const session = tx.run ? null : tx.session();
+    const runner = tx.run ? tx : session;
+
     const stats = {
         person: 0,
         group: 0,
@@ -72,7 +77,7 @@ export async function migrateUnifyIdProperty(driver) {
                 RETURN count(n) as count
             `;
 
-            const findResult = await session.run(findQuery);
+            const findResult = await runner.run(findQuery);
             const count = findResult.records[0]?.get('count').toNumber() || 0;
 
             if (count === 0) {
@@ -90,7 +95,7 @@ export async function migrateUnifyIdProperty(driver) {
                 RETURN count(n) as updated
             `;
 
-            const updateResult = await session.run(updateQuery);
+            const updateResult = await runner.run(updateQuery);
             const updated = updateResult.records[0]?.get('updated').toNumber() || 0;
 
             stats[entity.key] = updated;
@@ -117,7 +122,10 @@ export async function migrateUnifyIdProperty(driver) {
         console.error('Migration failed:', error);
         throw error;
     } finally {
-        await session.close();
+        // Only close session if we created it (CLI runner mode)
+        if (session) {
+            await session.close();
+        }
     }
 }
 

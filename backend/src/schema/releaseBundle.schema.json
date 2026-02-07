@@ -1,12 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://polaris.music/schemas/release-bundle.json",
+  "version": "1.0.0",
   "title": "ReleaseBundle",
   "description": "Canonical schema for music release submissions. All field names use snake_case.",
   "type": "object",
   "required": ["release", "tracks", "tracklist"],
   "additionalProperties": false,
   "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for backward compatibility tracking",
+      "default": "1.0.0"
+    },
     "release": {
       "type": "object",
       "required": ["name"],

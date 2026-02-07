@@ -138,3 +138,69 @@ spec:
             - pgrep -f "node.*processor" || exit 1
           initialDelaySeconds: 30
           periodSeconds: 30
+
+---
+# BP-04: Horizontal Pod Autoscaler for event processor
+# Enables automatic scaling based on resource utilization
+# Works in conjunction with PERF-03 batch processing for high-volume ingestion
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: processor-hpa
+  namespace: polaris
+  labels:
+    app: processor
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: processor
+  # Scale between 1-5 replicas based on load
+  # Single replica adequate for normal operation
+  # Multiple replicas handle high-volume event ingestion (>100 events/sec)
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  # CPU-based scaling
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        # Target 70% CPU utilization
+        # Scale up if sustained CPU > 70% for 3 minutes
+        # Scale down if CPU < 70% for 5 minutes (default cooldown)
+        averageUtilization: 70
+  # Memory-based scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        # Target 75% memory utilization
+        # Event batching can increase memory usage temporarily
+        averageUtilization: 75
+  # Scaling behavior configuration
+  behavior:
+    scaleUp:
+      # Scale up aggressively when under load
+      stabilizationWindowSeconds: 60  # Wait 1 minute before scaling up
+      policies:
+      - type: Percent
+        value: 100  # Double the number of pods
+        periodSeconds: 60
+      - type: Pods
+        value: 2  # Or add 2 pods
+        periodSeconds: 60
+      selectPolicy: Max  # Use the most aggressive policy
+    scaleDown:
+      # Scale down conservatively to avoid thrashing
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 50  # Remove 50% of pods
+        periodSeconds: 120
+      - type: Pods
+        value: 1  # Or remove 1 pod
+        periodSeconds: 120
+      selectPolicy: Min  # Use the least aggressive policy

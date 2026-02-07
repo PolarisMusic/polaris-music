@@ -102,6 +102,9 @@ async function runMigration(driver, migration) {
     console.log(`\nRunning migration: ${migration.id}`);
     console.log(`  ${migration.name}`);
 
+    const session = driver.session();
+    const tx = session.beginTransaction();
+
     try {
         // Dynamically import the migration module
         const modulePath = path.join(__dirname, migration.file);
@@ -113,8 +116,13 @@ async function runMigration(driver, migration) {
             throw new Error(`Migration function '${migration.exportName}' not found in ${migration.file}`);
         }
 
-        // Run the migration
-        const stats = await migrateFn(driver);
+        // Run the migration within a transaction
+        // Pass transaction to migration for atomic execution
+        const stats = await migrateFn(tx);
+
+        // Commit the transaction if migration succeeds
+        await tx.commit();
+        console.log(`  Transaction committed for migration ${migration.id}`);
 
         // Record successful migration
         await recordMigration(driver, migration.id, stats);
@@ -122,8 +130,18 @@ async function runMigration(driver, migration) {
         console.log(`  Migration ${migration.id} completed successfully`);
         return { id: migration.id, status: 'success', stats };
     } catch (error) {
+        // Rollback transaction on failure to maintain consistency
+        try {
+            await tx.rollback();
+            console.error(`  Transaction rolled back for migration ${migration.id}`);
+        } catch (rollbackError) {
+            console.error(`  Failed to rollback transaction:`, rollbackError.message);
+        }
+
         console.error(`  Migration ${migration.id} failed:`, error.message);
         return { id: migration.id, status: 'failed', error: error.message };
+    } finally {
+        await session.close();
     }
 }
 

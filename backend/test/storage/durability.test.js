@@ -6,11 +6,13 @@
  */
 
 import { jest } from '@jest/globals';
-import EventStore from '../../src/storage/eventStore.js';
 
-// TODO: Restructure these tests to use jest.mock() for modules instead of manual mocks
-// The current approach of passing mock clients directly doesn't match EventStore's architecture
-// which creates clients from config. See eventStore.test.js for correct mocking pattern.
+// TODO: These tests are skipped due to ESM mocking limitations
+// ipfs-http-client v60.0.1+ is ESM-only and jest.mock() doesn't work with ESM modules.
+// To enable these tests:
+// Option 1: Use jest.unstable_mockModule() with async imports (requires test refactor)
+// Option 2: Migrate from ipfs-http-client to Helia (recommended - ipfs-http-client is deprecated)
+// See: https://github.com/ipfs/helia
 describe.skip('Event Store Durability - S3 Fallback', () => {
     let eventStore;
     let mockIPFS;
@@ -79,19 +81,30 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
             set: jest.fn(async () => 'OK'),
             get: jest.fn(async () => null), // Redis is empty by default
             setex: jest.fn(async () => 'OK'),
-            close: jest.fn(async () => {})
+            quit: jest.fn(async () => 'OK'),
+            on: jest.fn()
         };
 
-        // Create EventStore with mocks
+        // Note: Module mocking would happen here, but is skipped due to ESM limitations
+        // Store instantiation would fail without proper mocks, so tests are skipped
+
+        // Create EventStore (would be created here if mocks were working)
+        eventStore = null; // Placeholder - tests are skipped
+
+        // Original code that would work with proper mocks:
+        /*
         eventStore = new EventStore({
-            ipfs: mockIPFS,
+            ipfs: { url: 'http://localhost:5001' },
             s3: {
-                client: mockS3,
+                endpoint: 'http://localhost:9000',
                 bucket: 'test-bucket',
-                region: 'us-east-1'
+                region: 'us-east-1',
+                accessKeyId: 'test-key',
+                secretAccessKey: 'test-secret'
             },
-            redis: mockRedis
+            redis: { host: 'localhost', port: 6379 }
         });
+        */
     });
 
     afterEach(async () => {

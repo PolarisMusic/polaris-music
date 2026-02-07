@@ -14,6 +14,8 @@
  */
 
 import crypto from 'crypto';
+import https from 'https';
+import fs from 'fs';
 import { Api, JsonRpc } from 'eosjs';
 import { JsSignatureProvider } from 'eosjs/dist/eosjs-jssig.js';
 import fetch from 'node-fetch';
@@ -76,6 +78,72 @@ const ENTITY_ID_FIELD = {
 };
 
 /**
+ * Create a secure fetch function with optional SSL certificate pinning
+ *
+ * @param {string} rpcUrl - The RPC URL to connect to
+ * @returns {Function} A fetch function with configured HTTPS agent
+ */
+function createSecureFetch(rpcUrl) {
+    const log = createLogger('indexer.secureFetch');
+
+    // Only apply SSL configuration for HTTPS URLs
+    if (!rpcUrl.startsWith('https://')) {
+        log.info('Using standard fetch for non-HTTPS RPC', { url: rpcUrl });
+        return fetch;
+    }
+
+    // SSL Pinning configuration
+    const sslConfig = {};
+
+    // Option 1: Use custom CA certificate (for certificate pinning)
+    const caCertPath = process.env.RPC_CA_CERT_PATH;
+    if (caCertPath) {
+        try {
+            if (fs.existsSync(caCertPath)) {
+                sslConfig.ca = fs.readFileSync(caCertPath);
+                log.info('Loaded custom CA certificate for SSL pinning', { cert_path: caCertPath });
+            } else {
+                log.warn('CA certificate path provided but file not found', { cert_path: caCertPath });
+            }
+        } catch (error) {
+            log.error('Failed to load CA certificate', { cert_path: caCertPath, error: error.message });
+        }
+    }
+
+    // Option 2: Disable unauthorized certificates (for strict TLS verification)
+    // In production, this should always be true unless using self-signed certs
+    const rejectUnauthorized = process.env.RPC_REJECT_UNAUTHORIZED !== 'false';
+    sslConfig.rejectUnauthorized = rejectUnauthorized;
+
+    if (!rejectUnauthorized) {
+        log.warn('TLS certificate verification disabled - USE ONLY FOR DEVELOPMENT', {});
+    }
+
+    // Option 3: Specify allowed cipher suites (for enhanced security)
+    if (process.env.RPC_CIPHERS) {
+        sslConfig.ciphers = process.env.RPC_CIPHERS;
+        log.info('Using custom cipher suites', { ciphers: process.env.RPC_CIPHERS });
+    }
+
+    // Create HTTPS agent with SSL configuration
+    const httpsAgent = new https.Agent(sslConfig);
+
+    log.info('Created secure HTTPS agent for RPC connections', {
+        reject_unauthorized: rejectUnauthorized,
+        has_custom_ca: !!sslConfig.ca,
+        has_custom_ciphers: !!sslConfig.ciphers
+    });
+
+    // Return wrapped fetch function that uses the secure agent
+    return (url, options = {}) => {
+        return fetch(url, {
+            ...options,
+            agent: httpsAgent
+        });
+    };
+}
+
+/**
  * Event Processor that syncs blockchain events to graph database
  */
 class EventProcessor {
@@ -119,8 +187,9 @@ class EventProcessor {
                 throw new Error('EventProcessor requires either {db, store} or {blockchain, database, storage}');
             }
 
-            // Initialize blockchain RPC
-            this.rpc = new JsonRpc(config.blockchain.rpcUrl, { fetch });
+            // Initialize blockchain RPC with secure fetch (SSL pinning support)
+            const secureFetch = createSecureFetch(config.blockchain.rpcUrl);
+            this.rpc = new JsonRpc(config.blockchain.rpcUrl, { fetch: secureFetch });
             this.contractAccount = config.blockchain.contractAccount || 'polaris';
             this.pollInterval = config.blockchain.pollInterval || 5000;
 

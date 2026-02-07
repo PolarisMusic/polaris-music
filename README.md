@@ -1035,11 +1035,13 @@ polaris-music-registry/
 │   ├── src/
 │   │   ├── api/            # API server
 │   │   ├── graph/          # Graph database
-│   │   ├── config/         # Configuration files
+│   │   ├── schema/         # JSON Schema validation
 │   │   ├── storage/        # Event storage
+│   │   ├── crypto/         # Signature verification
+│   │   ├── utils/          # Utilities and logging
 │   │   └── indexer/        # Event processor
 │   └── test/
-│       ├── api/            # API tesets
+│       ├── api/            # API tests
 │       ├── graph/          # Graph tests
 │       ├── e2e/            # End-to-end tests
 │       ├── storage/        # Event storage tests
@@ -1110,16 +1112,40 @@ docker-compose down
 
 ### Production Deployment
 
+**Note**: Production deployment uses Docker Compose and GitHub Actions. There is no `deploy.sh` script.
+
+**Option 1: Docker Compose (recommended for self-hosted)**
 ```bash
-# Build and deploy
-./deploy.sh production v1.0.0
+# Pull latest images
+docker-compose pull
+
+# Start services in production mode
+NODE_ENV=production docker-compose up -d
+
+# Check service health
+docker-compose ps
+docker-compose logs -f api
+```
+
+**Option 2: Kubernetes (for scalable deployments)**
+```bash
+# Apply Kubernetes manifests
+kubectl apply -f k8s/
 
 # Run database migrations
-kubectl exec -it polaris-api-0 -- npm run migrate
+kubectl exec -it deployment/polaris-api -- npm run migrate
 
 # Scale API servers
 kubectl scale deployment polaris-api --replicas=5
+
+# Check deployment status
+kubectl get pods -l app=polaris
 ```
+
+**Option 3: GitHub Actions (automated CI/CD)**
+- Push to `main` branch triggers automated deployment
+- See `.github/workflows/deploy.yml` for configuration
+- Deploys to configured environment (staging/production)
 
 ### Monitoring
 
@@ -1257,17 +1283,17 @@ This section documents discrepancies between the English-language descriptions i
 - **Usage**: Credits mastering engineers, album designers, and other release-level contributors
 - **Location**: `frontend/index.html` lines 95-107, `frontend/src/components/FormBuilder.js` lines 200-253, `frontend/src/index.js` lines 135, 190-228
 
-#### 2. **Emission Formula Multiplier Mismatch**
-- **README States** (line 886-890): Multipliers should be:
-  - CREATE_RELEASE_BUNDLE: 100,000,000
-  - ADD_CLAIM: 1,000,000
-  - EDIT_CLAIM: 1,000
-- **Smart Contract Implements** (`contracts/polaris.music.cpp` line 507-512):
-  - CREATE_RELEASE_BUNDLE: 1,000,000
-  - ADD_CLAIM: 50,000
-  - EDIT_CLAIM: 1,000
-- **Impact**: Rewards are 100x lower for release bundles and 20x lower for claims than documented
-- **Location**: `contracts/polaris.music.cpp` getMultiplier() function
+#### 2. **Emission Formula Multiplier Mismatch** ✅ FIXED
+- **Previously**: Outdated issue - claimed contract had different values
+- **Current Status**: Contract correctly implements documented multipliers
+- **Verified Values** (contracts/polaris.music.cpp init() function):
+  - CREATE_RELEASE_BUNDLE: 100,000,000 ✓
+  - ADD_CLAIM: 1,000,000 ✓
+  - EDIT_CLAIM: 1,000 ✓
+  - MINT_ENTITY: 100,000 ✓
+  - RESOLVE_ID: 5,000 ✓
+  - MERGE_ENTITY: 20,000 ✓
+- **Note**: All multiplier values match README documentation (lines 968-971)
 
 #### 3. **updaterespect Action Signature Mismatch** ✅ FIXED
 - **Previously**: README documented wrong signature with single account parameter
@@ -1282,11 +1308,10 @@ This section documents discrepancies between the English-language descriptions i
 - **Purpose**: Batch update Respect values from Fractally elections (oracle-only)
 - **Location**: `contracts/polaris.music.cpp` lines 242-243, README.md lines 864-867
 
-#### 4. **Missing Backend Directory Structure**
-- **README States** (line 958): Backend should have `config/` directory
-- **Implementation**: No `backend/src/config/` directory exists - configuration is handled via environment variables in code
-- **Impact**: Documentation incorrectly describes file structure
-- **Location**: `backend/src/` directory
+#### 4. **Missing Backend Directory Structure** ✅ FIXED
+- **Previously**: README listed non-existent `config/` directory
+- **Resolution**: Updated directory tree to reflect actual structure (schema/, crypto/, utils/)
+- **Note**: Configuration is handled via environment variables (.env), not config files
 
 #### 5. **Docker Compose File Missing** ✅ FIXED
 - **Previously**: No `docker-compose.yml` file existed in repository
@@ -1302,11 +1327,14 @@ This section documents discrepancies between the English-language descriptions i
 - **Additional Files**: Created Dockerfiles and .env.example
 - **Location**: `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile.dev`, `.env.example`
 
-#### 6. **Missing Deployment Scripts**
-- **README States** (line 1034): Should have `./deploy.sh` script
-- **Implementation**: No deployment script exists
-- **Impact**: Production deployment instructions don't work
-- **Location**: Repository root
+#### 6. **Missing Deployment Scripts** ✅ FIXED
+- **Previously**: README referenced non-existent `./deploy.sh` script
+- **Resolution**: Updated README with actual deployment methods
+- **Deployment Options**:
+  - Docker Compose for self-hosted deployments
+  - Kubernetes manifests in `k8s/` directory
+  - GitHub Actions automated CI/CD pipeline
+- **Note**: No deploy.sh script needed - docker-compose and CI/CD handle deployments
 - **Note**: Docker Compose can be used for local deployment; production deployment scripts deferred
 
 #### 7. **Missing Tools Directory** ✅ PARTIALLY FIXED
@@ -1437,7 +1465,7 @@ This section documents discrepancies between the English-language descriptions i
 
 **High Priority (Breaks Documented Functionality):**
 1. ~~Missing `release_guests` field in frontend~~ ✅ FIXED
-2. Emission multipliers 100x different from docs
+2. ~~Emission multipliers 100x different from docs~~ ✅ FIXED (contract matches docs)
 3. ~~`updaterespect` action completely different signature~~ ✅ FIXED
 4. ~~Missing `proofs` field in frontend~~ ✅ FIXED
 5. ~~Docker Compose file missing~~ ✅ FIXED
@@ -1457,7 +1485,7 @@ This section documents discrepancies between the English-language descriptions i
 ### Recommended Actions
 
 1. ~~**Frontend Form**: Add `release_guests` field and `proofs` field to form~~ ✅ FIXED
-2. **Smart Contract**: Either update multipliers to match docs or update docs to match code (REMAINING)
+2. ~~**Smart Contract**: Either update multipliers to match docs or update docs to match code~~ ✅ VERIFIED (already matches)
 3. ~~**Documentation**: Update `updaterespect` signature in README to match actual implementation~~ ✅ FIXED
 4. ~~**Docker**: Create `docker-compose.yml` or remove references from README~~ ✅ FIXED
 5. ~~**Backend README**: Create comprehensive backend documentation~~ ✅ FIXED
