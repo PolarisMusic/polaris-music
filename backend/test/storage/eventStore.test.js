@@ -11,12 +11,31 @@
  */
 
 import { jest } from '@jest/globals';
+
+// Mock all external dependencies before importing EventStore
+jest.mock('ipfs-http-client', () => ({
+    create: jest.fn()
+}));
+
+jest.mock('@aws-sdk/client-s3', () => ({
+    S3Client: jest.fn(),
+    PutObjectCommand: jest.fn(),
+    GetObjectCommand: jest.fn()
+}));
+
+jest.mock('ioredis', () => {
+    return jest.fn();
+});
+
+// Import mocked modules
+import { create } from 'ipfs-http-client';
+import { S3Client } from '@aws-sdk/client-s3';
+import Redis from 'ioredis';
+
+// Import EventStore after mocks are set up
 import EventStore from '../../src/storage/eventStore.js';
 
-// TODO: These tests need ipfs-http-client to be installed as a dev dependency
-// or the mocking approach needs to be changed to not require the actual module.
-// Currently fails with: Cannot find module 'ipfs-http-client'
-describe.skip('EventStore', () => {
+describe('EventStore', () => {
     let store;
     let mockIPFS;
     let mockS3;

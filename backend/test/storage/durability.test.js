@@ -6,12 +6,37 @@
  */
 
 import { jest } from '@jest/globals';
+
+// Mock all external dependencies before importing EventStore
+jest.mock('ipfs-http-client', () => ({
+    create: jest.fn()
+}));
+
+jest.mock('@aws-sdk/client-s3', () => ({
+    S3Client: jest.fn(),
+    PutObjectCommand: jest.fn((params) => ({
+        constructor: { name: 'PutObjectCommand' },
+        input: params
+    })),
+    GetObjectCommand: jest.fn((params) => ({
+        constructor: { name: 'GetObjectCommand' },
+        input: params
+    }))
+}));
+
+jest.mock('ioredis', () => {
+    return jest.fn();
+});
+
+// Import mocked modules
+import { create } from 'ipfs-http-client';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import Redis from 'ioredis';
+
+// Import EventStore after mocks are set up
 import EventStore from '../../src/storage/eventStore.js';
 
-// TODO: Restructure these tests to use jest.mock() for modules instead of manual mocks
-// The current approach of passing mock clients directly doesn't match EventStore's architecture
-// which creates clients from config. See eventStore.test.js for correct mocking pattern.
-describe.skip('Event Store Durability - S3 Fallback', () => {
+describe('Event Store Durability - S3 Fallback', () => {
     let eventStore;
     let mockIPFS;
     let mockS3;
@@ -79,18 +104,31 @@ describe.skip('Event Store Durability - S3 Fallback', () => {
             set: jest.fn(async () => 'OK'),
             get: jest.fn(async () => null), // Redis is empty by default
             setex: jest.fn(async () => 'OK'),
-            close: jest.fn(async () => {})
+            quit: jest.fn(async () => 'OK'),
+            on: jest.fn()
         };
 
-        // Create EventStore with mocks
+        // Configure module mocks to return our test implementations
+        create.mockReturnValue(mockIPFS);
+        S3Client.mockImplementation(() => mockS3);
+        Redis.mockImplementation(() => mockRedis);
+
+        // Create EventStore - it will use the mocked clients
         eventStore = new EventStore({
-            ipfs: mockIPFS,
-            s3: {
-                client: mockS3,
-                bucket: 'test-bucket',
-                region: 'us-east-1'
+            ipfs: {
+                url: 'http://localhost:5001'
             },
-            redis: mockRedis
+            s3: {
+                endpoint: 'http://localhost:9000',
+                bucket: 'test-bucket',
+                region: 'us-east-1',
+                accessKeyId: 'test-key',
+                secretAccessKey: 'test-secret'
+            },
+            redis: {
+                host: 'localhost',
+                port: 6379
+            }
         });
     });
 
