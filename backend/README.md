@@ -73,8 +73,10 @@ backend/
 │   ├── api/             # API endpoint tests
 │   ├── graph/           # Graph database tests
 │   ├── storage/         # Storage layer tests
+│   ├── crypto/          # Cryptographic signature tests
 │   ├── e2e/             # End-to-end workflow tests
-│   └── fixtures/        # Test data (Beatles example)
+│   ├── fixtures/        # Test data (Beatles example)
+│   └── setup.js         # Test environment configuration
 │
 ├── Dockerfile           # Production Docker image
 ├── package.json         # Dependencies and scripts
