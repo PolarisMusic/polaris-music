@@ -353,6 +353,52 @@ describe('Event Signature Verification', () => {
             expect(result.reason).toBe('Event must be an object');
         });
 
+        test('Rejects event with empty string signature', () => {
+            const event = {
+                v: 1,
+                type: 'TEST_EVENT',
+                author_pubkey: testPublicKey,
+                created_at: 1234567890,
+                body: { test: 'data' },
+                sig: '' // Empty string (falsy)
+            };
+
+            const result = verifyEventSignature(event);
+
+            expect(result.valid).toBe(false);
+            expect(result.reason).toBe('Event signature missing');
+        });
+
+        test('Rejects event with empty string author_pubkey', () => {
+            const event = createSignedEvent({ test: 'data' });
+            event.author_pubkey = ''; // Empty string (falsy)
+
+            const result = verifyEventSignature(event);
+
+            expect(result.valid).toBe(false);
+            expect(result.reason).toBe('Event author_pubkey missing');
+        });
+
+        test('Handles malformed public key gracefully', () => {
+            const event = createSignedEvent({ test: 'data' });
+            event.author_pubkey = 'NOT_A_VALID_PUBLIC_KEY_FORMAT';
+
+            const result = verifyEventSignature(event);
+
+            expect(result.valid).toBe(false);
+            expect(result.reason).toContain('Signature verification error');
+        });
+
+        test('Handles truncated signature gracefully', () => {
+            const event = createSignedEvent({ test: 'data' });
+            event.sig = 'SIG_K1_'; // Truncated signature
+
+            const result = verifyEventSignature(event);
+
+            expect(result.valid).toBe(false);
+            expect(result.reason).toContain('Signature verification error');
+        });
+
         test('Handles empty body correctly', () => {
             const event = createSignedEvent({});
 
@@ -364,6 +410,37 @@ describe('Event Signature Verification', () => {
         test('Handles event with null values', () => {
             const event = createSignedEvent({ field: null });
 
+            const result = verifyEventSignature(event);
+
+            expect(result.valid).toBe(true);
+        });
+
+        test('Handles event with special characters in body', () => {
+            const event = createSignedEvent({
+                text: 'Special chars: 日本語 🎵 <script>alert("xss")</script>'
+            });
+
+            const result = verifyEventSignature(event);
+
+            expect(result.valid).toBe(true);
+        });
+
+        test('Handles event with very deep nesting', () => {
+            const deepData = {
+                level1: {
+                    level2: {
+                        level3: {
+                            level4: {
+                                level5: {
+                                    value: 'deep'
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            const event = createSignedEvent(deepData);
             const result = verifyEventSignature(event);
 
             expect(result.valid).toBe(true);
