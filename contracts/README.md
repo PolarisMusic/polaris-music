@@ -233,7 +233,7 @@ cleos -u https://jungle4.cryptolions.io:443 \
 | `updaterespect` | Update Respect from Fractally | Oracle only |
 | `setoracle` | Set Fractally oracle account | Contract only |
 | `init` | Initialize contract | Contract only |
-| `clear` | Clear all data (testing only) | Contract only |
+| `clear` | Clear all data (**TESTNET only** - compiled out in production via `#ifdef TESTNET`) | Contract only |
 
 ## Event Types
 
@@ -280,6 +280,12 @@ This ensures early contributors receive higher rewards while maintaining long-te
 3. **Vote Weight Capping**: Individual Respect capped at 100 to prevent whale control
 4. **Attestation Requirements**: High-value submissions require expert verification
 5. **Voting Windows**: Time-bound voting prevents indefinite uncertainty
+6. **`clear()` Action Safety**: The `clear()` action is protected by multiple layers:
+   - **Compile-time**: Only included when compiled with `-DTESTNET` flag (`#ifdef TESTNET`)
+   - **Runtime**: Fails if >100 anchors exist (detects production data)
+   - **Runtime**: Fails if any tokens are staked (prevents destroying value)
+   - **Authorization**: Requires contract authority (`require_auth(get_self())`)
+   - **Production builds** must NOT use `-DTESTNET`; verify `clear` is absent from ABI before deployment
 
 ## Upgradeability
 
@@ -294,7 +300,8 @@ Smart contracts on Antelope are upgradeable by the account owner. For production
 
 Before deploying to mainnet:
 
-- [ ] Remove `clear()` action
+- [ ] Compile WITHOUT `-DTESTNET` flag (this automatically excludes the `clear()` action)
+- [ ] Verify `clear` does NOT appear in the generated ABI file
 - [ ] Set proper Fractally oracle account
 - [ ] Configure correct token contract
 - [ ] Test all actions on testnet
