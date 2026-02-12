@@ -155,6 +155,12 @@ docker run -d \
   ipfs/kubo:v0.24.0
 ```
 
+**Pinata** (Cloud IPFS - Optional):
+- For testnet/production deployments, configure Pinata for reliable IPFS pinning
+- Implementation uses native `fetch` API (REST) - no SDK dependency
+- Set `PINATA_API_KEY` and `PINATA_SECRET_API_KEY` in `.env`
+- See `backend/src/storage/ipfs.js` for implementation details
+
 **MinIO** (S3-compatible Storage):
 ```bash
 docker run -d \
