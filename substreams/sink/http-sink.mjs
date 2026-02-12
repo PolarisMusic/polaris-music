@@ -84,7 +84,7 @@ Usage:
 Options:
   --endpoint=<url>       Backend base URL (default: http://localhost:3000)
                          NOTE: Do not include /api suffix - it will be added automatically
-  --contract=<account>   Contract account name (default: polaris)
+  --contract=<account>   Contract account name (default: polarismusic)
   --start-block=<num>    Starting block number (default: 0)
   --help, -h             Show this help message
 
