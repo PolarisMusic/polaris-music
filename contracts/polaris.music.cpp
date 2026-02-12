@@ -1856,16 +1856,20 @@ private:
 
         typedef eosio::multi_index<"stat"_n, currency_stats> stats;
 
-        // Attempt to access the stat table
-        // If this fails, the contract doesn't implement eosio.token interface
+        // Access the stat table for MUS token
         stats statstable(token_contract, symbol("MUS", 4).code().raw());
 
-        // Try to find the MUS token stats
-        // We don't require it to exist yet (contract might not be initialized)
-        // but we do require the table to be accessible (contract has right structure)
+        // CRITICAL VALIDATION: MUS token must exist and be properly configured
+        auto itr = statstable.find(symbol_code("MUS").raw());
+        check(itr != statstable.end(),
+              "MUS token not created on token contract - run deploy-token.sh first");
 
-        // If we reach here without exception, the contract has the right structure
-        // Note: This check validates the contract has a stat table, which is sufficient
-        // to confirm it follows the eosio.token standard
+        // Validate token precision (must be 4 decimals)
+        check(itr->max_supply.symbol == symbol("MUS", 4),
+              "MUS token must have 4-decimal precision (e.g., 1000000000.0000 MUS)");
+
+        // CRITICAL: Issuer must be this Polaris contract for inline issue authorization
+        check(itr->issuer == get_self(),
+              "MUS token issuer must be this contract account - token was created with wrong issuer");
     }
 };
