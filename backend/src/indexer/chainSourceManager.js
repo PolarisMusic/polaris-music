@@ -84,8 +84,9 @@ export class ChainSourceManager {
     async startShipSource() {
         // Determine default endpoints based on NODE_ENV
         const nodeEnv = process.env.NODE_ENV || 'development';
+        // Note: Greymass does not provide SHiP endpoints, use a dedicated SHiP provider
         const defaultShipUrl = nodeEnv === 'testnet'
-            ? process.env.CHAIN_WS_URL || 'wss://jungle4.greymass.com'
+            ? process.env.CHAIN_WS_URL || 'wss://jungle4.eosusa.io'
             : 'ws://localhost:8080';
 
         const shipConfig = {
