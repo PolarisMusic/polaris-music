@@ -91,7 +91,7 @@ export class ChainSourceManager {
 
         const shipConfig = {
             shipUrl: this.config.shipUrl || process.env.SHIP_URL || process.env.CHAIN_WS_URL || defaultShipUrl,
-            contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polaris',
+            contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polarismusic',
             startBlock: parseInt(this.config.startBlock || process.env.START_BLOCK || '0', 10),
             endBlock: parseInt(this.config.endBlock || process.env.END_BLOCK || '0xffffffff', 10),
             reconnectDelay: 3000,

@@ -40,7 +40,7 @@ export class ShipEventSource extends EventEmitter {
 
         this.config = {
             shipUrl: config.shipUrl || defaultShipUrl,
-            contractAccount: config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polaris',
+            contractAccount: config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polarismusic',
             startBlock: config.startBlock || parseInt(process.env.START_BLOCK || '0', 10),
             endBlock: config.endBlock || 0xffffffff, // Max uint32
             reconnectDelay: config.reconnectDelay || 3000,
