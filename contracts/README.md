@@ -263,7 +263,7 @@ cleos push action polaris attest '[
 
 ```bash
 # Update Respect values first
-cleos push action polaris updaterespect '[
+cleos push action polaris updrespect '[
   [["alice", 50], ["bob", 30]],
   1
 ]' -p fractally
@@ -348,7 +348,7 @@ cleos -u https://jungle4.cryptolions.io:443 \
 | `unstake` | Remove stake from a node | Staker |
 | `like` | Like an entity with path tracking | User |
 | `unlike` | Remove a like | User |
-| `updaterespect` | Update Respect from Fractally | Oracle only |
+| `updrespect` | Update Respect from Fractally | Oracle only |
 | `setoracle` | Set Fractally oracle account | Contract only |
 | `init` | Initialize contract | Contract only |
 | `clear` | Clear all data (**TESTNET only** - compiled out in production via `#ifdef TESTNET`) | Contract only |
