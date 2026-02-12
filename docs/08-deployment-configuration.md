@@ -362,7 +362,7 @@ CMD ["node", "src/api/server.js"]
 # Blockchain
 CHAIN_ID=1064487b3cd1a897ce03ae5b6a865651747e2e152090f99c1d19d44e01aea5a4
 RPC_URL=https://eos.greymass.com
-CONTRACT_ACCOUNT=polaris
+CONTRACT_ACCOUNT=<your_contract_account>  # Your deployed contract account name
 START_BLOCK=295000000
 
 # Database

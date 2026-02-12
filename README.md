@@ -88,7 +88,7 @@ npm run dev
 # Blockchain Configuration
 CHAIN_ID=1064487b3cd1a897ce03ae5b6a865651747e2e152090f99c1d19d44e01aea5a4
 RPC_URL=https://eos.greymass.com
-CONTRACT_ACCOUNT=polaris
+CONTRACT_ACCOUNT=<your_contract_account>  # Replace with your deployed contract account
 
 # Database Configuration
 GRAPH_URI=bolt://localhost:7687
