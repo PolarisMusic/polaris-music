@@ -83,7 +83,7 @@ This document analyzes mismatches between English-language documentation (README
 
 ---
 
-### ✅ #3: `updaterespect` Action Signature Mismatch [FIXED]
+### ✅ #3: `updrespect` Action Signature Mismatch [FIXED]
 
 **Status**: Fixed
 **Documentation**: README.md lines 864-867
@@ -443,7 +443,7 @@ These mismatches were identified and fixed during this session:
 
 1. ✅ Missing `release_guests` field - Added to frontend form
 2. ✅ Missing `proofs` field - Added source attribution section
-3. ✅ `updaterespect` signature - README updated to match contract
+3. ✅ `updrespect` signature - README updated to match contract
 4. ✅ Docker Compose missing - Created comprehensive docker-compose.yml
 5. ✅ Backend README missing - Created comprehensive backend documentation
 6. ✅ Tools directory missing - Created stubs with implementation guides
@@ -460,7 +460,7 @@ Quick reference for verification:
 |----------|---------------|----------------|--------|
 | #1 Release guests | README.md:286-297 | frontend/index.html:95-107 | ✅ Fixed |
 | #2 Emission multipliers | README.md:886-890 | contracts/polaris.music.cpp:1039-1053 | 🔴 Action needed |
-| #3 updaterespect | README.md:864-867 | contracts/polaris.music.cpp:242-243 | ✅ Fixed |
+| #3 updrespect | README.md:864-867 | contracts/polaris.music.cpp:242-243 | ✅ Fixed |
 | #4 Proofs field | README.md:811 | frontend/src/index.js:140-142 | ✅ Fixed |
 | #5 Docker Compose | README.md:1019-1028 | docker-compose.yml | ✅ Fixed |
 | #6 Config directory | README.md:958 | backend/src/ | 🟡 Update README |

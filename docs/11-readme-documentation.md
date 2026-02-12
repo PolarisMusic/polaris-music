@@ -860,7 +860,7 @@ ACTION like(
 );
 
 // Update respect score of an account verified through fractally process 
-ACTION updaterespect(
+ACTION updrespect(
     name account,
     vector<checksum256> node_path,
     asset quantity

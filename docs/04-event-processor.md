@@ -161,7 +161,7 @@ class EventProcessor {
                 await this.handleStake(action.data, txId, blockNum);
                 break;
                 
-            case 'updaterespect':
+            case 'updrespect':
                 // Fractally Respect update
                 await this.handleRespectUpdate(action.data, txId, blockNum);
                 break;
