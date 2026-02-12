@@ -11,7 +11,7 @@
   "dependencies": {
     "@wharfkit/session": "1.6.1",
     "@wharfkit/wallet-plugin-anchor": "1.6.1",
-    "@wharfkit/wallet-plugin-cloudwallet": "1.5.1",
+    "@wharfkit/wallet-plugin-cloudwallet": "1.6.2",
     "@wharfkit/web-renderer": "1.4.3",
     "crypto-js": "4.2.0"
   },
