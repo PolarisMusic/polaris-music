@@ -35,21 +35,40 @@ cdt-cpp --version
 ### Quick Build
 
 ```bash
+# Production build (recommended - excludes clear() action)
 ./build.sh
+
+# Testnet build with clear() action (for testing only)
+./build.sh --testnet
 ```
+
+**Important**: Always use production builds (without `--testnet`) for mainnet deployment.
 
 ### Manual Build
 
 ```bash
+# Production build
 mkdir -p build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
+make
+
+# Testnet build with clear() action
+mkdir -p build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DTESTNET=ON ..
 make
 ```
 
 The build produces:
 - `polaris.music.wasm` - Contract bytecode
 - `polaris.music.abi` - Application Binary Interface
+
+**Verification**: Before deploying to production, verify that `clear` does NOT appear in the ABI:
+```bash
+grep -i "clear" build/polaris.music.abi
+# Should return nothing for production builds
+```
 
 ## Testing Locally
 
