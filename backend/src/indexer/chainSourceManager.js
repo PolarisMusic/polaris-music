@@ -82,8 +82,14 @@ export class ChainSourceManager {
      * Start SHiP event source
      */
     async startShipSource() {
+        // Determine default endpoints based on NODE_ENV
+        const nodeEnv = process.env.NODE_ENV || 'development';
+        const defaultShipUrl = nodeEnv === 'testnet'
+            ? process.env.CHAIN_WS_URL || 'wss://jungle4.greymass.com'
+            : 'ws://localhost:8080';
+
         const shipConfig = {
-            shipUrl: this.config.shipUrl || process.env.SHIP_URL || 'ws://localhost:8080',
+            shipUrl: this.config.shipUrl || process.env.SHIP_URL || process.env.CHAIN_WS_URL || defaultShipUrl,
             contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polaris',
             startBlock: parseInt(this.config.startBlock || process.env.START_BLOCK || '0', 10),
             endBlock: parseInt(this.config.endBlock || process.env.END_BLOCK || '0xffffffff', 10),

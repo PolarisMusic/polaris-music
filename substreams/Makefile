@@ -44,6 +44,16 @@ run-custom:
 		--start-block $(START) \
 		--stop-block +$(BLOCKS)
 
+# Run on Jungle4 testnet
+run-testnet:
+	@echo "Running map_anchored_events on Jungle4 testnet..."
+	substreams run -e jungle4.substreams.pinax.network:443 \
+		./substreams.yaml \
+		map_anchored_events \
+		-p map_anchored_events="$(CONTRACT_ACCOUNT)" \
+		--start-block $(START_BLOCK) \
+		--stop-block +$(BLOCKS)
+
 # View stats
 stats:
 	@echo "Running map_stats module..."
@@ -92,6 +102,7 @@ help:
 	@echo "  make test           - Run tests"
 	@echo "  make run            - Run locally on EOS mainnet"
 	@echo "  make run-custom     - Run with custom params (CONTRACT=... START=... BLOCKS=...)"
+	@echo "  make run-testnet    - Run on Jungle4 testnet (CONTRACT_ACCOUNT=... START_BLOCK=... BLOCKS=...)"
 	@echo "  make stats          - View aggregated statistics"
 	@echo "  make gui            - Launch GUI explorer"
 	@echo "  make clean          - Clean build artifacts"

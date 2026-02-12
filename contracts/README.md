@@ -106,6 +106,58 @@ cleos set contract polaris ./build polaris.music.wasm polaris.music.abi -p polar
 cleos push action polaris init '["fractally", "eosio.token"]' -p polaris
 ```
 
+## Testnet Deployment (Jungle4)
+
+For deploying to Jungle4 testnet, use the automated deployment script:
+
+### Prerequisites
+
+1. **Create Account**: Get a Jungle4 testnet account via the faucet:
+   - Visit: https://monitor.jungletestnet.io/#faucet
+   - Create account and receive test tokens
+   - Save your account name and private key
+
+2. **Set Environment Variables**:
+   ```bash
+   export CONTRACT_ACCOUNT=polarismusic  # Your Jungle4 account name
+   export CHAIN_RPC_URL=https://jungle4.greymass.com
+   export TESTNET_PRIVATE_KEY=5K...  # Your private key (optional for manual unlock)
+   ```
+
+### Deploy
+
+```bash
+# Run the deployment script
+./deploy-testnet.sh
+```
+
+The script will:
+1. Verify build artifacts exist (runs `./build.sh` if needed)
+2. Check `cleos` installation
+3. Verify account exists on Jungle4
+4. Deploy contract to testnet
+
+### Verify Deployment
+
+```bash
+# Check deployed contract code
+cleos -u https://jungle4.greymass.com get code polarismusic
+
+# View contract ABI
+cleos -u https://jungle4.greymass.com get abi polarismusic
+```
+
+### Initialize on Testnet
+
+After deployment, initialize the contract with Jungle4-specific accounts:
+
+```bash
+cleos -u https://jungle4.greymass.com push action polarismusic init \
+  '["fractally4", "eosio.token"]' -p polarismusic@active
+```
+
+**Note**: Replace `fractally4` with the actual Fractally oracle account on Jungle4, and ensure `eosio.token` exists or use the appropriate token contract account.
+
 ## Usage Examples
 
 ### Anchor an Event
