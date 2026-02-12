@@ -32,10 +32,16 @@ export class ShipEventSource extends EventEmitter {
     constructor(config) {
         super();
 
+        // Determine default SHiP URL based on environment
+        const nodeEnv = process.env.NODE_ENV || 'development';
+        const defaultShipUrl = nodeEnv === 'testnet'
+            ? (process.env.CHAIN_WS_URL || 'wss://jungle4.greymass.com')
+            : 'ws://localhost:8080';
+
         this.config = {
-            shipUrl: config.shipUrl || 'ws://localhost:8080',
-            contractAccount: config.contractAccount || 'polaris',
-            startBlock: config.startBlock || 0,
+            shipUrl: config.shipUrl || defaultShipUrl,
+            contractAccount: config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polaris',
+            startBlock: config.startBlock || parseInt(process.env.START_BLOCK || '0', 10),
             endBlock: config.endBlock || 0xffffffff, // Max uint32
             reconnectDelay: config.reconnectDelay || 3000,
             reconnectMaxAttempts: config.reconnectMaxAttempts || 10,
