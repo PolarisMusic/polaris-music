@@ -12,45 +12,6 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, jes
 import neo4j from 'neo4j-driver';
 import { migrateUnifyIdProperty, verifyIdUnification } from '../../src/graph/migrations/001-unify-id-property.js';
 
-// Mock Neo4j driver to avoid real database connections in CI
-jest.mock('neo4j-driver', () => ({
-    default: {
-        driver: jest.fn(() => ({
-            session: jest.fn(() => ({
-                run: jest.fn().mockResolvedValue({ records: [] }),
-                close: jest.fn(),
-                beginTransaction: jest.fn(() => ({
-                    run: jest.fn().mockResolvedValue({ records: [] }),
-                    commit: jest.fn().mockResolvedValue(undefined),
-                    rollback: jest.fn().mockResolvedValue(undefined),
-                })),
-            })),
-            close: jest.fn(),
-            verifyConnectivity: jest.fn().mockResolvedValue(true),
-        })),
-        auth: {
-            basic: jest.fn(() => ({})),
-        },
-    },
-    // Also export the mocks directly for default import syntax
-    driver: jest.fn(() => ({
-        session: jest.fn(() => ({
-            run: jest.fn().mockResolvedValue({ records: [] }),
-            close: jest.fn(),
-            beginTransaction: jest.fn(() => ({
-                run: jest.fn().mockResolvedValue({ records: [] }),
-                commit: jest.fn().mockResolvedValue(undefined),
-                rollback: jest.fn().mockResolvedValue(undefined),
-            })),
-        })),
-        close: jest.fn(),
-        verifyConnectivity: jest.fn().mockResolvedValue(true),
-    })),
-    auth: {
-        basic: jest.fn(() => ({})),
-    },
-}));
-
 // Skip these integration tests if no database is configured
 const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
 

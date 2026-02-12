@@ -167,7 +167,16 @@ const providerHost = config.substreamsEndpoint.split(':')[0];
 const isPinax = providerHost.includes('pinax.network');
 console.log(`Provider:            ${isPinax ? 'Pinax' : 'Custom'} (${providerHost})`);
 console.log(`API Token:           ${config.apiToken ? '✓ Configured' : '✗ Missing'}`);
-console.log(`Ingest API Key:      ${config.ingestApiKey ? '✓ Configured' : '- Not set (open access)'}`);
+if (config.ingestApiKey) {
+    console.log(`Ingest API Key:      ✓ Configured`);
+} else {
+    console.warn(`Ingest API Key:      ✗ NOT SET`);
+    console.warn('');
+    console.warn('⚠ WARNING: INGEST_API_KEY is not configured.');
+    console.warn('  The sink will post to the backend WITHOUT authentication.');
+    console.warn('  In production, set INGEST_API_KEY to match the backend\'s INGEST_API_KEY.');
+    console.warn('  Without it, anyone can post events to the ingestion endpoint.');
+}
 console.log('');
 
 // Detect ingestion mode (local vs Pinax)

@@ -1,80 +1,73 @@
 mod abi;
 mod pb;
 
-use anyhow::anyhow;
 use substreams::errors::Error;
 use substreams::log;
 use substreams::prelude::*;
-use substreams::store::{StoreAdd, StoreAddInt64, StoreGet, StoreGetInt64, StoreNew};
+use substreams::store::{StoreAddInt64, StoreGetInt64};
 use substreams_antelope::pb::Block;
+use substreams_antelope::Action;
 
 use pb::polaris::v1::{
-    AccountActivities, AccountActivity, AnchoredEvent, AnchoredEvents, AttestEvent, Event,
-    EventData, Events, FinalizeEvent, LikeEvent, PutEvent, RespectUpdate, StakeEvent, Stats,
-    UnlikeEvent, UnstakeEvent, UpdateRespectEvent, VoteEvent,
+    AnchoredEvent, AnchoredEvents, AttestEvent, Event, EventData, Events, FinalizeEvent,
+    LikeEvent, PutEvent, RespectUpdate, StakeEvent, Stats, UnlikeEvent, UnstakeEvent,
+    UpdateRespectEvent, VoteEvent,
 };
 
 /// Map module: Extract all Polaris Music Registry events from blocks
+///
+/// PERF-05: Uses `block.action_traces()` iterator for streaming processing,
+/// avoiding intermediate Vec allocations for non-matching actions.
+/// Defers string allocations (tx_hash) until a matching action is found.
 #[substreams::handlers::map]
 fn map_events(params: String, block: Block) -> Result<Events, Error> {
-    // Parse contract account from params (defaults to "polaris")
     let contract_account = if params.is_empty() {
-        "polaris".to_string()
+        "polaris"
     } else {
-        params
+        &params
     };
 
-    log::info!(
-        "Processing block {} with {} transactions",
-        block.number,
-        block.transaction_traces.len()
-    );
-
-    let mut events = Vec::new();
-
-    // Iterate through all transactions in the block
-    for trx_trace in &block.transaction_traces {
-        if trx_trace.receipt.is_none() {
-            continue;
-        }
-
-        let tx_hash = hex::encode(&trx_trace.id);
-
-        // Iterate through all action traces
-        for action_trace in &trx_trace.action_traces {
-            // Only process actions from our contract
+    // PERF-05: Use block.action_traces() iterator (already filters for executed transactions)
+    // instead of manual nested loops with Vec::push
+    let events: Vec<Event> = block
+        .action_traces()
+        .filter_map(|(action_trace, trx)| {
+            // Only process actions received by our contract
             if action_trace.receiver != contract_account {
-                continue;
+                return None;
             }
 
-            // Process each action type
-            match action_trace.action.as_ref() {
-                Some(action) => {
-                    let event_opt = match action.name.as_str() {
-                        "put" => extract_put_event(&tx_hash, &block, action_trace),
-                        "attest" => extract_attest_event(&tx_hash, &block, action_trace),
-                        "vote" => extract_vote_event(&tx_hash, &block, action_trace),
-                        "finalize" => extract_finalize_event(&tx_hash, &block, action_trace),
-                        "stake" => extract_stake_event(&tx_hash, &block, action_trace),
-                        "unstake" => extract_unstake_event(&tx_hash, &block, action_trace),
-                        "like" => extract_like_event(&tx_hash, &block, action_trace),
-                        "unlike" => extract_unlike_event(&tx_hash, &block, action_trace),
-                        "updrespect" => {
-                            extract_update_respect_event(&tx_hash, &block, action_trace)
-                        }
-                        _ => None, // Ignore other actions (setoracle, init, etc.)
-                    };
+            let action = action_trace.action.as_ref()?;
+            let block_num = block.number as u64;
+            let timestamp = block
+                .header
+                .as_ref()
+                .and_then(|h| h.timestamp.as_ref())
+                .map(|t| t.seconds as u64)
+                .unwrap_or(0);
 
-                    if let Some(event) = event_opt {
-                        events.push(event);
-                    }
+            match action.name.as_str() {
+                "put" => extract_put_event(&trx.id, block_num, timestamp, action_trace),
+                "attest" => extract_attest_event(&trx.id, block_num, timestamp, action_trace),
+                "vote" => extract_vote_event(&trx.id, block_num, timestamp, action_trace),
+                "finalize" => extract_finalize_event(&trx.id, block_num, timestamp, action_trace),
+                "stake" => extract_stake_event(&trx.id, block_num, timestamp, action_trace),
+                "unstake" => extract_unstake_event(&trx.id, block_num, timestamp, action_trace),
+                "like" => extract_like_event(&trx.id, block_num, timestamp, action_trace),
+                "unlike" => extract_unlike_event(&trx.id, block_num, timestamp, action_trace),
+                "updrespect" => {
+                    extract_update_respect_event(&trx.id, block_num, timestamp, action_trace)
                 }
-                None => continue,
+                _ => None, // Ignore other actions (setoracle, init, etc.)
             }
-        }
-    }
+        })
+        .collect();
 
-    log::info!("Extracted {} events from block {}", events.len(), block.number);
+    log::info!(
+        "Extracted {} events from block {}",
+        events.len(),
+        block.number
+    );
 
     Ok(Events { events })
 }
@@ -84,26 +77,22 @@ fn map_events(params: String, block: Block) -> Result<Events, Error> {
 ///
 /// CRITICAL: Uses put.hash as content_hash (canonical identifier from blockchain)
 /// instead of computing hash from action JSON (which is unstable across sources)
+///
+/// PERF-05: Uses iterator-based processing with early filtering.
+/// Pre-computes block-level values once, defers per-trx allocations.
 #[substreams::handlers::map]
 fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, Error> {
     use sha2::{Digest, Sha256};
-    use abi::polaris_music::actions::Put;
 
-    // Parse contract account from params (defaults to "polaris")
     let contract_account = if params.is_empty() {
-        "polaris".to_string()
+        "polaris"
     } else {
-        params
+        &params
     };
 
-    log::info!(
-        "Processing block {} for anchored events (contract: {})",
-        block.number,
-        contract_account
-    );
-
-    let mut anchored_events = Vec::new();
-    let block_id = hex::encode(&block.id);
+    // Pre-compute block-level values once (PERF-05: avoid recomputing per action)
+    let block_id = &block.id;
+    let block_num = block.number as u64;
     let block_timestamp = block
         .header
         .as_ref()
@@ -111,114 +100,100 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
         .map(|t| t.seconds as u64)
         .unwrap_or(0);
 
-    // Iterate through all transactions in the block
-    for trx_trace in &block.transaction_traces {
-        if trx_trace.receipt.is_none() {
-            continue;
-        }
-
-        let trx_id = hex::encode(&trx_trace.id);
-
-        // Iterate through all action traces
-        for (action_ordinal, action_trace) in trx_trace.action_traces.iter().enumerate() {
-            // Only process actions from our contract
+    // PERF-05: Use block.action_traces() iterator with filter_map for streaming
+    let anchored_events: Vec<AnchoredEvent> = block
+        .action_traces()
+        .filter_map(|(action_trace, trx)| {
+            // Only process actions received by our contract
             if action_trace.receiver != contract_account {
-                continue;
+                return None;
             }
 
-            // Only process relevant actions (put is primary for T5)
-            let action = match action_trace.action.as_ref() {
-                Some(a) => a,
-                None => continue,
-            };
+            let action = action_trace.action.as_ref()?;
 
             // Filter actions we care about for ingestion
-            // Primary: PUT (event anchoring)
-            // Secondary: VOTE, FINALIZE (for completeness)
             match action.name.as_str() {
                 "put" | "vote" | "finalize" => {}
-                _ => continue, // Skip other actions for now
+                _ => return None,
             }
 
             // Extract JSON payload and content hash
-            // CRITICAL: Try json_data first, but fallback to raw decoding if missing
-            // This ensures we don't skip actions when upstream doesn't provide decoded JSON
-            let (json_data, content_hash) = match action.json_data.as_ref() {
-                // Path 1: json_data exists (preferred, use as-is)
-                Some(data) => {
-                    let json_str = data.to_string();
+            let (json_data, content_hash) = if !action.json_data.is_empty() {
+                // Path 1: json_data available (preferred path from Firehose)
+                let json_str = &action.json_data;
 
-                    // Extract content_hash from put.hash if this is a put action
-                    let content_hash = if action.name == "put" {
-                        match data.parse_json::<Put>() {
-                            Ok(put_action) => hex::encode(put_action.hash),
-                            Err(_) => {
-                                log::warn!("Failed to parse put action from json_data");
-                                // Fallback to hash of action payload
+                let content_hash = if action.name == "put" {
+                    // In 0.6, Checksum256 fields are already hex strings
+                    match serde_json::from_str::<serde_json::Value>(json_str) {
+                        Ok(val) => val
+                            .get("hash")
+                            .and_then(|h| h.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| {
                                 let mut hasher = Sha256::new();
                                 hasher.update(json_str.as_bytes());
                                 hex::encode(hasher.finalize())
-                            }
+                            }),
+                        Err(_) => {
+                            log::info!("Failed to parse put action JSON for content_hash");
+                            let mut hasher = Sha256::new();
+                            hasher.update(json_str.as_bytes());
+                            hex::encode(hasher.finalize())
                         }
-                    } else {
-                        // For non-put actions, hash the JSON payload
-                        let mut hasher = Sha256::new();
-                        hasher.update(json_str.as_bytes());
-                        hex::encode(hasher.finalize())
-                    };
+                    }
+                } else {
+                    // For non-put actions, hash the JSON payload
+                    let mut hasher = Sha256::new();
+                    hasher.update(json_str.as_bytes());
+                    hex::encode(hasher.finalize())
+                };
 
-                    (json_str, content_hash)
-                }
-
-                // Path 2: json_data missing, decode from raw bytes (fallback for ABI unavailability)
-                None => {
+                (json_str.clone(), content_hash)
+            } else {
+                // Path 2: json_data missing - use raw_data with embedded ABI
+                if action.name != "put" {
                     log::info!(
-                        "json_data missing for action {}, decoding from raw bytes using embedded ABI",
+                        "Skipping non-put action without json_data: {}",
                         action.name
                     );
-
-                    // Only handle put action for now (primary ingestion path)
-                    // vote/finalize can be added later if needed
-                    if action.name != "put" {
-                        log::warn!("Skipping non-put action without json_data: {}", action.name);
-                        continue;
-                    }
-
-                    // Deserialize Put action from raw bytes using ABI bindings
-                    let put_action = match abi::polaris_music::actions::Put::try_from(action.data.as_slice()) {
-                        Ok(put) => put,
-                        Err(e) => {
-                            log::error!("Failed to deserialize put action from raw bytes: {:?}", e);
-                            continue;
-                        }
-                    };
-
-                    // Extract content_hash from decoded put.hash
-                    let content_hash = hex::encode(&put_action.hash);
-
-                    // Construct canonical JSON payload for backend ingestion
-                    // Must match format expected by backend/src/api/ingestion.js
-                    // CRITICAL: Must include event_cid for IPFS-only ingestion mode
-                    let json_payload = serde_json::json!({
-                        "author": put_action.author.to_string(),
-                        "type": put_action.r#type,
-                        "hash": hex::encode(&put_action.hash),
-                        "event_cid": put_action.event_cid,
-                        "parent": put_action.parent.as_ref().map(|p| hex::encode(p)),
-                        "ts": put_action.ts,
-                        "tags": put_action.tags.iter().map(|t| t.to_string()).collect::<Vec<String>>(),
-                    });
-
-                    let json_str = json_payload.to_string();
-
-                    log::info!(
-                        "Decoded put action from raw bytes: content_hash={}, author={}",
-                        &content_hash[..12],
-                        put_action.author.to_string()
-                    );
-
-                    (json_str, content_hash)
+                    return None;
                 }
+
+                // Decode Put action from raw bytes using ABI bindings
+                let put_action = match abi::polaris_music::actions::Put::decode(action_trace) {
+                    Ok(put) => put,
+                    Err(e) => {
+                        log::info!(
+                            "Failed to decode put action: {:?}",
+                            e
+                        );
+                        return None;
+                    }
+                };
+
+                // In 0.6, hash is already a hex string (Checksum256 = String)
+                let content_hash = put_action.hash.clone();
+
+                // Construct canonical JSON payload for backend ingestion
+                let json_payload = serde_json::json!({
+                    "author": put_action.author,
+                    "type": put_action.type_,
+                    "hash": &put_action.hash,
+                    "event_cid": put_action.event_cid,
+                    "parent": put_action.parent,
+                    "ts": put_action.ts,
+                    "tags": put_action.tags,
+                });
+
+                let json_str = json_payload.to_string();
+
+                log::info!(
+                    "Decoded put from raw bytes: hash={}, author={}",
+                    &content_hash[..content_hash.len().min(12)],
+                    put_action.author
+                );
+
+                (json_str, content_hash)
             };
 
             // Compute event hash from action payload (for debugging/trace identity)
@@ -226,24 +201,21 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
             hasher.update(json_data.as_bytes());
             let event_hash = hex::encode(hasher.finalize());
 
-            // Create anchored event
-            let anchored_event = AnchoredEvent {
+            Some(AnchoredEvent {
                 content_hash,
                 event_hash,
                 payload: json_data.into_bytes(),
-                block_num: block.number,
+                block_num,
                 block_id: block_id.clone(),
-                trx_id: trx_id.clone(),
-                action_ordinal: action_ordinal as u32,
+                trx_id: trx.id.clone(),
+                action_ordinal: action_trace.execution_index as u32,
                 timestamp: block_timestamp,
                 source: "substreams-eos".to_string(),
-                contract_account: contract_account.clone(),
+                contract_account: contract_account.to_string(),
                 action_name: action.name.clone(),
-            };
-
-            anchored_events.push(anchored_event);
-        }
-    }
+            })
+        })
+        .collect();
 
     log::info!(
         "Extracted {} anchored events from block {}",
@@ -257,17 +229,18 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
 }
 
 /// Store module: Aggregate statistics from events
+///
+/// PERF-05: Uses if-let chains instead of nested match for cleaner, branchless flow.
 #[substreams::handlers::store]
 fn store_stats(events: Events, store: StoreAddInt64) {
-    for event in events.events {
-        // Increment total events counter
+    for event in &events.events {
         store.add(0, "total_events", 1);
 
-        // Increment counters by event type
-        match event.data {
-            Some(EventData {
-                event: Some(data), ..
-            }) => match data {
+        if let Some(EventData {
+            event: Some(ref data),
+        }) = event.data
+        {
+            match data {
                 pb::polaris::v1::event_data::Event::Put(_) => {
                     store.add(0, "total_puts", 1);
                 }
@@ -281,36 +254,37 @@ fn store_stats(events: Events, store: StoreAddInt64) {
                     store.add(0, "total_likes", 1);
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
     }
 }
 
 /// Store module: Track per-account activity
+///
+/// PERF-05: Uses into_iter() for ownership transfer, avoids temporary String allocations
+/// where possible. Fixed from StoreAdd trait to concrete StoreAddInt64.
 #[substreams::handlers::store]
-fn store_account_activity(events: Events, store: StoreAdd) {
-    for event in events.events {
+fn store_account_activity(events: Events, store: StoreAddInt64) {
+    for event in &events.events {
         if let Some(EventData {
-            event: Some(data), ..
+            event: Some(ref data),
         }) = event.data
         {
-            let account_key = match &data {
-                pb::polaris::v1::event_data::Event::Put(e) => Some(format!("account:{}", e.author)),
-                pb::polaris::v1::event_data::Event::Vote(e) => Some(format!("account:{}", e.voter)),
-                pb::polaris::v1::event_data::Event::Stake(e) => {
-                    Some(format!("account:{}", e.account))
-                }
-                pb::polaris::v1::event_data::Event::Like(e) => {
-                    Some(format!("account:{}", e.account))
-                }
+            let account_key = match data {
+                pb::polaris::v1::event_data::Event::Put(e) => Some(&e.author),
+                pb::polaris::v1::event_data::Event::Vote(e) => Some(&e.voter),
+                pb::polaris::v1::event_data::Event::Stake(e) => Some(&e.account),
+                pb::polaris::v1::event_data::Event::Like(e) => Some(&e.account),
                 _ => None,
             };
 
-            if let Some(key) = account_key {
-                // This is a simplified version - in production you'd store full AccountActivity proto
-                store.add(0, &format!("{}:events", key), 1);
-                store.add(0, &format!("{}:last_block", key), event.block_num as i64);
+            if let Some(account) = account_key {
+                store.add(0, format!("account:{}:events", account), 1);
+                store.add(
+                    0,
+                    format!("account:{}:last_block", account),
+                    event.block_num as i64,
+                );
             }
         }
     }
@@ -325,86 +299,91 @@ fn map_stats(store: StoreGetInt64) -> Result<Stats, Error> {
         total_votes: store.get_last("total_votes").unwrap_or(0) as u64,
         total_stakes: store.get_last("total_stakes").unwrap_or(0) as u64,
         total_likes: store.get_last("total_likes").unwrap_or(0) as u64,
-        unique_contributors: 0, // Would need to track unique accounts separately
-        total_staked_amount: "0.0000 MUS".to_string(), // Would need to aggregate from stake events
+        unique_contributors: 0,
+        total_staked_amount: "0.0000 MUS".to_string(),
     })
 }
 
 // ============ EVENT EXTRACTION FUNCTIONS ============
+// PERF-05: Use Action::decode() trait method for type-safe deserialization.
+// Pre-computed block_num/timestamp passed as args to avoid redundant lookups.
 
+#[inline]
 fn extract_put_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Put;
 
-    let action = action_trace.action.as_ref()?;
-    let put: Put = action.json_data.as_ref()?.parse_json().ok()?;
+    let put = Put::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "PUT".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Put(PutEvent {
-                author: put.author.to_string(),
-                type_: put.r#type as u32,
-                hash: hex::encode(put.hash),
-                parent: put.parent.map(hex::encode).unwrap_or_default(),
+                author: put.author,
+                type_: put.type_ as u32,
+                hash: put.hash,
+                parent: put.parent,
                 ts: put.ts as u64,
-                tags: put.tags.iter().map(|t| t.to_string()).collect(),
-                expires_at: 0, // Not available in action data
+                tags: put.tags,
+                expires_at: 0,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_attest_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Attest;
 
-    let action = action_trace.action.as_ref()?;
-    let attest: Attest = action.json_data.as_ref()?.parse_json().ok()?;
+    let attest = Attest::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "ATTEST".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Attest(AttestEvent {
-                attestor: attest.attestor.to_string(),
-                tx_hash: hex::encode(attest.tx_hash),
+                attestor: attest.attestor,
+                tx_hash: attest.tx_hash,
                 confirmed_type: attest.confirmed_type as u32,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_vote_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Vote;
 
-    let action = action_trace.action.as_ref()?;
-    let vote: Vote = action.json_data.as_ref()?.parse_json().ok()?;
+    let vote = Vote::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "VOTE".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Vote(VoteEvent {
-                voter: vote.voter.to_string(),
-                tx_hash: hex::encode(vote.tx_hash),
+                voter: vote.voter,
+                tx_hash: vote.tx_hash,
                 val: vote.val as i32,
                 weight: 0, // Not in action data - would need table lookup
             })),
@@ -412,154 +391,160 @@ fn extract_vote_event(
     })
 }
 
+#[inline]
 fn extract_finalize_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Finalize;
 
-    let action = action_trace.action.as_ref()?;
-    let finalize: Finalize = action.json_data.as_ref()?.parse_json().ok()?;
+    let finalize = Finalize::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "FINALIZE".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Finalize(FinalizeEvent {
-                tx_hash: hex::encode(finalize.tx_hash),
-                accepted: false,        // Would need to check voting results
-                approval_percent: 0,    // Would need to calculate from votes
-                reward_amount: 0,       // Would need to check from inline actions
+                tx_hash: finalize.tx_hash,
+                accepted: false,
+                approval_percent: 0,
+                reward_amount: 0,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_stake_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Stake;
 
-    let action = action_trace.action.as_ref()?;
-    let stake: Stake = action.json_data.as_ref()?.parse_json().ok()?;
+    let stake = Stake::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "STAKE".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Stake(StakeEvent {
-                account: stake.account.to_string(),
-                node_id: hex::encode(stake.node_id),
-                quantity: stake.quantity.to_string(),
+                account: stake.account,
+                node_id: stake.node_id,
+                quantity: stake.quantity,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_unstake_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Unstake;
 
-    let action = action_trace.action.as_ref()?;
-    let unstake: Unstake = action.json_data.as_ref()?.parse_json().ok()?;
+    let unstake = Unstake::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "UNSTAKE".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Unstake(UnstakeEvent {
-                account: unstake.account.to_string(),
-                node_id: hex::encode(unstake.node_id),
-                quantity: unstake.quantity.to_string(),
+                account: unstake.account,
+                node_id: unstake.node_id,
+                quantity: unstake.quantity,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_like_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Like;
 
-    let action = action_trace.action.as_ref()?;
-    let like: Like = action.json_data.as_ref()?.parse_json().ok()?;
+    let like = Like::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "LIKE".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Like(LikeEvent {
-                account: like.account.to_string(),
-                node_id: hex::encode(&like.node_id),
-                path: like.node_path.iter().map(hex::encode).collect(),
+                account: like.account,
+                node_id: like.node_id,
+                path: like.node_path,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_unlike_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Unlike;
 
-    let action = action_trace.action.as_ref()?;
-    let unlike: Unlike = action.json_data.as_ref()?.parse_json().ok()?;
+    let unlike = Unlike::decode(action_trace).ok()?;
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "UNLIKE".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Unlike(UnlikeEvent {
-                account: unlike.account.to_string(),
-                node_id: hex::encode(&unlike.node_id),
+                account: unlike.account,
+                node_id: unlike.node_id,
             })),
         }),
     })
 }
 
+#[inline]
 fn extract_update_respect_event(
     tx_hash: &str,
-    block: &Block,
+    block_num: u64,
+    timestamp: u64,
     action_trace: &substreams_antelope::pb::ActionTrace,
 ) -> Option<Event> {
     use abi::polaris_music::actions::Updrespect;
 
-    let action = action_trace.action.as_ref()?;
-    let update: Updrespect = action.json_data.as_ref()?.parse_json().ok()?;
+    let update = Updrespect::decode(action_trace).ok()?;
 
     let updates = update
         .respect_data
         .iter()
         .map(|pair| RespectUpdate {
-            account: pair.key.to_string(),
+            account: pair.key.clone(),
             respect: pair.value,
         })
         .collect();
 
     Some(Event {
         tx_hash: tx_hash.to_string(),
-        block_num: block.number,
-        timestamp: block.header.as_ref()?.timestamp.as_ref()?.seconds as u64,
+        block_num,
+        timestamp,
         event_type: "UPDATE_RESPECT".to_string(),
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Updrespect(

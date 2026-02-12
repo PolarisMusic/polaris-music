@@ -14,49 +14,9 @@ import { IngestionHandler } from '../../src/api/ingestion.js';
 import EventStore from '../../src/storage/eventStore.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
 import MusicGraphDatabase from '../../src/graph/schema.js';
-import neo4j from 'neo4j-driver';
 
 // Mock ws module to prevent actual WebSocket connections in tests
 jest.mock('ws');
-
-// Mock Neo4j driver to avoid real database connections in CI
-jest.mock('neo4j-driver', () => ({
-    default: {
-        driver: jest.fn(() => ({
-            session: jest.fn(() => ({
-                run: jest.fn().mockResolvedValue({ records: [] }),
-                close: jest.fn(),
-                beginTransaction: jest.fn(() => ({
-                    run: jest.fn().mockResolvedValue({ records: [] }),
-                    commit: jest.fn().mockResolvedValue(undefined),
-                    rollback: jest.fn().mockResolvedValue(undefined),
-                })),
-            })),
-            close: jest.fn(),
-            verifyConnectivity: jest.fn().mockResolvedValue(true),
-        })),
-        auth: {
-            basic: jest.fn(() => ({})),
-        },
-    },
-    // Also export the mocks directly for default import syntax
-    driver: jest.fn(() => ({
-        session: jest.fn(() => ({
-            run: jest.fn().mockResolvedValue({ records: [] }),
-            close: jest.fn(),
-            beginTransaction: jest.fn(() => ({
-                run: jest.fn().mockResolvedValue({ records: [] }),
-                commit: jest.fn().mockResolvedValue(undefined),
-                rollback: jest.fn().mockResolvedValue(undefined),
-            })),
-        })),
-        close: jest.fn(),
-        verifyConnectivity: jest.fn().mockResolvedValue(true),
-    })),
-    auth: {
-        basic: jest.fn(() => ({})),
-    },
-}));
 
 // Skip these integration tests if no database is configured
 const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;

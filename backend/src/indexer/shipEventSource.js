@@ -20,6 +20,8 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import https from 'https';
+import fs from 'fs';
 import { createLogger } from '../utils/logger.js';
 
 /**
@@ -37,6 +39,9 @@ export class ShipEventSource extends EventEmitter {
             endBlock: config.endBlock || 0xffffffff, // Max uint32
             reconnectDelay: config.reconnectDelay || 3000,
             reconnectMaxAttempts: config.reconnectMaxAttempts || 10,
+            // TLS/SSL options for wss:// connections
+            tlsCaCertPath: config.tlsCaCertPath || process.env.SHIP_CA_CERT_PATH || '',
+            tlsRejectUnauthorized: config.tlsRejectUnauthorized ?? (process.env.SHIP_REJECT_UNAUTHORIZED !== 'false'),
             ...config
         };
 
@@ -97,7 +102,35 @@ export class ShipEventSource extends EventEmitter {
         try {
             this.log.info('ship_connecting', { url: this.config.shipUrl });
 
-            this.ws = new WebSocket(this.config.shipUrl);
+            // Build WebSocket options with TLS support for wss:// URLs
+            const wsOptions = {};
+            if (this.config.shipUrl.startsWith('wss://')) {
+                const tlsConfig = {
+                    rejectUnauthorized: this.config.tlsRejectUnauthorized,
+                };
+
+                // Load custom CA certificate for SSL pinning
+                if (this.config.tlsCaCertPath) {
+                    try {
+                        if (fs.existsSync(this.config.tlsCaCertPath)) {
+                            tlsConfig.ca = fs.readFileSync(this.config.tlsCaCertPath);
+                            this.log.info('ship_tls_ca_loaded', { cert_path: this.config.tlsCaCertPath });
+                        } else {
+                            this.log.warn('ship_tls_ca_not_found', { cert_path: this.config.tlsCaCertPath });
+                        }
+                    } catch (certError) {
+                        this.log.error('ship_tls_ca_load_failed', { error: certError.message });
+                    }
+                }
+
+                wsOptions.agent = new https.Agent(tlsConfig);
+
+                if (!tlsConfig.rejectUnauthorized) {
+                    this.log.warn('ship_tls_verification_disabled', { message: 'USE ONLY FOR DEVELOPMENT' });
+                }
+            }
+
+            this.ws = new WebSocket(this.config.shipUrl, wsOptions);
 
             this.ws.on('open', () => {
                 this.log.info('ship_connected');

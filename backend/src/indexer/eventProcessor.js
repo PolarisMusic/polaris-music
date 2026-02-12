@@ -192,6 +192,7 @@ class EventProcessor {
             this.rpc = new JsonRpc(config.blockchain.rpcUrl, { fetch: secureFetch });
             this.contractAccount = config.blockchain.contractAccount || 'polaris';
             this.pollInterval = config.blockchain.pollInterval || 5000;
+            this.batchSize = config.blockchain.batchSize || parseInt(process.env.BATCH_SIZE || '100', 10);
 
             // Initialize database and storage
             this.db = new MusicGraphDatabase(config.database);
@@ -363,7 +364,7 @@ class EventProcessor {
         this.log.info('Processing block range', { from_block: fromBlock, to_block: toBlock });
 
         // Process in chunks to avoid overwhelming the system
-        const chunkSize = 100;
+        const chunkSize = this.batchSize || 100;
 
         for (let start = fromBlock; start <= toBlock; start += chunkSize) {
             const end = Math.min(start + chunkSize - 1, toBlock);

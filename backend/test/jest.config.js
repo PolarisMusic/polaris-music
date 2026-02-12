@@ -44,6 +44,12 @@ export default {
     // Module paths
     modulePaths: ['<rootDir>/../src'],
 
+    // Map modules for tools/ tests (tools/ dir can't resolve backend/node_modules)
+    moduleNameMapper: {
+        '^axios$': '<rootDir>/../node_modules/axios/index.js',
+        '^fast-json-stable-stringify$': '<rootDir>/../node_modules/fast-json-stable-stringify/index.js',
+    },
+
     // Clear mocks between tests
     clearMocks: true,
     resetMocks: false,

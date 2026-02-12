@@ -74,7 +74,7 @@ jobs:
           VERSION=${{ steps.meta.outputs.version }}
 
     - name: Generate SBOM
-      uses: anchore/sbom-action@v0
+      uses: anchore/sbom-action@v1
       with:
         # Use the exact tag produced by docker/metadata-action (already lowercased/valid)
         image: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
@@ -103,7 +103,7 @@ jobs:
 
     steps:
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0
       with:
         image-ref: ghcr.io/polarismusic/polaris-music/${{ matrix.component }}:main
         format: 'sarif'

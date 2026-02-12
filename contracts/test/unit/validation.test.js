@@ -6,10 +6,9 @@
  * deploying to a blockchain. Useful for quick local testing during development.
  */
 
-const { describe, it } = require('mocha');
 const { expect } = require('chai');
 
-describe('Polaris Contract Validation Logic', function() {
+describe('Polaris Contract Validation Logic', () => {
 
     // Constants from the contract
     const MIN_EVENT_TYPE = 1;
@@ -24,9 +23,9 @@ describe('Polaris Contract Validation Logic', function() {
     const DEFAULT_MAX_VOTE_WEIGHT = 100;
     const DEFAULT_ATTESTOR_RESPECT_THRESHOLD = 50;
 
-    describe('Event Type Validation (MEDIUM-2 fix)', function() {
+    describe('Event Type Validation (MEDIUM-2 fix)', () => {
 
-        it('should accept valid event types', function() {
+        it('should accept valid event types', () => {
             const validTypes = [1, 21, 22, 23, 30, 31, 40, 41, 42, 50, 60, 99];
 
             validTypes.forEach(type => {
@@ -35,19 +34,19 @@ describe('Polaris Contract Validation Logic', function() {
             });
         });
 
-        it('should reject type 0 (< MIN_EVENT_TYPE)', function() {
+        it('should reject type 0 (< MIN_EVENT_TYPE)', () => {
             const type = 0;
             const isValid = type >= MIN_EVENT_TYPE && type <= MAX_EVENT_TYPE;
             expect(isValid).to.be.false;
         });
 
-        it('should reject type 100 (> MAX_EVENT_TYPE)', function() {
+        it('should reject type 100 (> MAX_EVENT_TYPE)', () => {
             const type = 100;
             const isValid = type >= MIN_EVENT_TYPE && type <= MAX_EVENT_TYPE;
             expect(isValid).to.be.false;
         });
 
-        it('should correctly identify content types', function() {
+        it('should correctly identify content types', () => {
             // Content types (20-39) should increment submission counter
             expect(21 >= MIN_CONTENT_TYPE && 21 <= MAX_CONTENT_TYPE).to.be.true; // Release
             expect(22 >= MIN_CONTENT_TYPE && 22 <= MAX_CONTENT_TYPE).to.be.true; // Mint
@@ -60,21 +59,21 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Timestamp Validation (LOW-7 fix)', function() {
+    describe('Timestamp Validation (LOW-7 fix)', () => {
 
-        it('should accept current timestamp', function() {
+        it('should accept current timestamp', () => {
             const currentTime = Math.floor(Date.now() / 1000);
             const isValid = currentTime >= MIN_VALID_TIMESTAMP;
             expect(isValid).to.be.true;
         });
 
-        it('should reject timestamp from 2001 (before MIN_VALID_TIMESTAMP)', function() {
+        it('should reject timestamp from 2001 (before MIN_VALID_TIMESTAMP)', () => {
             const oldTimestamp = 1000000000; // Sep 2001
             const isValid = oldTimestamp >= MIN_VALID_TIMESTAMP;
             expect(isValid).to.be.false;
         });
 
-        it('should accept timestamp from 2023 onwards', function() {
+        it('should accept timestamp from 2023 onwards', () => {
             const timestamp2023 = 1672531200; // 2023-01-01
             const timestamp2024 = 1704067200; // 2024-01-01
             const timestamp2025 = 1735689600; // 2025-01-01
@@ -84,7 +83,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(timestamp2025 >= MIN_VALID_TIMESTAMP).to.be.true;
         });
 
-        it('should reject timestamp more than 5 minutes in future', function() {
+        it('should reject timestamp more than 5 minutes in future', () => {
             const currentTime = Math.floor(Date.now() / 1000);
             const farFuture = currentTime + 400; // 6m 40s in future
             const tolerance = 300; // 5 minutes
@@ -93,7 +92,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(isValid).to.be.false;
         });
 
-        it('should accept timestamp within 5 minute tolerance', function() {
+        it('should accept timestamp within 5 minute tolerance', () => {
             const currentTime = Math.floor(Date.now() / 1000);
             const nearFuture = currentTime + 250; // 4m 10s in future
             const tolerance = 300; // 5 minutes
@@ -103,9 +102,9 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Governance Parameter Validation (MEDIUM-1 fix)', function() {
+    describe('Governance Parameter Validation (MEDIUM-1 fix)', () => {
 
-        it('should validate approval threshold in basis points', function() {
+        it('should validate approval threshold in basis points', () => {
             const validThresholds = [1, 5000, 9000, 9999, 10000];
             const invalidThresholds = [0, 10001, 20000];
 
@@ -120,7 +119,7 @@ describe('Polaris Contract Validation Logic', function() {
             });
         });
 
-        it('should validate max vote weight', function() {
+        it('should validate max vote weight', () => {
             const validWeights = [1, 100, 1000, 10000];
             const invalidWeights = [0, 10001];
 
@@ -135,7 +134,7 @@ describe('Polaris Contract Validation Logic', function() {
             });
         });
 
-        it('should validate attestor Respect threshold', function() {
+        it('should validate attestor Respect threshold', () => {
             const validThresholds = [1, 50, 500, 1000];
             const invalidThresholds = [0, 1001];
 
@@ -151,9 +150,9 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Respect Value Validation', function() {
+    describe('Respect Value Validation', () => {
 
-        it('should accept Respect values from 1 to 1000', function() {
+        it('should accept Respect values from 1 to 1000', () => {
             const validValues = [1, 50, 100, 500, 1000];
 
             validValues.forEach(value => {
@@ -162,13 +161,13 @@ describe('Polaris Contract Validation Logic', function() {
             });
         });
 
-        it('should reject Respect value of 0', function() {
+        it('should reject Respect value of 0', () => {
             const value = 0;
             const isValid = value > 0 && value <= MAX_RESPECT;
             expect(isValid).to.be.false;
         });
 
-        it('should reject Respect value > 1000', function() {
+        it('should reject Respect value > 1000', () => {
             const values = [1001, 2000, 10000];
 
             values.forEach(value => {
@@ -178,9 +177,9 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Approval Calculation (MEDIUM-10 fix)', function() {
+    describe('Approval Calculation (MEDIUM-10 fix)', () => {
 
-        it('should calculate approval using integer basis points', function() {
+        it('should calculate approval using integer basis points', () => {
             // Simulate: 90 up votes, 10 down votes = 90% approval
             const upVotes = 90;
             const downVotes = 10;
@@ -194,7 +193,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(approved).to.be.true;
         });
 
-        it('should reject with 89% approval (< 90% threshold)', function() {
+        it('should reject with 89% approval (< 90% threshold)', () => {
             const upVotes = 89;
             const downVotes = 11;
             const totalVotes = upVotes + downVotes;
@@ -206,7 +205,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(approved).to.be.false;
         });
 
-        it('should handle edge case: exactly 90% approval', function() {
+        it('should handle edge case: exactly 90% approval', () => {
             const upVotes = 900;
             const downVotes = 100;
             const totalVotes = upVotes + downVotes;
@@ -215,10 +214,10 @@ describe('Polaris Contract Validation Logic', function() {
             const approved = (totalVotes > 0) &&
                            (upVotes * 10000 >= totalVotes * approvalThresholdBP);
 
-            expect(approved).to.be.true; // Should be true (≥ threshold)
+            expect(approved).to.be.true; // Should be true (>= threshold)
         });
 
-        it('should avoid floating point precision issues', function() {
+        it('should avoid floating point precision issues', () => {
             // These numbers might cause issues with floating point
             const upVotes = 333333;
             const downVotes = 370370;
@@ -238,9 +237,9 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Overflow Prevention (MEDIUM-8 fix)', function() {
+    describe('Overflow Prevention (MEDIUM-8 fix)', () => {
 
-        it('should demonstrate overflow risk with uint64', function() {
+        it('should demonstrate overflow risk with uint64', () => {
             // Simulating the calculation (using BigInt in JavaScript)
             const uint64Max = BigInt('18446744073709551615');
 
@@ -261,7 +260,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(share > BigInt('0')).to.be.true;
         });
 
-        it('should handle maximum safe values', function() {
+        it('should handle maximum safe values', () => {
             // Test with values near uint64 max
             const uint64Max = BigInt('18446744073709551615');
             const safeTotal = uint64Max / BigInt('1000000'); // Leave room for multiplication
@@ -278,15 +277,15 @@ describe('Polaris Contract Validation Logic', function() {
 
             // Verify actual calculation
             const expectedShare = BigInt('184467440737');
-            expect(share).to.equal(expectedShare);
+            expect(share).to.deep.equal(expectedShare);
         });
     });
 
-    describe('Voting Window Calculations (LOW-22 fix)', function() {
+    describe('Voting Window Calculations (LOW-22 fix)', () => {
 
         const SECONDS_PER_DAY = 24 * 60 * 60;
 
-        it('should calculate correct voting windows', function() {
+        it('should calculate correct voting windows', () => {
             // Expected values from contract
             const windows = {
                 21: 7 * SECONDS_PER_DAY,   // 604800 = 7 days (release)
@@ -306,9 +305,9 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Tag Validation', function() {
+    describe('Tag Validation', () => {
 
-        it('should accept up to 10 tags', function() {
+        it('should accept up to 10 tags', () => {
             const tags = ['rock', '1970s', 'progressive', 'uk', 'vinyl',
                          'remaster', 'concept', 'epic', 'classic', 'rare'];
             expect(tags.length).to.equal(MAX_TAGS);
@@ -316,7 +315,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(isValid).to.be.true;
         });
 
-        it('should reject more than 10 tags', function() {
+        it('should reject more than 10 tags', () => {
             const tags = ['rock', '1970s', 'progressive', 'uk', 'vinyl',
                          'remaster', 'concept', 'epic', 'classic', 'rare', 'bonus'];
             expect(tags.length).to.equal(11);
@@ -325,30 +324,30 @@ describe('Polaris Contract Validation Logic', function() {
         });
     });
 
-    describe('Path Length Validation', function() {
+    describe('Path Length Validation', () => {
 
-        it('should accept path up to 20 nodes', function() {
+        it('should accept path up to 20 nodes', () => {
             const path = new Array(MAX_PATH_LENGTH).fill('node');
             const isValid = path.length > 0 && path.length <= MAX_PATH_LENGTH;
             expect(isValid).to.be.true;
         });
 
-        it('should reject empty path', function() {
+        it('should reject empty path', () => {
             const path = [];
             const isValid = path.length > 0 && path.length <= MAX_PATH_LENGTH;
             expect(isValid).to.be.false;
         });
 
-        it('should reject path > 20 nodes', function() {
+        it('should reject path > 20 nodes', () => {
             const path = new Array(21).fill('node');
             const isValid = path.length > 0 && path.length <= MAX_PATH_LENGTH;
             expect(isValid).to.be.false;
         });
     });
 
-    describe('Election Round Validation (LOW-8 fix)', function() {
+    describe('Election Round Validation (LOW-8 fix)', () => {
 
-        it('should require strictly increasing rounds', function() {
+        it('should require strictly increasing rounds', () => {
             const currentRound = 5;
 
             expect(6 > currentRound).to.be.true;  // Valid: 6 > 5
@@ -356,7 +355,7 @@ describe('Polaris Contract Validation Logic', function() {
             expect(4 > currentRound).to.be.false; // Invalid: 4 < 5
         });
 
-        it('should prevent replay of old election data', function() {
+        it('should prevent replay of old election data', () => {
             const rounds = [1, 2, 3, 4, 5];
             const currentRound = 5;
 

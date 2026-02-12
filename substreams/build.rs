@@ -1,5 +1,5 @@
 use anyhow::Result;
-use substreams_antelope::Abigen;
+use substreams_antelope_abigen::Abigen;
 
 fn main() -> Result<()> {
     // Generate Rust bindings for Polaris Music Registry contract

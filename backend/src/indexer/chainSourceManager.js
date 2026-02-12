@@ -88,7 +88,10 @@ export class ChainSourceManager {
             startBlock: parseInt(this.config.startBlock || process.env.START_BLOCK || '0', 10),
             endBlock: parseInt(this.config.endBlock || process.env.END_BLOCK || '0xffffffff', 10),
             reconnectDelay: 3000,
-            reconnectMaxAttempts: 10
+            reconnectMaxAttempts: 10,
+            // TLS/SSL options for wss:// connections
+            tlsCaCertPath: this.config.tlsCaCertPath || process.env.SHIP_CA_CERT_PATH || '',
+            tlsRejectUnauthorized: this.config.tlsRejectUnauthorized ?? (process.env.SHIP_REJECT_UNAUTHORIZED !== 'false'),
         };
 
         log.info('Initializing SHiP event source', {
