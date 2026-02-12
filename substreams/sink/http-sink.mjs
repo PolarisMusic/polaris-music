@@ -8,7 +8,7 @@
  * Requires Node 18+ (uses global fetch API)
  *
  * Usage:
- *   node http-sink.mjs --endpoint=http://localhost:3000 --contract=polaris
+ *   node http-sink.mjs --endpoint=http://localhost:3000 --contract=polarismusic
  *   node http-sink.mjs --help
  *
  * Environment Variables:
@@ -16,7 +16,7 @@
  *   SUBSTREAMS_ENDPOINT - Firehose endpoint (default: eos.firehose.pinax.network:443)
  *   SUBSTREAMS_API_TOKEN - Pinax API token (required)
  *   START_BLOCK         - Starting block number (default: 0)
- *   CONTRACT_ACCOUNT    - Contract account name (default: polaris)
+ *   CONTRACT_ACCOUNT    - Contract account name (default: polarismusic)
  */
 
 import { spawn } from 'child_process';
@@ -37,7 +37,7 @@ const config = {
     // Backend ingestion API key (must match INGEST_API_KEY on the backend)
     ingestApiKey: process.env.INGEST_API_KEY || '',
     startBlock: process.env.START_BLOCK || '0',
-    contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
+    contractAccount: process.env.CONTRACT_ACCOUNT || 'polarismusic',
 
     // Substreams package configuration (Pinax Antelope foundational modules)
     // Using stable .spkg URL (more reliable than shorthand registry ref)
