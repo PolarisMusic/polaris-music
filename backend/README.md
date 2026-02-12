@@ -241,7 +241,21 @@ GET  /api/events/:hash    # Retrieve event by hash
 POST /api/releases        # Submit new release
 GET  /api/releases/:id    # Get release details
 GET  /api/graph/stats     # Graph statistics
+POST /api/ingest          # Chain ingestion endpoint (Substreams → Backend)
 ```
+
+#### Authentication
+
+**Chain Ingestion Endpoints** (`/api/ingest`):
+- **Required in chain/production mode**: Requests must include `X-API-Key` header
+- **Development mode**: No authentication required (use `INGEST_MODE=dev`)
+- **Configuration**:
+  ```bash
+  export INGEST_MODE=chain        # Enable auth for ingestion
+  export INGEST_API_KEY=your_key  # API key for ingestion
+  ```
+- **Usage**: Substreams HTTP sink automatically includes this header when `INGEST_API_KEY` is set
+- **Security**: This prevents unauthorized writes to the graph database in production
 
 ### GraphQL API
 
