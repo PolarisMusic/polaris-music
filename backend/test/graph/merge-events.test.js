@@ -8,51 +8,11 @@
  * 4. Universal ID system prevents duplicate nodes
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
-import neo4j from 'neo4j-driver';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 import EventStore from '../../src/storage/eventStore.js';
 import MusicGraphDatabase from '../../src/graph/schema.js';
 import { MergeOperations } from '../../src/graph/merge.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
-
-// Mock Neo4j driver to avoid real database connections in CI
-jest.mock('neo4j-driver', () => ({
-    default: {
-        driver: jest.fn(() => ({
-            session: jest.fn(() => ({
-                run: jest.fn().mockResolvedValue({ records: [] }),
-                close: jest.fn(),
-                beginTransaction: jest.fn(() => ({
-                    run: jest.fn().mockResolvedValue({ records: [] }),
-                    commit: jest.fn().mockResolvedValue(undefined),
-                    rollback: jest.fn().mockResolvedValue(undefined),
-                })),
-            })),
-            close: jest.fn(),
-            verifyConnectivity: jest.fn().mockResolvedValue(true),
-        })),
-        auth: {
-            basic: jest.fn(() => ({})),
-        },
-    },
-    // Also export the mocks directly for default import syntax
-    driver: jest.fn(() => ({
-        session: jest.fn(() => ({
-            run: jest.fn().mockResolvedValue({ records: [] }),
-            close: jest.fn(),
-            beginTransaction: jest.fn(() => ({
-                run: jest.fn().mockResolvedValue({ records: [] }),
-                commit: jest.fn().mockResolvedValue(undefined),
-                rollback: jest.fn().mockResolvedValue(undefined),
-            })),
-        })),
-        close: jest.fn(),
-        verifyConnectivity: jest.fn().mockResolvedValue(true),
-    })),
-    auth: {
-        basic: jest.fn(() => ({})),
-    },
-}));
 
 // Skip these integration tests if no database is configured
 const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
@@ -763,10 +723,4 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         });
     });
 
-    afterAll(async () => {
-        // Clean up mocks and connections
-        if (session) await session.close();
-        if (driver) await driver.close();
-        jest.restoreAllMocks();
-    });
 });
