@@ -42,8 +42,9 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             store: eventStore
         });
 
-        // Verify connection and clear DB to prevent pollution from prior test files
+        // Verify connection, initialize schema (creates unique constraints), and clear data
         await driver.verifyConnectivity();
+        await graphDb.initializeSchema();
         const cleanSession = driver.session();
         try { await cleanSession.run('MATCH (n) DETACH DELETE n'); } finally { await cleanSession.close(); }
     });
