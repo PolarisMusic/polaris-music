@@ -121,8 +121,10 @@ For deploying to Jungle4 testnet, use the automated deployment script:
    ```bash
    export CONTRACT_ACCOUNT=polarismusic  # Your Jungle4 account name
    export CHAIN_RPC_URL=https://jungle4.greymass.com
-   export TESTNET_PRIVATE_KEY=5K...  # Your private key (optional for manual unlock)
+   export TESTNET_PRIVATE_KEY=5K...  # Your private key (recommended - no wallet needed)
    ```
+
+   **Note**: If `TESTNET_PRIVATE_KEY` is set, deployment uses `--private-key` flag (no wallet required). If not set, you must have an unlocked wallet.
 
 ### Deploy
 

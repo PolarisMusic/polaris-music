@@ -95,7 +95,14 @@ fi
 
 # Deploy the contract
 echo "Executing deployment..."
-if cleos -u "$CHAIN_RPC_URL" set contract "$CONTRACT_ACCOUNT" ./build polaris.music.wasm polaris.music.abi -p "$CONTRACT_ACCOUNT@active"; then
+# Use private key if provided, otherwise rely on wallet
+if [ -n "$TESTNET_PRIVATE_KEY" ]; then
+    DEPLOY_CMD="cleos -u $CHAIN_RPC_URL set contract $CONTRACT_ACCOUNT ./build polaris.music.wasm polaris.music.abi -p $CONTRACT_ACCOUNT@active --private-key $TESTNET_PRIVATE_KEY"
+else
+    DEPLOY_CMD="cleos -u $CHAIN_RPC_URL set contract $CONTRACT_ACCOUNT ./build polaris.music.wasm polaris.music.abi -p $CONTRACT_ACCOUNT@active"
+fi
+
+if $DEPLOY_CMD; then
     echo ""
     echo -e "${GREEN}=====================================${NC}"
     echo -e "${GREEN}  ✓ Deployment Successful!${NC}"
