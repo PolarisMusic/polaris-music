@@ -103,7 +103,7 @@ jobs:
 
     steps:
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@v0.21.0
+      uses: aquasecurity/trivy-action@0.21.0
       with:
         image-ref: ghcr.io/polarismusic/polaris-music/${{ matrix.component }}:main
         format: 'sarif'
