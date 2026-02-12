@@ -158,6 +158,72 @@ cleos -u https://jungle4.greymass.com push action polarismusic init \
 
 **Note**: Replace `fractally4` with the actual Fractally oracle account on Jungle4, and ensure `eosio.token` exists or use the appropriate token contract account.
 
+## Token Contract Setup (Required for MUS Issuance)
+
+The Polaris contract requires a separate token contract to issue MUS tokens for rewards. On testnets like Jungle4, you cannot use the system `eosio.token` account, so you must deploy your own token contract.
+
+### Prerequisites
+
+1. **Create Token Account**: Get a second Jungle4 testnet account via the faucet for the token contract:
+   - Visit: https://monitor.jungletestnet.io/#faucet
+   - Create account (recommended name: `polaristoken`)
+   - Save the account name and private key
+
+2. **Obtain eosio.token Contract Files**:
+   - Download from: https://github.com/AntelopeIO/reference-contracts
+   - Or build from source (requires CDT):
+     ```bash
+     git clone https://github.com/AntelopeIO/reference-contracts
+     cd reference-contracts/contracts/eosio.token
+     mkdir build && cd build
+     cmake .. && make
+     cp eosio.token.wasm eosio.token.abi /path/to/polaris-music/contracts/
+     ```
+   - Place `eosio.token.wasm` and `eosio.token.abi` in the `contracts/` directory
+
+3. **Set Environment Variables**:
+   ```bash
+   export TOKEN_CONTRACT_ACCOUNT=polaristoken  # Your token account name
+   export CONTRACT_ACCOUNT=polarismusic        # Your Polaris account
+   export TESTNET_PRIVATE_KEY=5K...            # Your private key
+   ```
+
+### Deploy Token Contract
+
+After deploying the Polaris contract with `./deploy-testnet.sh`, run:
+
+```bash
+./deploy-token.sh
+```
+
+The script will:
+1. Verify `cleos` installation
+2. Check that both accounts exist on Jungle4
+3. Verify eosio.token contract files are present
+4. Deploy eosio.token contract to the token account
+5. Create the MUS token with Polaris as the issuer (max supply: 1 billion MUS)
+
+### Update Polaris Contract Initialization
+
+After token deployment, initialize the Polaris contract with the token account:
+
+```bash
+cleos -u https://jungle4.greymass.com push action polarismusic init \
+  '["<oracle_account>", "polaristoken"]' -p polarismusic@active
+```
+
+Replace `<oracle_account>` with the actual Fractally oracle account on Jungle4.
+
+### Verify Token Setup
+
+```bash
+# Check token stats
+cleos -u https://jungle4.greymass.com get currency stats polaristoken MUS
+
+# Test issuance (happens automatically during finalize())
+# MUS tokens will be issued when rewards are distributed
+```
+
 ## Usage Examples
 
 ### Anchor an Event
