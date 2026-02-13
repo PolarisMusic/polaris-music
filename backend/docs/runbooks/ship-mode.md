@@ -93,7 +93,7 @@ cd /home/user/polaris-music/backend
 cat > .env << EOF
 CHAIN_SOURCE=ship
 SHIP_URL=ws://localhost:8080
-CONTRACT_ACCOUNT=polaris
+CONTRACT_ACCOUNT=polarismusic
 START_BLOCK=100000000
 GRAPH_URI=bolt://localhost:7687
 GRAPH_USER=neo4j
