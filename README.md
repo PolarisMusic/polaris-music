@@ -186,7 +186,7 @@ This service is included in `docker-compose.yml` but requires a Pinax API token 
 
 **Configuration Options**:
 - `START_BLOCK`: Block number to start ingestion from (default: 0)
-- `CONTRACT_ACCOUNT`: Contract account name (default: polaris)
+- `CONTRACT_ACCOUNT`: Contract account name (default: polarismusic for Jungle4, or your deployed account)
 - `SUBSTREAMS_ENDPOINT`: Firehose endpoint (default: eos.firehose.pinax.network:443)
 
 ## Core Concepts
