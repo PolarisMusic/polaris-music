@@ -1,0 +1,332 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": TIMESTAMP,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000018",
+"name": "Smoke See You in Magic",
+"alt_names": ["See You in Magic"],
+"release_date": "2008-04-22",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-017",
+"trivia": "Smoke-test release bundle based on See You in Magic (Wikipedia) track listing and personnel. Reuses Smoke John Reis, Smoke Gar Wood, and Smoke Jason Kourkounis person_ids from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000708",
+"name": "Vagrant Records",
+"alt_names": []
+},
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000715",
+"name": "Swami Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers",
+"alt_names": ["The Night Marchers"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000425",
+"name": "Smoke John Reis",
+"role": "guitar, lead vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000436",
+"name": "Smoke Gar Wood",
+"role": "guitar, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000467",
+"name": "Smoke Tommy Kitsos",
+"role": "bass guitar"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000465",
+"name": "Smoke Jason Kourkounis",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004202",
+"title": "Closed for Inventory",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004203",
+"title": "In Dead Sleep (I Snore ZZZZ)",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004204",
+"title": "I Wanna Deadbeat You",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004205",
+"title": "Jump in the Fire",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004206",
+"title": "Branded",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004207",
+"title": "Whose Lady R U?",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004208",
+"title": "You've Got Nerve",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004209",
+"title": "Open Your Legs",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004210",
+"title": "Bad Bloods",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004211",
+"title": "And I Keep Holding On",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004212",
+"title": "Total Bloodbath",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004213",
+"title": "Panther in Crime",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004214",
+"title": "We're Goin' Down",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005202",
+"title": "Closed for Inventory",
+"duration": 168,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004202",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005203",
+"title": "In Dead Sleep (I Snore ZZZZ)",
+"duration": 200,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004203",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005204",
+"title": "I Wanna Deadbeat You",
+"duration": 180,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004204",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005205",
+"title": "Jump in the Fire",
+"duration": 228,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004205",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005206",
+"title": "Branded",
+"duration": 190,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004206",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005207",
+"title": "Whose Lady R U?",
+"duration": 247,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004207",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005208",
+"title": "You've Got Nerve",
+"duration": 328,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004208",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005209",
+"title": "Open Your Legs",
+"duration": 210,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004209",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005210",
+"title": "Bad Bloods",
+"duration": 185,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004210",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005211",
+"title": "And I Keep Holding On",
+"duration": 296,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004211",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005212",
+"title": "Total Bloodbath",
+"duration": 195,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004212",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005213",
+"title": "Panther in Crime",
+"duration": 200,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004213",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005214",
+"title": "We're Goin' Down",
+"duration": 193,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004214",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000016",
+"name": "Smoke The Night Marchers"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Closed for Inventory", "duration": 168 },
+{ "position": "1", "track_title": "In Dead Sleep (I Snore ZZZZ)", "duration": 200 },
+{ "position": "2", "track_title": "I Wanna Deadbeat You", "duration": 180 },
+{ "position": "3", "track_title": "Jump in the Fire", "duration": 228 },
+{ "position": "4", "track_title": "Branded", "duration": 190 },
+{ "position": "5", "track_title": "Whose Lady R U?", "duration": 247 },
+{ "position": "6", "track_title": "You've Got Nerve", "duration": 328 },
+{ "position": "7", "track_title": "Open Your Legs", "duration": 210 },
+{ "position": "8", "track_title": "Bad Bloods", "duration": 185 },
+{ "position": "9", "track_title": "And I Keep Holding On", "duration": 296 },
+{ "position": "10", "track_title": "Total Bloodbath", "duration": 195 },
+{ "position": "11", "track_title": "Panther in Crime", "duration": 200 },
+{ "position": "12", "track_title": "We're Goin' Down", "duration": 193 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/See_You_in_Magic",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

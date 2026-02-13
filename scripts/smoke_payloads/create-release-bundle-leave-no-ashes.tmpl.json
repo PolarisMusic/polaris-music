@@ -1,0 +1,309 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": TIMESTAMP,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Leave No Ashes",
+"alt_names": ["Leave No Ashes"],
+"release_date": "2004-06-29",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-016",
+"trivia": "Smoke-test release bundle based on Leave No Ashes (Wikipedia) track listing and personnel. Reuses Smoke Dimitri Coats person_id from Off! bundle.",
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000466",
+"name": "Smoke George Drakoulias",
+"roles": ["producer"]
+}
+]
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000714",
+"name": "V2 Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides",
+"alt_names": ["Burning Brides"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000461",
+"name": "Smoke Dimitri Coats",
+"role": "electric guitar, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000464",
+"name": "Smoke Melanie Coats",
+"role": "bass"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000465",
+"name": "Smoke Jason Kourkounis",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004190",
+"title": "Heart Full of Black",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004191",
+"title": "Come Alive",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004192",
+"title": "Alternative Teenage Suicide",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004193",
+"title": "King of the Demimonde",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004194",
+"title": "Century Song",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004195",
+"title": "Dance With the Devil",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004196",
+"title": "Leave No Ashes",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004197",
+"title": "To Kill a Swan",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004198",
+"title": "Pleasure in the Pain",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004199",
+"title": "From You",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004200",
+"title": "Last Man Standing",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004201",
+"title": "Vampire Waltz",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005190",
+"title": "Heart Full of Black",
+"duration": 195,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004190",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005191",
+"title": "Come Alive",
+"duration": 215,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004191",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005192",
+"title": "Alternative Teenage Suicide",
+"duration": 163,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004192",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005193",
+"title": "King of the Demimonde",
+"duration": 331,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004193",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005194",
+"title": "Century Song",
+"duration": 192,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004194",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005195",
+"title": "Dance With the Devil",
+"duration": 263,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004195",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005196",
+"title": "Leave No Ashes",
+"duration": 207,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004196",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005197",
+"title": "To Kill a Swan",
+"duration": 295,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004197",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005198",
+"title": "Pleasure in the Pain",
+"duration": 235,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004198",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005199",
+"title": "From You",
+"duration": 149,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004199",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005200",
+"title": "Last Man Standing",
+"duration": 165,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004200",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005201",
+"title": "Vampire Waltz",
+"duration": 285,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004201",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Burning Brides"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Heart Full of Black", "duration": 195 },
+{ "position": "1", "track_title": "Come Alive", "duration": 215 },
+{ "position": "2", "track_title": "Alternative Teenage Suicide", "duration": 163 },
+{ "position": "3", "track_title": "King of the Demimonde", "duration": 331 },
+{ "position": "4", "track_title": "Century Song", "duration": 192 },
+{ "position": "5", "track_title": "Dance With the Devil", "duration": 263 },
+{ "position": "6", "track_title": "Leave No Ashes", "duration": 207 },
+{ "position": "7", "track_title": "To Kill a Swan", "duration": 295 },
+{ "position": "8", "track_title": "Pleasure in the Pain", "duration": 235 },
+{ "position": "9", "track_title": "From You", "duration": 149 },
+{ "position": "10", "track_title": "Last Man Standing", "duration": 165 },
+{ "position": "11", "track_title": "Vampire Waltz", "duration": 285 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Leave_No_Ashes",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

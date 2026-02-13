@@ -1,0 +1,131 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Rhythms from a Cosmic Sky",
+"alt_names": ["Rhythms from a Cosmic Sky"],
+"release_date": "2007-05-08",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-010",
+"trivia": "Smoke-test release bundle based on Rhythms from a Cosmic Sky (Wikipedia and Discogs) track listing and personnel. Reuses Smoke Mario Rubalcaba person_id from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000709",
+"name": "Tee Pee Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"name": "Smoke Earthless",
+"alt_names": ["Earthless"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000438",
+"name": "Smoke Isaiah Mitchell",
+"role": "guitar, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000439",
+"name": "Smoke Mike Eginton",
+"role": "bass"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000430",
+"name": "Smoke Mario Rubalcaba",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004100",
+"title": "Godspeed",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000438", "name": "Smoke Isaiah Mitchell" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Mike Eginton" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004101",
+"title": "Sonic Prayer",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000438", "name": "Smoke Isaiah Mitchell" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Mike Eginton" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004102",
+"title": "Cherry Red",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Tony McPhee" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005100",
+"title": "Godspeed",
+"duration": 1368,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004100",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"name": "Smoke Earthless"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005101",
+"title": "Sonic Prayer",
+"duration": 1111,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004101",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"name": "Smoke Earthless"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005102",
+"title": "Cherry Red",
+"duration": 274,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004102",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"name": "Smoke Earthless"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Godspeed", "duration": 1368 },
+{ "position": "1", "track_title": "Sonic Prayer", "duration": 1111 },
+{ "position": "2", "track_title": "Cherry Red", "duration": 274 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Earthless_discography#Rhythms_from_a_Cosmic_Sky",
+"accessed_at": "2026-02-12"
+},
+{
+"type": "discogs",
+"url": "https://www.discogs.com/release/5884217-Earthless-Rhythms-From-A-Cosmic-Sky",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

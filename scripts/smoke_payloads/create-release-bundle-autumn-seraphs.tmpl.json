@@ -1,0 +1,293 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Autumn Of The Seraphs",
+"alt_names": ["Autumn Of The Seraphs"],
+"release_date": "2007-09-11",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-012",
+"trivia": "Smoke-test release bundle based on Autumn Of The Seraphs (Discogs) track listing and personnel. Reuses Smoke Rob Crow person_id from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000711",
+"name": "Touch And Go",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback",
+"alt_names": ["Pinback"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000441",
+"name": "Smoke Rob Crow",
+"role": "vocals, guitar"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000444",
+"name": "Smoke Zach Smith",
+"role": "bass"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000445",
+"name": "Smoke Chris Prescott",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004140",
+"title": "From Nothing To Nowhere",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004141",
+"title": "Barnes",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004142",
+"title": "Good To Sea",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004143",
+"title": "How We Breathe",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004144",
+"title": "Walters",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004145",
+"title": "Subbing For Eden",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004146",
+"title": "Devil You Know",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004147",
+"title": "Blue Harvest",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004148",
+"title": "Torch",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004149",
+"title": "Bouquet",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004150",
+"title": "Off By 50",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000444", "name": "Smoke Zach Smith" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005140",
+"title": "From Nothing To Nowhere",
+"duration": 208,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004140",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005141",
+"title": "Barnes",
+"duration": 257,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004141",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005142",
+"title": "Good To Sea",
+"duration": 192,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004142",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005143",
+"title": "How We Breathe",
+"duration": 247,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004143",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005144",
+"title": "Walters",
+"duration": 240,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004144",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005145",
+"title": "Subbing For Eden",
+"duration": 212,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004145",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005146",
+"title": "Devil You Know",
+"duration": 235,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004146",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005147",
+"title": "Blue Harvest",
+"duration": 214,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004147",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005148",
+"title": "Torch",
+"duration": 274,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004148",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005149",
+"title": "Bouquet",
+"duration": 310,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004149",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005150",
+"title": "Off By 50",
+"duration": 240,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004150",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"name": "Smoke Pinback"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "From Nothing To Nowhere", "duration": 208 },
+{ "position": "1", "track_title": "Barnes", "duration": 257 },
+{ "position": "2", "track_title": "Good To Sea", "duration": 192 },
+{ "position": "3", "track_title": "How We Breathe", "duration": 247 },
+{ "position": "4", "track_title": "Walters", "duration": 240 },
+{ "position": "5", "track_title": "Subbing For Eden", "duration": 212 },
+{ "position": "6", "track_title": "Devil You Know", "duration": 235 },
+{ "position": "7", "track_title": "Blue Harvest", "duration": 214 },
+{ "position": "8", "track_title": "Torch", "duration": 274 },
+{ "position": "9", "track_title": "Bouquet", "duration": 310 },
+{ "position": "10", "track_title": "Off By 50", "duration": 240 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/113828-Pinback-Autumn-Of-The-Seraphs",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

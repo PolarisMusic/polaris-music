@@ -1,0 +1,91 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Oblivion",
+"alt_names": ["Oblivion"],
+"release_date": "2025-07-18",
+"format": "Single",
+"country": "US",
+"catalog_number": "SMOKE-TEST-007",
+"trivia": "Smoke-test release bundle based on Alkaline Trio's Oblivion single (Wikipedia) description and personnel. Produced by Travis Barker, first recording with Atom Willard."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000707",
+"name": "Rise Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000008",
+"name": "Smoke Alkaline Trio",
+"alt_names": ["Alkaline Trio"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000415",
+"name": "Smoke Matt Skiba",
+"role": "guitar, lead vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000423",
+"name": "Smoke Dan Andriano",
+"role": "bass, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000424",
+"name": "Smoke Atom Willard",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004050",
+"title": "Oblivion",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000423", "name": "Smoke Dan Andriano" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Atom Willard" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005050",
+"title": "Oblivion",
+"duration": 221,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004050",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000008",
+"name": "Smoke Alkaline Trio"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000414",
+"name": "Smoke Travis Barker",
+"roles": ["producer"]
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Oblivion", "duration": 221 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Alkaline_Trio#New_material_and_recording_with_Travis_Barker_(2025%E2%80%93present)",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

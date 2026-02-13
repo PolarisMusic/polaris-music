@@ -1,0 +1,619 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Songs About Angels, Evil And Running Around On Fire",
+"alt_names": ["Songs About Angels, Evil And Running Around On Fire"],
+"release_date": "1997-01-01",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-011",
+"trivia": "Smoke-test release bundle based on Songs About Angels, Evil And Running Around On Fire (Discogs) track listing and personnel. Reuses Smoke Mario Rubalcaba person_id from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000710",
+"name": "Headhunter Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy",
+"alt_names": ["Thingy"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000441",
+"name": "Smoke Rob Crow",
+"role": "vocals, guitar, piano"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000442",
+"name": "Smoke Elea Tenuta",
+"role": "vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000443",
+"name": "Smoke Jason Soares",
+"role": "bass"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000430",
+"name": "Smoke Mario Rubalcaba",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004110",
+"title": "Destroy All Music",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004111",
+"title": "Sk5",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004112",
+"title": "Olive Drab",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004113",
+"title": "Thins",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004114",
+"title": "Honest",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004115",
+"title": "Fake",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004116",
+"title": "Numb",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004117",
+"title": "Cottingley Fairies",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004118",
+"title": "Nosebleed",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004119",
+"title": "Evil Shadow",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004120",
+"title": "Revolution In A Box",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004121",
+"title": "Homework",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004122",
+"title": "Drugs",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004123",
+"title": "Fine",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004124",
+"title": "Window",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004125",
+"title": "Hit Bottom",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004126",
+"title": "Semolina/Kessel Run",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004127",
+"title": "Cutest Baby",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004128",
+"title": "Wave Of Depression",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004129",
+"title": "Rental",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004130",
+"title": "Cut",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004131",
+"title": "Already Ivy",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004132",
+"title": "Nod",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004133",
+"title": "Light Drizzle",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Elea Tenuta" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000443", "name": "Smoke Jason Soares" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005110",
+"title": "Destroy All Music",
+"duration": 114,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004110",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005111",
+"title": "Sk5",
+"duration": 113,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004111",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005112",
+"title": "Olive Drab",
+"duration": 119,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004112",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005113",
+"title": "Thins",
+"duration": 106,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004113",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005114",
+"title": "Honest",
+"duration": 69,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004114",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005115",
+"title": "Fake",
+"duration": 46,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004115",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005116",
+"title": "Numb",
+"duration": 177,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004116",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005117",
+"title": "Cottingley Fairies",
+"duration": 95,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004117",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005118",
+"title": "Nosebleed",
+"duration": 74,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004118",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005119",
+"title": "Evil Shadow",
+"duration": 173,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004119",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005120",
+"title": "Revolution In A Box",
+"duration": 79,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004120",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005121",
+"title": "Homework",
+"duration": 135,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004121",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005122",
+"title": "Drugs",
+"duration": 94,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004122",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005123",
+"title": "Fine",
+"duration": 43,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004123",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005124",
+"title": "Window",
+"duration": 100,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004124",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005125",
+"title": "Hit Bottom",
+"duration": 113,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004125",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005126",
+"title": "Semolina/Kessel Run",
+"duration": 97,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004126",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005127",
+"title": "Cutest Baby",
+"duration": 127,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004127",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005128",
+"title": "Wave Of Depression",
+"duration": 116,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004128",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005129",
+"title": "Rental",
+"duration": 121,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004129",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005130",
+"title": "Cut",
+"duration": 156,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004130",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005131",
+"title": "Already Ivy",
+"duration": 193,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004131",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005132",
+"title": "Nod",
+"duration": 98,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004132",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005133",
+"title": "Light Drizzle",
+"duration": 287,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004133",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Thingy"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Destroy All Music", "duration": 114 },
+{ "position": "1", "track_title": "Sk5", "duration": 113 },
+{ "position": "2", "track_title": "Olive Drab", "duration": 119 },
+{ "position": "3", "track_title": "Thins", "duration": 106 },
+{ "position": "4", "track_title": "Honest", "duration": 69 },
+{ "position": "5", "track_title": "Fake", "duration": 46 },
+{ "position": "6", "track_title": "Numb", "duration": 177 },
+{ "position": "7", "track_title": "Cottingley Fairies", "duration": 95 },
+{ "position": "8", "track_title": "Nosebleed", "duration": 74 },
+{ "position": "9", "track_title": "Evil Shadow", "duration": 173 },
+{ "position": "10", "track_title": "Revolution In A Box", "duration": 79 },
+{ "position": "11", "track_title": "Homework", "duration": 135 },
+{ "position": "12", "track_title": "Drugs", "duration": 94 },
+{ "position": "13", "track_title": "Fine", "duration": 43 },
+{ "position": "14", "track_title": "Window", "duration": 100 },
+{ "position": "15", "track_title": "Hit Bottom", "duration": 113 },
+{ "position": "16", "track_title": "Semolina/Kessel Run", "duration": 97 },
+{ "position": "17", "track_title": "Cutest Baby", "duration": 127 },
+{ "position": "18", "track_title": "Wave Of Depression", "duration": 116 },
+{ "position": "19", "track_title": "Rental", "duration": 121 },
+{ "position": "20", "track_title": "Cut", "duration": 156 },
+{ "position": "21", "track_title": "Already Ivy", "duration": 193 },
+{ "position": "22", "track_title": "Nod", "duration": 98 },
+{ "position": "23", "track_title": "Light Drizzle", "duration": 287 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/638812-Thingy-Songs-About-Angels-Evil-And-Running-Around-On-Fire",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

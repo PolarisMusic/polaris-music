@@ -1,0 +1,751 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000008",
+"name": "Smoke California",
+"alt_names": ["California"],
+"release_date": "2016-07-01",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-006",
+"trivia": "Smoke-test release bundle based on California (Blink-182 album) (Wikipedia) track listing and personnel. Includes deluxe edition tracks. First album with Matt Skiba replacing Tom DeLonge."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000706",
+"name": "BMG",
+"alt_names": ["BMG Rights Management"]
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182",
+"alt_names": ["Blink-182"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000413",
+"name": "Smoke Mark Hoppus",
+"role": "vocals, bass"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000414",
+"name": "Smoke Travis Barker",
+"role": "drums, percussion, background vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000415",
+"name": "Smoke Matt Skiba",
+"role": "vocals, guitar"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004020",
+"title": "Cynical",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004021",
+"title": "Bored to Death",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004022",
+"title": "She's Out of Her Mind",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004023",
+"title": "Los Angeles",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004024",
+"title": "Sober",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000417", "name": "Smoke Patrick Stump" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004025",
+"title": "Built This Pool",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004026",
+"title": "No Future",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004027",
+"title": "Home Is Such a Lonely Place",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000418", "name": "Smoke David Hodges" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004028",
+"title": "Kings of the Weekend",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000418", "name": "Smoke David Hodges" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004029",
+"title": "Teenage Satellites",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000418", "name": "Smoke David Hodges" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004030",
+"title": "Left Alone",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004031",
+"title": "Rabbit Hole",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004032",
+"title": "San Diego",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000417", "name": "Smoke Patrick Stump" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004033",
+"title": "The Only Thing That Matters",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004034",
+"title": "California",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000419", "name": "Smoke Martin Johnson" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004035",
+"title": "Brohemian Rhapsody",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004036",
+"title": "Hey I'm Sorry",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004037",
+"title": "Parking Lot",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004038",
+"title": "Misery",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004039",
+"title": "Good Old Days",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000420", "name": "Smoke Nicholas Furlong" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004040",
+"title": "Don't Mean Anything",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004041",
+"title": "Hey I'm Sorry",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004042",
+"title": "Last Train Home",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004043",
+"title": "Wildfire",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004044",
+"title": "6/8",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004045",
+"title": "Long Lost Feeling",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004046",
+"title": "Bottom of the Ocean",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000421", "name": "Smoke Simon Wilcox" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004047",
+"title": "Can't Get You More Pregnant",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004048",
+"title": "Bored to Death (live and acoustic)",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000416", "name": "Smoke John Feldmann" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005020",
+"title": "Cynical",
+"duration": 115,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004020",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005021",
+"title": "Bored to Death",
+"duration": 235,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004021",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005022",
+"title": "She's Out of Her Mind",
+"duration": 162,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004022",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000422",
+"name": "Smoke Alabama Barker",
+"roles": ["piano"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005023",
+"title": "Los Angeles",
+"duration": 183,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004023",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005024",
+"title": "Sober",
+"duration": 179,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004024",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005025",
+"title": "Built This Pool",
+"duration": 16,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004025",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005026",
+"title": "No Future",
+"duration": 225,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004026",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005027",
+"title": "Home Is Such a Lonely Place",
+"duration": 201,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004027",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005028",
+"title": "Kings of the Weekend",
+"duration": 176,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004028",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005029",
+"title": "Teenage Satellites",
+"duration": 191,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004029",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005030",
+"title": "Left Alone",
+"duration": 189,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004030",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005031",
+"title": "Rabbit Hole",
+"duration": 155,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004031",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005032",
+"title": "San Diego",
+"duration": 192,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004032",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005033",
+"title": "The Only Thing That Matters",
+"duration": 117,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004033",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005034",
+"title": "California",
+"duration": 190,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004034",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005035",
+"title": "Brohemian Rhapsody",
+"duration": 30,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004035",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005036",
+"title": "Hey I'm Sorry",
+"duration": 237,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004036",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005037",
+"title": "Parking Lot",
+"duration": 166,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004037",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005038",
+"title": "Misery",
+"duration": 231,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004038",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005039",
+"title": "Good Old Days",
+"duration": 203,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004039",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005040",
+"title": "Don't Mean Anything",
+"duration": 166,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004040",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005041",
+"title": "Hey I'm Sorry",
+"duration": 236,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004041",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005042",
+"title": "Last Train Home",
+"duration": 201,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004042",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005043",
+"title": "Wildfire",
+"duration": 182,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004043",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005044",
+"title": "6/8",
+"duration": 227,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004044",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005045",
+"title": "Long Lost Feeling",
+"duration": 184,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004045",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005046",
+"title": "Bottom of the Ocean",
+"duration": 207,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004046",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000421",
+"name": "Smoke Simon Wilcox",
+"roles": ["additional vocals", "guitars"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005047",
+"title": "Can't Get You More Pregnant",
+"duration": 34,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004047",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005048",
+"title": "Bored to Death (live and acoustic)",
+"duration": 235,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004048",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Blink-182"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Cynical", "duration": 115 },
+{ "position": "1", "track_title": "Bored to Death", "duration": 235 },
+{ "position": "2", "track_title": "She's Out of Her Mind", "duration": 162 },
+{ "position": "3", "track_title": "Los Angeles", "duration": 183 },
+{ "position": "4", "track_title": "Sober", "duration": 179 },
+{ "position": "5", "track_title": "Built This Pool", "duration": 16 },
+{ "position": "6", "track_title": "No Future", "duration": 225 },
+{ "position": "7", "track_title": "Home Is Such a Lonely Place", "duration": 201 },
+{ "position": "8", "track_title": "Kings of the Weekend", "duration": 176 },
+{ "position": "9", "track_title": "Teenage Satellites", "duration": 191 },
+{ "position": "10", "track_title": "Left Alone", "duration": 189 },
+{ "position": "11", "track_title": "Rabbit Hole", "duration": 155 },
+{ "position": "12", "track_title": "San Diego", "duration": 192 },
+{ "position": "13", "track_title": "The Only Thing That Matters", "duration": 117 },
+{ "position": "14", "track_title": "California", "duration": 190 },
+{ "position": "15", "track_title": "Brohemian Rhapsody", "duration": 30 },
+{ "position": "16", "track_title": "Hey I'm Sorry", "duration": 237 },
+{ "position": "17", "track_title": "Parking Lot", "duration": 166 },
+{ "position": "18", "track_title": "Misery", "duration": 231 },
+{ "position": "19", "track_title": "Good Old Days", "duration": 203 },
+{ "position": "20", "track_title": "Don't Mean Anything", "duration": 166 },
+{ "position": "21", "track_title": "Hey I'm Sorry", "duration": 236 },
+{ "position": "22", "track_title": "Last Train Home", "duration": 201 },
+{ "position": "23", "track_title": "Wildfire", "duration": 182 },
+{ "position": "24", "track_title": "6/8", "duration": 227 },
+{ "position": "25", "track_title": "Long Lost Feeling", "duration": 184 },
+{ "position": "26", "track_title": "Bottom of the Ocean", "duration": 207 },
+{ "position": "27", "track_title": "Can't Get You More Pregnant", "duration": 34 },
+{ "position": "28", "track_title": "Bored to Death (live and acoustic)", "duration": 235 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/California_(Blink-182_album)",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}
