@@ -122,7 +122,11 @@ params:
   map_events: polaris
   map_anchored_events: polaris
 
-network: eos-mainnet
+# Network configuration
+# Options: eos-mainnet | jungle4-testnet
+# Use jungle4-testnet for development and testing
+# Override with CLI: substreams run -e jungle4.substreams.pinax.network:443 ...
+network: jungle4-testnet
 
 sink:
   module: map_events

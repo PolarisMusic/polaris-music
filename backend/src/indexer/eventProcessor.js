@@ -190,7 +190,7 @@ class EventProcessor {
             // Initialize blockchain RPC with secure fetch (SSL pinning support)
             const secureFetch = createSecureFetch(config.blockchain.rpcUrl);
             this.rpc = new JsonRpc(config.blockchain.rpcUrl, { fetch: secureFetch });
-            this.contractAccount = config.blockchain.contractAccount || 'polaris';
+            this.contractAccount = config.blockchain.contractAccount || 'polarismusic';
             this.pollInterval = config.blockchain.pollInterval || 5000;
             this.batchSize = config.blockchain.batchSize || parseInt(process.env.BATCH_SIZE || '100', 10);
 

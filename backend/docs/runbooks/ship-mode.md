@@ -28,7 +28,9 @@
 3. **Configuration**
    - `CHAIN_SOURCE=ship` environment variable
    - `SHIP_URL` pointing to SHiP WebSocket endpoint
-   - `CONTRACT_ACCOUNT` set to contract name (default: `polaris`)
+     - Local: `ws://localhost:8080`
+     - Jungle4 testnet: `wss://jungle4.eosusa.io` (or other SHiP provider)
+   - `CONTRACT_ACCOUNT` set to contract name (default: `polarismusic`)
 
 ### Environment Variables
 
@@ -37,8 +39,11 @@
 export CHAIN_SOURCE=ship
 
 # SHiP connection
+# Local node:
 export SHIP_URL=ws://localhost:8080
-export CONTRACT_ACCOUNT=polaris
+# Jungle4 testnet (use a dedicated SHiP provider like eosusa.io):
+# export SHIP_URL=wss://jungle4.eosusa.io
+export CONTRACT_ACCOUNT=polarismusic
 export START_BLOCK=0
 export END_BLOCK=0xffffffff
 
@@ -88,7 +93,7 @@ cd /home/user/polaris-music/backend
 cat > .env << EOF
 CHAIN_SOURCE=ship
 SHIP_URL=ws://localhost:8080
-CONTRACT_ACCOUNT=polaris
+CONTRACT_ACCOUNT=polarismusic
 START_BLOCK=100000000
 GRAPH_URI=bolt://localhost:7687
 GRAPH_USER=neo4j

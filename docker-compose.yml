@@ -152,7 +152,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=${NODE_ENV:-development}
       - PORT=3000
 
       # Security: Signature Verification
@@ -162,9 +162,10 @@ services:
       # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
 
       # Blockchain (Jungle4 testnet for development)
-      - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
-      - RPC_URL=https://jungle4.greymass.com
-      - CONTRACT_ACCOUNT=polaris
+      - CHAIN_ID=${CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
+      - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
+      - CHAIN_WS_URL=${CHAIN_WS_URL:-wss://jungle4.greymass.com}
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
 
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
@@ -192,6 +193,10 @@ services:
       - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
       - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
       - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
+
+      # Pinata Configuration (for testnet/production)
+      - PINATA_API_KEY=${PINATA_API_KEY:-}
+      - PINATA_SECRET_API_KEY=${PINATA_SECRET_API_KEY:-}
 
       # Development/Testing: Smoke Test Support
       # DevSigner uses well-known EOSIO dev key (safe: disabled in production via NODE_ENV check)
@@ -238,15 +243,16 @@ services:
       dockerfile: Dockerfile
     container_name: polaris-processor
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=${NODE_ENV:-development}
 
       # Security: Signature Verification
       # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
 
       # Blockchain (Jungle4 testnet for development)
-      - CHAIN_ID=73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d
-      - RPC_URL=https://jungle4.greymass.com
-      - CONTRACT_ACCOUNT=polaris
+      - CHAIN_ID=${CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
+      - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
+      - CHAIN_WS_URL=${CHAIN_WS_URL:-wss://jungle4.greymass.com}
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
 
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
@@ -274,6 +280,10 @@ services:
       - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
       - PIN_PROVIDER_ENDPOINT=${PIN_PROVIDER_ENDPOINT:-}
       - PIN_PROVIDER_TIMEOUT_MS=${PIN_PROVIDER_TIMEOUT_MS:-8000}
+
+      # Pinata Configuration (for testnet/production)
+      - PINATA_API_KEY=${PINATA_API_KEY:-}
+      - PINATA_SECRET_API_KEY=${PINATA_SECRET_API_KEY:-}
 
       # Development/Testing: Smoke Test Support
       # DevSigner uses well-known EOSIO dev key (safe: disabled in production via NODE_ENV check)
@@ -321,7 +331,7 @@ services:
       # Blockchain configuration (explicit values to avoid relying on code defaults)
       - VITE_CHAIN_ID=${VITE_CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
       - VITE_RPC_URL=${VITE_RPC_URL:-https://jungle4.greymass.com}
-      - VITE_CONTRACT_ACCOUNT=${VITE_CONTRACT_ACCOUNT:-polaris}
+      - VITE_CONTRACT_ACCOUNT=${VITE_CONTRACT_ACCOUNT:-polarismusic}
       - VITE_USE_LOCAL_ABI=${VITE_USE_LOCAL_ABI:-true}
     volumes:
       - ./frontend/src:/app/src
@@ -370,13 +380,13 @@ services:
       # DEFAULT: Local package with embedded contract ABI (no Pinax dependency)
       #   - Package: /app/substreams/polaris_music_substreams-v0.1.0.spkg (built in Docker image)
       #   - Module: map_anchored_events
-      #   - Params: map_anchored_events=polaris (module-keyed, no inner quotes)
+      #   - Params: map_anchored_events=polarismusic (module-keyed, no inner quotes)
       #   - Advantage: Works even if Pinax doesn't have our contract ABI
       #
       # FALLBACK: Pinax foundational modules (requires Pinax to have your contract ABI)
       #   - Package: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg
       #   - Module: filtered_actions
-      #   - Params: filtered_actions=code:polaris && action:put (module-keyed, no inner quotes)
+      #   - Params: filtered_actions=code:polarismusic && action:put (module-keyed, no inner quotes)
       #   - Warning: May fail silently if Pinax cannot decode contract actions
       #
       # SINGLE SOURCE OF TRUTH: Set CONTRACT_ACCOUNT only
@@ -386,12 +396,12 @@ services:
       #
       # CRITICAL: Params MUST be in module-keyed format: <module_name>=<value>
       # NOTE: Do NOT use inner quotes in params - spawn() passes them literally
-      # Good: map_anchored_events=polaris
-      # Bad:  map_anchored_events="polaris" (quotes passed to CLI)
+      # Good: map_anchored_events=polarismusic
+      # Bad:  map_anchored_events="polarismusic" (quotes passed to CLI)
       - SUBSTREAMS_PACKAGE=${SUBSTREAMS_PACKAGE:-/app/substreams/polaris_music_substreams-v0.1.0.spkg}
       - SUBSTREAMS_MODULE=${SUBSTREAMS_MODULE:-map_anchored_events}
       - SUBSTREAMS_PARAMS=${SUBSTREAMS_PARAMS:-}  # Empty by default - derived from CONTRACT_ACCOUNT
-      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polaris}
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
 
       # Logging
       - NODE_ENV=development

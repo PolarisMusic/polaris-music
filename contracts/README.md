@@ -35,21 +35,40 @@ cdt-cpp --version
 ### Quick Build
 
 ```bash
+# Production build (recommended - excludes clear() action)
 ./build.sh
+
+# Testnet build with clear() action (for testing only)
+./build.sh --testnet
 ```
+
+**Important**: Always use production builds (without `--testnet`) for mainnet deployment.
 
 ### Manual Build
 
 ```bash
+# Production build
 mkdir -p build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
+make
+
+# Testnet build with clear() action
+mkdir -p build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DTESTNET=ON ..
 make
 ```
 
 The build produces:
 - `polaris.music.wasm` - Contract bytecode
 - `polaris.music.abi` - Application Binary Interface
+
+**Verification**: Before deploying to production, verify that `clear` does NOT appear in the ABI:
+```bash
+grep -i "clear" build/polaris.music.abi
+# Should return nothing for production builds
+```
 
 ## Testing Locally
 
@@ -106,6 +125,130 @@ cleos set contract polaris ./build polaris.music.wasm polaris.music.abi -p polar
 cleos push action polaris init '["fractally", "eosio.token"]' -p polaris
 ```
 
+## Testnet Deployment (Jungle4)
+
+For deploying to Jungle4 testnet, use the automated deployment script:
+
+### Prerequisites
+
+1. **Create Account**: Get a Jungle4 testnet account via the faucet:
+   - Visit: https://monitor.jungletestnet.io/#faucet
+   - Create account and receive test tokens
+   - Save your account name and private key
+
+2. **Set Environment Variables**:
+   ```bash
+   export CONTRACT_ACCOUNT=polarismusic  # Your Jungle4 account name
+   export CHAIN_RPC_URL=https://jungle4.greymass.com
+   export TESTNET_PRIVATE_KEY=5K...  # Your private key (recommended - no wallet needed)
+   ```
+
+   **Note**: If `TESTNET_PRIVATE_KEY` is set, deployment uses `--private-key` flag (no wallet required). If not set, you must have an unlocked wallet.
+
+### Deploy
+
+```bash
+# Run the deployment script
+./deploy-testnet.sh
+```
+
+The script will:
+1. Verify build artifacts exist (runs `./build.sh` if needed)
+2. Check `cleos` installation
+3. Verify account exists on Jungle4
+4. Deploy contract to testnet
+
+### Verify Deployment
+
+```bash
+# Check deployed contract code
+cleos -u https://jungle4.greymass.com get code polarismusic
+
+# View contract ABI
+cleos -u https://jungle4.greymass.com get abi polarismusic
+```
+
+### Initialize on Testnet
+
+**IMPORTANT**: Before initializing, you must deploy the token contract first (see "Token Contract Setup" section below).
+
+After deploying both the Polaris contract AND the token contract, initialize:
+
+```bash
+# Replace <oracle_account> with actual Fractally oracle (e.g., fractally4)
+# Replace polaristoken with your token contract account if different
+cleos -u https://jungle4.greymass.com push action polarismusic init \
+  '["<oracle_account>", "polaristoken"]' -p polarismusic@active
+```
+
+**Note**: You CANNOT use system `eosio.token` on Jungle4. See "Token Contract Setup" section below for required token deployment.
+
+## Token Contract Setup (Required for MUS Issuance)
+
+The Polaris contract requires a separate token contract to issue MUS tokens for rewards. On testnets like Jungle4, you cannot use the system `eosio.token` account, so you must deploy your own token contract.
+
+### Prerequisites
+
+1. **Create Token Account**: Get a second Jungle4 testnet account via the faucet for the token contract:
+   - Visit: https://monitor.jungletestnet.io/#faucet
+   - Create account (recommended name: `polaristoken`)
+   - Save the account name and private key
+
+2. **Obtain eosio.token Contract Files**:
+   - Download from: https://github.com/AntelopeIO/reference-contracts
+   - Or build from source (requires CDT):
+     ```bash
+     git clone https://github.com/AntelopeIO/reference-contracts
+     cd reference-contracts/contracts/eosio.token
+     mkdir build && cd build
+     cmake .. && make
+     cp eosio.token.wasm eosio.token.abi /path/to/polaris-music/contracts/
+     ```
+   - Place `eosio.token.wasm` and `eosio.token.abi` in the `contracts/` directory
+
+3. **Set Environment Variables**:
+   ```bash
+   export TOKEN_CONTRACT_ACCOUNT=polaristoken  # Your token account name
+   export CONTRACT_ACCOUNT=polarismusic        # Your Polaris account
+   export TESTNET_PRIVATE_KEY=5K...            # Your private key
+   ```
+
+### Deploy Token Contract
+
+After deploying the Polaris contract with `./deploy-testnet.sh`, run:
+
+```bash
+./deploy-token.sh
+```
+
+The script will:
+1. Verify `cleos` installation
+2. Check that both accounts exist on Jungle4
+3. Verify eosio.token contract files are present
+4. Deploy eosio.token contract to the token account
+5. Create the MUS token with Polaris as the issuer (max supply: 1 billion MUS)
+
+### Update Polaris Contract Initialization
+
+After token deployment, initialize the Polaris contract with the token account:
+
+```bash
+cleos -u https://jungle4.greymass.com push action polarismusic init \
+  '["<oracle_account>", "polaristoken"]' -p polarismusic@active
+```
+
+Replace `<oracle_account>` with the actual Fractally oracle account on Jungle4.
+
+### Verify Token Setup
+
+```bash
+# Check token stats
+cleos -u https://jungle4.greymass.com get currency stats polaristoken MUS
+
+# Test issuance (happens automatically during finalize())
+# MUS tokens will be issued when rewards are distributed
+```
+
 ## Usage Examples
 
 ### Anchor an Event
@@ -145,7 +288,7 @@ cleos push action polaris attest '[
 
 ```bash
 # Update Respect values first
-cleos push action polaris updaterespect '[
+cleos push action polaris updrespect '[
   [["alice", 50], ["bob", 30]],
   1
 ]' -p fractally
@@ -230,7 +373,7 @@ cleos -u https://jungle4.cryptolions.io:443 \
 | `unstake` | Remove stake from a node | Staker |
 | `like` | Like an entity with path tracking | User |
 | `unlike` | Remove a like | User |
-| `updaterespect` | Update Respect from Fractally | Oracle only |
+| `updrespect` | Update Respect from Fractally | Oracle only |
 | `setoracle` | Set Fractally oracle account | Contract only |
 | `init` | Initialize contract | Contract only |
 | `clear` | Clear all data (**TESTNET only** - compiled out in production via `#ifdef TESTNET`) | Contract only |

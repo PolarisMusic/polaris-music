@@ -349,7 +349,7 @@ curl http://localhost:3000/api/events/{hash}
 # Blockchain
 CHAIN_ID=<network chain id>
 RPC_URL=<blockchain rpc endpoint>
-CONTRACT_ACCOUNT=polaris
+CONTRACT_ACCOUNT=<your_contract_account>  # polarismusic for testnet, or your account name
 
 # Graph Database
 GRAPH_URI=bolt://localhost:7687

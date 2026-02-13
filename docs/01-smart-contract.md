@@ -119,7 +119,7 @@ public:
      * @param respect_data - Array of account:respect pairs from latest election
      * @param election_round - Fractally round number for verification
      */
-    ACTION updaterespect(std::vector<std::pair<name, uint32_t>> respect_data,
+    ACTION updrespect(std::vector<std::pair<name, uint32_t>> respect_data,
                          uint64_t election_round) {
         // Only Fractally contract or designated oracle can update
         require_auth(get_fractally_oracle());

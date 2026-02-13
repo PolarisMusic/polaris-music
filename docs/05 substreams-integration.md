@@ -255,7 +255,7 @@ fn store_respect(block: Block, store: StoreSetProto<polaris::Respect>) {
         }
         
         for trace in transaction.traces() {
-            if trace.receiver != "polaris" || trace.action_name != "updaterespect" {
+            if trace.receiver != "polaris" || trace.action_name != "updrespect" {
                 continue;
             }
             

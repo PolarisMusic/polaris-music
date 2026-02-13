@@ -7,7 +7,7 @@
  * Environment variables (set in .env or docker-compose.yml):
  * - VITE_CHAIN_ID: Chain ID (default: Jungle4 testnet)
  * - VITE_RPC_URL: RPC endpoint URL (default: Jungle4 Greymass)
- * - VITE_CONTRACT_ACCOUNT: Contract account name (default: 'polaris')
+ * - VITE_CONTRACT_ACCOUNT: Contract account name (default: 'polarismusic')
  * - VITE_USE_LOCAL_ABI: Whether to use local ABI fallback (default: 'true' for dev)
  * - VITE_CHAIN_MODE: Target chain environment — 'jungle4' | 'local' | 'mainnet'
  *     jungle4 (default): Jungle4 public testnet
@@ -54,11 +54,11 @@ export const RPC_URL =
 
 /**
  * Contract account name for the Polaris smart contract
- * Default: 'polaris'
+ * Default: 'polarismusic'
  */
 export const CONTRACT_ACCOUNT =
     import.meta.env.VITE_CONTRACT_ACCOUNT ||
-    'polaris';
+    'polarismusic';
 
 /**
  * Whether to use local ABI fallback for development/testing

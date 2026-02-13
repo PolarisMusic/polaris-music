@@ -82,9 +82,16 @@ export class ChainSourceManager {
      * Start SHiP event source
      */
     async startShipSource() {
+        // Determine default endpoints based on NODE_ENV
+        const nodeEnv = process.env.NODE_ENV || 'development';
+        // Note: Greymass does not provide SHiP endpoints, use a dedicated SHiP provider
+        const defaultShipUrl = nodeEnv === 'testnet'
+            ? process.env.CHAIN_WS_URL || 'wss://jungle4.eosusa.io'
+            : 'ws://localhost:8080';
+
         const shipConfig = {
-            shipUrl: this.config.shipUrl || process.env.SHIP_URL || 'ws://localhost:8080',
-            contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polaris',
+            shipUrl: this.config.shipUrl || process.env.SHIP_URL || process.env.CHAIN_WS_URL || defaultShipUrl,
+            contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polarismusic',
             startBlock: parseInt(this.config.startBlock || process.env.START_BLOCK || '0', 10),
             endBlock: parseInt(this.config.endBlock || process.env.END_BLOCK || '0xffffffff', 10),
             reconnectDelay: 3000,

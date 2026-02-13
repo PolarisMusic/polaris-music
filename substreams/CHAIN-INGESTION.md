@@ -232,17 +232,49 @@ Tests verify:
 - ReleaseBundle validation
 - Graph updates (mocked)
 
-### 2. Test Against Testnet
+### 2. Test Against Jungle4 Testnet
 
-Point Substreams at Jungle4 testnet:
+**Jungle4 Configuration**:
 
 ```bash
-export SUBSTREAMS_ENDPOINT="jungle4.firehose.pinax.network:443"
-export CONTRACT_ACCOUNT="your-test-contract"
-export START_BLOCK="1000"  # Early testnet block
+# Set testnet environment variables
+export NODE_ENV=testnet
+export SUBSTREAMS_ENDPOINT="jungle4.substreams.pinax.network:443"
+export SUBSTREAMS_API_TOKEN="your_pinax_api_key"
+export CONTRACT_ACCOUNT="polarismusic"  # Your testnet contract account
+export START_BLOCK="1000"  # Early testnet block or latest
 
+# Backend should use Jungle4 RPC
+export CHAIN_RPC_URL="https://jungle4.greymass.com"
+export CHAIN_WS_URL="wss://jungle4.greymass.com"
+export CHAIN_ID="73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d"
+```
+
+**Run Substreams on Jungle4**:
+
+Using the Makefile target:
+```bash
+cd substreams
+make run-testnet CONTRACT_ACCOUNT=polarismusic START_BLOCK=1000 BLOCKS=100
+```
+
+Or manually with the sink:
+```bash
 cd substreams/sink
-node http-sink.js
+node http-sink.js --endpoint=http://localhost:3000
+```
+
+This will stream events from your deployed contract on Jungle4 and ingest them into the backend.
+
+**Verify Testnet Events**:
+
+```bash
+# Check ingestion logs
+curl http://localhost:3000/api/ingest/stats
+
+# Query Neo4j for ingested data
+# Connect to Neo4j at localhost:7474
+# Run: MATCH (r:Release) WHERE r.id STARTS WITH 'prov:' RETURN r LIMIT 10
 ```
 
 ### 3. Manual Event Submission

@@ -589,7 +589,7 @@ stats = {
 # Configure
 export CHAIN_SOURCE=ship
 export SHIP_URL=ws://localhost:8080
-export CONTRACT_ACCOUNT=polaris
+export CONTRACT_ACCOUNT=polarismusic
 export START_BLOCK=100000000
 
 # Start backend

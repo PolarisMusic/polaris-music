@@ -145,7 +145,7 @@
 
 ---
 
-## updaterespect
+## updrespect
 
 **Description:** Update Respect values from Fractally elections.
 

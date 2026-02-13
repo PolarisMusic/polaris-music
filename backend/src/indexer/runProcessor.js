@@ -16,7 +16,7 @@ const log = createLogger('indexer.runProcessor');
 const config = {
     blockchain: {
         rpcUrl: process.env.RPC_URL || 'https://eos.greymass.com',
-        contractAccount: process.env.CONTRACT_ACCOUNT || 'polaris',
+        contractAccount: process.env.CONTRACT_ACCOUNT || 'polarismusic',
         pollInterval: parseInt(process.env.POLL_INTERVAL || '5000')
     },
 

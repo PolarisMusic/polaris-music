@@ -88,7 +88,7 @@ npm run dev
 # Blockchain Configuration
 CHAIN_ID=1064487b3cd1a897ce03ae5b6a865651747e2e152090f99c1d19d44e01aea5a4
 RPC_URL=https://eos.greymass.com
-CONTRACT_ACCOUNT=polaris
+CONTRACT_ACCOUNT=<your_contract_account>  # Replace with your deployed contract account
 
 # Database Configuration
 GRAPH_URI=bolt://localhost:7687
@@ -186,7 +186,7 @@ This service is included in `docker-compose.yml` but requires a Pinax API token 
 
 **Configuration Options**:
 - `START_BLOCK`: Block number to start ingestion from (default: 0)
-- `CONTRACT_ACCOUNT`: Contract account name (default: polaris)
+- `CONTRACT_ACCOUNT`: Contract account name (default: polarismusic for Jungle4, or your deployed account)
 - `SUBSTREAMS_ENDPOINT`: Firehose endpoint (default: eos.firehose.pinax.network:443)
 
 ## Core Concepts
@@ -942,7 +942,7 @@ ACTION like(
 
 // Batch update Respect values from Fractally elections (oracle-only)
 // Called weekly after Fractally consensus rounds complete
-ACTION updaterespect(
+ACTION updrespect(
     std::vector<std::pair<name, uint32_t>> respect_data,  // Array of account:respect pairs
     uint64_t election_round                                // Fractally round number
 );
@@ -1295,12 +1295,12 @@ This section documents discrepancies between the English-language descriptions i
   - MERGE_ENTITY: 20,000 ✓
 - **Note**: All multiplier values match README documentation (lines 968-971)
 
-#### 3. **updaterespect Action Signature Mismatch** ✅ FIXED
+#### 3. **updrespect Action Signature Mismatch** ✅ FIXED
 - **Previously**: README documented wrong signature with single account parameter
 - **Now Fixed**: Documentation updated to match actual implementation
 - **Correct Signature**:
   ```cpp
-  ACTION updaterespect(
+  ACTION updrespect(
       std::vector<std::pair<name, uint32_t>> respect_data,
       uint64_t election_round
   )
@@ -1466,7 +1466,7 @@ This section documents discrepancies between the English-language descriptions i
 **High Priority (Breaks Documented Functionality):**
 1. ~~Missing `release_guests` field in frontend~~ ✅ FIXED
 2. ~~Emission multipliers 100x different from docs~~ ✅ FIXED (contract matches docs)
-3. ~~`updaterespect` action completely different signature~~ ✅ FIXED
+3. ~~`updrespect` action completely different signature~~ ✅ FIXED
 4. ~~Missing `proofs` field in frontend~~ ✅ FIXED
 5. ~~Docker Compose file missing~~ ✅ FIXED
 
@@ -1486,7 +1486,7 @@ This section documents discrepancies between the English-language descriptions i
 
 1. ~~**Frontend Form**: Add `release_guests` field and `proofs` field to form~~ ✅ FIXED
 2. ~~**Smart Contract**: Either update multipliers to match docs or update docs to match code~~ ✅ VERIFIED (already matches)
-3. ~~**Documentation**: Update `updaterespect` signature in README to match actual implementation~~ ✅ FIXED
+3. ~~**Documentation**: Update `updrespect` signature in README to match actual implementation~~ ✅ FIXED
 4. ~~**Docker**: Create `docker-compose.yml` or remove references from README~~ ✅ FIXED
 5. ~~**Backend README**: Create comprehensive backend documentation~~ ✅ FIXED
 6. ~~**Tools**: Either create tools/import directory or remove from README~~ ✅ FIXED (stubs created)
