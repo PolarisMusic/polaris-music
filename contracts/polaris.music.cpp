@@ -376,6 +376,23 @@ public:
     }
 
     /**
+     * @brief Set council account for attestation privileges
+     *
+     * Allows contract authority to designate a council account (e.g., council.pol on mainnet,
+     * or a custom governance account on testnets). Set to empty name to disable.
+     *
+     * @param council - Account name for council attestor (or empty to disable)
+     */
+    ACTION setcouncil(name council) {
+        require_auth(get_self());
+
+        globals_singleton globals(get_self(), get_self().value);
+        auto g = get_globals();
+        g.council_account = council;
+        globals.set(g, get_self());
+    }
+
+    /**
      * @brief Set governance parameters
      *
      * Allows contract authority to adjust governance parameters without redeployment.
@@ -1360,6 +1377,7 @@ private:
         uint64_t    round;          // Current round
         name        fractally_oracle; // Who can update Respect
         name        token_contract; // MUS token contract
+        name        council_account; // Optional: authorized council attestor (e.g., council.pol on mainnet)
 
         // Configurable governance parameters
         uint64_t    approval_threshold_bp = 9000;  // 90% (in basis points: 9000/10000)
@@ -1392,7 +1410,7 @@ private:
         uint64_t    rejected_voters_pct = 5000;    // 50% to no-voters if rejected (equal distribution)
         uint64_t    rejected_stakers_pct = 5000;   // 50% to stakers if rejected
 
-        EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)
+        EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)(council_account)
                         (approval_threshold_bp)(max_vote_weight)(attestor_respect_threshold)
                         (paused)
                         (vote_window_release)(vote_window_mint)(vote_window_resolve)
@@ -1534,12 +1552,11 @@ private:
         // Check if it's the Fractally oracle
         if(account == get_fractally_oracle()) return true;
 
-        // Check if it's a designated council member
-        // In production, check against attestors table
-        if(account == name("council.pol")) return true;
+        // Check if it's the designated council account (if configured)
+        auto g = get_globals();
+        if(g.council_account.value != 0 && account == g.council_account) return true;
 
         // Check Respect threshold (configurable via setparams)
-        auto g = get_globals();
         respect_table respect(get_self(), get_self().value);
         auto itr = respect.find(account.value);
         if(itr != respect.end() && itr->respect >= g.attestor_respect_threshold) {
