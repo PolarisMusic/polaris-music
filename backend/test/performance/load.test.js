@@ -233,4 +233,51 @@ describe('Performance Tests', () => {
             expect(opsPerSecond).toBeGreaterThan(500);
         });
     });
+
+    describe('Relationship Extraction Performance', () => {
+        test('should extract relationships from 100+ bundles in <5s', async () => {
+            const { normalizeReleaseBundle } = await import('../../src/graph/normalizeReleaseBundle.js');
+
+            const bundles = [];
+            for (let i = 0; i < 100; i++) {
+                bundles.push({
+                    release: {
+                        name: `Album ${i}`,
+                        release_id: `rel_${i}`
+                    },
+                    groups: [{
+                        group_id: `grp_${i}`,
+                        name: `Band ${i}`,
+                        members: [
+                            { person_id: 'shared_person_1', name: 'Shared Artist', roles: ['vocals'] },
+                            { person_id: `person_${i}`, name: `Artist ${i}`, roles: ['guitar'] }
+                        ]
+                    }],
+                    tracks: [{
+                        track_id: `trk_${i}_1`,
+                        title: `Track ${i}`,
+                        duration: 200,
+                        performed_by_groups: [{ group_id: `grp_${i}`, name: `Band ${i}` }]
+                    }],
+                    tracklist: [{
+                        track_id: `trk_${i}_1`,
+                        position: '1',
+                        track_title: `Track ${i}`
+                    }]
+                });
+            }
+
+            const start = performance.now();
+            let totalRels = 0;
+            for (const bundle of bundles) {
+                const normalized = normalizeReleaseBundle(bundle);
+                totalRels += normalized.relationships.length;
+            }
+            const elapsed = performance.now() - start;
+
+            // 100 bundles with 2 MEMBER_OF + 1 PERFORMED_ON each = 300 relationships
+            expect(totalRels).toBeGreaterThanOrEqual(300);
+            expect(elapsed).toBeLessThan(5000); // <5 seconds
+        });
+    });
 });

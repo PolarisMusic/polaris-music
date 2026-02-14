@@ -689,4 +689,236 @@ describe('normalizeReleaseBundle', () => {
             expect(tracklistItem).not.toHaveProperty('track_number');
         });
     });
+
+    describe('Explicit relationships extraction (cross-bundle merging)', () => {
+        it('should extract MEMBER_OF relationships from groups.members', () => {
+            const bundle = {
+                release: { name: 'Test Album' },
+                groups: [
+                    {
+                        group_id: 'grp_foo',
+                        name: 'Foo Fighters',
+                        members: [
+                            { person_id: 'person_grohl', name: 'Dave Grohl', roles: ['vocals', 'guitar'] },
+                            { person_id: 'person_hawkins', name: 'Taylor Hawkins', role: 'drums' }
+                        ]
+                    }
+                ],
+                tracks: [
+                    { track_id: 'trk_1', title: 'Everlong', duration: 250 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', position: '1', track_title: 'Everlong' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            expect(normalized.relationships).toBeDefined();
+            expect(Array.isArray(normalized.relationships)).toBe(true);
+
+            const memberOfRels = normalized.relationships.filter(r => r.type === 'MEMBER_OF');
+            expect(memberOfRels).toHaveLength(2);
+
+            // Dave Grohl -> Foo Fighters
+            const grohlRel = memberOfRels.find(r => r.from.id === 'person_grohl');
+            expect(grohlRel).toBeDefined();
+            expect(grohlRel.to.id).toBe('grp_foo');
+            expect(grohlRel.to.label).toBe('Group');
+            expect(grohlRel.props.roles).toEqual(['vocals', 'guitar']);
+
+            // Taylor Hawkins -> Foo Fighters
+            const hawkinsRel = memberOfRels.find(r => r.from.id === 'person_hawkins');
+            expect(hawkinsRel).toBeDefined();
+            expect(hawkinsRel.to.id).toBe('grp_foo');
+        });
+
+        it('should extract GUEST_ON relationships from release.guests', () => {
+            const bundle = {
+                release: {
+                    name: 'Test Album',
+                    release_id: 'rel_1',
+                    guests: [
+                        { person_id: 'person_engineer', name: 'Bob Rock', roles: ['engineer'] }
+                    ]
+                },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Track One', duration: 180 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', position: '1', track_title: 'Track One' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            const guestRels = normalized.relationships.filter(r => r.type === 'GUEST_ON');
+            expect(guestRels.length).toBeGreaterThanOrEqual(1);
+
+            const releaseGuest = guestRels.find(r => r.props.scope === 'release');
+            expect(releaseGuest).toBeDefined();
+            expect(releaseGuest.from.id).toBe('person_engineer');
+            expect(releaseGuest.to.label).toBe('Release');
+        });
+
+        it('should extract PERFORMED_ON relationships from track.performed_by_groups', () => {
+            const bundle = {
+                release: { name: 'Test Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Track One',
+                        duration: 180,
+                        performed_by_groups: [
+                            { group_id: 'grp_1', name: 'The Band' }
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', position: '1', track_title: 'Track One' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            const perfRels = normalized.relationships.filter(r => r.type === 'PERFORMED_ON');
+            expect(perfRels).toHaveLength(1);
+            expect(perfRels[0].from.id).toBe('grp_1');
+            expect(perfRels[0].to.id).toBe('trk_1');
+        });
+
+        it('should extract WROTE relationships from songs.writers', () => {
+            const bundle = {
+                release: { name: 'Test Album' },
+                tracks: [
+                    { track_id: 'trk_1', title: 'My Song', duration: 200 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', position: '1', track_title: 'My Song' }
+                ],
+                songs: [
+                    {
+                        song_id: 'song_1',
+                        title: 'My Song',
+                        writers: [
+                            { person_id: 'person_writer', name: 'John Doe', role: 'songwriter' }
+                        ]
+                    }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            const wroteRels = normalized.relationships.filter(r => r.type === 'WROTE');
+            expect(wroteRels).toHaveLength(1);
+            expect(wroteRels[0].from.id).toBe('person_writer');
+            expect(wroteRels[0].to.id).toBe('song_1');
+        });
+
+        it('should extract PRODUCED relationships from track.producers', () => {
+            const bundle = {
+                release: { name: 'Test Album' },
+                tracks: [
+                    {
+                        track_id: 'trk_1',
+                        title: 'Track One',
+                        duration: 180,
+                        producers: [
+                            { person_id: 'person_prod', name: 'Rick Rubin' }
+                        ]
+                    }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', position: '1', track_title: 'Track One' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            const prodRels = normalized.relationships.filter(r => r.type === 'PRODUCED');
+            expect(prodRels).toHaveLength(1);
+            expect(prodRels[0].from.id).toBe('person_prod');
+            expect(prodRels[0].to.id).toBe('trk_1');
+        });
+
+        it('should handle bundle with no relationships gracefully', () => {
+            const bundle = {
+                release: { name: 'Minimal Album' },
+                tracks: [
+                    { track_id: 'trk_1', title: 'Solo Track', duration: 120 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_1', position: '1', track_title: 'Solo Track' }
+                ]
+            };
+
+            const normalized = normalizeReleaseBundle(bundle);
+
+            expect(normalized.relationships).toBeDefined();
+            expect(normalized.relationships).toHaveLength(0);
+        });
+
+        it('should handle cross-bundle scenario: same person in multiple groups', () => {
+            // Bundle 1: Dave Grohl in Nirvana
+            const bundle1 = {
+                release: { name: 'Nevermind' },
+                groups: [
+                    {
+                        group_id: 'grp_nirvana',
+                        name: 'Nirvana',
+                        members: [
+                            { person_id: 'person_grohl', name: 'Dave Grohl', role: 'drums' }
+                        ]
+                    }
+                ],
+                tracks: [
+                    { track_id: 'trk_teen_spirit', title: 'Smells Like Teen Spirit', duration: 301 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_teen_spirit', position: '1', track_title: 'Smells Like Teen Spirit' }
+                ]
+            };
+
+            // Bundle 2: Dave Grohl in Foo Fighters
+            const bundle2 = {
+                release: { name: 'The Colour and the Shape' },
+                groups: [
+                    {
+                        group_id: 'grp_foo',
+                        name: 'Foo Fighters',
+                        members: [
+                            { person_id: 'person_grohl', name: 'Dave Grohl', role: 'vocals' }
+                        ]
+                    }
+                ],
+                tracks: [
+                    { track_id: 'trk_everlong', title: 'Everlong', duration: 250 }
+                ],
+                tracklist: [
+                    { track_id: 'trk_everlong', position: '1', track_title: 'Everlong' }
+                ]
+            };
+
+            const norm1 = normalizeReleaseBundle(bundle1);
+            const norm2 = normalizeReleaseBundle(bundle2);
+
+            // Both bundles should have MEMBER_OF for Dave Grohl
+            const grohl1 = norm1.relationships.find(
+                r => r.type === 'MEMBER_OF' && r.from.id === 'person_grohl'
+            );
+            const grohl2 = norm2.relationships.find(
+                r => r.type === 'MEMBER_OF' && r.from.id === 'person_grohl'
+            );
+
+            expect(grohl1).toBeDefined();
+            expect(grohl1.to.id).toBe('grp_nirvana');
+
+            expect(grohl2).toBeDefined();
+            expect(grohl2.to.id).toBe('grp_foo');
+
+            // Same person_id in both, different groups
+            expect(grohl1.from.id).toBe(grohl2.from.id);
+            expect(grohl1.to.id).not.toBe(grohl2.to.id);
+        });
+    });
 });
