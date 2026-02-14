@@ -494,10 +494,15 @@ async function loadSmokeTests() {
                 const content = await readFile(filePath, 'utf8');
 
                 // Replace template placeholders with current timestamp
-                // Handle both __TIMESTAMP__ and "TIMESTAMP" (with quotes)
+                // Handle all timestamp formats:
+                // - __TIMESTAMP__ (double underscore, unquoted)
+                // - "TIMESTAMP" (quoted string)
+                // - TIMESTAMP (unquoted, no underscores)
+                const timestamp = Math.floor(Date.now() / 1000);
                 const processedContent = content
-                    .replace(/__TIMESTAMP__/g, Math.floor(Date.now() / 1000))
-                    .replace(/"TIMESTAMP"/g, Math.floor(Date.now() / 1000));
+                    .replace(/__TIMESTAMP__/g, timestamp)
+                    .replace(/"TIMESTAMP"/g, timestamp)
+                    .replace(/:\s*TIMESTAMP\s*,/g, `: ${timestamp},`);  // Unquoted TIMESTAMP
                 const bundle = JSON.parse(processedContent);
 
                 await processReleaseBundle(bundle, file);
