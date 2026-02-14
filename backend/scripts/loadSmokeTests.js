@@ -357,15 +357,18 @@ async function processReleaseBundle(bundle, filename) {
                     duration: track.duration || 0
                 });
 
-                // Link track to song
-                await session.run(`
-                    MATCH (t:Track {track_id: $track_id})
-                    MATCH (s:Song {song_id: $song_id})
-                    MERGE (t)-[:RECORDING_OF]->(s)
-                `, {
-                    track_id: track.track_id,
-                    song_id: track.song_id
-                });
+                // Link track to song (using recording_of field)
+                const songId = track.recording_of || track.song_id;
+                if (songId) {
+                    await session.run(`
+                        MATCH (t:Track {track_id: $track_id})
+                        MATCH (s:Song {song_id: $song_id})
+                        MERGE (t)-[:RECORDING_OF]->(s)
+                    `, {
+                        track_id: track.track_id,
+                        song_id: songId
+                    });
+                }
 
                 // Link producers
                 for (const producer of track.producers || []) {
@@ -379,14 +382,15 @@ async function processReleaseBundle(bundle, filename) {
                     });
                 }
 
-                // Link performing groups
-                if (track.group_id) {
+                // Link performing groups (handle both groups array and single group_id)
+                const performingGroups = track.groups || (track.group_id ? [{group_id: track.group_id}] : []);
+                for (const group of performingGroups) {
                     await session.run(`
                         MATCH (g:Group {group_id: $group_id})
                         MATCH (t:Track {track_id: $track_id})
                         MERGE (g)-[:PERFORMED_ON]->(t)
                     `, {
-                        group_id: track.group_id,
+                        group_id: group.group_id,
                         track_id: track.track_id
                     });
                 }
@@ -411,18 +415,35 @@ async function processReleaseBundle(bundle, filename) {
         if (tracklist?.length > 0) {
             console.log(`📀 Linking ${tracklist.length} tracks to release...`);
             for (const trackEntry of tracklist) {
-                await session.run(`
-                    MATCH (t:Track {track_id: $track_id})
-                    MATCH (r:Release {release_id: $release_id})
-                    MERGE (t)-[ir:IN_RELEASE]->(r)
-                    SET ir.disc_number = $disc_number,
-                        ir.track_number = $track_number
-                `, {
-                    track_id: trackEntry.track_id,
-                    release_id: release.release_id,
-                    disc_number: trackEntry.disc_number || 1,
-                    track_number: trackEntry.track_number || 0
-                });
+                // Handle both track_id and track_title formats
+                if (trackEntry.track_id) {
+                    await session.run(`
+                        MATCH (t:Track {track_id: $track_id})
+                        MATCH (r:Release {release_id: $release_id})
+                        MERGE (t)-[ir:IN_RELEASE]->(r)
+                        SET ir.disc_number = $disc_number,
+                            ir.track_number = $track_number
+                    `, {
+                        track_id: trackEntry.track_id,
+                        release_id: release.release_id,
+                        disc_number: trackEntry.disc_number || 1,
+                        track_number: parseInt(trackEntry.position || trackEntry.track_number || 0)
+                    });
+                } else if (trackEntry.track_title) {
+                    // Match by title if track_id not provided
+                    await session.run(`
+                        MATCH (t:Track {title: $title})
+                        MATCH (r:Release {release_id: $release_id})
+                        MERGE (t)-[ir:IN_RELEASE]->(r)
+                        SET ir.disc_number = $disc_number,
+                            ir.track_number = $track_number
+                    `, {
+                        title: trackEntry.track_title,
+                        release_id: release.release_id,
+                        disc_number: trackEntry.disc_number || 1,
+                        track_number: parseInt(trackEntry.position || trackEntry.track_number || 0)
+                    });
+                }
             }
         }
 
@@ -472,8 +493,11 @@ async function loadSmokeTests() {
                 const filePath = join(smokeTestDir, file);
                 const content = await readFile(filePath, 'utf8');
 
-                // Replace template placeholder with current timestamp
-                const processedContent = content.replace(/__TIMESTAMP__/g, Math.floor(Date.now() / 1000));
+                // Replace template placeholders with current timestamp
+                // Handle both __TIMESTAMP__ and "TIMESTAMP" (with quotes)
+                const processedContent = content
+                    .replace(/__TIMESTAMP__/g, Math.floor(Date.now() / 1000))
+                    .replace(/"TIMESTAMP"/g, Math.floor(Date.now() / 1000));
                 const bundle = JSON.parse(processedContent);
 
                 await processReleaseBundle(bundle, file);
