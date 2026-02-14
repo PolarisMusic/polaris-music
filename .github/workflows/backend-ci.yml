@@ -88,6 +88,16 @@ jobs:
         REDIS_PASSWORD: ''
         SKIP_GRAPH_TESTS: 'false'
 
+    - name: Load smoke test data
+      working-directory: backend
+      run: node scripts/loadSmokeTests.js --clear
+      env:
+        NODE_ENV: test
+        GRAPH_URI: bolt://localhost:7687
+        GRAPH_USER: neo4j
+        GRAPH_PASSWORD: testpassword
+      continue-on-error: true
+
     - name: Run integration tests
       working-directory: backend
       run: npm run test:integration --if-present || echo "Integration tests not configured"
