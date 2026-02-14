@@ -1,7 +1,7 @@
 {
 "v": 1,
 "type": "CREATE_RELEASE_BUNDLE",
-"created_at": TIMESTAMP,
+"created_at": __TIMESTAMP__,
 "parents": [],
 "body": {
 "release": {
