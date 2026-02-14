@@ -78,6 +78,14 @@ backend/
 │   ├── fixtures/        # Test data (Beatles example)
 │   └── setup.js         # Test environment configuration
 │
+├── smoke-tests/         # Smoke test data
+│   ├── releases/        # 21 release bundle templates
+│   └── README.md        # Smoke test documentation
+│
+├── scripts/             # Utility scripts
+│   ├── loadSmokeTests.js     # Load smoke test bundles into Neo4j
+│   └── loadWhiteAlbumData.js # Load Beatles example data
+│
 ├── Dockerfile           # Production Docker image
 ├── package.json         # Dependencies and scripts
 └── README.md           # This file
@@ -195,6 +203,9 @@ npm run db:init
 
 # Optional: Load test data (Beatles example)
 npm run db:seed
+
+# Optional: Load smoke test bundles (21 release bundles for comprehensive testing)
+node scripts/loadSmokeTests.js
 ```
 
 ### 5. Run Development Servers
@@ -226,6 +237,11 @@ npm run test:integration # Integration tests only
 npm run test:e2e         # End-to-end tests
 npm run test:coverage    # Generate coverage report
 npm run test:watch       # Run tests in watch mode
+
+# Smoke Tests
+node scripts/loadSmokeTests.js              # Load all smoke test bundles
+node scripts/loadSmokeTests.js --clear      # Clear graph and load smoke tests
+node scripts/loadSmokeTests.js --file <filename>  # Load specific bundle
 
 # Production
 npm start                # Start API server (production)

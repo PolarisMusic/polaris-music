@@ -1,0 +1,356 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "release_id": "polaris:release:00000000-0000-4000-8000-000000000005",
+      "name": "Smoke Blues for the Red Sun",
+      "alt_names": ["Blues for the Red Sun"],
+      "release_date": "1992-06-30",
+      "format": "CD",
+      "country": "US",
+      "catalog_number": "SMOKE-TEST-003",
+      "trivia": "Smoke-test release bundle based on Blues for the Red Sun (Wikipedia) track listing and personnel. Reuses Smoke Josh Homme and Smoke Nick Oliveri person_ids from QOTSA bundle."
+    },
+    "labels": [
+      {
+        "label_id": "polaris:label:00000000-0000-4000-8000-000000000702",
+        "name": "Dali",
+        "alt_names": ["Dali Records"]
+      }
+    ],
+    "groups": [
+      {
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+        "name": "Smoke Kyuss",
+        "alt_names": ["Kyuss"],
+        "members": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000301",
+            "name": "Smoke John Garcia",
+            "role": "vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000101",
+            "name": "Smoke Josh Homme",
+            "role": "guitar"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000102",
+            "name": "Smoke Nick Oliveri",
+            "role": "bass guitar, vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000302",
+            "name": "Smoke Brant Bjork",
+            "role": "drums"
+          }
+        ]
+      }
+    ],
+    "songs": [
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003200",
+        "title": "Thumb",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003201",
+        "title": "Green Machine",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003202",
+        "title": "Molten Universe",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000301", "name": "Smoke John Garcia" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003203",
+        "title": "50 Million Year Trip (Downside Up)",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003204",
+        "title": "Thong Song",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003205",
+        "title": "Apothecaries' Weight",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003206",
+        "title": "Caterpillar March",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003207",
+        "title": "Freedom Run",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003208",
+        "title": "800",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003209",
+        "title": "Writhing",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003210",
+        "title": "Capsized",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000302", "name": "Smoke Brant Bjork" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003211",
+        "title": "Allen's Wrench",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000301", "name": "Smoke John Garcia" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003212",
+        "title": "Mondo Generator",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000003213",
+        "title": "Yeah",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000301", "name": "Smoke John Garcia" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004200",
+        "title": "Thumb",
+        "duration": 233,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003200",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004201",
+        "title": "Green Machine",
+        "duration": 218,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003201",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004202",
+        "title": "Molten Universe",
+        "duration": 256,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003202",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004203",
+        "title": "50 Million Year Trip (Downside Up)",
+        "duration": 400,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003203",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004204",
+        "title": "Thong Song",
+        "duration": 247,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003204",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004205",
+        "title": "Apothecaries' Weight",
+        "duration": 226,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003205",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004206",
+        "title": "Caterpillar March",
+        "duration": 156,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003206",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004207",
+        "title": "Freedom Run",
+        "duration": 224,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003207",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004208",
+        "title": "800",
+        "duration": 123,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003208",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004209",
+        "title": "Writhing",
+        "duration": 166,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003209",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004210",
+        "title": "Capsized",
+        "duration": 208,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003210",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004211",
+        "title": "Allen's Wrench",
+        "duration": 273,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003211",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004212",
+        "title": "Mondo Generator",
+        "duration": 348,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003212",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000004213",
+        "title": "Yeah",
+        "duration": 263,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000003213",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000004",
+            "name": "Smoke Kyuss"
+          }
+        ]
+      }
+    ],
+    "tracklist": [
+      { "position": "0", "track_title": "Thumb", "duration": 233 },
+      { "position": "1", "track_title": "Green Machine", "duration": 218 },
+      { "position": "2", "track_title": "Molten Universe", "duration": 256 },
+      { "position": "3", "track_title": "50 Million Year Trip (Downside Up)", "duration": 400 },
+      { "position": "4", "track_title": "Thong Song", "duration": 247 },
+      { "position": "5", "track_title": "Apothecaries' Weight", "duration": 226 },
+      { "position": "6", "track_title": "Caterpillar March", "duration": 156 },
+      { "position": "7", "track_title": "Freedom Run", "duration": 224 },
+      { "position": "8", "track_title": "800", "duration": 123 },
+      { "position": "9", "track_title": "Writhing", "duration": 166 },
+      { "position": "10", "track_title": "Capsized", "duration": 208 },
+      { "position": "11", "track_title": "Allen's Wrench", "duration": 273 },
+      { "position": "12", "track_title": "Mondo Generator", "duration": 348 },
+      { "position": "13", "track_title": "Yeah", "duration": 263 }
+    ],
+    "sources": [
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Blues_for_the_Red_Sun#Track_listing",
+        "accessed_at": "2026-01-25"
+      },
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Blues_for_the_Red_Sun#Personnel",
+        "accessed_at": "2026-01-25"
+      }
+    ]
+  }
+}

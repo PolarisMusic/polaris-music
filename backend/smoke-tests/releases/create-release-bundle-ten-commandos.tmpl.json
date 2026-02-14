@@ -1,0 +1,291 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": TIMESTAMP,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000021",
+"name": "Smoke Ten Commandos",
+"alt_names": ["Ten Commandos"],
+"release_date": "2015-11-27",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-021",
+"trivia": "Smoke-test release bundle based on Ten Commandos (Discogs) track listing and personnel. Reuses Smoke Dimitri Coats, Smoke Alain Johannes, Smoke Adam Kasper, and Smoke Mark Lanegan person_ids from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000716",
+"name": "Monkeywrench Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos",
+"alt_names": ["Ten Commandos"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000470",
+"name": "Smoke Ben Shepherd",
+"role": "bass"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000471",
+"name": "Smoke Matt Cameron",
+"role": "drums, vocals, guitar, synth"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000106",
+"name": "Smoke Alain Johannes",
+"role": "guitar, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000461",
+"name": "Smoke Dimitri Coats",
+"role": "guitar, vocals"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004238",
+"title": "Staring Down The Dust",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000470", "name": "Smoke Ben Shepherd" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004239",
+"title": "War On The Peace",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000106", "name": "Smoke Alain Johannes" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004240",
+"title": "Outermost Sky",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004241",
+"title": "Come",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000106", "name": "Smoke Alain Johannes" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004242",
+"title": "You Might Forget",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000106", "name": "Smoke Alain Johannes" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004243",
+"title": "Sketch 9",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000106", "name": "Smoke Alain Johannes" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004244",
+"title": "Sporthalle",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004245",
+"title": "Four On The Floor",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004246",
+"title": "Aware",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000106", "name": "Smoke Alain Johannes" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004247",
+"title": "Invisibility",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005238",
+"title": "Staring Down The Dust",
+"duration": 213,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004238",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000104",
+"name": "Smoke Mark Lanegan",
+"roles": ["lead vocals"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005239",
+"title": "War On The Peace",
+"duration": 239,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004239",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005240",
+"title": "Outermost Sky",
+"duration": 227,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004240",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005241",
+"title": "Come",
+"duration": 205,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004241",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000472",
+"name": "Smoke Nikka Costa",
+"roles": ["lead vocals"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005242",
+"title": "You Might Forget",
+"duration": 342,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004242",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005243",
+"title": "Sketch 9",
+"duration": 212,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004243",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000473",
+"name": "Smoke Peter Frampton",
+"roles": ["lead guitar", "rhythm guitar"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005244",
+"title": "Sporthalle",
+"duration": 145,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004244",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005245",
+"title": "Four On The Floor",
+"duration": 215,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004245",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005246",
+"title": "Aware",
+"duration": 363,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004246",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005247",
+"title": "Invisibility",
+"duration": 161,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004247",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000018",
+"name": "Smoke Ten Commandos"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Staring Down The Dust", "duration": 213 },
+{ "position": "1", "track_title": "War On The Peace", "duration": 239 },
+{ "position": "2", "track_title": "Outermost Sky", "duration": 227 },
+{ "position": "3", "track_title": "Come", "duration": 205 },
+{ "position": "4", "track_title": "You Might Forget", "duration": 342 },
+{ "position": "5", "track_title": "Sketch 9", "duration": 212 },
+{ "position": "6", "track_title": "Sporthalle", "duration": 145 },
+{ "position": "7", "track_title": "Four On The Floor", "duration": 215 },
+{ "position": "8", "track_title": "Aware", "duration": 363 },
+{ "position": "9", "track_title": "Invisibility", "duration": 161 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/972774-Ten-Commandos-Ten-Commandos",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

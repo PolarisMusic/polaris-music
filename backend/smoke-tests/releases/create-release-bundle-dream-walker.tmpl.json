@@ -1,0 +1,289 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "__TIMESTAMP__",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000006",
+"name": "Smoke The Dream Walker",
+"alt_names": ["The Dream Walker"],
+"release_date": "2014-12-09",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-004",
+"trivia": "Smoke-test release bundle based on The Dream Walker (Wikipedia) track listing and personnel.",
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000403",
+"name": "Smoke Aaron Rubin",
+"roles": ["producer", "engineer", "mixing"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000404",
+"name": "Smoke Tom Lord-Alge",
+"roles": ["mixing"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000405",
+"name": "Smoke Alan Moulder",
+"roles": ["mixing"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000406",
+"name": "Smoke Brian Gardner",
+"roles": ["mastering"]
+}
+]
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000703",
+"name": "To the Stars",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves",
+"alt_names": ["Angels & Airwaves"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000401",
+"name": "Smoke Tom DeLonge",
+"role": "lead vocals, guitar, synths, bass guitar, producer"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000402",
+"name": "Smoke Ilan Rubin",
+"role": "drums, percussion, piano, bass guitar, synths, guitar, vocals"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004000",
+"title": "Teenagers & Rituals",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004001",
+"title": "Paralyzed",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004002",
+"title": "The Wolfpack",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004003",
+"title": "Tunnels",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004004",
+"title": "Kiss with a Spell",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004005",
+"title": "Mercenaries",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004006",
+"title": "Bullets in the Wind",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004007",
+"title": "The Disease",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004008",
+"title": "Tremors",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004009",
+"title": "Anomaly",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000401", "name": "Smoke Tom DeLonge" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000402", "name": "Smoke Ilan Rubin" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005000",
+"title": "Teenagers & Rituals",
+"duration": 233,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004000",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005001",
+"title": "Paralyzed",
+"duration": 249,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004001",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005002",
+"title": "The Wolfpack",
+"duration": 233,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004002",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005003",
+"title": "Tunnels",
+"duration": 250,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004003",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005004",
+"title": "Kiss with a Spell",
+"duration": 276,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004004",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005005",
+"title": "Mercenaries",
+"duration": 277,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004005",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005006",
+"title": "Bullets in the Wind",
+"duration": 243,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004006",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005007",
+"title": "The Disease",
+"duration": 237,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004007",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005008",
+"title": "Tremors",
+"duration": 235,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004008",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005009",
+"title": "Anomaly",
+"duration": 172,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004009",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000005",
+"name": "Smoke Angels & Airwaves"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Teenagers & Rituals", "duration": 233 },
+{ "position": "1", "track_title": "Paralyzed", "duration": 249 },
+{ "position": "2", "track_title": "The Wolfpack", "duration": 233 },
+{ "position": "3", "track_title": "Tunnels", "duration": 250 },
+{ "position": "4", "track_title": "Kiss with a Spell", "duration": 276 },
+{ "position": "5", "track_title": "Mercenaries", "duration": 277 },
+{ "position": "6", "track_title": "Bullets in the Wind", "duration": 243 },
+{ "position": "7", "track_title": "The Disease", "duration": 237 },
+{ "position": "8", "track_title": "Tremors", "duration": 235 },
+{ "position": "9", "track_title": "Anomaly", "duration": 172 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/The_Dream_Walker",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}
