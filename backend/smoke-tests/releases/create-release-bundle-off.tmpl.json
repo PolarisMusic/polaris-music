@@ -1,0 +1,403 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000016",
+"name": "Smoke Off!",
+"alt_names": ["Off!"],
+"release_date": "2012-05-08",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-015",
+"trivia": "Smoke-test release bundle based on Off! (Wikipedia) track listing and personnel. Recorded in three days at Kingsize Soundlabs. Reuses Smoke Mario Rubalcaba person_id from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000713",
+"name": "Vice Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!",
+"alt_names": ["Off!"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000461",
+"name": "Smoke Dimitri Coats",
+"role": "guitar, production"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000462",
+"name": "Smoke Steven Shane McDonald",
+"role": "bass guitar, mixing"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000463",
+"name": "Smoke Keith Morris",
+"role": "vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000430",
+"name": "Smoke Mario Rubalcaba",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004170",
+"title": "Wiped Out",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004171",
+"title": "I Got News for You",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004172",
+"title": "Elimination",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004173",
+"title": "Cracked",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004174",
+"title": "Wrong",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004175",
+"title": "Borrow and Bomb",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004176",
+"title": "Toxic Box",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004177",
+"title": "Man from Nowhere",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004178",
+"title": "Jet Black Girls",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004179",
+"title": "King Kong Brigade",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004180",
+"title": "Harbor Freeway Blues",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004181",
+"title": "Feelings Are Meant to Be Hurt",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004182",
+"title": "Vaporized",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004183",
+"title": "503",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004184",
+"title": "Zero for Conduct",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004185",
+"title": "I Need One (I Want One)",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000461", "name": "Smoke Dimitri Coats" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000463", "name": "Smoke Keith Morris" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005170",
+"title": "Wiped Out",
+"duration": 73,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004170",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005171",
+"title": "I Got News for You",
+"duration": 41,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004171",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005172",
+"title": "Elimination",
+"duration": 44,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004172",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005173",
+"title": "Cracked",
+"duration": 52,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004173",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005174",
+"title": "Wrong",
+"duration": 49,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004174",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005175",
+"title": "Borrow and Bomb",
+"duration": 46,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004175",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005176",
+"title": "Toxic Box",
+"duration": 56,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004176",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005177",
+"title": "Man from Nowhere",
+"duration": 60,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004177",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005178",
+"title": "Jet Black Girls",
+"duration": 84,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004178",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005179",
+"title": "King Kong Brigade",
+"duration": 96,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004179",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005180",
+"title": "Harbor Freeway Blues",
+"duration": 74,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004180",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005181",
+"title": "Feelings Are Meant to Be Hurt",
+"duration": 65,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004181",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005182",
+"title": "Vaporized",
+"duration": 48,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004182",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005183",
+"title": "503",
+"duration": 45,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004183",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005184",
+"title": "Zero for Conduct",
+"duration": 46,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004184",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005185",
+"title": "I Need One (I Want One)",
+"duration": 65,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004185",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000014",
+"name": "Smoke Off!"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Wiped Out", "duration": 73 },
+{ "position": "1", "track_title": "I Got News for You", "duration": 41 },
+{ "position": "2", "track_title": "Elimination", "duration": 44 },
+{ "position": "3", "track_title": "Cracked", "duration": 52 },
+{ "position": "4", "track_title": "Wrong", "duration": 49 },
+{ "position": "5", "track_title": "Borrow and Bomb", "duration": 46 },
+{ "position": "6", "track_title": "Toxic Box", "duration": 56 },
+{ "position": "7", "track_title": "Man from Nowhere", "duration": 60 },
+{ "position": "8", "track_title": "Jet Black Girls", "duration": 84 },
+{ "position": "9", "track_title": "King Kong Brigade", "duration": 96 },
+{ "position": "10", "track_title": "Harbor Freeway Blues", "duration": 74 },
+{ "position": "11", "track_title": "Feelings Are Meant to Be Hurt", "duration": 65 },
+{ "position": "12", "track_title": "Vaporized", "duration": 48 },
+{ "position": "13", "track_title": "503", "duration": 45 },
+{ "position": "14", "track_title": "Zero for Conduct", "duration": 46 },
+{ "position": "15", "track_title": "I Need One (I Want One)", "duration": 65 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Off!_(album)",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

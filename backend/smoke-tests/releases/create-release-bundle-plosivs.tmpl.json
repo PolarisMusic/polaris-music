@@ -1,0 +1,297 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": TIMESTAMP,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000023",
+"name": "Smoke Plosivs",
+"alt_names": ["Plosivs"],
+"release_date": "2022-03-17",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-023",
+"trivia": "Smoke-test release bundle based on Plosivs (Discogs) track listing and personnel. Reuses Smoke John Reis, Smoke Rob Crow, and Smoke Adam Willard person_ids from previous bundles. Sounds like the red version is the retail version and the black version is the "tour only" version. Apparently, there is a second LP's worth of material already near completion. This record was mostly tracked remotely."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000715",
+"name": "Swami Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs",
+"alt_names": ["Plosivs"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000478",
+"name": "Smoke Jordan Clark",
+"role": "bass, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000424",
+"name": "Smoke Adam Willard",
+"role": "drums"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000425",
+"name": "Smoke John Reis",
+"role": "guitar, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000441",
+"name": "Smoke Rob Crow",
+"role": "vocals, guitar"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004260",
+"title": "Hit the Breaks",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004261",
+"title": "Rose Waterfall",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004262",
+"title": "Thrown Clear",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004263",
+"title": "Never Likely",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004264",
+"title": "Broken Eyes",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004265",
+"title": "Pines",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004266",
+"title": "See You Suffer",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004267",
+"title": "Iron Will",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004268",
+"title": "Pray For Summer",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004269",
+"title": "Bright",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000478", "name": "Smoke Jordan Clark" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Adam Willard" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Rob Crow" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005260",
+"title": "Hit the Breaks",
+"duration": 154,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004260",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005261",
+"title": "Rose Waterfall",
+"duration": 176,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004261",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005262",
+"title": "Thrown Clear",
+"duration": 230,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004262",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005263",
+"title": "Never Likely",
+"duration": 223,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004263",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005264",
+"title": "Broken Eyes",
+"duration": 268,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004264",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005265",
+"title": "Pines",
+"duration": 196,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004265",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005266",
+"title": "See You Suffer",
+"duration": 206,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004266",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005267",
+"title": "Iron Will",
+"duration": 180,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004267",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005268",
+"title": "Pray For Summer",
+"duration": 180,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004268",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005269",
+"title": "Bright",
+"duration": 167,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004269",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Plosivs"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Hit the Breaks", "duration": 154 },
+{ "position": "1", "track_title": "Rose Waterfall", "duration": 176 },
+{ "position": "2", "track_title": "Thrown Clear", "duration": 230 },
+{ "position": "3", "track_title": "Never Likely", "duration": 223 },
+{ "position": "4", "track_title": "Broken Eyes", "duration": 268 },
+{ "position": "5", "track_title": "Pines", "duration": 196 },
+{ "position": "6", "track_title": "See You Suffer", "duration": 206 },
+{ "position": "7", "track_title": "Iron Will", "duration": 180 },
+{ "position": "8", "track_title": "Pray For Summer", "duration": 180 },
+{ "position": "9", "track_title": "Bright", "duration": 167 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/2584346-Plosivs-Plosivs",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

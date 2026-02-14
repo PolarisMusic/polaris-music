@@ -1,0 +1,319 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": TIMESTAMP,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000019",
+"name": "Smoke Audit in Progress",
+"alt_names": ["Audit in Progress"],
+"release_date": "2004-10-05",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-018",
+"trivia": "Smoke-test release bundle based on Audit in Progress (Wikipedia) track listing and personnel. Reuses Smoke John Reis, Smoke Gar Wood, Smoke Mario Rubalcaba person_ids from previous bundles. Recorded in 2004 at Big Fish Recorders in San Diego, CA. First Hot Snakes release to feature drummer Mario Rubalcaba."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000715",
+"name": "Swami Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes",
+"alt_names": ["Hot Snakes"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000468",
+"name": "Smoke Rick Froberg",
+"role": "guitar, lead vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000425",
+"name": "Smoke John Reis",
+"role": "guitar, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000436",
+"name": "Smoke Gar Wood",
+"role": "bass, Magi 44 organ"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000430",
+"name": "Smoke Mario Rubalcaba",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004215",
+"title": "Braintrust",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004216",
+"title": "Hi-Lites",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004217",
+"title": "Retrofit",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004218",
+"title": "Kreative Kontrol",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004219",
+"title": "Think About Carbs",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004220",
+"title": "Audit in Progress",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004221",
+"title": "Hatchet Job",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004222",
+"title": "This Mystic Decade",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004223",
+"title": "Lovebirds",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004224",
+"title": "Reflex",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004225",
+"title": "Hair and DNA",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004226",
+"title": "Plenty for All",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005215",
+"title": "Braintrust",
+"duration": 119,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004215",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005216",
+"title": "Hi-Lites",
+"duration": 161,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004216",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005217",
+"title": "Retrofit",
+"duration": 174,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004217",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005218",
+"title": "Kreative Kontrol",
+"duration": 142,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004218",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005219",
+"title": "Think About Carbs",
+"duration": 133,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004219",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005220",
+"title": "Audit in Progress",
+"duration": 150,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004220",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005221",
+"title": "Hatchet Job",
+"duration": 220,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004221",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005222",
+"title": "This Mystic Decade",
+"duration": 183,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004222",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005223",
+"title": "Lovebirds",
+"duration": 194,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004223",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005224",
+"title": "Reflex",
+"duration": 183,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004224",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005225",
+"title": "Hair and DNA",
+"duration": 150,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004225",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005226",
+"title": "Plenty for All",
+"duration": 77,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004226",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Braintrust", "duration": 119 },
+{ "position": "1", "track_title": "Hi-Lites", "duration": 161 },
+{ "position": "2", "track_title": "Retrofit", "duration": 174 },
+{ "position": "3", "track_title": "Kreative Kontrol", "duration": 142 },
+{ "position": "4", "track_title": "Think About Carbs", "duration": 133 },
+{ "position": "5", "track_title": "Audit in Progress", "duration": 150 },
+{ "position": "6", "track_title": "Hatchet Job", "duration": 220 },
+{ "position": "7", "track_title": "This Mystic Decade", "duration": 183 },
+{ "position": "8", "track_title": "Lovebirds", "duration": 194 },
+{ "position": "9", "track_title": "Reflex", "duration": 183 },
+{ "position": "10", "track_title": "Hair and DNA", "duration": 150 },
+{ "position": "11", "track_title": "Plenty for All", "duration": 77 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Audit_in_Progress",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

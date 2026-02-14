@@ -1,0 +1,377 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000010",
+"name": "Smoke RFTC",
+"alt_names": ["RFTC"],
+"release_date": "1998-06-02",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-008",
+"trivia": "Smoke-test release bundle based on RFTC (Wikipedia) track listing and personnel. Reuses Smoke Adam Willard person_id from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000601",
+"name": "Interscope Records",
+"alt_names": ["Interscope"]
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt",
+"alt_names": ["Rocket from the Crypt"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000425",
+"name": "Smoke John Reis",
+"role": "guitar, lead vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000426",
+"name": "Smoke Andy Stamets",
+"role": "guitar, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000427",
+"name": "Smoke Pete Reichert",
+"role": "bass, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000428",
+"name": "Smoke Paul O'Beirne",
+"role": "saxophone, vibraslap, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000429",
+"name": "Smoke Jason Crane",
+"role": "trumpet, percussion, organ, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000424",
+"name": "Smoke Adam Willard",
+"role": "drums, timbales"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004060",
+"title": "Eye on You",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004061",
+"title": "Break It Up",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004062",
+"title": "I Know",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004063",
+"title": "Panic Scam",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004064",
+"title": "Made for You",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004065",
+"title": "Lipstick",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004066",
+"title": "You Gotta Move",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004067",
+"title": "Your Touch",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004068",
+"title": "Let's Get Busy",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004069",
+"title": "Dick on a Dog",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004070",
+"title": "Back in the State",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004071",
+"title": "When in Rome",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004072",
+"title": "Run Kid Run",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005060",
+"title": "Eye on You",
+"duration": 219,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004060",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000431",
+"name": "Smoke Holly Golightly",
+"roles": ["additional vocals"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005061",
+"title": "Break It Up",
+"duration": 202,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004061",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005062",
+"title": "I Know",
+"duration": 132,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004062",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005063",
+"title": "Panic Scam",
+"duration": 111,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004063",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005064",
+"title": "Made for You",
+"duration": 138,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004064",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000432",
+"name": "Smoke Derek Sherinian",
+"roles": ["organ"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005065",
+"title": "Lipstick",
+"duration": 203,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004065",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005066",
+"title": "You Gotta Move",
+"duration": 284,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004066",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000432",
+"name": "Smoke Derek Sherinian",
+"roles": ["piano"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000433",
+"name": "Smoke Anton Fig",
+"roles": ["congas"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005067",
+"title": "Your Touch",
+"duration": 189,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004067",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005068",
+"title": "Let's Get Busy",
+"duration": 189,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004068",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005069",
+"title": "Dick on a Dog",
+"duration": 188,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004069",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005070",
+"title": "Back in the State",
+"duration": 132,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004070",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000434",
+"name": "Smoke King Django",
+"roles": ["trombone"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005071",
+"title": "When in Rome",
+"duration": 237,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004071",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005072",
+"title": "Run Kid Run",
+"duration": 229,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004072",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000435",
+"name": "Smoke Mike Gent",
+"roles": ["additional vocals"]
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Eye on You", "duration": 219 },
+{ "position": "1", "track_title": "Break It Up", "duration": 202 },
+{ "position": "2", "track_title": "I Know", "duration": 132 },
+{ "position": "3", "track_title": "Panic Scam", "duration": 111 },
+{ "position": "4", "track_title": "Made for You", "duration": 138 },
+{ "position": "5", "track_title": "Lipstick", "duration": 203 },
+{ "position": "6", "track_title": "You Gotta Move", "duration": 284 },
+{ "position": "7", "track_title": "Your Touch", "duration": 189 },
+{ "position": "8", "track_title": "Let's Get Busy", "duration": 189 },
+{ "position": "9", "track_title": "Dick on a Dog", "duration": 188 },
+{ "position": "10", "track_title": "Back in the State", "duration": 132 },
+{ "position": "11", "track_title": "When in Rome", "duration": 237 },
+{ "position": "12", "track_title": "Run Kid Run", "duration": 229 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/RFTC_(album)",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

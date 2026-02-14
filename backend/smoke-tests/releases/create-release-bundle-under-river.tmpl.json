@@ -1,0 +1,244 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000015",
+"name": "Smoke Under The River",
+"alt_names": ["Under The River"],
+"release_date": "2018-08-17",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-013",
+"trivia": "Smoke-test release bundle based on Under The River (Bandcamp and Discogs) track listing and personnel. Montalban Quintet is a collective blending post-punk, minimalism, jazz, and more. Recorded between 2011 and 2017 in Encinitas, CA."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000712",
+"name": "Not On Label",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet",
+"alt_names": ["Montalban Quintet"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000451",
+"name": "Smoke Carl Prescott",
+"role": "trumpet"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000445",
+"name": "Smoke Chris Prescott",
+"role": "drums, vocals, additional guitar, piano"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000448",
+"name": "Smoke Jim Weiss",
+"role": "saxophones"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000447",
+"name": "Smoke Greg Friedman",
+"role": "guitar, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000449",
+"name": "Smoke Julie Kitterman",
+"role": "percussion, vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000450",
+"name": "Smoke Chris Fulford-Brown",
+"role": "piano"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000446",
+"name": "Smoke Kenseth Thibideau",
+"role": "bass, vocals"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004160",
+"title": "Under the River",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Chris Prescott" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004161",
+"title": "Swamis",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000450", "name": "Smoke Chris Fulford-Brown" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004162",
+"title": "Kisses",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Julie Kitterman" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Chris Prescott" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004163",
+"title": "Burn and Boil",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Chris Prescott" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004164",
+"title": "Dank",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Chris Prescott" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004165",
+"title": "Tahoe",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Chris Prescott" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005160",
+"title": "Under the River",
+"duration": 402,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004160",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000454",
+"name": "Smoke J.P. Hewett",
+"roles": ["congas"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005161",
+"title": "Swamis",
+"duration": 318,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004161",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005162",
+"title": "Kisses",
+"duration": 348,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004162",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005163",
+"title": "Burn and Boil",
+"duration": 452,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004163",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005164",
+"title": "Dank",
+"duration": 386,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004164",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000453",
+"name": "Smoke Marjorie Prescott",
+"roles": ["cello"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000455",
+"name": "Smoke Pete Polansky",
+"roles": ["violin"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005165",
+"title": "Tahoe",
+"duration": 337,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004165",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000013",
+"name": "Smoke Montalban Quintet"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000452",
+"name": "Smoke Terrin Durfey",
+"roles": ["bass, vocals"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000453",
+"name": "Smoke Marjorie Prescott",
+"roles": ["cello"]
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000455",
+"name": "Smoke Pete Polansky",
+"roles": ["violin"]
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Under the River", "duration": 402 },
+{ "position": "1", "track_title": "Swamis", "duration": 318 },
+{ "position": "2", "track_title": "Kisses", "duration": 348 },
+{ "position": "3", "track_title": "Burn and Boil", "duration": 452 },
+{ "position": "4", "track_title": "Dank", "duration": 386 },
+{ "position": "5", "track_title": "Tahoe", "duration": 337 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/1656427-Montalban-Quintet-Under-The-River",
+"accessed_at": "2026-02-12"
+},
+{
+"type": "bandcamp",
+"url": "https://montalban.bandcamp.com/album/under-the-river",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

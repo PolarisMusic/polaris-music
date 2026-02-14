@@ -1,0 +1,300 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": TIMESTAMP,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000020",
+"name": "Smoke Automatic Midnight",
+"alt_names": ["Automatic Midnight"],
+"release_date": "2000-02-15",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-019",
+"trivia": "Smoke-test release bundle based on Automatic Midnight (Wikipedia) track listing and personnel. Debut album by Hot Snakes, originally a side project for John Reis with Rick Froberg on vocals and Jason Kourkounis on drums. Recorded June 1999 at Big Fish Recorders in San Diego. First release on Swami Records. Reuses Smoke John Reis, Smoke Rick Froberg, Smoke Jason Kourkounis person_ids from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000715",
+"name": "Swami Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes",
+"alt_names": ["Hot Snakes"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000468",
+"name": "Smoke Rick Froberg",
+"role": "guitar, lead vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000425",
+"name": "Smoke John Reis",
+"role": "guitar, bass guitar, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000465",
+"name": "Smoke Jason Kourkounis",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004227",
+"title": "If Credit's What Matters I'll Take Credit",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004228",
+"title": "Automatic Midnight",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004229",
+"title": "No Hands",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004230",
+"title": "Salton City",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004231",
+"title": "10th Planet",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004232",
+"title": "Light Up the Stars",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004233",
+"title": "Our Work Fills the Pews",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004234",
+"title": "Past Lives",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004235",
+"title": "Mystery Boy (aka Jason K.)",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004236",
+"title": "Apartment 0",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004237",
+"title": "Let It Come",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000468", "name": "Smoke Rick Froberg" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005227",
+"title": "If Credit's What Matters I'll Take Credit",
+"duration": 153,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004227",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005228",
+"title": "Automatic Midnight",
+"duration": 93,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004228",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005229",
+"title": "No Hands",
+"duration": 150,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004229",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005230",
+"title": "Salton City",
+"duration": 226,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004230",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000469",
+"name": "Smoke Kim Thompson",
+"roles": ["backing vocals"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005231",
+"title": "10th Planet",
+"duration": 197,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004231",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005232",
+"title": "Light Up the Stars",
+"duration": 202,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004232",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005233",
+"title": "Our Work Fills the Pews",
+"duration": 183,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004233",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005234",
+"title": "Past Lives",
+"duration": 161,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004234",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005235",
+"title": "Mystery Boy (aka Jason K.)",
+"duration": 119,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004235",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005236",
+"title": "Apartment 0",
+"duration": 86,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004236",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005237",
+"title": "Let It Come",
+"duration": 327,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004237",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000017",
+"name": "Smoke Hot Snakes"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "If Credit's What Matters I'll Take Credit", "duration": 153 },
+{ "position": "1", "track_title": "Automatic Midnight", "duration": 93 },
+{ "position": "2", "track_title": "No Hands", "duration": 150 },
+{ "position": "3", "track_title": "Salton City", "duration": 226 },
+{ "position": "4", "track_title": "10th Planet", "duration": 197 },
+{ "position": "5", "track_title": "Light Up the Stars", "duration": 202 },
+{ "position": "6", "track_title": "Our Work Fills the Pews", "duration": 183 },
+{ "position": "7", "track_title": "Past Lives", "duration": 161 },
+{ "position": "8", "track_title": "Mystery Boy (aka Jason K.)", "duration": 119 },
+{ "position": "9", "track_title": "Apartment 0", "duration": 86 },
+{ "position": "10", "track_title": "Let It Come", "duration": 327 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Automatic_Midnight",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

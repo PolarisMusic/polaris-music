@@ -1,0 +1,97 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": "TIMESTAMP",
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000007",
+"name": "Smoke Asking for a Friend",
+"alt_names": ["Asking for a Friend"],
+"release_date": "2025-10-23",
+"format": "Single",
+"country": "US",
+"catalog_number": "SMOKE-TEST-005",
+"trivia": "Smoke-test release bundle based on Asking for a Friend (Wikipedia) details. First Foo Fighters single featuring Ilan Rubin. Reuses Smoke Dave Grohl, Nate Mendel, Chris Shiflett, Pat Smear, Rami Jaffee, and Ilan Rubin person_ids from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000705",
+"name": "RCA Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000006",
+"name": "Smoke Foo Fighters",
+"alt_names": ["Foo Fighters"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000103",
+"name": "Smoke Dave Grohl",
+"role": "lead vocals, guitar, production"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000407",
+"name": "Smoke Nate Mendel",
+"role": "bass guitar, backing vocals, production"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000408",
+"name": "Smoke Chris Shiflett",
+"role": "guitar, backing vocals, production"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000409",
+"name": "Smoke Pat Smear",
+"role": "guitar, production"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000410",
+"name": "Smoke Rami Jaffee",
+"role": "keyboards, production"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000402",
+"name": "Smoke Ilan Rubin",
+"role": "drums, backing vocals, production"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004010",
+"title": "Asking for a Friend",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000103", "name": "Smoke Dave Grohl" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005010",
+"title": "Asking for a Friend",
+"duration": 270,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004010",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000006",
+"name": "Smoke Foo Fighters"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Asking for a Friend", "duration": 270 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Asking_for_a_Friend",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}

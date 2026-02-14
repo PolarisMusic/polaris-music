@@ -1,0 +1,103 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "release_id": "polaris:release:00000000-0000-4000-8000-000000000022",
+      "name": "Smoke Badmotorfinger",
+      "alt_names": ["Badmotorfinger"],
+      "release_date": "1991-10-08",
+      "format": "CD",
+      "country": "US",
+      "catalog_number": "SMOKE-TEST-022",
+      "trivia": "Smoke-test release bundle based on Badmotorfinger (Wikipedia) track listing and personnel. Reuses Smoke Matt Cameron (000000000471) and Smoke Ben Shepherd (000000000470) person_ids from Ten Commandos bundle."
+    },
+    "labels": [
+      {
+        "label_id": "polaris:label:00000000-0000-4000-8000-000000000717",
+        "name": "A&M Records",
+        "alt_names": []
+      }
+    ],
+    "groups": [
+      {
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000019",
+        "name": "Smoke Soundgarden",
+        "alt_names": ["Soundgarden"],
+        "members": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000474",
+            "name": "Smoke Chris Cornell",
+            "role": "vocals, rhythm guitar"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000475",
+            "name": "Smoke Kim Thayil",
+            "role": "lead guitar"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000470",
+            "name": "Smoke Ben Shepherd",
+            "role": "bass"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000471",
+            "name": "Smoke Matt Cameron",
+            "role": "drums"
+          }
+        ]
+      }
+    ],
+    "songs": [
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004248", "title": "Rusty Cage", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004249", "title": "Outshined", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004250", "title": "Slaves & Bulldozers", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }, { "person_id": "polaris:person:00000000-0000-4000-8000-000000000470", "name": "Smoke Ben Shepherd" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004251", "title": "Jesus Christ Pose", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }, { "person_id": "polaris:person:00000000-0000-4000-8000-000000000475", "name": "Smoke Kim Thayil" }, { "person_id": "polaris:person:00000000-0000-4000-8000-000000000470", "name": "Smoke Ben Shepherd" }, { "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004252", "title": "Face Pollution", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000470", "name": "Smoke Ben Shepherd" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004253", "title": "Somewhere", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000470", "name": "Smoke Ben Shepherd" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004254", "title": "Searching with My Good Eye Closed", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004255", "title": "Room a Thousand Years Wide", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004256", "title": "Mind Riot", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004257", "title": "Drawing Flies", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004258", "title": "Holy Water", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }] },
+      { "song_id": "polaris:song:00000000-0000-4000-8000-000000004259", "title": "New Damage", "writers": [{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000474", "name": "Smoke Chris Cornell" }, { "person_id": "polaris:person:00000000-0000-4000-8000-000000000475", "name": "Smoke Kim Thayil" }, { "person_id": "polaris:person:00000000-0000-4000-8000-000000000471", "name": "Smoke Matt Cameron" }] }
+    ],
+    "tracks": [
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005248", "title": "Rusty Cage", "duration": 266, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004248", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005249", "title": "Outshined", "duration": 310, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004249", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005250", "title": "Slaves & Bulldozers", "duration": 415, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004250", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005251", "title": "Jesus Christ Pose", "duration": 350, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004251", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005252", "title": "Face Pollution", "duration": 143, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004252", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005253", "title": "Somewhere", "duration": 260, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004253", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005254", "title": "Searching with My Good Eye Closed", "duration": 391, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004254", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005255", "title": "Room a Thousand Years Wide", "duration": 245, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004255", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005256", "title": "Mind Riot", "duration": 289, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004256", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005257", "title": "Drawing Flies", "duration": 146, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004257", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005258", "title": "Holy Water", "duration": 307, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004258", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] },
+      { "track_id": "polaris:track:00000000-0000-4000-8000-000000005259", "title": "New Damage", "duration": 340, "recording_of": "polaris:song:00000000-0000-4000-8000-000000004259", "groups": [{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000019", "name": "Smoke Soundgarden" }] }
+    ],
+    "tracklist": [
+      { "position": "0", "track_title": "Rusty Cage", "duration": 266 },
+      { "position": "1", "track_title": "Outshined", "duration": 310 },
+      { "position": "2", "track_title": "Slaves & Bulldozers", "duration": 415 },
+      { "position": "3", "track_title": "Jesus Christ Pose", "duration": 350 },
+      { "position": "4", "track_title": "Face Pollution", "duration": 143 },
+      { "position": "5", "track_title": "Somewhere", "duration": 260 },
+      { "position": "6", "track_title": "Searching with My Good Eye Closed", "duration": 391 },
+      { "position": "7", "track_title": "Room a Thousand Years Wide", "duration": 245 },
+      { "position": "8", "track_title": "Mind Riot", "duration": 289 },
+      { "position": "9", "track_title": "Drawing Flies", "duration": 146 },
+      { "position": "10", "track_title": "Holy Water", "duration": 307 },
+      { "position": "11", "track_title": "New Damage", "duration": 340 }
+    ],
+    "sources": [
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Badmotorfinger",
+        "accessed_at": "2026-02-12"
+      }
+    ]
+  }
+}

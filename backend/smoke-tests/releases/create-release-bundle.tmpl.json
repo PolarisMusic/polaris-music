@@ -1,0 +1,539 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "release_id": "polaris:release:00000000-0000-4000-8000-000000000001",
+      "name": "Smoke Tests for the Deaf",
+      "alt_names": ["Songs for the Deaf"],
+      "release_date": "2002-08-27",
+      "format": "CD",
+      "country": "US",
+      "catalog_number": "SMOKE-TEST-001",
+      "trivia": "Smoke-test release bundle based on the Songs for the Deaf (Wikipedia) track listing and personnel.",
+      "labels": [
+        {
+          "label_id": "polaris:label:00000000-0000-4000-8000-000000000601",
+          "name": "Interscope Records",
+          "alt_names": ["Interscope", "Interscope/Geffen"],
+          "parent_label": { "name": "Universal Music Group" },
+          "origin_city": { "name": "Los Angeles", "lat": 34.0522, "lon": -118.2437 }
+        },
+        {
+          "label_id": "polaris:label:00000000-0000-4000-8000-000000000602",
+          "name": "Rekords Rekords"
+        }
+      ],
+      "guests": [
+        {
+          "person_id": "polaris:person:00000000-0000-4000-8000-000000000501",
+          "name": "Smoke Adam Kasper",
+          "roles": ["producer", "mixing"],
+          "role_detail": "produced and mixed at Studio X"
+        }
+      ]
+    },
+    "groups": [
+      {
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+        "name": "Smoke Queens of the Stone Age",
+        "alt_names": ["QOTSA"],
+        "members": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000101",
+            "name": "Smoke Josh Homme",
+            "role": "vocals, guitar"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000102",
+            "name": "Smoke Nick Oliveri",
+            "role": "bass guitar, vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000103",
+            "name": "Smoke Dave Grohl",
+            "role": "drums"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000104",
+            "name": "Smoke Mark Lanegan",
+            "role": "vocals"
+          }
+        ]
+      }
+    ],
+    "songs": [
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001000",
+        "title": "The Real Song for the Deaf",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001001",
+        "title": "You Think I Ain't Worth a Dollar, But I Feel Like a Millionaire",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001002",
+        "title": "No One Knows",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001003",
+        "title": "First It Giveth",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme", "roles": ["music"], "share_percentage": 50 },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri", "roles": ["lyrics", "music"], "share_percentage": 50 }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001004",
+        "title": "A Song for the Dead",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001005",
+        "title": "The Sky Is Fallin'",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001006",
+        "title": "Six Shooter",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001007",
+        "title": "Hangin' Tree",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001008",
+        "title": "Go with the Flow",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001009",
+        "title": "Gonna Leave You",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001010",
+        "title": "Do It Again",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000102", "name": "Smoke Nick Oliveri" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001011",
+        "title": "God Is in the Radio",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001012",
+        "title": "Another Love Song",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001013",
+        "title": "Song for the Deaf",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000001014",
+        "title": "Mosquito Song",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000101", "name": "Smoke Josh Homme", "roles": ["lyrics", "music"], "share_percentage": 50 },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000104", "name": "Smoke Mark Lanegan", "roles": ["lyrics"], "share_percentage": 25 },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000110", "name": "Smoke Chris Goss", "roles": ["music"], "role_detail": "additional guitar arrangement", "share_percentage": 25 }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002000",
+        "title": "The Real Song for the Deaf",
+        "duration": 57,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001000",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002001",
+        "title": "You Think I Ain't Worth a Dollar, But I Feel Like a Millionaire",
+        "duration": 192,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001001",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000105",
+            "name": "Smoke Gene Trautmann",
+            "roles": ["drums"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002002",
+        "title": "No One Knows",
+        "duration": 278,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001002",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000111",
+            "name": "Smoke Paz Lenchantin",
+            "roles": ["strings"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000112",
+            "name": "Smoke Ana Lenchantin",
+            "roles": ["strings"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002003",
+        "title": "First It Giveth",
+        "duration": 198,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001003",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000106",
+            "name": "Smoke Alain Johannes",
+            "roles": ["lap steel guitar", "EBow", "organ", "piano", "flamenco guitar", "theremin"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002004",
+        "title": "A Song for the Dead",
+        "duration": 352,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001004",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000107",
+            "name": "Smoke Natasha Shneider",
+            "roles": ["EBow", "organ", "piano", "theremin"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002005",
+        "title": "The Sky Is Fallin'",
+        "duration": 305,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001005",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000110",
+            "name": "Smoke Chris Goss",
+            "roles": ["guitar", "keyboard", "backing vocals"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002006",
+        "title": "Six Shooter",
+        "duration": 79,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001006",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000106",
+            "name": "Smoke Alain Johannes",
+            "roles": ["lap steel guitar", "EBow", "organ", "piano", "flamenco guitar", "theremin"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000107",
+            "name": "Smoke Natasha Shneider",
+            "roles": ["EBow", "organ", "piano", "theremin"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000108",
+            "name": "Smoke Dean Ween",
+            "roles": ["guitar"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002007",
+        "title": "Hangin' Tree",
+        "duration": 186,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001007",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000106",
+            "name": "Smoke Alain Johannes",
+            "roles": ["lap steel guitar", "EBow", "organ", "piano", "flamenco guitar", "theremin"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002008",
+        "title": "Go with the Flow",
+        "duration": 188,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001008",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000105",
+            "name": "Smoke Gene Trautmann",
+            "roles": ["drums"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000109",
+            "name": "Smoke Brendon McNichol",
+            "roles": ["guitar"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002009",
+        "title": "Gonna Leave You",
+        "duration": 170,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001009",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000108",
+            "name": "Smoke Dean Ween",
+            "roles": ["guitar"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002010",
+        "title": "Do It Again",
+        "duration": 244,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001010",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000110",
+            "name": "Smoke Chris Goss",
+            "roles": ["guitar", "keyboard", "backing vocals"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002011",
+        "title": "God Is in the Radio",
+        "duration": 365,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001011",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002012",
+        "title": "Another Love Song",
+        "duration": 195,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001012",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000106",
+            "name": "Smoke Alain Johannes",
+            "roles": ["lap steel guitar", "EBow", "organ", "piano", "flamenco guitar", "theremin"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000107",
+            "name": "Smoke Natasha Shneider",
+            "roles": ["EBow", "organ", "piano", "theremin"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002013",
+        "title": "Song for the Deaf",
+        "duration": 385,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001013",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000002014",
+        "title": "Mosquito Song",
+        "duration": 337,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000001014",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000002",
+            "name": "Smoke Queens of the Stone Age"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000107",
+            "name": "Smoke Natasha Shneider",
+            "roles": ["EBow", "organ", "piano", "theremin"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000108",
+            "name": "Smoke Dean Ween",
+            "roles": ["guitar"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000111",
+            "name": "Smoke Paz Lenchantin",
+            "roles": ["strings"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000112",
+            "name": "Smoke Ana Lenchantin",
+            "roles": ["strings"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000113",
+            "name": "Smoke Molly McGuire",
+            "roles": ["accordion"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000114",
+            "name": "Smoke John Gove",
+            "roles": ["horns"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000115",
+            "name": "Smoke Kevin Porter",
+            "roles": ["horns"]
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000116",
+            "name": "Smoke Brad Kintscher",
+            "roles": ["horns"]
+          }
+        ]
+      }
+    ],
+    "tracklist": [
+      { "position": "0", "track_title": "The Real Song for the Deaf", "duration": 57 },
+      { "position": "1", "track_title": "You Think I Ain't Worth a Dollar, But I Feel Like a Millionaire", "duration": 192 },
+      { "position": "2", "track_title": "No One Knows", "duration": 278 },
+      { "position": "3", "track_title": "First It Giveth", "duration": 198 },
+      { "position": "4", "track_title": "A Song for the Dead", "duration": 352 },
+      { "position": "5", "track_title": "The Sky Is Fallin'", "duration": 305 },
+      { "position": "6", "track_title": "Six Shooter", "duration": 79 },
+      { "position": "7", "track_title": "Hangin' Tree", "duration": 186 },
+      { "position": "8", "track_title": "Go with the Flow", "duration": 188 },
+      { "position": "9", "track_title": "Gonna Leave You", "duration": 170 },
+      { "position": "10", "track_title": "Do It Again", "duration": 244 },
+      { "position": "11", "track_title": "God Is in the Radio", "duration": 365 },
+      { "position": "12", "track_title": "Another Love Song", "duration": 195 },
+      { "position": "13", "track_title": "Song for the Deaf", "duration": 385 },
+      { "position": "14", "track_title": "Mosquito Song", "duration": 337 }
+    ],
+    "sources": [
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Songs_for_the_Deaf#Track_listing",
+        "accessed_at": "2026-01-23"
+      },
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Songs_for_the_Deaf#Personnel",
+        "accessed_at": "2026-01-23"
+      }
+    ]
+  }
+}

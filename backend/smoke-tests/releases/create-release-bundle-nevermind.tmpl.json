@@ -1,0 +1,343 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "release_id": "polaris:release:00000000-0000-4000-8000-000000000003",
+      "name": "Smoke Nevermind",
+      "alt_names": ["Nevermind"],
+      "release_date": "1991-09-24",
+      "format": "CD",
+      "country": "US",
+      "catalog_number": "SMOKE-TEST-002",
+      "trivia": "Smoke-test release bundle based on Nevermind (Wikipedia) track listing and personnel. Reuses Smoke Dave Grohl person_id from QOTSA bundle."
+    },
+    "labels": [
+      {
+        "label_id": "polaris:label:00000000-0000-4000-8000-000000000701",
+        "name": "DGC Records",
+        "alt_names": ["DGC"]
+      }
+    ],
+    "groups": [
+      {
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+        "name": "Smoke Nirvana",
+        "alt_names": ["Nirvana"],
+        "members": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000201",
+            "name": "Smoke Kurt Cobain",
+            "role": "vocals, guitar"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000202",
+            "name": "Smoke Krist Novoselic",
+            "role": "bass guitar"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000103",
+            "name": "Smoke Dave Grohl",
+            "role": "drums"
+          }
+        ]
+      }
+    ],
+    "songs": [
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002100",
+        "title": "Smells Like Teen Spirit",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000202", "name": "Smoke Krist Novoselic", "roles": ["music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000103", "name": "Smoke Dave Grohl", "roles": ["music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002101",
+        "title": "In Bloom",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002102",
+        "title": "Come as You Are",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002103",
+        "title": "Breed",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002104",
+        "title": "Lithium",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002105",
+        "title": "Polly",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002106",
+        "title": "Territorial Pissings",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002107",
+        "title": "Drain You",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002108",
+        "title": "Lounge Act",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002109",
+        "title": "Stay Away",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002110",
+        "title": "On a Plain",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002111",
+        "title": "Something in the Way",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000002112",
+        "title": "Endless, Nameless",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000201", "name": "Smoke Kurt Cobain" }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003100",
+        "title": "Smells Like Teen Spirit",
+        "duration": 301,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002100",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003101",
+        "title": "In Bloom",
+        "duration": 254,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002101",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003102",
+        "title": "Come as You Are",
+        "duration": 219,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002102",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003103",
+        "title": "Breed",
+        "duration": 183,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002103",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003104",
+        "title": "Lithium",
+        "duration": 257,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002104",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003105",
+        "title": "Polly",
+        "duration": 177,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002105",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000203",
+            "name": "Smoke Chad Channing",
+            "roles": ["cymbals"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003106",
+        "title": "Territorial Pissings",
+        "duration": 142,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002106",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003107",
+        "title": "Drain You",
+        "duration": 223,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002107",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003108",
+        "title": "Lounge Act",
+        "duration": 156,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002108",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003109",
+        "title": "Stay Away",
+        "duration": 212,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002109",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003110",
+        "title": "On a Plain",
+        "duration": 196,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002110",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003111",
+        "title": "Something in the Way",
+        "duration": 232,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002111",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ],
+        "guests": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000204",
+            "name": "Smoke Kirk Canning",
+            "roles": ["cello"]
+          }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000003112",
+        "title": "Endless, Nameless",
+        "duration": 403,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000002112",
+        "groups": [
+          {
+            "group_id": "polaris:group:00000000-0000-4000-8000-000000000003",
+            "name": "Smoke Nirvana"
+          }
+        ]
+      }
+    ],
+    "tracklist": [
+      { "position": "0", "track_title": "Smells Like Teen Spirit", "duration": 301 },
+      { "position": "1", "track_title": "In Bloom", "duration": 254 },
+      { "position": "2", "track_title": "Come as You Are", "duration": 219 },
+      { "position": "3", "track_title": "Breed", "duration": 183 },
+      { "position": "4", "track_title": "Lithium", "duration": 257 },
+      { "position": "5", "track_title": "Polly", "duration": 177 },
+      { "position": "6", "track_title": "Territorial Pissings", "duration": 142 },
+      { "position": "7", "track_title": "Drain You", "duration": 223 },
+      { "position": "8", "track_title": "Lounge Act", "duration": 156 },
+      { "position": "9", "track_title": "Stay Away", "duration": 212 },
+      { "position": "10", "track_title": "On a Plain", "duration": 196 },
+      { "position": "11", "track_title": "Something in the Way", "duration": 232 },
+      { "position": "12", "track_title": "Endless, Nameless", "duration": 403 }
+    ],
+    "sources": [
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Nevermind#Track_listing",
+        "accessed_at": "2026-01-25"
+      },
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Nevermind#Personnel",
+        "accessed_at": "2026-01-25"
+      }
+    ]
+  }
+}
