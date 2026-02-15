@@ -23,7 +23,7 @@ import neo4j from 'neo4j-driver';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
 import { mergeBundle } from '../graph/merge.js';
-import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
+import { normalizeReleaseBundle, extractRelationships } from '../graph/normalizeReleaseBundle.js';
 import { createLogger } from '../utils/logger.js';
 
 /**
@@ -585,13 +585,19 @@ class EventProcessor {
         );
 
         // Post-process: ensure cross-bundle relationships are merged.
-        // normalizeReleaseBundle extracts explicit relationships; mergeBundle
-        // uses MERGE to create them idempotently, connecting shared nodes
+        // extractRelationships builds a flat relationship list from the normalized bundle;
+        // mergeBundle uses MERGE to create them idempotently, connecting shared nodes
         // (e.g., Dave Grohl) across bundles even when processed sequentially.
         try {
             const normalized = normalizeReleaseBundle(event.body);
-            if (normalized.relationships && normalized.relationships.length > 0) {
-                const mergeStats = await mergeBundle(this.db.driver, normalized, {
+            const relationships = extractRelationships(
+                normalized.release,
+                normalized.groups,
+                normalized.tracks,
+                normalized.songs || []
+            );
+            if (relationships.length > 0) {
+                const mergeStats = await mergeBundle(this.db.driver, relationships, {
                     eventHash: actionData.hash
                 });
                 this.log.info('handleReleaseBundle relationships merged', {

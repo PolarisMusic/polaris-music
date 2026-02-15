@@ -111,33 +111,21 @@ export function normalizeReleaseBundle(bundle) {
         throw new Error(`ReleaseBundle validation failed:\n  - ${errors.join('\n  - ')}`);
     }
 
-    // ========== EXPLICIT RELATIONSHIPS EXTRACTION ==========
-    // Build a flat list of all relationships implied by the bundle data.
-    // This makes cross-bundle relationship merging explicit and auditable.
-    const relationships = extractRelationships(
-        normalizedRelease,
-        normalizedGroups,
-        normalizedTracks,
-        normalizedSongs
-    );
-
     log.info('normalize_end', {
         tracks_in: trackDefs.length,
         tracks_out: normalizedTracks.length,
         groups: normalizedGroups.length,
         tracklist: normalizedTracklist.length,
         songs: normalizedSongs.length,
-        sources: normalizedSources.length,
-        relationships: relationships.length
+        sources: normalizedSources.length
     });
 
-    // Return normalized bundle
+    // Return normalized bundle (schema-compliant — no graph-specific fields like relationships)
     return {
         release: normalizedRelease,
         groups: normalizedGroups,
         tracks: normalizedTracks,
         tracklist: normalizedTracklist,
-        relationships,
         ...(normalizedSongs.length > 0 && { songs: normalizedSongs }),
         ...(normalizedSources.length > 0 && { sources: normalizedSources })
     };

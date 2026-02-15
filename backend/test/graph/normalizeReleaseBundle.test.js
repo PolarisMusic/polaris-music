@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { normalizeReleaseBundle } from '../../src/graph/normalizeReleaseBundle.js';
+import { normalizeReleaseBundle, extractRelationships } from '../../src/graph/normalizeReleaseBundle.js';
 
 describe('normalizeReleaseBundle', () => {
     describe('Legacy input handling (Item 5)', () => {
@@ -713,11 +713,14 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const normalized = normalizeReleaseBundle(bundle);
+            const relationships = extractRelationships(
+                normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+            );
 
-            expect(normalized.relationships).toBeDefined();
-            expect(Array.isArray(normalized.relationships)).toBe(true);
+            expect(relationships).toBeDefined();
+            expect(Array.isArray(relationships)).toBe(true);
 
-            const memberOfRels = normalized.relationships.filter(r => r.type === 'MEMBER_OF');
+            const memberOfRels = relationships.filter(r => r.type === 'MEMBER_OF');
             expect(memberOfRels).toHaveLength(2);
 
             // Dave Grohl -> Foo Fighters
@@ -751,8 +754,11 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const normalized = normalizeReleaseBundle(bundle);
+            const relationships = extractRelationships(
+                normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+            );
 
-            const guestRels = normalized.relationships.filter(r => r.type === 'GUEST_ON');
+            const guestRels = relationships.filter(r => r.type === 'GUEST_ON');
             expect(guestRels.length).toBeGreaterThanOrEqual(1);
 
             const releaseGuest = guestRels.find(r => r.props.scope === 'release');
@@ -780,8 +786,11 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const normalized = normalizeReleaseBundle(bundle);
+            const relationships = extractRelationships(
+                normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+            );
 
-            const perfRels = normalized.relationships.filter(r => r.type === 'PERFORMED_ON');
+            const perfRels = relationships.filter(r => r.type === 'PERFORMED_ON');
             expect(perfRels).toHaveLength(1);
             expect(perfRels[0].from.id).toBe('grp_1');
             expect(perfRels[0].to.id).toBe('trk_1');
@@ -808,8 +817,11 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const normalized = normalizeReleaseBundle(bundle);
+            const relationships = extractRelationships(
+                normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+            );
 
-            const wroteRels = normalized.relationships.filter(r => r.type === 'WROTE');
+            const wroteRels = relationships.filter(r => r.type === 'WROTE');
             expect(wroteRels).toHaveLength(1);
             expect(wroteRels[0].from.id).toBe('person_writer');
             expect(wroteRels[0].to.id).toBe('song_1');
@@ -834,8 +846,11 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const normalized = normalizeReleaseBundle(bundle);
+            const relationships = extractRelationships(
+                normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+            );
 
-            const prodRels = normalized.relationships.filter(r => r.type === 'PRODUCED');
+            const prodRels = relationships.filter(r => r.type === 'PRODUCED');
             expect(prodRels).toHaveLength(1);
             expect(prodRels[0].from.id).toBe('person_prod');
             expect(prodRels[0].to.id).toBe('trk_1');
@@ -853,9 +868,12 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const normalized = normalizeReleaseBundle(bundle);
+            const relationships = extractRelationships(
+                normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+            );
 
-            expect(normalized.relationships).toBeDefined();
-            expect(normalized.relationships).toHaveLength(0);
+            expect(relationships).toBeDefined();
+            expect(relationships).toHaveLength(0);
         });
 
         it('should handle cross-bundle scenario: same person in multiple groups', () => {
@@ -900,13 +918,19 @@ describe('normalizeReleaseBundle', () => {
             };
 
             const norm1 = normalizeReleaseBundle(bundle1);
+            const rels1 = extractRelationships(
+                norm1.release, norm1.groups, norm1.tracks, norm1.songs || []
+            );
             const norm2 = normalizeReleaseBundle(bundle2);
+            const rels2 = extractRelationships(
+                norm2.release, norm2.groups, norm2.tracks, norm2.songs || []
+            );
 
             // Both bundles should have MEMBER_OF for Dave Grohl
-            const grohl1 = norm1.relationships.find(
+            const grohl1 = rels1.find(
                 r => r.type === 'MEMBER_OF' && r.from.id === 'person_grohl'
             );
-            const grohl2 = norm2.relationships.find(
+            const grohl2 = rels2.find(
                 r => r.type === 'MEMBER_OF' && r.from.id === 'person_grohl'
             );
 

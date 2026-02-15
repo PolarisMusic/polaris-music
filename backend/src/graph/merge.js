@@ -778,7 +778,7 @@ const SAFE_LABELS = {
 };
 
 /**
- * Merge all explicit relationships from a normalized bundle into the graph.
+ * Merge all explicit relationships into the graph.
  *
  * Uses MERGE for both endpoints and the relationship itself, ensuring:
  * - Nodes are created if missing (with name fallback)
@@ -790,16 +790,14 @@ const SAFE_LABELS = {
  * before interpolation into Cypher queries.
  *
  * @param {import('neo4j-driver').Driver} driver - Neo4j driver instance
- * @param {Object} normalized - Normalized bundle (from normalizeReleaseBundle)
- * @param {Array} normalized.relationships - Explicit relationship descriptors
+ * @param {Array} relationships - Explicit relationship descriptors (from extractRelationships)
  * @param {Object} [options]
  * @param {string} [options.eventHash] - Event hash for audit trail
  * @param {import('neo4j-driver').Transaction} [options.tx] - Existing transaction to use (skips session management)
  * @returns {Promise<Object>} Statistics { relationshipsMerged, nodesEnsured, skipped }
  */
-async function mergeBundle(driver, normalized, options = {}) {
+async function mergeBundle(driver, relationships, options = {}) {
     const { eventHash = null, tx: existingTx = null } = options;
-    const relationships = normalized.relationships || [];
 
     if (relationships.length === 0) {
         return { relationshipsMerged: 0, nodesEnsured: 0, skipped: 0 };

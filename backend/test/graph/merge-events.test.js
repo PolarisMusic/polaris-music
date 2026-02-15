@@ -734,18 +734,16 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
 
             const { mergeBundle } = await import('../../src/graph/merge.js');
 
-            const normalized = {
-                relationships: [
-                    {
-                        type: 'MEMBER_OF',
-                        from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
-                        to: { label: 'Group', idProp: 'group_id', id: 'grp_nirvana', name: 'Nirvana' },
-                        props: { role: 'drums', roles: ['drums'] }
-                    }
-                ]
-            };
+            const relationships = [
+                {
+                    type: 'MEMBER_OF',
+                    from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'grp_nirvana', name: 'Nirvana' },
+                    props: { role: 'drums', roles: ['drums'] }
+                }
+            ];
 
-            const stats = await mergeBundle(driver, normalized, { eventHash: 'test_hash_001' });
+            const stats = await mergeBundle(driver, relationships, { eventHash: 'test_hash_001' });
 
             expect(stats.relationshipsMerged).toBe(1);
             expect(stats.skipped).toBe(0);
@@ -770,31 +768,27 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             const { mergeBundle } = await import('../../src/graph/merge.js');
 
             // Bundle 1: Nirvana
-            const norm1 = {
-                relationships: [
-                    {
-                        type: 'MEMBER_OF',
-                        from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
-                        to: { label: 'Group', idProp: 'group_id', id: 'grp_nirvana', name: 'Nirvana' },
-                        props: { role: 'drums' }
-                    }
-                ]
-            };
+            const rels1 = [
+                {
+                    type: 'MEMBER_OF',
+                    from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'grp_nirvana', name: 'Nirvana' },
+                    props: { role: 'drums' }
+                }
+            ];
 
             // Bundle 2: Foo Fighters
-            const norm2 = {
-                relationships: [
-                    {
-                        type: 'MEMBER_OF',
-                        from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
-                        to: { label: 'Group', idProp: 'group_id', id: 'grp_foo', name: 'Foo Fighters' },
-                        props: { role: 'vocals' }
-                    }
-                ]
-            };
+            const rels2 = [
+                {
+                    type: 'MEMBER_OF',
+                    from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'grp_foo', name: 'Foo Fighters' },
+                    props: { role: 'vocals' }
+                }
+            ];
 
-            await mergeBundle(driver, norm1, { eventHash: 'hash_1' });
-            await mergeBundle(driver, norm2, { eventHash: 'hash_2' });
+            await mergeBundle(driver, rels1, { eventHash: 'hash_1' });
+            await mergeBundle(driver, rels2, { eventHash: 'hash_2' });
 
             // Verify Dave Grohl is MEMBER_OF both groups
             const result = await session.run(`
@@ -807,7 +801,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             expect(result.records[1].get('group_name')).toBe('Nirvana');
 
             // Re-run bundle 1 (idempotency) - should NOT create duplicate
-            await mergeBundle(driver, norm1, { eventHash: 'hash_1' });
+            await mergeBundle(driver, rels1, { eventHash: 'hash_1' });
             const dupeCheck = await session.run(`
                 MATCH (p:Person {person_id: 'person_grohl'})-[m:MEMBER_OF]->(g:Group {group_id: 'grp_nirvana'})
                 RETURN count(m) AS count
@@ -818,18 +812,16 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('mergeBundle skips invalid relationship types', async () => {
             const { mergeBundle } = await import('../../src/graph/merge.js');
 
-            const normalized = {
-                relationships: [
-                    {
-                        type: 'EVIL_INJECTION',
-                        from: { label: 'Person', idProp: 'person_id', id: 'p1', name: 'Test' },
-                        to: { label: 'Group', idProp: 'group_id', id: 'g1', name: 'Test' },
-                        props: {}
-                    }
-                ]
-            };
+            const relationships = [
+                {
+                    type: 'EVIL_INJECTION',
+                    from: { label: 'Person', idProp: 'person_id', id: 'p1', name: 'Test' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'g1', name: 'Test' },
+                    props: {}
+                }
+            ];
 
-            const stats = await mergeBundle(driver, normalized);
+            const stats = await mergeBundle(driver, relationships);
             expect(stats.skipped).toBe(1);
             expect(stats.relationshipsMerged).toBe(0);
         });
@@ -837,8 +829,7 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         test('mergeBundle handles empty relationships array', async () => {
             const { mergeBundle } = await import('../../src/graph/merge.js');
 
-            const normalized = { relationships: [] };
-            const stats = await mergeBundle(driver, normalized);
+            const stats = await mergeBundle(driver, []);
 
             expect(stats.relationshipsMerged).toBe(0);
             expect(stats.skipped).toBe(0);

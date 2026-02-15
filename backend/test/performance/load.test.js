@@ -236,7 +236,7 @@ describe('Performance Tests', () => {
 
     describe('Relationship Extraction Performance', () => {
         test('should extract relationships from 100+ bundles in <5s', async () => {
-            const { normalizeReleaseBundle } = await import('../../src/graph/normalizeReleaseBundle.js');
+            const { normalizeReleaseBundle, extractRelationships } = await import('../../src/graph/normalizeReleaseBundle.js');
 
             const bundles = [];
             for (let i = 0; i < 100; i++) {
@@ -271,7 +271,10 @@ describe('Performance Tests', () => {
             let totalRels = 0;
             for (const bundle of bundles) {
                 const normalized = normalizeReleaseBundle(bundle);
-                totalRels += normalized.relationships.length;
+                const rels = extractRelationships(
+                    normalized.release, normalized.groups, normalized.tracks, normalized.songs || []
+                );
+                totalRels += rels.length;
             }
             const elapsed = performance.now() - start;
 
