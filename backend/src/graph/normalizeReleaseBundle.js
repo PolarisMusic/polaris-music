@@ -120,7 +120,7 @@ export function normalizeReleaseBundle(bundle) {
         sources: normalizedSources.length
     });
 
-    // Return normalized bundle
+    // Return normalized bundle (schema-compliant — no graph-specific fields like relationships)
     return {
         release: normalizedRelease,
         groups: normalizedGroups,
@@ -808,4 +808,123 @@ function normalizeSource(source) {
     return normalized;
 }
 
+/**
+ * Extract explicit relationships from normalized bundle data.
+ *
+ * Bundles imply relationships implicitly (e.g., group.members implies MEMBER_OF).
+ * This function makes them explicit so that cross-bundle relationship merging
+ * can be performed reliably — even when bundles are processed sequentially.
+ *
+ * @param {Object} release - Normalized release
+ * @param {Array} groups - Normalized groups
+ * @param {Array} tracks - Normalized tracks
+ * @param {Array} songs - Normalized songs
+ * @returns {Array} Explicit relationship descriptors
+ */
+function extractRelationships(release, groups, tracks, songs) {
+    const relationships = [];
+
+    // --- MEMBER_OF: group.members → Person -[:MEMBER_OF]-> Group ---
+    for (const group of groups || []) {
+        for (const member of group.members || []) {
+            if (!member.person_id && !member.name) continue;
+
+            relationships.push({
+                type: 'MEMBER_OF',
+                from: { label: 'Person', idProp: 'person_id', id: member.person_id || null, name: member.name },
+                to: { label: 'Group', idProp: 'group_id', id: group.group_id || null, name: group.name },
+                props: {
+                    roles: member.roles || (member.role ? [member.role] : ['member']),
+                    role: member.role || (member.roles ? member.roles[0] : 'member'),
+                    from_date: member.from_date || null,
+                    to_date: member.to_date || null,
+                    instruments: member.instruments || []
+                }
+            });
+        }
+    }
+
+    // --- GUEST_ON (release-level): release.guests → Person -[:GUEST_ON]-> Release ---
+    for (const guest of release?.guests || []) {
+        if (!guest.person_id && !guest.name) continue;
+
+        relationships.push({
+            type: 'GUEST_ON',
+            from: { label: 'Person', idProp: 'person_id', id: guest.person_id || null, name: guest.name },
+            to: { label: 'Release', idProp: 'release_id', id: release.release_id || null, name: release.name },
+            props: {
+                roles: guest.roles || [],
+                scope: 'release'
+            }
+        });
+    }
+
+    // --- Track-level relationships ---
+    for (const track of tracks || []) {
+        // PERFORMED_ON: track.performed_by_groups → Group -[:PERFORMED_ON]-> Track
+        for (const perfGroup of track.performed_by_groups || []) {
+            if (!perfGroup.group_id && !perfGroup.name) continue;
+
+            relationships.push({
+                type: 'PERFORMED_ON',
+                from: { label: 'Group', idProp: 'group_id', id: perfGroup.group_id || null, name: perfGroup.name },
+                to: { label: 'Track', idProp: 'track_id', id: track.track_id || null, name: track.title },
+                props: {
+                    role: perfGroup.role || 'performer'
+                }
+            });
+        }
+
+        // GUEST_ON (track-level): track.guests → Person -[:GUEST_ON]-> Track
+        for (const guest of track.guests || []) {
+            if (!guest.person_id && !guest.name) continue;
+
+            relationships.push({
+                type: 'GUEST_ON',
+                from: { label: 'Person', idProp: 'person_id', id: guest.person_id || null, name: guest.name },
+                to: { label: 'Track', idProp: 'track_id', id: track.track_id || null, name: track.title },
+                props: {
+                    roles: guest.roles || [],
+                    scope: 'track'
+                }
+            });
+        }
+
+        // PRODUCED: track.producers → Person -[:PRODUCED]-> Track
+        for (const producer of track.producers || []) {
+            if (!producer.person_id && !producer.name) continue;
+
+            relationships.push({
+                type: 'PRODUCED',
+                from: { label: 'Person', idProp: 'person_id', id: producer.person_id || null, name: producer.name },
+                to: { label: 'Track', idProp: 'track_id', id: track.track_id || null, name: track.title },
+                props: {
+                    role: producer.role || 'producer'
+                }
+            });
+        }
+    }
+
+    // --- WROTE: song.writers → Person -[:WROTE]-> Song ---
+    for (const song of songs || []) {
+        for (const writer of song.writers || []) {
+            if (!writer.person_id && !writer.name) continue;
+
+            relationships.push({
+                type: 'WROTE',
+                from: { label: 'Person', idProp: 'person_id', id: writer.person_id || null, name: writer.name },
+                to: { label: 'Song', idProp: 'song_id', id: song.song_id || null, name: song.title },
+                props: {
+                    roles: writer.roles || [],
+                    role: writer.role || 'songwriter'
+                }
+            });
+        }
+    }
+
+    log.debug('relationships_extracted', { count: relationships.length });
+    return relationships;
+}
+
+export { extractRelationships };
 export default normalizeReleaseBundle;

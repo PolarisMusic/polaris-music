@@ -742,4 +742,182 @@ export class MergeOperations {
     }
 }
 
+/**
+ * Safe relationship type whitelist for mergeBundle.
+ * Only these relationship types can be created via mergeBundle.
+ * Prevents Cypher injection through relationship type names.
+ */
+const SAFE_REL_TYPES = new Set([
+    'MEMBER_OF',
+    'GUEST_ON',
+    'PERFORMED_ON',
+    'PRODUCED',
+    'WROTE',
+    'ARRANGED',
+    'RECORDING_OF',
+    'IN_RELEASE',
+    'RELEASED',
+    'ORIGIN',
+    'SAMPLES',
+    'COVER_OF'
+]);
+
+/**
+ * Safe label whitelist for mergeBundle.
+ * Maps lowercase label to { label, idProp } for use in parameterized MERGE.
+ */
+const SAFE_LABELS = {
+    'person': { label: 'Person', idProp: 'person_id' },
+    'group': { label: 'Group', idProp: 'group_id' },
+    'track': { label: 'Track', idProp: 'track_id' },
+    'release': { label: 'Release', idProp: 'release_id' },
+    'song': { label: 'Song', idProp: 'song_id' },
+    'label': { label: 'Label', idProp: 'label_id' },
+    'master': { label: 'Master', idProp: 'master_id' },
+    'city': { label: 'City', idProp: 'city_id' }
+};
+
+/**
+ * Merge all explicit relationships into the graph.
+ *
+ * Uses MERGE for both endpoints and the relationship itself, ensuring:
+ * - Nodes are created if missing (with name fallback)
+ * - Relationships are created without duplicates
+ * - Cross-bundle relationships (e.g., Person MEMBER_OF multiple Groups) are
+ *   correctly created regardless of bundle processing order
+ *
+ * SECURITY: All labels and relationship types are validated against whitelists
+ * before interpolation into Cypher queries.
+ *
+ * @param {import('neo4j-driver').Driver} driver - Neo4j driver instance
+ * @param {Array} relationships - Explicit relationship descriptors (from extractRelationships)
+ * @param {Object} [options]
+ * @param {string} [options.eventHash] - Event hash for audit trail
+ * @param {import('neo4j-driver').Transaction} [options.tx] - Existing transaction to use (skips session management)
+ * @returns {Promise<Object>} Statistics { relationshipsMerged, nodesEnsured, skipped }
+ */
+async function mergeBundle(driver, relationships, options = {}) {
+    const { eventHash = null, tx: existingTx = null } = options;
+
+    if (relationships.length === 0) {
+        return { relationshipsMerged: 0, nodesEnsured: 0, skipped: 0 };
+    }
+
+    const stats = { relationshipsMerged: 0, nodesEnsured: 0, skipped: 0 };
+    let session = null;
+    let tx = existingTx;
+
+    try {
+        if (!existingTx) {
+            session = driver.session();
+            tx = session.beginTransaction();
+        }
+
+        for (const rel of relationships) {
+            // Validate relationship type against whitelist
+            if (!SAFE_REL_TYPES.has(rel.type)) {
+                log.warn('merge_bundle_skip_rel', { type: rel.type, reason: 'not_in_whitelist' });
+                stats.skipped++;
+                continue;
+            }
+
+            // Validate from/to labels
+            const fromMapping = SAFE_LABELS[rel.from.label.toLowerCase()];
+            const toMapping = SAFE_LABELS[rel.to.label.toLowerCase()];
+
+            if (!fromMapping || !toMapping) {
+                log.warn('merge_bundle_skip_label', {
+                    from_label: rel.from.label,
+                    to_label: rel.to.label,
+                    reason: 'unknown_label'
+                });
+                stats.skipped++;
+                continue;
+            }
+
+            // Must have at least an id or name for each endpoint
+            if (!rel.from.id && !rel.from.name) {
+                stats.skipped++;
+                continue;
+            }
+            if (!rel.to.id && !rel.to.name) {
+                stats.skipped++;
+                continue;
+            }
+
+            // Build Cypher for MERGE of both endpoints and the relationship.
+            // Use id when available; fall back to name-based provisional match.
+            const fromIdProp = fromMapping.idProp;
+            const toIdProp = toMapping.idProp;
+            const fromLabel = fromMapping.label;
+            const toLabel = toMapping.label;
+
+            // Build safe property map for relationship (filter out null/undefined)
+            const relProps = {};
+            if (rel.props) {
+                for (const [k, v] of Object.entries(rel.props)) {
+                    if (v !== null && v !== undefined) {
+                        relProps[k] = v;
+                    }
+                }
+            }
+
+            // Use MERGE on id field if available, otherwise use name
+            const fromMergeField = rel.from.id ? fromIdProp : 'name';
+            const fromMergeValue = rel.from.id || rel.from.name;
+            const toMergeField = rel.to.id ? toIdProp : 'name';
+            const toMergeValue = rel.to.id || rel.to.name;
+
+            // SECURITY: fromLabel, toLabel, rel.type are validated against whitelists above
+            // fromMergeField, toMergeField are derived from the whitelisted SAFE_LABELS
+            const cypher = `
+                MERGE (from:\`${fromLabel}\` {\`${fromMergeField}\`: $fromId})
+                ON CREATE SET from.id = $fromIdVal,
+                              from.name = $fromName,
+                              from.status = 'PROVISIONAL'
+                MERGE (to:\`${toLabel}\` {\`${toMergeField}\`: $toId})
+                ON CREATE SET to.id = $toIdVal,
+                              to.name = $toName,
+                              to.status = 'PROVISIONAL'
+                MERGE (from)-[r:\`${rel.type}\`]->(to)
+                SET r += $relProps
+            `;
+
+            const params = {
+                fromId: fromMergeValue,
+                fromIdVal: rel.from.id || fromMergeValue,
+                fromName: rel.from.name || null,
+                toId: toMergeValue,
+                toIdVal: rel.to.id || toMergeValue,
+                toName: rel.to.name || null,
+                relProps
+            };
+
+            await tx.run(cypher, params);
+            stats.relationshipsMerged++;
+            stats.nodesEnsured += 2;
+        }
+
+        // Only commit if we created our own transaction
+        if (!existingTx) {
+            await tx.commit();
+        }
+
+        log.info('merge_bundle_end', stats);
+        return stats;
+
+    } catch (error) {
+        if (!existingTx && tx) {
+            await tx.rollback();
+        }
+        log.error('merge_bundle_fail', { error: error.message, event_hash: eventHash });
+        throw error;
+    } finally {
+        if (session) {
+            await session.close();
+        }
+    }
+}
+
+export { mergeBundle, SAFE_REL_TYPES, SAFE_LABELS };
 export default MergeOperations;

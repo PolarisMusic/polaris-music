@@ -22,6 +22,8 @@ import fetch from 'node-fetch';
 import neo4j from 'neo4j-driver';
 import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
+import { mergeBundle } from '../graph/merge.js';
+import { normalizeReleaseBundle, extractRelationships } from '../graph/normalizeReleaseBundle.js';
 import { createLogger } from '../utils/logger.js';
 
 /**
@@ -581,6 +583,35 @@ class EventProcessor {
             actionData.author,  // Use chain account as submitter-of-record
             eventTimestamp
         );
+
+        // Post-process: ensure cross-bundle relationships are merged.
+        // extractRelationships builds a flat relationship list from the normalized bundle;
+        // mergeBundle uses MERGE to create them idempotently, connecting shared nodes
+        // (e.g., Dave Grohl) across bundles even when processed sequentially.
+        try {
+            const normalized = normalizeReleaseBundle(event.body);
+            const relationships = extractRelationships(
+                normalized.release,
+                normalized.groups,
+                normalized.tracks,
+                normalized.songs || []
+            );
+            if (relationships.length > 0) {
+                const mergeStats = await mergeBundle(this.db.driver, relationships, {
+                    eventHash: actionData.hash
+                });
+                this.log.info('handleReleaseBundle relationships merged', {
+                    event_hash: actionData.hash,
+                    relationships_merged: mergeStats.relationshipsMerged
+                });
+            }
+        } catch (relErr) {
+            // Log but don't fail the whole bundle — primary ingestion already succeeded
+            this.log.warn('handleReleaseBundle relationship merge warning', {
+                event_hash: actionData.hash,
+                error: relErr.message
+            });
+        }
 
         timer.end('handleReleaseBundle complete', {
             event_hash: actionData.hash,

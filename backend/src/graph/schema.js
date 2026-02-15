@@ -482,6 +482,14 @@ constructor(config = {}) {
                 { name: 'label_origin_city', query: 'CREATE INDEX label_origin_city IF NOT EXISTS FOR (l:Label) ON (l.origin_city_name)' },
                 { name: 'person_origin_city', query: 'CREATE INDEX person_origin_city IF NOT EXISTS FOR (p:Person) ON (p.origin_city_name)' },
 
+                // Entity-specific ID indexes for faster MERGE lookups during cross-bundle relationship creation
+                { name: 'person_id_lookup', query: 'CREATE INDEX person_id_lookup IF NOT EXISTS FOR (p:Person) ON (p.person_id)' },
+                { name: 'group_id_lookup', query: 'CREATE INDEX group_id_lookup IF NOT EXISTS FOR (g:Group) ON (g.group_id)' },
+                { name: 'release_id_lookup', query: 'CREATE INDEX release_id_lookup IF NOT EXISTS FOR (r:Release) ON (r.release_id)' },
+                { name: 'song_id_lookup', query: 'CREATE INDEX song_id_lookup IF NOT EXISTS FOR (s:Song) ON (s.song_id)' },
+                { name: 'track_id_lookup', query: 'CREATE INDEX track_id_lookup IF NOT EXISTS FOR (t:Track) ON (t.track_id)' },
+                { name: 'label_id_lookup', query: 'CREATE INDEX label_id_lookup IF NOT EXISTS FOR (l:Label) ON (l.label_id)' },
+
                 // Relationship property indexes for role searchability (Neo4j 5.x+)
                 { name: 'performed_on_role', query: 'CREATE INDEX performed_on_role IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.role)' },
                 { name: 'performed_on_roles', query: 'CREATE INDEX performed_on_roles IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.roles)' },

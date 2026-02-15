@@ -724,4 +724,116 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
         });
     });
 
+    describe('mergeBundle - Cross-Bundle Relationship Merging', () => {
+        test('mergeBundle creates MEMBER_OF relationships from explicit relationships array', async () => {
+            // Create Person and Group nodes
+            await session.run(`
+                CREATE (p:Person {id: 'person_grohl', person_id: 'person_grohl', name: 'Dave Grohl'})
+                CREATE (g:Group {id: 'grp_nirvana', group_id: 'grp_nirvana', name: 'Nirvana'})
+            `);
+
+            const { mergeBundle } = await import('../../src/graph/merge.js');
+
+            const relationships = [
+                {
+                    type: 'MEMBER_OF',
+                    from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'grp_nirvana', name: 'Nirvana' },
+                    props: { role: 'drums', roles: ['drums'] }
+                }
+            ];
+
+            const stats = await mergeBundle(driver, relationships, { eventHash: 'test_hash_001' });
+
+            expect(stats.relationshipsMerged).toBe(1);
+            expect(stats.skipped).toBe(0);
+
+            // Verify relationship exists
+            const result = await session.run(`
+                MATCH (p:Person {person_id: 'person_grohl'})-[m:MEMBER_OF]->(g:Group {group_id: 'grp_nirvana'})
+                RETURN m.role AS role
+            `);
+            expect(result.records).toHaveLength(1);
+            expect(result.records[0].get('role')).toBe('drums');
+        });
+
+        test('mergeBundle creates cross-bundle MEMBER_OF without duplicates', async () => {
+            // Create Person and two Groups (simulating two bundles)
+            await session.run(`
+                CREATE (p:Person {id: 'person_grohl', person_id: 'person_grohl', name: 'Dave Grohl'})
+                CREATE (g1:Group {id: 'grp_nirvana', group_id: 'grp_nirvana', name: 'Nirvana'})
+                CREATE (g2:Group {id: 'grp_foo', group_id: 'grp_foo', name: 'Foo Fighters'})
+            `);
+
+            const { mergeBundle } = await import('../../src/graph/merge.js');
+
+            // Bundle 1: Nirvana
+            const rels1 = [
+                {
+                    type: 'MEMBER_OF',
+                    from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'grp_nirvana', name: 'Nirvana' },
+                    props: { role: 'drums' }
+                }
+            ];
+
+            // Bundle 2: Foo Fighters
+            const rels2 = [
+                {
+                    type: 'MEMBER_OF',
+                    from: { label: 'Person', idProp: 'person_id', id: 'person_grohl', name: 'Dave Grohl' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'grp_foo', name: 'Foo Fighters' },
+                    props: { role: 'vocals' }
+                }
+            ];
+
+            await mergeBundle(driver, rels1, { eventHash: 'hash_1' });
+            await mergeBundle(driver, rels2, { eventHash: 'hash_2' });
+
+            // Verify Dave Grohl is MEMBER_OF both groups
+            const result = await session.run(`
+                MATCH (p:Person {person_id: 'person_grohl'})-[m:MEMBER_OF]->(g:Group)
+                RETURN g.name AS group_name, m.role AS role
+                ORDER BY g.name
+            `);
+            expect(result.records).toHaveLength(2);
+            expect(result.records[0].get('group_name')).toBe('Foo Fighters');
+            expect(result.records[1].get('group_name')).toBe('Nirvana');
+
+            // Re-run bundle 1 (idempotency) - should NOT create duplicate
+            await mergeBundle(driver, rels1, { eventHash: 'hash_1' });
+            const dupeCheck = await session.run(`
+                MATCH (p:Person {person_id: 'person_grohl'})-[m:MEMBER_OF]->(g:Group {group_id: 'grp_nirvana'})
+                RETURN count(m) AS count
+            `);
+            expect(dupeCheck.records[0].get('count').toInt()).toBe(1);
+        });
+
+        test('mergeBundle skips invalid relationship types', async () => {
+            const { mergeBundle } = await import('../../src/graph/merge.js');
+
+            const relationships = [
+                {
+                    type: 'EVIL_INJECTION',
+                    from: { label: 'Person', idProp: 'person_id', id: 'p1', name: 'Test' },
+                    to: { label: 'Group', idProp: 'group_id', id: 'g1', name: 'Test' },
+                    props: {}
+                }
+            ];
+
+            const stats = await mergeBundle(driver, relationships);
+            expect(stats.skipped).toBe(1);
+            expect(stats.relationshipsMerged).toBe(0);
+        });
+
+        test('mergeBundle handles empty relationships array', async () => {
+            const { mergeBundle } = await import('../../src/graph/merge.js');
+
+            const stats = await mergeBundle(driver, []);
+
+            expect(stats.relationshipsMerged).toBe(0);
+            expect(stats.skipped).toBe(0);
+        });
+    });
+
 });

@@ -196,7 +196,8 @@ async function processReleaseBundle(bundle, filename) {
                 const city = JSON.parse(cityJson);
                 await session.run(`
                     MERGE (c:City {city_id: $city_id})
-                    SET c.name = $name,
+                    SET c.id = $city_id,
+                        c.name = $name,
                         c.lat = $lat,
                         c.lon = $lon
                 `, city);
@@ -209,7 +210,8 @@ async function processReleaseBundle(bundle, filename) {
             for (const label of labels) {
                 await session.run(`
                     MERGE (l:Label {label_id: $label_id})
-                    SET l.name = $name,
+                    SET l.id = $label_id,
+                        l.name = $name,
                         l.altnames = $altnames,
                         l.bio = $bio,
                         l.trivia = $trivia,
@@ -224,13 +226,14 @@ async function processReleaseBundle(bundle, filename) {
             }
         }
 
-        // Create Persons
+        // Create Persons (set universal id property for merge operations)
         if (personsMap.size > 0) {
             console.log(`👤 Creating ${personsMap.size} persons...`);
             for (const [personId, person] of personsMap) {
                 await session.run(`
                     MERGE (p:Person {person_id: $person_id})
-                    SET p.name = $name,
+                    SET p.id = $person_id,
+                        p.name = $name,
                         p.color = $color,
                         p.photo = $photo,
                         p.bio = $bio,
@@ -246,7 +249,8 @@ async function processReleaseBundle(bundle, filename) {
             for (const group of groups) {
                 await session.run(`
                     MERGE (g:Group {group_id: $group_id})
-                    SET g.name = $name,
+                    SET g.id = $group_id,
+                        g.name = $name,
                         g.altnames = $altnames,
                         g.photo = $photo,
                         g.bio = $bio,
@@ -262,14 +266,21 @@ async function processReleaseBundle(bundle, filename) {
                 });
 
                 // Create MEMBER_OF relationships
+                // Use MERGE for Person to ensure cross-bundle persons are found
+                // even if not in this bundle's personsMap
                 for (const member of group.members || []) {
                     await session.run(`
-                        MATCH (p:Person {person_id: $person_id})
+                        MERGE (p:Person {person_id: $person_id})
+                        ON CREATE SET p.id = $person_id,
+                                      p.name = $name,
+                                      p.status = 'ACTIVE'
+                        WITH p
                         MATCH (g:Group {group_id: $group_id})
                         MERGE (p)-[m:MEMBER_OF]->(g)
                         ON CREATE SET m.role = $role
                     `, {
                         person_id: member.person_id,
+                        name: member.name,
                         group_id: group.group_id,
                         role: member.role || 'member'
                     });
@@ -281,7 +292,8 @@ async function processReleaseBundle(bundle, filename) {
         console.log(`💿 Creating release: ${release.name}...`);
         await session.run(`
             MERGE (r:Release {release_id: $release_id})
-            SET r.name = $name,
+            SET r.id = $release_id,
+                r.name = $name,
                 r.altnames = $altnames,
                 r.date = date($date),
                 r.format = $format,
@@ -322,7 +334,8 @@ async function processReleaseBundle(bundle, filename) {
             for (const song of songs) {
                 await session.run(`
                     MERGE (s:Song {song_id: $song_id})
-                    SET s.name = $title,
+                    SET s.id = $song_id,
+                        s.name = $title,
                         s.status = 'ACTIVE'
                 `, {
                     song_id: song.song_id,
@@ -349,7 +362,8 @@ async function processReleaseBundle(bundle, filename) {
             for (const track of tracks) {
                 await session.run(`
                     MERGE (t:Track {track_id: $track_id})
-                    SET t.title = $title,
+                    SET t.id = $track_id,
+                        t.title = $title,
                         t.duration = $duration
                 `, {
                     track_id: track.track_id,
