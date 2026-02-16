@@ -17,7 +17,7 @@ smoke-tests/
 
 ## Available Smoke Test Bundles
 
-The smoke test suite includes 21 release bundles covering various artists and scenarios:
+The smoke test suite includes 22 release bundles covering various artists and scenarios:
 
 ### Grunge/Alternative Rock
 - **Nevermind** - Nirvana (1991)
@@ -39,6 +39,9 @@ The smoke test suite includes 21 release bundles covering various artists and sc
 - **Asking for a Friend** - Rocket from the Crypt variant
 - **RFTC** - Rocket from the Crypt compilation
 - **Group Sounds** - Rocket from the Crypt (1996)
+
+### Pop Punk
+- **Enema of the State** - Blink-182 (1999)
 
 ### Progressive/Alternative
 - **California** - Mr. Bungle (1999)
