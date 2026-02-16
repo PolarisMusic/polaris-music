@@ -26,7 +26,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.971.0",
     "ajv": "8.17.1",
-    "ajv-formats": "2.1.1",
+    "ajv-formats": "3.0.1",
     "cors": "2.8.5",
     "eosjs": "22.1.0",
     "express": "4.22.1",
