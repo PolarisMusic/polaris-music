@@ -125,6 +125,22 @@ const PROTECTED_FIELDS = new Set([
 const SAFE_PROPERTY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * 20-color palette for Person nodes.
+ * Assigned on creation and persisted in Neo4j so colors are stable
+ * across sessions and shared between the donut ring and edge styling.
+ */
+const PERSON_COLOR_PALETTE = [
+    '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
+    '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe',
+    '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000',
+    '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080'
+];
+
+function pickPersonColor() {
+    return PERSON_COLOR_PALETTE[Math.floor(Math.random() * PERSON_COLOR_PALETTE.length)];
+}
+
+/**
  * Validate that a field name is safe for use as a Neo4j property.
  * Throws an error if the field name contains invalid characters.
  *
@@ -691,8 +707,10 @@ constructor(config = {}) {
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
                                      p.status = $status,
-                                     p.created_at = datetime({epochMillis: $eventTs})
-                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
+                                     p.created_at = datetime({epochMillis: $eventTs}),
+                                     p.color = $personColor
+                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name),
+                            p.color = coalesce(p.color, $personColor)
 
                         WITH p
                         MATCH (g:Group {group_id: $groupId})
@@ -709,6 +727,7 @@ constructor(config = {}) {
                     `, {
                         eventTs,
                         personId,
+                        personColor: pickPersonColor(),
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
                         originCityName: member.origin_city?.name || null,
@@ -814,8 +833,10 @@ constructor(config = {}) {
                     MERGE (p:Person {person_id: $personId})
                     ON CREATE SET p.id = $personId,
                             p.name = $name,
-                                 p.status = $status
-                    SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
+                                 p.status = $status,
+                                 p.color = $personColor
+                    SET p.origin_city_name = coalesce($originCityName, p.origin_city_name),
+                        p.color = coalesce(p.color, $personColor)
 
                     WITH p
                     MATCH (r:Release {release_id: $releaseId})
@@ -827,6 +848,7 @@ constructor(config = {}) {
                         g.scope = 'release'
                 `, {
                     personId,
+                    personColor: pickPersonColor(),
                     name: guest.name,
                     status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
                     originCityName: guest.origin_city?.name || null,
@@ -888,7 +910,9 @@ constructor(config = {}) {
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
-                                     p.status = $status
+                                     p.status = $status,
+                                     p.color = $personColor
+                        SET p.color = coalesce(p.color, $personColor)
                         WITH p
                         MATCH (s:Song {song_id: $songId})
                         MERGE (p)-[w:WROTE {claim_id: $claimId}]->(s)
@@ -899,6 +923,7 @@ constructor(config = {}) {
                             w.share_percentage = $share
                     `, {
                         personId: writerId,
+                        personColor: pickPersonColor(),
                         name: writer.name,
                         status: writer.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         songId,
@@ -1076,7 +1101,8 @@ constructor(config = {}) {
                                         name: member.name,
                                         roles: roles,
                                         role: roles[0] || null,  // backward compat
-                                        instruments: member.instruments || []
+                                        instruments: member.instruments || [],
+                                        color: pickPersonColor()
                                     });
                                 } catch (memberResolveError) {
                                     this.log.warn('explicit_member_resolve_fail', { name: member.name, error: memberResolveError.message });
@@ -1091,7 +1117,9 @@ constructor(config = {}) {
                                         p.id = m.personId,
                                         p.name = m.name,
                                         p.status = 'PROVISIONAL',
-                                        p.created_at = datetime({epochMillis: $eventTs})
+                                        p.created_at = datetime({epochMillis: $eventTs}),
+                                        p.color = m.color
+                                    SET p.color = coalesce(p.color, m.color)
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
@@ -1160,7 +1188,8 @@ constructor(config = {}) {
                                         name: member.name,
                                         roles: roles,
                                         role: roles[0] || null,  // backward compat
-                                        instruments: member.instruments || []
+                                        instruments: member.instruments || [],
+                                        color: pickPersonColor()
                                     });
                                 } catch (memberResolveError) {
                                     this.log.warn('derived_member_resolve_fail', { name: member.name, error: memberResolveError.message });
@@ -1175,7 +1204,9 @@ constructor(config = {}) {
                                         p.id = m.personId,
                                         p.name = m.name,
                                         p.status = 'PROVISIONAL',
-                                        p.created_at = datetime({epochMillis: $eventTs})
+                                        p.created_at = datetime({epochMillis: $eventTs}),
+                                        p.color = m.color
+                                    SET p.color = coalesce(p.color, m.color)
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
@@ -1210,8 +1241,10 @@ constructor(config = {}) {
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
-                                     p.status = $status
-                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name)
+                                     p.status = $status,
+                                     p.color = $personColor
+                        SET p.origin_city_name = coalesce($originCityName, p.origin_city_name),
+                            p.color = coalesce(p.color, $personColor)
 
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
@@ -1226,6 +1259,7 @@ constructor(config = {}) {
                             g.scope = 'track'
                     `, {
                         personId: guestId,
+                        personColor: pickPersonColor(),
                         name: guest.name,
                         status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         originCityName: guest.origin_city?.name || null,
@@ -1247,13 +1281,16 @@ constructor(config = {}) {
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
-                                     p.status = $status
+                                     p.status = $status,
+                                     p.color = $personColor
+                        SET p.color = coalesce(p.color, $personColor)
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
                         MERGE (p)-[pr:PRODUCED {claim_id: $claimId}]->(t)
                         SET pr.role = $role
                     `, {
                         personId: producerId,
+                        personColor: pickPersonColor(),
                         name: producer.name,
                         status: producer.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         trackId,
@@ -1270,13 +1307,16 @@ constructor(config = {}) {
                         MERGE (p:Person {person_id: $personId})
                         ON CREATE SET p.id = $personId,
                             p.name = $name,
-                                     p.status = $status
+                                     p.status = $status,
+                                     p.color = $personColor
+                        SET p.color = coalesce(p.color, $personColor)
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
                         MERGE (p)-[a:ARRANGED {claim_id: $claimId}]->(t)
                         SET a.role = $role
                     `, {
                         personId: arrangerId,
+                        personColor: pickPersonColor(),
                         name: arranger.name,
                         status: arranger.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         trackId,
@@ -1852,38 +1892,43 @@ constructor(config = {}) {
         try {
             this.log.info('participation_start', { group_id: groupId.substring(0, 12) });
 
-            // Uses Person→PERFORMED_ON{via_group_id}→Track→IN_RELEASE→Release
-            // instead of date-based MEMBER_OF inference.  This is the direct
-            // "features on" signal created during release-bundle processing and
-            // avoids brittle date() parsing on potentially non-ISO strings.
+            // Anchors on MEMBER_OF so every known member appears (even with
+            // 0 releases).  Uses OPTIONAL MATCH on the Person→PERFORMED_ON
+            // {via_group_id}→Track→IN_RELEASE→Release path for the actual
+            // "features on" signal, avoiding brittle date() parsing.
             const result = await session.run(`
                 MATCH (g:Group {group_id: $groupId})
 
                 // Total distinct releases the group performed on
-                MATCH (g)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
+                OPTIONAL MATCH (g)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
                 WITH g, count(DISTINCT r) AS totalReleases
 
-                // Per person: releases they actually performed on via this group
-                MATCH (p:Person)-[:PERFORMED_ON {via_group_id: g.group_id}]->(t:Track)
-                      -[:IN_RELEASE]->(r:Release)
-                WITH p, totalReleases, collect(DISTINCT r.release_id) AS memberReleaseIds
+                // All members of this group (anchor — guarantees rows)
+                MATCH (p:Person)-[:MEMBER_OF]->(g)
+
+                // Left-join: releases each member actually performed on
+                OPTIONAL MATCH (p)-[:PERFORMED_ON {via_group_id: g.group_id}]
+                               ->(:Track)-[:IN_RELEASE]->(r2:Release)
+                WITH p, totalReleases, count(DISTINCT r2) AS releaseCount
 
                 RETURN
                   p.person_id  AS personId,
                   p.name       AS personName,
-                  size(memberReleaseIds) AS releaseCount,
-                  totalReleases AS totalReleases,
+                  p.color      AS color,
+                  totalReleases,
+                  releaseCount,
                   CASE
                     WHEN totalReleases = 0 THEN 0.0
-                    ELSE toFloat(size(memberReleaseIds))
+                    ELSE toFloat(releaseCount)
                          / toFloat(totalReleases) * 100.0
                   END AS releasePctOfGroupReleases
-                ORDER BY releaseCount DESC
+                ORDER BY releaseCount DESC, personName ASC
             `, { groupId });
 
             const participation = result.records.map(record => ({
                 personId: record.get('personId'),
                 personName: record.get('personName'),
+                color: record.get('color') || null,
                 releaseCount: record.get('releaseCount').toNumber(),
                 totalReleases: record.get('totalReleases').toNumber(),
                 releasePctOfGroupReleases: record.get('releasePctOfGroupReleases')
@@ -1895,6 +1940,36 @@ constructor(config = {}) {
 
         } catch (error) {
             timer.endError('participation_fail', { group_id: groupId.substring(0, 12), error: error.message });
+            throw error;
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * Backfill Person.color for any Person nodes that are missing it.
+     * Intended as a one-off migration for data ingested before color
+     * assignment was added.  Safe to run repeatedly (idempotent).
+     *
+     * @returns {Promise<number>} Number of persons updated
+     */
+    async backfillPersonColors() {
+        const session = this.driver.session();
+        try {
+            this.log.info('backfill_person_colors_start');
+
+            const result = await session.run(`
+                MATCH (p:Person) WHERE p.color IS NULL
+                WITH p, $palette[toInteger(abs(id(p))) % size($palette)] AS c
+                SET p.color = c
+                RETURN count(p) AS updated
+            `, { palette: PERSON_COLOR_PALETTE });
+
+            const updated = result.records[0].get('updated').toNumber();
+            this.log.info('backfill_person_colors_end', { updated });
+            return updated;
+        } catch (error) {
+            this.log.error('backfill_person_colors_fail', { error: error.message });
             throw error;
         } finally {
             await session.close();

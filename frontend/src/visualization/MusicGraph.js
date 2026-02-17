@@ -432,29 +432,39 @@ export class MusicGraph {
     computeDonutSlices(members) {
         if (!members || members.length === 0) return [];
 
-        // Sort descending by releaseCount
-        const sorted = [...members].sort((a, b) => (b.releaseCount || 0) - (a.releaseCount || 0));
+        // Sanitise weights: coerce to finite non-negative numbers
+        const weights = members.map(m => {
+            const v = Number(m.releaseCount ?? 0);
+            return Number.isFinite(v) && v > 0 ? v : 0;
+        });
 
-        // Total weight for angle computation (sum of releaseCount)
-        const totalWeight = sorted.reduce((sum, m) => sum + (m.releaseCount || 0), 0);
-        if (totalWeight === 0) return [];
+        let totalWeight = weights.reduce((a, b) => a + b, 0);
+
+        // Fallback: if all weights are 0 but members exist, draw equal slices
+        const useEqualSlices = totalWeight <= 0;
+        if (useEqualSlices) {
+            totalWeight = members.length; // each member gets weight = 1
+        }
+
+        // Sort descending by weight (stable by index for equal slices)
+        const indexed = members.map((m, i) => ({ m, w: useEqualSlices ? 1 : weights[i], i }));
+        indexed.sort((a, b) => b.w - a.w || a.i - b.i);
 
         const slices = [];
         let angle = -Math.PI / 2; // Start at top
 
-        for (const member of sorted) {
-            const weight = member.releaseCount || 0;
-            const weightNormalized = weight / totalWeight;
+        for (const { m, w } of indexed) {
+            const weightNormalized = w / totalWeight;
             const sliceAngle = weightNormalized * 2 * Math.PI;
 
             slices.push({
                 begin: angle,
                 end: angle + sliceAngle,
-                color: member.color || this.colorPalette.getColor(member.personId),
-                personId: member.personId,
-                personName: member.personName,
-                releaseCount: member.releaseCount,
-                releasePctOfGroupReleases: member.releasePctOfGroupReleases,
+                color: m.color || this.colorPalette.getColor(m.personId),
+                personId: m.personId,
+                personName: m.personName,
+                releaseCount: m.releaseCount,
+                releasePctOfGroupReleases: m.releasePctOfGroupReleases,
                 weightNormalized: weightNormalized
             });
 
@@ -473,19 +483,27 @@ export class MusicGraph {
         const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
         const toType = (adj.nodeTo.data.type || '').toLowerCase();
 
-        // Person -> Group: use person's color
-        if (fromType === 'person' && toType === 'group') {
-            const color = this.colorPalette.getColor(adj.nodeFrom.id);
+        // MEMBER_OF edges: find the person endpoint, use its DB color
+        if ((fromType === 'person' && toType === 'group') ||
+            (fromType === 'group' && toType === 'person')) {
+            const personNode = fromType === 'person' ? adj.nodeFrom : adj.nodeTo;
+            // Prefer DB-stored color on the node, fall back to palette
+            const color =
+                personNode.getData('color') ||
+                personNode.data.$color ||
+                this.colorPalette.getColor(personNode.id);
             adj.setData('color', color);
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('MEMBER_OF'));
         }
         // Group -> Track: green edges
-        else if (fromType === 'group' && toType === 'track') {
+        else if ((fromType === 'group' && toType === 'track') ||
+                 (fromType === 'track' && toType === 'group')) {
             adj.setData('color', this.colorPalette.getEdgeColor('PERFORMED_ON'));
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('PERFORMED_ON'));
         }
         // Track -> Release: gray edges
-        else if (fromType === 'track' && toType === 'release') {
+        else if ((fromType === 'track' && toType === 'release') ||
+                 (fromType === 'release' && toType === 'track')) {
             adj.setData('color', this.colorPalette.getEdgeColor('IN_RELEASE'));
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('IN_RELEASE'));
         }
