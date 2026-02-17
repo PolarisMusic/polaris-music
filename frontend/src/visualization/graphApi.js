@@ -184,7 +184,8 @@ export class GraphAPI {
             name: node.name,
             data: {
                 $dim: dimForType(node.type),
-                $type: 'circle',
+                $type: 'circle-hover',
+                $color: node.color || undefined,  // DB-driven person color
                 type: node.type,
                 trackCount: node.trackCount || 0
             },

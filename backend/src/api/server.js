@@ -1323,12 +1323,23 @@ class APIServer {
          */
         this.app.get('/api/groups/:groupId/participation', async (req, res) => {
             try {
-                const participation = await this.db.calculateGroupMemberParticipation(req.params.groupId);
+                const rows = await this.db.calculateGroupMemberParticipation(req.params.groupId);
+
+                // rows is a flat array; totalReleases is the same on every row
+                const totalReleases = rows.length > 0 ? rows[0].totalReleases : 0;
+                const members = rows.map(r => ({
+                    personId: r.personId,
+                    personName: r.personName,
+                    releaseCount: r.releaseCount,
+                    releasePctOfGroupReleases: r.releasePctOfGroupReleases,
+                    color: r.color ?? null
+                }));
 
                 res.json({
                     success: true,
                     groupId: req.params.groupId,
-                    members: participation
+                    totalReleases,
+                    members
                 });
             } catch (error) {
                 console.error('Participation calculation failed:', error);
@@ -1789,7 +1800,8 @@ class APIServer {
                         collect(DISTINCT CASE WHEN p IS NOT NULL THEN {
                             id: p.person_id,
                             name: p.name,
-                            type: 'person'
+                            type: 'person',
+                            color: p.color
                         } ELSE null END) as persons,
                         collect(DISTINCT CASE WHEN m IS NOT NULL THEN {
                             source: p.person_id,
