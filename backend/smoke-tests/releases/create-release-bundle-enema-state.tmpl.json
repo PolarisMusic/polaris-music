@@ -23,22 +23,22 @@
     ],
     "groups": [
       {
-        "group_id": "polaris:group:00000000-0000-4000-8000-000000000021",
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000007",
         "name": "Smoke Blink-182",
         "alt_names": ["Blink-182", "blink-182"],
         "members": [
           {
-            "person_id": "polaris:person:00000000-0000-4000-8000-000000000601",
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000413",
             "name": "Smoke Mark Hoppus",
             "role": "bass, vocals"
           },
           {
-            "person_id": "polaris:person:00000000-0000-4000-8000-000000000602",
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000401",
             "name": "Smoke Tom DeLonge",
             "role": "guitar, vocals"
           },
           {
-            "person_id": "polaris:person:00000000-0000-4000-8000-000000000603",
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000414",
             "name": "Smoke Travis Barker",
             "role": "drums, percussion"
           }
