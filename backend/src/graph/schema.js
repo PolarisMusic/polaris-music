@@ -1852,42 +1852,41 @@ constructor(config = {}) {
         try {
             this.log.info('participation_start', { group_id: groupId.substring(0, 12) });
 
+            // Uses Person→PERFORMED_ON{via_group_id}→Track→IN_RELEASE→Release
+            // instead of date-based MEMBER_OF inference.  This is the direct
+            // "features on" signal created during release-bundle processing and
+            // avoids brittle date() parsing on potentially non-ISO strings.
             const result = await session.run(`
                 MATCH (g:Group {group_id: $groupId})
-                MATCH (g)-[:PERFORMED_ON]->(t:Track)
-                MATCH (t)-[:IN_RELEASE]->(r:Release)
 
-                // For each track, find which members were active at that time
-                OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
-                WHERE (m.from_date IS NULL OR date(m.from_date) <= date(r.release_date))
-                  AND (m.to_date IS NULL OR date(m.to_date) >= date(r.release_date))
+                // Total distinct releases the group performed on
+                MATCH (g)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
+                WITH g, count(DISTINCT r) AS totalReleases
 
-                // Count tracks per member
-                WITH p, count(DISTINCT t) as track_count,
-                     collect(DISTINCT r.release_id) as releases
+                // Per person: releases they actually performed on via this group
+                MATCH (p:Person)-[:PERFORMED_ON {via_group_id: g.group_id}]->(t:Track)
+                      -[:IN_RELEASE]->(r:Release)
+                WITH p, totalReleases, collect(DISTINCT r.release_id) AS memberReleaseIds
 
-                // Get total tracks for percentage
-                MATCH (g:Group {group_id: $groupId})-[:PERFORMED_ON]->(total:Track)
-                WITH p, track_count, releases, count(DISTINCT total) as total_tracks
-
-                WHERE p IS NOT NULL
-
-                RETURN p.person_id as personId,
-                       p.name as personName,
-                       track_count,
-                       total_tracks,
-                       toFloat(track_count) / toFloat(total_tracks) * 100 as participationPercentage,
-                       size(releases) as releaseCount
-                ORDER BY participationPercentage DESC
+                RETURN
+                  p.person_id  AS personId,
+                  p.name       AS personName,
+                  size(memberReleaseIds) AS releaseCount,
+                  totalReleases AS totalReleases,
+                  CASE
+                    WHEN totalReleases = 0 THEN 0.0
+                    ELSE toFloat(size(memberReleaseIds))
+                         / toFloat(totalReleases) * 100.0
+                  END AS releasePctOfGroupReleases
+                ORDER BY releaseCount DESC
             `, { groupId });
 
             const participation = result.records.map(record => ({
                 personId: record.get('personId'),
                 personName: record.get('personName'),
-                trackCount: record.get('track_count').toNumber(),
-                totalTracks: record.get('total_tracks').toNumber(),
-                participationPercentage: record.get('participationPercentage'),
-                releaseCount: record.get('releaseCount').toNumber()
+                releaseCount: record.get('releaseCount').toNumber(),
+                totalReleases: record.get('totalReleases').toNumber(),
+                releasePctOfGroupReleases: record.get('releasePctOfGroupReleases')
             }));
 
             timer.end('participation_end', { group_id: groupId.substring(0, 12), member_count: participation.length });

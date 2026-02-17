@@ -514,8 +514,8 @@ class APIServer {
                 const participation = await this.db.calculateGroupMemberParticipation(group_id);
                 return participation.map(p => ({
                     person: { person_id: p.personId, name: p.personName },
-                    participation_percentage: p.participationPercentage,
-                    track_count: p.trackCount,
+                    participation_percentage: p.releasePctOfGroupReleases,
+                    track_count: null,
                     release_count: p.releaseCount
                 }));
             },

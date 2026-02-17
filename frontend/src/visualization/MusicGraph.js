@@ -2,15 +2,20 @@
  * MusicGraph - JIT Hypertree visualization for Polaris Music Registry
  *
  * Main visualization using JIT Hypertree for exploring the music graph.
- * Groups are displayed with embedded RGraph visualizations showing member participation.
+ * Groups display donut rings showing member participation by release count.
  * Person->Group relationships use unique colors for visual distinction.
+ *
+ * Label strategy:
+ *   - Initials are rendered inside every circle on the canvas (always visible)
+ *   - Full-name tooltip shown only when node is selected, hovered, or near center
+ *   - "Near center" uses Poincaré disk distance (squaredNorm < threshold)
  */
 
 import { GraphAPI } from './graphApi.js';
 import { ColorPalette } from './colorPalette.js';
 
 export class MusicGraph {
-    constructor(containerId) {
+    constructor(containerId, walletManager) {
         this.container = document.getElementById(containerId);
         if (!this.container) {
             throw new Error(`Container element #${containerId} not found`);
@@ -18,39 +23,205 @@ export class MusicGraph {
 
         this.api = new GraphAPI();
         this.colorPalette = new ColorPalette();
+        this.walletManager = walletManager || null;
 
-        // Cache for performance
-        this.participationCache = new Map();
-        this.rgraphInstances = new Map();
+        // State tracking
+        this.hoveredNode = null;
+        this.selectedNode = null;
+        this.labelsVisible = true;
+
+        // Poincaré distance threshold for showing full-name tooltip
+        this.labelProximityThreshold = 0.25;
 
         // Initialize the visualization
         this.initializeHypertree();
     }
 
     /**
+     * Register custom Hypertree node types: circle-hover and group-donut
+     */
+    registerNodeTypes() {
+        $jit.Hypertree.Plot.NodeTypes.implement({
+            /**
+             * circle-hover: standard circle with hover/selection outline
+             * and initials drawn inside.
+             */
+            'circle-hover': {
+                'render': function(node, canvas) {
+                    var nconfig = this.node,
+                        dim = node.getData('dim'),
+                        p = node.pos.getc();
+                    dim = nconfig.transform ? dim * (1 - p.squaredNorm()) : dim;
+                    p.$scale(node.scale);
+                    if (dim > 0.2) {
+                        var ctx = canvas.getCtx();
+                        var color = node.getData('color') || '#888';
+
+                        // Fill circle
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, dim, 0, Math.PI * 2, false);
+                        ctx.fillStyle = color;
+                        ctx.fill();
+
+                        // Hover/selection outline
+                        var isHovered = node.getData('isHovered');
+                        var isSelected = node.getData('isSelected');
+                        if (isSelected) {
+                            ctx.strokeStyle = '#fff';
+                            ctx.lineWidth = 2.5;
+                            ctx.stroke();
+                        } else if (isHovered) {
+                            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+                            ctx.lineWidth = 1.5;
+                            ctx.stroke();
+                        }
+
+                        // Draw initials inside circle
+                        if (dim > 3) {
+                            var name = node.name || '';
+                            var words = name.split(/\s+/).filter(Boolean);
+                            var initials = words.map(function(w) { return w[0] || ''; }).join('').substring(0, 3);
+                            var fontSize = Math.max(6, Math.min(dim * 0.8, 14));
+                            ctx.font = 'bold ' + fontSize + 'px sans-serif';
+                            ctx.fillStyle = '#fff';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(initials, p.x, p.y);
+                        }
+                    }
+                },
+                'contains': function(node, pos) {
+                    var dim = node.getData('dim'),
+                        npos = node.pos.getc().$scale(node.scale);
+                    return this.nodeHelper.circle.contains(npos, pos, dim);
+                }
+            },
+
+            /**
+             * group-donut: circle with donut ring segments representing
+             * member participation (release counts). Slices are drawn
+             * between innerR and outerR using the shortnodepie approach.
+             */
+            'group-donut': {
+                'render': function(node, canvas) {
+                    var nconfig = this.node,
+                        dim = node.getData('dim'),
+                        p = node.pos.getc();
+                    dim = nconfig.transform ? dim * (1 - p.squaredNorm()) : dim;
+                    p.$scale(node.scale);
+                    if (dim > 0.2) {
+                        var ctx = canvas.getCtx();
+                        var color = node.getData('color') || '#888';
+
+                        // Fill base circle
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, dim, 0, Math.PI * 2, false);
+                        ctx.fillStyle = color;
+                        ctx.fill();
+
+                        // Draw donut slices if data is loaded
+                        var slices = node.getData('donutSlices');
+                        if (slices && slices.length > 0) {
+                            var gap = Math.max(2, dim * 0.20);
+                            var thickness = Math.max(3, dim * 0.45);
+                            var innerR = dim + gap;
+                            var outerR = innerR + thickness;
+
+                            for (var i = 0; i < slices.length; i++) {
+                                var s = slices[i];
+                                // Donut segment: outer arc forward, inner arc backward, close
+                                ctx.beginPath();
+                                ctx.arc(p.x, p.y, outerR, s.begin, s.end, false);
+                                ctx.arc(p.x, p.y, innerR, s.end, s.begin, true);
+                                ctx.closePath();
+                                ctx.fillStyle = s.color;
+                                ctx.fill();
+
+                                // Subtle separator stroke
+                                ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                                ctx.lineWidth = 0.5;
+                                ctx.stroke();
+                            }
+                        }
+
+                        // Hover/selection outline around outerR (or dim if no slices)
+                        var isHovered = node.getData('isHovered');
+                        var isSelected = node.getData('isSelected');
+                        var hasSlices = slices && slices.length > 0;
+                        var outlineR = hasSlices
+                            ? (dim + Math.max(2, dim * 0.20) + Math.max(3, dim * 0.45))
+                            : dim;
+
+                        if (isSelected) {
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, outlineR + 1, 0, Math.PI * 2, false);
+                            ctx.strokeStyle = '#fff';
+                            ctx.lineWidth = 2.5;
+                            ctx.stroke();
+                        } else if (isHovered) {
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, outlineR + 1, 0, Math.PI * 2, false);
+                            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+                            ctx.lineWidth = 1.5;
+                            ctx.stroke();
+                        }
+
+                        // Draw initials inside base circle
+                        if (dim > 3) {
+                            var name = node.name || '';
+                            var words = name.split(/\s+/).filter(Boolean);
+                            var initials = words.map(function(w) { return w[0] || ''; }).join('').substring(0, 3);
+                            var fontSize = Math.max(6, Math.min(dim * 0.8, 14));
+                            ctx.font = 'bold ' + fontSize + 'px sans-serif';
+                            ctx.fillStyle = '#fff';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(initials, p.x, p.y);
+                        }
+                    }
+                },
+                'contains': function(node, pos) {
+                    var dim = node.getData('dim'),
+                        npos = node.pos.getc().$scale(node.scale);
+                    // Hit area includes donut ring when slices are present
+                    var slices = node.getData('donutSlices');
+                    if (slices && slices.length > 0) {
+                        var gap = Math.max(2, dim * 0.20);
+                        var thickness = Math.max(3, dim * 0.45);
+                        var outerR = dim + gap + thickness;
+                        return this.nodeHelper.circle.contains(npos, pos, outerR);
+                    }
+                    return this.nodeHelper.circle.contains(npos, pos, dim);
+                }
+            }
+        });
+    }
+
+    /**
      * Initialize JIT Hypertree visualization
      */
     initializeHypertree() {
-        // Check if $jit is available
         if (typeof $jit === 'undefined') {
             console.error('JIT library not loaded');
             return;
         }
 
+        // Register custom node types before creating the Hypertree
+        this.registerNodeTypes();
+
         this.ht = new $jit.Hypertree({
-            // Canvas container
             injectInto: this.container.id,
 
-            // Canvas dimensions
             width: this.container.offsetWidth,
             height: this.container.offsetHeight,
 
             // Node configuration
             Node: {
                 overridable: true,
-                type: 'circle',
+                type: 'circle-hover',  // default to hover-aware circle
                 dim: 9,
-                color: '#f00'
+                color: '#f00',
+                transform: true   // distance-based scaling in Poincaré disk
             },
 
             // Edge configuration
@@ -61,7 +232,7 @@ export class MusicGraph {
                 color: '#088'
             },
 
-            // Label configuration
+            // Label configuration - lightweight HTML tooltips
             Label: {
                 type: 'HTML',
                 size: 10,
@@ -72,7 +243,7 @@ export class MusicGraph {
             // Event handling
             Events: {
                 enable: true,
-                type: 'Native', // Use native canvas events for clicking nodes
+                type: 'Native',
 
                 onClick: (node, eventInfo, e) => {
                     if (node) {
@@ -104,7 +275,6 @@ export class MusicGraph {
             duration: 700,
             transition: $jit.Trans.Quart.easeInOut,
 
-            // Hyperbolic tree settings
             levelDistance: 100,
 
             // Navigation
@@ -141,305 +311,157 @@ export class MusicGraph {
     }
 
     /**
-     * Create label for a node based on its type
+     * Create lightweight tooltip label for a node.
+     * Full name is shown conditionally (hover, selected, near center).
+     * Initials are drawn on canvas by the node type renderer.
      */
     createNodeLabel(domElement, node) {
         domElement.innerHTML = '';
-        domElement.className = 'node-label';
+        domElement.className = 'node-tooltip-label';
 
-        const nodeType = node.data.type || 'unknown';
+        const name = node.name || '';
+        const nodeType = (node.data.type || '').toLowerCase();
 
-        switch (nodeType) {
-            case 'Group':
-                this.createGroupLabel(domElement, node);
-                break;
-            case 'Person':
-                this.createPersonLabel(domElement, node);
-                break;
-            case 'Release':
-                this.createReleaseLabel(domElement, node);
-                break;
-            case 'Track':
-                this.createTrackLabel(domElement, node);
-                break;
-            default:
-                this.createDefaultLabel(domElement, node);
-        }
+        const tooltip = document.createElement('div');
+        tooltip.className = 'node-name-tooltip';
+        tooltip.textContent = name;
+
+        domElement.appendChild(tooltip);
 
         // Labels are non-interactive - clicks pass through to canvas nodes
         domElement.style.pointerEvents = 'none';
     }
 
     /**
-     * Create Group node with RGraph visualization
-     */
-    createGroupLabel(domElement, node) {
-        const container = document.createElement('div');
-        container.className = 'group-node';
-        container.style.position = 'relative';
-        container.style.width = '160px';
-        container.style.height = '160px';
-
-        // Canvas for RGraph
-        const canvasId = `rgraph-${node.id}`;
-        const canvas = document.createElement('div');
-        canvas.id = canvasId;
-        canvas.style.width = '160px';
-        canvas.style.height = '160px';
-        container.appendChild(canvas);
-
-        // Group name overlay
-        const label = document.createElement('div');
-        label.className = 'group-name-label';
-        label.textContent = node.name;
-        label.style.position = 'absolute';
-        label.style.top = '50%';
-        label.style.left = '50%';
-        label.style.transform = 'translate(-50%, -50%)';
-        label.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-        label.style.color = 'white';
-        label.style.padding = '6px 12px';
-        label.style.borderRadius = '4px';
-        label.style.fontSize = '12px';
-        label.style.fontWeight = 'bold';
-        label.style.textAlign = 'center';
-        label.style.maxWidth = '100px';
-        label.style.pointerEvents = 'none';
-        container.appendChild(label);
-
-        domElement.appendChild(container);
-
-        // Render RGraph after DOM is ready
-        setTimeout(() => {
-            this.renderGroupRGraph(canvasId, node);
-        }, 50);
-    }
-
-    /**
-     * Render RGraph showing group member participation
-     */
-    async renderGroupRGraph(containerId, groupNode) {
-        const groupId = groupNode.data.group_id || groupNode.id;
-
-        // Check cache
-        let participationData = this.participationCache.get(groupId);
-
-        if (!participationData) {
-            try {
-                const response = await fetch(`http://localhost:3000/api/groups/${groupId}/participation`);
-                if (response.ok) {
-                    const result = await response.json();
-                    participationData = result.members || [];
-                    this.participationCache.set(groupId, participationData);
-                }
-            } catch (error) {
-                console.error('Failed to load participation data:', error);
-                // Use mock data if available from node
-                participationData = this.getMockParticipationData(groupNode);
-            }
-        }
-
-        if (!participationData || participationData.length === 0) {
-            return;
-        }
-
-        // Create RGraph
-        const rgraph = new $jit.RGraph({
-            injectInto: containerId,
-            width: 160,
-            height: 160,
-
-            Node: {
-                overridable: true,
-                dim: 6,
-                color: '#EEE'
-            },
-
-            Edge: {
-                color: '#CCC',
-                lineWidth: 1
-            },
-
-            Events: {
-                enable: false
-            },
-
-            Label: {
-                type: 'HTML',
-                size: 8
-            },
-
-            onCreateLabel: (domElement, node) => {
-                if (node.id === groupId) {
-                    domElement.innerHTML = '';
-                } else {
-                    const names = node.name.split(' ');
-                    const initials = names.map(n => n[0]).join('');
-                    domElement.innerHTML = initials;
-                    domElement.style.fontSize = '9px';
-                    domElement.style.fontWeight = 'bold';
-                }
-            },
-
-            levelDistance: 40
-        });
-
-        // Transform data to RGraph format
-        const graphData = {
-            id: groupId,
-            name: '',
-            data: {
-                '$type': 'circle',
-                '$dim': 10,
-                '$color': '#333'
-            },
-            children: participationData.map((member, index) => ({
-                id: member.personId,
-                name: member.personName,
-                data: {
-                    '$dim': Math.max(4, Math.sqrt(member.participationPercentage || 50) * 2),
-                    '$color': this.colorPalette.getColor(member.personId),
-                    '$angularWidth': (member.participationPercentage || 50) / 100
-                }
-            }))
-        };
-
-        // Load and render
-        rgraph.loadJSON(graphData);
-        rgraph.compute('end');
-        rgraph.fx.animate({
-            modes: ['polar'],
-            duration: 500
-        });
-
-        // Store instance
-        this.rgraphInstances.set(containerId, rgraph);
-    }
-
-    /**
-     * Get mock participation data for groups without API data
-     */
-    getMockParticipationData(groupNode) {
-        // Extract from children if available
-        const children = groupNode.children || [];
-        if (children.length === 0) return [];
-
-        return children
-            .filter(child => child.data && child.data.type === 'Person')
-            .map(child => ({
-                personId: child.id,
-                personName: child.name,
-                participationPercentage: child.data.participation_percent || 25
-            }));
-    }
-
-    /**
-     * Create Person node label
-     */
-    createPersonLabel(domElement, node) {
-        const container = document.createElement('div');
-        container.className = 'person-node';
-        container.style.padding = '4px 8px';
-        container.style.backgroundColor = 'rgba(0, 0, 0, 0.6)'; // Semi-transparent background
-        container.style.color = 'white';
-        container.style.borderRadius = '12px';
-        container.style.fontSize = '11px';
-        container.style.fontWeight = 'bold';
-        container.style.textAlign = 'center';
-        container.style.minWidth = '60px';
-        container.style.textShadow = '1px 1px 2px rgba(0, 0, 0, 0.8), -1px -1px 2px rgba(0, 0, 0, 0.8)'; // Text outline effect
-        container.textContent = node.name;
-
-        domElement.appendChild(container);
-    }
-
-    /**
-     * Create Release node label
-     */
-    createReleaseLabel(domElement, node) {
-        const container = document.createElement('div');
-        container.className = 'release-node';
-        container.style.padding = '6px 10px';
-        container.style.backgroundColor = '#27ae60';
-        container.style.color = 'white';
-        container.style.borderRadius = '4px';
-        container.style.fontSize = '10px';
-        container.style.textAlign = 'center';
-        container.style.maxWidth = '120px';
-        container.textContent = node.name;
-
-        domElement.appendChild(container);
-    }
-
-    /**
-     * Create Track node label
-     */
-    createTrackLabel(domElement, node) {
-        const container = document.createElement('div');
-        container.className = 'track-node';
-        container.style.padding = '4px 8px';
-        container.style.backgroundColor = '#3498db';
-        container.style.color = 'white';
-        container.style.borderRadius = '3px';
-        container.style.fontSize = '9px';
-        container.style.textAlign = 'center';
-        container.style.maxWidth = '100px';
-        container.textContent = node.name;
-
-        domElement.appendChild(container);
-    }
-
-    /**
-     * Create default node label
-     */
-    createDefaultLabel(domElement, node) {
-        const container = document.createElement('div');
-        container.className = 'default-node';
-        container.style.padding = '6px';
-        container.style.backgroundColor = '#7f8c8d';
-        container.style.color = 'white';
-        container.style.borderRadius = '3px';
-        container.style.fontSize = '10px';
-        container.textContent = node.name;
-
-        domElement.appendChild(container);
-    }
-
-    /**
-     * Position node labels near bottom of node circle
+     * Position and conditionally show/hide the full-name tooltip.
+     *
+     * Show when: node is selected, hovered, or near center of the Poincaré disk.
+     * "Near center" = pos.squaredNorm() < threshold.
      */
     placeNodeLabel(domElement, node) {
         const style = domElement.style;
         const left = parseInt(style.left) || 0;
         const top = parseInt(style.top) || 0;
         const w = domElement.offsetWidth;
-        const h = domElement.offsetHeight;
 
-        // Get node radius from $dim property (node size in pixels)
-        const nodeRadius = node.data.$dim || 15;
+        const nodeRadius = node.getData('dim') || 10;
 
-        // Position label below the node circle
-        // Center horizontally, offset vertically by node radius + spacing
+        // Center label horizontally, position below node
         style.left = (left - w / 2) + 'px';
-        style.top = (top + nodeRadius + 5) + 'px'; // 5px spacing below circle
-        style.display = '';
+        style.top = (top + nodeRadius + 4) + 'px';
+
+        if (!this.labelsVisible) {
+            style.display = 'none';
+            return;
+        }
+
+        // Show tooltip only when selected or near center of the Poincaré disk.
+        // Hover alone does NOT trigger tooltip (prevents edge-node clutter,
+        // especially since JIT hit-testing isn't transform-scaled).
+        const isSelected = node.getData('isSelected');
+        const sqNorm = node.pos.getc().squaredNorm();
+        const isNearCenter = sqNorm < this.labelProximityThreshold;
+
+        if (isSelected || isNearCenter) {
+            style.display = '';
+        } else {
+            style.display = 'none';
+        }
     }
 
     /**
-     * Style nodes before rendering
+     * Style nodes before rendering. Assigns node types and triggers
+     * lazy loading of donut participation data for group nodes.
      */
     styleNode(node) {
-        // Apply node-specific styling based on type
         if (!node.data) return;
 
-        // Use color from data if available
+        // Apply color/dim from data
         if (node.data.$color) {
             node.setData('color', node.data.$color);
         }
-
         if (node.data.$dim) {
             node.setData('dim', node.data.$dim);
         }
+
+        const nodeType = (node.data.type || '').toLowerCase();
+
+        // Group nodes use the group-donut renderer
+        if (nodeType === 'group') {
+            node.setData('type', 'group-donut');
+
+            // Lazy-load participation data (only once)
+            const donutStatus = node.getData('donutStatus');
+            if (!donutStatus) {
+                node.setData('donutStatus', 'loading');
+                this.loadDonutData(node);
+            }
+        } else {
+            // All other nodes use circle-hover
+            node.setData('type', 'circle-hover');
+        }
+    }
+
+    /**
+     * Lazy-load participation data for a group node and attach donut slices.
+     * Non-blocking: fires and forgets, triggers redraw on completion.
+     */
+    async loadDonutData(node) {
+        const groupId = node.data.group_id || node.id;
+        try {
+            const data = await this.api.fetchGroupParticipation(groupId);
+            const slices = this.computeDonutSlices(data.members || []);
+            node.setData('donutSlices', slices);
+            node.setData('donutStatus', 'ready');
+            // Trigger redraw so the ring appears
+            if (this.ht) {
+                this.ht.plot();
+            }
+        } catch (error) {
+            console.error(`Failed to load donut data for ${groupId}:`, error);
+            node.setData('donutStatus', 'error');
+        }
+    }
+
+    /**
+     * Compute donut slice angles from backend member participation data.
+     *
+     * @param {Array} members - Backend members array (personId, personName, releaseCount, releasePctOfGroupReleases)
+     * @returns {Array} Slice descriptors with begin/end angles, color, and metadata
+     */
+    computeDonutSlices(members) {
+        if (!members || members.length === 0) return [];
+
+        // Sort descending by releaseCount
+        const sorted = [...members].sort((a, b) => (b.releaseCount || 0) - (a.releaseCount || 0));
+
+        // Total weight for angle computation (sum of releaseCount)
+        const totalWeight = sorted.reduce((sum, m) => sum + (m.releaseCount || 0), 0);
+        if (totalWeight === 0) return [];
+
+        const slices = [];
+        let angle = -Math.PI / 2; // Start at top
+
+        for (const member of sorted) {
+            const weight = member.releaseCount || 0;
+            const weightNormalized = weight / totalWeight;
+            const sliceAngle = weightNormalized * 2 * Math.PI;
+
+            slices.push({
+                begin: angle,
+                end: angle + sliceAngle,
+                color: member.color || this.colorPalette.getColor(member.personId),
+                personId: member.personId,
+                personName: member.personName,
+                releaseCount: member.releaseCount,
+                releasePctOfGroupReleases: member.releasePctOfGroupReleases,
+                weightNormalized: weightNormalized
+            });
+
+            angle += sliceAngle;
+        }
+
+        return slices;
     }
 
     /**
@@ -448,34 +470,41 @@ export class MusicGraph {
     styleEdge(adj) {
         if (!adj.nodeFrom || !adj.nodeTo) return;
 
-        const fromType = adj.nodeFrom.data.type;
-        const toType = adj.nodeTo.data.type;
+        const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
+        const toType = (adj.nodeTo.data.type || '').toLowerCase();
 
         // Person -> Group: use person's color
-        if (fromType === 'Person' && toType === 'Group') {
+        if (fromType === 'person' && toType === 'group') {
             const color = this.colorPalette.getColor(adj.nodeFrom.id);
             adj.setData('color', color);
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('MEMBER_OF'));
         }
-
         // Group -> Track: green edges
-        else if (fromType === 'Group' && toType === 'Track') {
+        else if (fromType === 'group' && toType === 'track') {
             adj.setData('color', this.colorPalette.getEdgeColor('PERFORMED_ON'));
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('PERFORMED_ON'));
         }
-
         // Track -> Release: gray edges
-        else if (fromType === 'Track' && toType === 'Release') {
+        else if (fromType === 'track' && toType === 'release') {
             adj.setData('color', this.colorPalette.getEdgeColor('IN_RELEASE'));
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('IN_RELEASE'));
         }
     }
 
     /**
-     * Handle node click
+     * Handle node click - center on node and select it
      */
     handleNodeClick(node) {
         console.log('Node clicked:', node.id, node.data);
+
+        // Clear previous selection
+        if (this.selectedNode && this.selectedNode.id !== node.id) {
+            this.selectedNode.setData('isSelected', false);
+        }
+
+        // Set new selection
+        node.setData('isSelected', true);
+        this.selectedNode = node;
 
         // Center on node
         this.ht.onClick(node.id, {
@@ -490,35 +519,32 @@ export class MusicGraph {
      */
     handleNodeRightClick(node, event) {
         console.log('Node right-clicked:', node.id);
-        // TODO: Show context menu
     }
 
     /**
-     * Handle node hover
+     * Handle node hover - set visual state and trigger redraw
      */
     handleNodeHover(node, isEntering) {
         if (isEntering) {
-            // Show tooltip or highlight
-            this.showTooltip(node);
+            // Clear previous hover
+            if (this.hoveredNode && this.hoveredNode.id !== node.id) {
+                this.hoveredNode.setData('isHovered', false);
+            }
+            node.setData('isHovered', true);
+            this.hoveredNode = node;
+            this.container.style.cursor = 'pointer';
         } else {
-            // Hide tooltip
-            this.hideTooltip();
+            node.setData('isHovered', false);
+            if (this.hoveredNode && this.hoveredNode.id === node.id) {
+                this.hoveredNode = null;
+            }
+            this.container.style.cursor = 'default';
         }
-    }
 
-    /**
-     * Show tooltip for node
-     */
-    showTooltip(node) {
-        // TODO: Implement tooltip display
-        console.log('Show tooltip for:', node.name);
-    }
-
-    /**
-     * Hide tooltip
-     */
-    hideTooltip() {
-        // TODO: Implement tooltip hiding
+        // Redraw to show hover state
+        if (this.ht) {
+            this.ht.plot();
+        }
     }
 
     /**
@@ -540,17 +566,14 @@ export class MusicGraph {
         const type = node.data.type || 'Unknown';
         const nodeId = node.id;
 
-        // Show loading state
         infoTitle.textContent = node.name || 'Loading...';
         infoContent.innerHTML = '<p>Loading details...</p>';
 
-        // Make info viewer visible
         if (infoViewer) {
             infoViewer.style.display = 'block';
         }
 
         try {
-            // Fetch detailed data from API
             const response = await this.api.fetchNodeDetails(nodeId, type);
 
             if (!response) {
@@ -558,7 +581,6 @@ export class MusicGraph {
                 return;
             }
 
-            // Extract data from API response wrapper { success: true, data: {...} }
             const details = response.data || response;
 
             if (!details) {
@@ -566,10 +588,10 @@ export class MusicGraph {
                 return;
             }
 
-            // Build HTML based on node type
-            if (type === 'group' || type === 'Group') {
+            const typeLower = type.toLowerCase();
+            if (typeLower === 'group') {
                 this.renderGroupDetails(details, infoTitle, infoContent);
-            } else if (type === 'person' || type === 'Person') {
+            } else if (typeLower === 'person') {
                 this.renderPersonDetails(details, infoTitle, infoContent);
             } else {
                 infoContent.innerHTML = `<p><strong>Type:</strong> ${type}</p>`;
@@ -588,19 +610,16 @@ export class MusicGraph {
 
         let html = '';
 
-        // Photo
         if (group.photo) {
             html += `<div class="info-photo"><img src="${group.photo}" alt="${group.name}" /></div>`;
         }
 
-        // Active dates and location
         const formed = group.formed_date || '';
         const disbanded = group.disbanded_date || 'present';
         if (formed) {
-            html += `<p class="info-meta"><strong>Active:</strong> ${formed}–${disbanded}</p>`;
+            html += `<p class="info-meta"><strong>Active:</strong> ${formed}\u2013${disbanded}</p>`;
         }
 
-        // Members section
         if (group.members && group.members.length > 0) {
             html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
             group.members.forEach(member => {
@@ -610,12 +629,10 @@ export class MusicGraph {
             html += `</ul></div>`;
         }
 
-        // Bio section
         if (group.bio || group.description) {
             html += `<div class="info-section"><h4>Biography</h4><p>${group.bio || group.description}</p></div>`;
         }
 
-        // Trivia section
         if (group.trivia) {
             html += `<div class="info-section"><h4>Trivia</h4><p>${group.trivia}</p></div>`;
         }
@@ -631,17 +648,14 @@ export class MusicGraph {
 
         let html = '';
 
-        // Photo
         if (person.photo) {
             html += `<div class="info-photo"><img src="${person.photo}" alt="${person.name}" /></div>`;
         }
 
-        // Location
         if (person.city) {
             html += `<p class="info-meta"><strong>Location:</strong> ${person.city}</p>`;
         }
 
-        // Groups section
         if (person.groups && person.groups.length > 0) {
             html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
             person.groups.forEach(group => {
@@ -651,12 +665,10 @@ export class MusicGraph {
             html += `</ul></div>`;
         }
 
-        // Bio section
         if (person.bio) {
             html += `<div class="info-section"><h4>Biography</h4><p>${person.bio}</p></div>`;
         }
 
-        // Trivia section
         if (person.trivia) {
             html += `<div class="info-section"><h4>Trivia</h4><p>${person.trivia}</p></div>`;
         }
@@ -674,7 +686,6 @@ export class MusicGraph {
 
             console.log('Graph data loaded:', graphData);
 
-            // Load into Hypertree
             this.ht.loadJSON(graphData);
             this.ht.refresh();
 
@@ -682,6 +693,45 @@ export class MusicGraph {
         } catch (error) {
             console.error('Failed to load graph data:', error);
         }
+    }
+
+    // ========== View controls (wired from visualization.html) ==========
+
+    /**
+     * Center the view back to the root node
+     */
+    centerView() {
+        if (!this.ht) return;
+        const root = this.ht.root;
+        if (root) {
+            this.ht.onClick(root, {
+                onComplete: () => {
+                    console.log('View centered');
+                }
+            });
+        }
+    }
+
+    /**
+     * Toggle full-name label visibility
+     */
+    toggleLabels() {
+        this.labelsVisible = !this.labelsVisible;
+        if (this.ht) {
+            this.ht.plot();
+        }
+    }
+
+    /**
+     * Set zoom level
+     * @param {number} value - Zoom factor (0.5 to 2.0)
+     */
+    setZoom(value) {
+        if (!this.ht || !this.ht.canvas) return;
+        const canvas = this.ht.canvas;
+        // JIT stores scale on canvas; apply zoom by scaling
+        canvas.scale(value, value);
+        this.ht.plot();
     }
 
     /**
@@ -697,18 +747,6 @@ export class MusicGraph {
      * Destroy the visualization and clean up
      */
     destroy() {
-        // Clean up RGraph instances
-        this.rgraphInstances.forEach(rgraph => {
-            if (rgraph.canvas) {
-                rgraph.canvas.clear();
-            }
-        });
-        this.rgraphInstances.clear();
-
-        // Clear caches
-        this.participationCache.clear();
-
-        // Clear container
         if (this.container) {
             this.container.innerHTML = '';
         }

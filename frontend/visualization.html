@@ -180,6 +180,30 @@
                 });
             }
 
+            // Center View button
+            const centerViewBtn = document.getElementById('center-view');
+            if (centerViewBtn) {
+                centerViewBtn.addEventListener('click', () => {
+                    graph.centerView();
+                });
+            }
+
+            // Toggle Labels button
+            const toggleLabelsBtn = document.getElementById('toggle-labels');
+            if (toggleLabelsBtn) {
+                toggleLabelsBtn.addEventListener('click', () => {
+                    graph.toggleLabels();
+                });
+            }
+
+            // Zoom slider
+            const zoomSlider = document.getElementById('zoom-slider');
+            if (zoomSlider) {
+                zoomSlider.addEventListener('input', (e) => {
+                    graph.setZoom(parseFloat(e.target.value));
+                });
+            }
+
             // Listen for wallet events
             walletManager.on('onConnect', (accountInfo) => {
                 console.log('Wallet connected event:', accountInfo);
