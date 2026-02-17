@@ -1852,32 +1852,31 @@ constructor(config = {}) {
         try {
             this.log.info('participation_start', { group_id: groupId.substring(0, 12) });
 
+            // Uses Person→PERFORMED_ON{via_group_id}→Track→IN_RELEASE→Release
+            // instead of date-based MEMBER_OF inference.  This is the direct
+            // "features on" signal created during release-bundle processing and
+            // avoids brittle date() parsing on potentially non-ISO strings.
             const result = await session.run(`
                 MATCH (g:Group {group_id: $groupId})
+
+                // Total distinct releases the group performed on
                 MATCH (g)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
-                WITH g, collect(DISTINCT r) AS rels
-                WITH g, rels, size(rels) AS totalReleases
-                UNWIND rels AS r
+                WITH g, count(DISTINCT r) AS totalReleases
 
-                OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
-                WHERE p IS NOT NULL
-                  AND (
-                    r.release_date IS NULL OR
-                    (
-                      (m.from_date IS NULL OR date(m.from_date) <= date(r.release_date)) AND
-                      (m.to_date   IS NULL OR date(m.to_date)   >= date(r.release_date))
-                    )
-                  )
-
+                // Per person: releases they actually performed on via this group
+                MATCH (p:Person)-[:PERFORMED_ON {via_group_id: g.group_id}]->(t:Track)
+                      -[:IN_RELEASE]->(r:Release)
                 WITH p, totalReleases, collect(DISTINCT r.release_id) AS memberReleaseIds
+
                 RETURN
-                  p.person_id AS personId,
-                  p.name AS personName,
+                  p.person_id  AS personId,
+                  p.name       AS personName,
                   size(memberReleaseIds) AS releaseCount,
                   totalReleases AS totalReleases,
                   CASE
                     WHEN totalReleases = 0 THEN 0.0
-                    ELSE toFloat(size(memberReleaseIds)) / toFloat(totalReleases) * 100.0
+                    ELSE toFloat(size(memberReleaseIds))
+                         / toFloat(totalReleases) * 100.0
                   END AS releasePctOfGroupReleases
                 ORDER BY releaseCount DESC
             `, { groupId });

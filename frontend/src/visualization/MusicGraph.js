@@ -355,13 +355,14 @@ export class MusicGraph {
             return;
         }
 
-        // Determine if label should be visible
-        const isHovered = node.getData('isHovered');
+        // Show tooltip only when selected or near center of the Poincaré disk.
+        // Hover alone does NOT trigger tooltip (prevents edge-node clutter,
+        // especially since JIT hit-testing isn't transform-scaled).
         const isSelected = node.getData('isSelected');
         const sqNorm = node.pos.getc().squaredNorm();
         const isNearCenter = sqNorm < this.labelProximityThreshold;
 
-        if (isHovered || isSelected || isNearCenter) {
+        if (isSelected || isNearCenter) {
             style.display = '';
         } else {
             style.display = 'none';
