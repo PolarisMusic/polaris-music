@@ -1854,40 +1854,40 @@ constructor(config = {}) {
 
             const result = await session.run(`
                 MATCH (g:Group {group_id: $groupId})
-                MATCH (g)-[:PERFORMED_ON]->(t:Track)
-                MATCH (t)-[:IN_RELEASE]->(r:Release)
+                MATCH (g)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
+                WITH g, collect(DISTINCT r) AS rels
+                WITH g, rels, size(rels) AS totalReleases
+                UNWIND rels AS r
 
-                // For each track, find which members were active at that time
                 OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
-                WHERE (m.from_date IS NULL OR date(m.from_date) <= date(r.release_date))
-                  AND (m.to_date IS NULL OR date(m.to_date) >= date(r.release_date))
-
-                // Count tracks per member
-                WITH p, count(DISTINCT t) as track_count,
-                     collect(DISTINCT r.release_id) as releases
-
-                // Get total tracks for percentage
-                MATCH (g:Group {group_id: $groupId})-[:PERFORMED_ON]->(total:Track)
-                WITH p, track_count, releases, count(DISTINCT total) as total_tracks
-
                 WHERE p IS NOT NULL
+                  AND (
+                    r.release_date IS NULL OR
+                    (
+                      (m.from_date IS NULL OR date(m.from_date) <= date(r.release_date)) AND
+                      (m.to_date   IS NULL OR date(m.to_date)   >= date(r.release_date))
+                    )
+                  )
 
-                RETURN p.person_id as personId,
-                       p.name as personName,
-                       track_count,
-                       total_tracks,
-                       toFloat(track_count) / toFloat(total_tracks) * 100 as participationPercentage,
-                       size(releases) as releaseCount
-                ORDER BY participationPercentage DESC
+                WITH p, totalReleases, collect(DISTINCT r.release_id) AS memberReleaseIds
+                RETURN
+                  p.person_id AS personId,
+                  p.name AS personName,
+                  size(memberReleaseIds) AS releaseCount,
+                  totalReleases AS totalReleases,
+                  CASE
+                    WHEN totalReleases = 0 THEN 0.0
+                    ELSE toFloat(size(memberReleaseIds)) / toFloat(totalReleases) * 100.0
+                  END AS releasePctOfGroupReleases
+                ORDER BY releaseCount DESC
             `, { groupId });
 
             const participation = result.records.map(record => ({
                 personId: record.get('personId'),
                 personName: record.get('personName'),
-                trackCount: record.get('track_count').toNumber(),
-                totalTracks: record.get('total_tracks').toNumber(),
-                participationPercentage: record.get('participationPercentage'),
-                releaseCount: record.get('releaseCount').toNumber()
+                releaseCount: record.get('releaseCount').toNumber(),
+                totalReleases: record.get('totalReleases').toNumber(),
+                releasePctOfGroupReleases: record.get('releasePctOfGroupReleases')
             }));
 
             timer.end('participation_end', { group_id: groupId.substring(0, 12), member_count: participation.length });

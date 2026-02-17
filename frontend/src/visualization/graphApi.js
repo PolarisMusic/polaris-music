@@ -168,12 +168,22 @@ export class GraphAPI {
             }
         });
 
+        // Type-based base radius: groups largest, persons next, then releases/tracks.
+        // With transform:true these shrink toward edges, so groups need bigger base.
+        const dimForType = (v) => {
+            if (v === 'group') return 18;
+            if (v === 'person') return 10;
+            if (v === 'release') return 9;
+            if (v === 'track') return 8;
+            return 8;
+        };
+
         // Transform nodes to JIT format with adjacencies
         const jitNodes = data.nodes.map(node => ({
             id: node.id,
             name: node.name,
             data: {
-                $dim: node.type === 'group' ? 37 : 32, // Groups=37, Persons=32 (larger clickable area)
+                $dim: dimForType(node.type),
                 $type: 'circle',
                 type: node.type,
                 trackCount: node.trackCount || 0
@@ -307,6 +317,26 @@ export class GraphAPI {
             name: "Mock Node",
             description: "Mock data for development"
         };
+    }
+
+    /**
+     * Fetch group member participation data (release-based)
+     * @param {string} groupId - Group ID
+     * @returns {Promise<Object>} Participation data with members array
+     */
+    async fetchGroupParticipation(groupId) {
+        const cacheKey = `groupParticipation:${groupId}`;
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            if (Date.now() - cached.timestamp < this.cacheTimeout) return cached.data;
+        }
+
+        const resp = await fetch(`${this.baseUrl}/groups/${groupId}/participation`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+        return data;
     }
 
     /**

@@ -392,6 +392,24 @@ body {
     background: #444;
 }
 
+/* Node tooltip labels (shown on hover/select/near-center) */
+.node-tooltip-label {
+    position: absolute;
+    z-index: 10;
+}
+
+.node-name-tooltip {
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
 /* Responsive Design */
 @media (max-width: 1024px) {
     #info-viewer {
