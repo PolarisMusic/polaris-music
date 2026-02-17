@@ -1,0 +1,329 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "release_id": "polaris:release:00000000-0000-4000-8000-000000000024",
+      "name": "Smoke Enema of the State",
+      "alt_names": ["Enema of the State"],
+      "release_date": "1999-06-01",
+      "format": "CD",
+      "country": "US",
+      "catalog_number": "SMOKE-TEST-024",
+      "trivia": "Smoke-test release bundle based on Enema of the State by Blink-182 (Wikipedia). Travis Barker's first album with the band after replacing Scott Raynor. Features Roger Joseph Manning Jr. on keyboards for five tracks. All songs credited to Mark Hoppus and Tom DeLonge, though Barker contributed musically."
+    },
+    "labels": [
+      {
+        "label_id": "polaris:label:00000000-0000-4000-8000-000000000718",
+        "name": "MCA Records",
+        "alt_names": ["MCA"]
+      }
+    ],
+    "groups": [
+      {
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000021",
+        "name": "Smoke Blink-182",
+        "alt_names": ["Blink-182", "blink-182"],
+        "members": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000601",
+            "name": "Smoke Mark Hoppus",
+            "role": "bass, vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000602",
+            "name": "Smoke Tom DeLonge",
+            "role": "guitar, vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000603",
+            "name": "Smoke Travis Barker",
+            "role": "drums, percussion"
+          }
+        ]
+      }
+    ],
+    "songs": [
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004300",
+        "title": "Dumpweed",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004301",
+        "title": "Don't Leave Me",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004302",
+        "title": "Aliens Exist",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004303",
+        "title": "Going Away to College",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004304",
+        "title": "What's My Age Again?",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004305",
+        "title": "Dysentery Gary",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004306",
+        "title": "Adam's Song",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004307",
+        "title": "All the Small Things",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004308",
+        "title": "The Party Song",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004309",
+        "title": "Mutt",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004310",
+        "title": "Wendy Clear",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004311",
+        "title": "Anthem",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000601", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000602", "name": "Smoke Tom DeLonge", "roles": ["lyrics", "music"] }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005300",
+        "title": "Dumpweed",
+        "duration": 143,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004300",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005301",
+        "title": "Don't Leave Me",
+        "duration": 143,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004301",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005302",
+        "title": "Aliens Exist",
+        "duration": 193,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004302",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005303",
+        "title": "Going Away to College",
+        "duration": 179,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004303",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005304",
+        "title": "What's My Age Again?",
+        "duration": 148,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004304",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ],
+        "guests": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000604", "name": "Smoke Roger Joseph Manning Jr.", "roles": ["keyboards"] }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005305",
+        "title": "Dysentery Gary",
+        "duration": 165,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004305",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005306",
+        "title": "Adam's Song",
+        "duration": 249,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004306",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ],
+        "guests": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000604", "name": "Smoke Roger Joseph Manning Jr.", "roles": ["keyboards"] }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005307",
+        "title": "All the Small Things",
+        "duration": 168,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004307",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ],
+        "guests": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000604", "name": "Smoke Roger Joseph Manning Jr.", "roles": ["keyboards"] }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005308",
+        "title": "The Party Song",
+        "duration": 139,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004308",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005309",
+        "title": "Mutt",
+        "duration": 203,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004309",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005310",
+        "title": "Wendy Clear",
+        "duration": 170,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004310",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ],
+        "guests": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000604", "name": "Smoke Roger Joseph Manning Jr.", "roles": ["keyboards"] }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005311",
+        "title": "Anthem",
+        "duration": 217,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004311",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000021", "name": "Smoke Blink-182" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ],
+        "guests": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000604", "name": "Smoke Roger Joseph Manning Jr.", "roles": ["keyboards"] }
+        ]
+      }
+    ],
+    "tracklist": [
+      { "position": "0", "track_title": "Dumpweed", "duration": 143 },
+      { "position": "1", "track_title": "Don't Leave Me", "duration": 143 },
+      { "position": "2", "track_title": "Aliens Exist", "duration": 193 },
+      { "position": "3", "track_title": "Going Away to College", "duration": 179 },
+      { "position": "4", "track_title": "What's My Age Again?", "duration": 148 },
+      { "position": "5", "track_title": "Dysentery Gary", "duration": 165 },
+      { "position": "6", "track_title": "Adam's Song", "duration": 249 },
+      { "position": "7", "track_title": "All the Small Things", "duration": 168 },
+      { "position": "8", "track_title": "The Party Song", "duration": 139 },
+      { "position": "9", "track_title": "Mutt", "duration": 203 },
+      { "position": "10", "track_title": "Wendy Clear", "duration": 170 },
+      { "position": "11", "track_title": "Anthem", "duration": 217 }
+    ],
+    "sources": [
+      {
+        "type": "wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Enema_of_the_State",
+        "accessed_at": "2026-02-16"
+      }
+    ]
+  }
+}
