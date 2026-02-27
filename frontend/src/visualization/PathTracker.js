@@ -17,7 +17,10 @@ export class PathTracker {
         // Liked paths history {nodeId: {path: [], timestamp: number}}
         this.likedPaths = new Map();
 
-        // Load liked paths from localStorage
+        // Browse history: array of {nodeId, name, type, timestamp}
+        this.browseHistory = [];
+
+        // Load liked paths and browse history from localStorage
         this.loadFromStorage();
     }
 
@@ -32,31 +35,82 @@ export class PathTracker {
     }
 
     /**
-     * Record a node visit
+     * Record a node visit (path tracking + browse history)
      * @param {string} nodeId - Visited node ID
+     * @param {Object} [metadata] - Optional metadata {name, type}
      */
-    visitNode(nodeId) {
+    visitNode(nodeId, metadata) {
         if (!this.startNode) {
             // Auto-set start node if not set
             this.setStartNode(nodeId);
+        } else {
+            // Don't add if it's the same as the last node
+            if (this.currentPath.length > 0 &&
+                this.currentPath[this.currentPath.length - 1] === nodeId) {
+                // Still record browse history even for duplicate path entries
+                this.recordBrowseVisit(nodeId, metadata);
+                return;
+            }
+
+            // Add to path
+            this.currentPath.push(nodeId);
+
+            // Keep path reasonable length (max 100 nodes)
+            if (this.currentPath.length > 100) {
+                this.currentPath.shift();
+            }
+
+            console.log('Path updated:', this.currentPath);
+        }
+
+        this.recordBrowseVisit(nodeId, metadata);
+    }
+
+    /**
+     * Record a visit in browse history (displayable independent of graph state)
+     * @param {string} nodeId - Visited node ID
+     * @param {Object} [metadata] - {name, type}
+     */
+    recordBrowseVisit(nodeId, metadata) {
+        const record = {
+            nodeId,
+            name: (metadata && metadata.name) || 'Unknown',
+            type: (metadata && metadata.type) || 'unknown',
+            timestamp: Date.now()
+        };
+
+        // Don't add consecutive duplicate
+        if (this.browseHistory.length > 0 &&
+            this.browseHistory[0].nodeId === nodeId) {
             return;
         }
 
-        // Don't add if it's the same as the last node
-        if (this.currentPath.length > 0 &&
-            this.currentPath[this.currentPath.length - 1] === nodeId) {
-            return;
+        // Prepend (most recent first)
+        this.browseHistory.unshift(record);
+
+        // Cap at 200 entries
+        if (this.browseHistory.length > 200) {
+            this.browseHistory.length = 200;
         }
 
-        // Add to path
-        this.currentPath.push(nodeId);
+        this.saveToStorage();
+    }
 
-        // Keep path reasonable length (max 100 nodes)
-        if (this.currentPath.length > 100) {
-            this.currentPath.shift();
-        }
+    /**
+     * Get browse history
+     * @returns {Array<Object>} Array of {nodeId, name, type, timestamp}
+     */
+    getBrowseHistory() {
+        return this.browseHistory;
+    }
 
-        console.log('Path updated:', this.currentPath);
+    /**
+     * Clear browse history
+     */
+    clearBrowseHistory() {
+        this.browseHistory = [];
+        this.saveToStorage();
+        console.log('Browse history cleared');
     }
 
     /**
@@ -198,7 +252,7 @@ export class PathTracker {
     }
 
     /**
-     * Save liked paths to localStorage
+     * Save liked paths and browse history to localStorage
      */
     saveToStorage() {
         try {
@@ -210,10 +264,16 @@ export class PathTracker {
         } catch (error) {
             console.error('Failed to save likes to storage:', error);
         }
+
+        try {
+            localStorage.setItem('polaris_browse_history', JSON.stringify(this.browseHistory));
+        } catch (error) {
+            console.error('Failed to save browse history to storage:', error);
+        }
     }
 
     /**
-     * Load liked paths from localStorage
+     * Load liked paths and browse history from localStorage
      */
     loadFromStorage() {
         try {
@@ -227,6 +287,19 @@ export class PathTracker {
             }
         } catch (error) {
             console.error('Failed to load likes from storage:', error);
+        }
+
+        try {
+            const stored = localStorage.getItem('polaris_browse_history');
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (Array.isArray(data)) {
+                    this.browseHistory = data.slice(0, 200);
+                    console.log(`Loaded ${this.browseHistory.length} browse history entries from storage`);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load browse history from storage:', error);
         }
     }
 

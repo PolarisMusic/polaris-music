@@ -40,6 +40,85 @@ export class GraphAPI {
     }
 
     /**
+     * Fetch initial graph as raw {nodes, edges} (not JIT-transformed).
+     * Used when the caller needs to merge subgraphs before transforming.
+     * @returns {Promise<Object>} Raw graph data {nodes, edges}
+     */
+    async fetchInitialGraphRaw() {
+        try {
+            const response = await fetch(`${this.baseUrl}/graph/initial`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            if (!data || !data.nodes || !data.edges) {
+                return { nodes: [], edges: [] };
+            }
+            return { nodes: data.nodes, edges: data.edges };
+        } catch (error) {
+            console.error('Error fetching initial graph raw:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Fetch a node's neighborhood subgraph (raw {nodes, edges}).
+     * @param {string} nodeId - Canonical node ID
+     * @returns {Promise<Object>} Raw graph data {nodes, edges}
+     */
+    async fetchNeighborhoodRaw(nodeId) {
+        const response = await fetch(
+            `${this.baseUrl}/graph/neighborhood/${encodeURIComponent(nodeId)}`
+        );
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data || !data.nodes) {
+            return { nodes: [], edges: [] };
+        }
+        return { nodes: data.nodes, edges: data.edges || [] };
+    }
+
+    /**
+     * Merge two raw graph objects, deduplicating nodes by id and edges by source|target|type.
+     * @param {Object} base - Base graph {nodes, edges}
+     * @param {Object} add - Graph to merge in {nodes, edges}
+     * @returns {Object} Merged graph {nodes, edges}
+     */
+    mergeRawGraph(base, add) {
+        const nodeMap = new Map();
+        const edgeSet = new Map();
+
+        const addNodes = (arr) => {
+            if (!arr) return;
+            for (const n of arr) {
+                if (n && n.id) nodeMap.set(n.id, n);
+            }
+        };
+
+        const edgeKey = (e) => `${e.source}|${e.target}|${e.type || ''}`;
+        const addEdges = (arr) => {
+            if (!arr) return;
+            for (const e of arr) {
+                if (e && e.source && e.target) {
+                    edgeSet.set(edgeKey(e), e);
+                }
+            }
+        };
+
+        addNodes(base && base.nodes);
+        addNodes(add && add.nodes);
+        addEdges(base && base.edges);
+        addEdges(add && add.edges);
+
+        return {
+            nodes: Array.from(nodeMap.values()),
+            edges: Array.from(edgeSet.values())
+        };
+    }
+
+    /**
      * Fetch detailed information for a specific node
      * @param {string} nodeId - Node ID
      * @param {string} nodeType - Node type (Person, Group, Release, etc.)
