@@ -31,7 +31,7 @@ export class MusicGraph {
         this.labelsVisible = true;
 
         // Poincaré distance threshold for showing full-name tooltip
-        this.labelProximityThreshold = 0.25;
+        this.labelProximityThreshold = 0.40;
 
         // Initialize the visualization
         this.initializeHypertree();
@@ -268,6 +268,11 @@ export class MusicGraph {
                     if (node) {
                         this.handleNodeHover(node, false);
                     }
+                },
+
+                onMouseWheel: (delta, e) => {
+                    // Let JIT apply zoom first, then sync slider
+                    setTimeout(() => this.syncZoomSlider(), 0);
                 }
             },
 
@@ -706,6 +711,7 @@ export class MusicGraph {
 
             this.ht.loadJSON(graphData);
             this.ht.refresh();
+            this.syncZoomSlider();
 
             console.log('Graph rendered');
         } catch (error) {
@@ -746,10 +752,32 @@ export class MusicGraph {
      */
     setZoom(value) {
         if (!this.ht || !this.ht.canvas) return;
+
         const canvas = this.ht.canvas;
-        // JIT stores scale on canvas; apply zoom by scaling
-        canvas.scale(value, value);
+
+        // Absolute zoom (JIT handles ratio internally)
+        canvas.setZoom(value, value, true); // disablePlot=true (we plot once below)
         this.ht.plot();
+
+        this.syncZoomSlider(); // keep UI consistent
+    }
+
+    /**
+     * Sync the zoom slider UI element with the current canvas zoom level.
+     * Called after programmatic zoom changes and mouse wheel zoom.
+     */
+    syncZoomSlider() {
+        if (!this.ht || !this.ht.canvas) return;
+        const slider = document.getElementById('zoom-slider');
+        if (!slider) return;
+
+        const z = this.ht.canvas.getZoom().x; // Complex(x,y), use x
+        const min = parseFloat(slider.min);
+        const max = parseFloat(slider.max);
+
+        // Clamp in case wheel zoom exceeds slider range
+        const clamped = Math.max(min, Math.min(max, z));
+        slider.value = String(clamped);
     }
 
     /**
