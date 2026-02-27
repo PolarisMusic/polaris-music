@@ -13,6 +13,7 @@
 
 import { GraphAPI } from './graphApi.js';
 import { ColorPalette } from './colorPalette.js';
+import { PathTracker } from './PathTracker.js';
 
 export class MusicGraph {
     constructor(containerId, walletManager) {
@@ -24,14 +25,19 @@ export class MusicGraph {
         this.api = new GraphAPI();
         this.colorPalette = new ColorPalette();
         this.walletManager = walletManager || null;
+        this.pathTracker = new PathTracker();
 
         // State tracking
         this.hoveredNode = null;
         this.selectedNode = null;
         this.labelsVisible = true;
+        this.historyPanelOpen = false;
+
+        // Raw graph model for dynamic merging (populated in loadGraphData)
+        this.rawGraph = null;
 
         // Poincaré distance threshold for showing full-name tooltip
-        this.labelProximityThreshold = 0.25;
+        this.labelProximityThreshold = 0.40;
 
         // Initialize the visualization
         this.initializeHypertree();
@@ -268,6 +274,11 @@ export class MusicGraph {
                     if (node) {
                         this.handleNodeHover(node, false);
                     }
+                },
+
+                onMouseWheel: (delta, e) => {
+                    // Let JIT apply zoom first, then sync slider
+                    setTimeout(() => this.syncZoomSlider(), 0);
                 }
             },
 
@@ -524,6 +535,16 @@ export class MusicGraph {
         node.setData('isSelected', true);
         this.selectedNode = node;
 
+        // Record in browse history
+        this.pathTracker.visitNode(node.id, {
+            name: node.name,
+            type: node.data && node.data.type
+        });
+        this.updateHistoryCount();
+        if (this.historyPanelOpen) {
+            this.renderHistoryPanel();
+        }
+
         // Center on node
         this.ht.onClick(node.id, {
             onComplete: () => {
@@ -695,17 +716,21 @@ export class MusicGraph {
     }
 
     /**
-     * Load graph data from API
+     * Load graph data from API.
+     * Stores raw {nodes, edges} for later dynamic merging, then transforms to JIT.
      */
     async loadGraphData() {
         try {
             console.log('Loading graph data...');
-            const graphData = await this.api.fetchInitialGraph();
+            this.rawGraph = await this.api.fetchInitialGraphRaw();
 
-            console.log('Graph data loaded:', graphData);
+            console.log('Graph data loaded:', this.rawGraph);
 
-            this.ht.loadJSON(graphData);
+            const jit = this.api.transformToJIT(this.rawGraph);
+            this.ht.loadJSON(jit);
             this.ht.refresh();
+            this.syncZoomSlider();
+            this.updateHistoryCount();
 
             console.log('Graph rendered');
         } catch (error) {
@@ -746,10 +771,32 @@ export class MusicGraph {
      */
     setZoom(value) {
         if (!this.ht || !this.ht.canvas) return;
+
         const canvas = this.ht.canvas;
-        // JIT stores scale on canvas; apply zoom by scaling
-        canvas.scale(value, value);
+
+        // Absolute zoom (JIT handles ratio internally)
+        canvas.setZoom(value, value, true); // disablePlot=true (we plot once below)
         this.ht.plot();
+
+        this.syncZoomSlider(); // keep UI consistent
+    }
+
+    /**
+     * Sync the zoom slider UI element with the current canvas zoom level.
+     * Called after programmatic zoom changes and mouse wheel zoom.
+     */
+    syncZoomSlider() {
+        if (!this.ht || !this.ht.canvas) return;
+        const slider = document.getElementById('zoom-slider');
+        if (!slider) return;
+
+        const z = this.ht.canvas.getZoom().x; // Complex(x,y), use x
+        const min = parseFloat(slider.min);
+        const max = parseFloat(slider.max);
+
+        // Clamp in case wheel zoom exceeds slider range
+        const clamped = Math.max(min, Math.min(max, z));
+        slider.value = String(clamped);
     }
 
     /**
@@ -759,6 +806,135 @@ export class MusicGraph {
         if (this.ht) {
             this.ht.refresh();
         }
+    }
+
+    // ========== History panel ==========
+
+    /**
+     * Update the history count badge in the top bar
+     */
+    updateHistoryCount() {
+        const el = document.getElementById('history-count');
+        if (el) {
+            el.textContent = String(this.pathTracker.getBrowseHistory().length);
+        }
+    }
+
+    /**
+     * Toggle the history panel open/closed
+     */
+    toggleHistoryPanel() {
+        this.historyPanelOpen = !this.historyPanelOpen;
+        const panel = document.getElementById('history-panel');
+        if (!panel) return;
+
+        if (this.historyPanelOpen) {
+            panel.style.display = 'flex';
+            this.renderHistoryPanel();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    /**
+     * Render the history panel list from browse history data
+     */
+    renderHistoryPanel() {
+        const list = document.getElementById('history-list');
+        if (!list) return;
+
+        const history = this.pathTracker.getBrowseHistory();
+        if (history.length === 0) {
+            list.innerHTML = '<li class="history-empty">No history yet</li>';
+            return;
+        }
+
+        list.innerHTML = history.map(item => {
+            const typeLabel = (item.type || 'unknown').toLowerCase();
+            const time = new Date(item.timestamp);
+            const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const name = this.escapeHtml(item.name || 'Unknown');
+            return `<li class="history-item" data-node-id="${this.escapeHtml(item.nodeId)}" data-node-type="${this.escapeHtml(typeLabel)}">
+                <span class="history-type-badge history-type-${typeLabel}">${typeLabel}</span>
+                <span class="history-name">${name}</span>
+                <span class="history-time">${timeStr}</span>
+            </li>`;
+        }).join('');
+
+        // Attach click handlers
+        list.querySelectorAll('.history-item').forEach(li => {
+            li.addEventListener('click', () => {
+                const nodeId = li.dataset.nodeId;
+                this.navigateToNodeId(nodeId);
+            });
+        });
+    }
+
+    /**
+     * Escape HTML to prevent XSS in dynamic content
+     * @param {string} str
+     * @returns {string}
+     */
+    escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // ========== Missing-node navigation ==========
+
+    /**
+     * Navigate to a node by ID, loading its neighborhood if missing from the graph.
+     * @param {string} nodeId
+     */
+    async navigateToNodeId(nodeId) {
+        if (!this.ht) return;
+
+        // Try to find node in current graph
+        let node = this.ht.graph.getNode(nodeId);
+        if (node) {
+            this.handleNodeClick(node);
+            return;
+        }
+
+        // Node missing — fetch neighborhood, merge, reload
+        console.log('Node not in graph, fetching neighborhood:', nodeId);
+        try {
+            await this.ensureNodeInGraph(nodeId);
+            node = this.ht.graph.getNode(nodeId);
+            if (node) {
+                this.handleNodeClick(node);
+            } else {
+                console.warn('Node still missing after neighborhood fetch:', nodeId);
+            }
+        } catch (error) {
+            console.error('Failed to load neighborhood for node:', nodeId, error);
+        }
+    }
+
+    /**
+     * Fetch a node's neighborhood subgraph and merge it into the current graph.
+     * Reloads the Hypertree from the merged raw data.
+     * @param {string} nodeId
+     */
+    async ensureNodeInGraph(nodeId) {
+        const sub = await this.api.fetchNeighborhoodRaw(nodeId);
+        if (!sub || !sub.nodes || sub.nodes.length === 0) {
+            console.warn('Neighborhood returned no data for:', nodeId);
+            return;
+        }
+
+        this.rawGraph = this.api.mergeRawGraph(this.rawGraph, sub);
+
+        // Cap graph size to prevent runaway growth
+        if (this.rawGraph.nodes.length > 500) {
+            console.log('Graph exceeds 500 nodes, replacing with neighborhood only');
+            this.rawGraph = sub;
+        }
+
+        const jit = this.api.transformToJIT(this.rawGraph);
+        this.ht.loadJSON(jit);
+        this.ht.refresh();
     }
 
     /**

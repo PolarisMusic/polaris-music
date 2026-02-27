@@ -29,12 +29,21 @@
                     <span class="icon">⭐</span>
                     <span id="favorites-count">0</span> Favorites
                 </span>
-                <span class="stat-item">
+                <span class="stat-item stat-clickable" id="history-toggle">
                     <span class="icon">❄️</span>
                     <span id="history-count">0</span> History
                 </span>
             </div>
         </div>
+    </div>
+
+    <!-- History Panel (hidden by default) -->
+    <div id="history-panel" style="display: none;">
+        <div class="history-header">
+            <h3>History</h3>
+            <button id="history-close" class="btn-close">&times;</button>
+        </div>
+        <ul id="history-list"></ul>
     </div>
 
     <!-- Main Container -->
@@ -201,6 +210,22 @@
             if (zoomSlider) {
                 zoomSlider.addEventListener('input', (e) => {
                     graph.setZoom(parseFloat(e.target.value));
+                });
+            }
+
+            // History panel toggle
+            const historyToggle = document.getElementById('history-toggle');
+            if (historyToggle) {
+                historyToggle.addEventListener('click', () => {
+                    graph.toggleHistoryPanel();
+                });
+            }
+
+            // History panel close button
+            const historyClose = document.getElementById('history-close');
+            if (historyClose) {
+                historyClose.addEventListener('click', () => {
+                    graph.toggleHistoryPanel();
                 });
             }
 

@@ -33,6 +33,7 @@ import { getStatus } from './status.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
 import { createLogger, generateRequestId } from '../utils/logger.js';
+import neo4j from 'neo4j-driver';
 
 /**
  * GraphQL Schema Definition
@@ -1837,6 +1838,205 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Initial graph failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
+         * GET /api/graph/neighborhood/:nodeId
+         * Fetch a node's neighborhood subgraph for dynamic graph merging.
+         * Returns {nodes, edges} in the same shape as /graph/initial.
+         */
+        this.app.get('/api/graph/neighborhood/:nodeId', async (req, res) => {
+            const nodeId = req.params.nodeId;
+            const limitTracks = Math.min(parseInt(req.query.limitTracks) || 25, 100);
+            const limitGroups = Math.min(parseInt(req.query.limitGroups) || 25, 100);
+            const limitPersons = Math.min(parseInt(req.query.limitPersons) || 50, 200);
+
+            try {
+                const session = this.db.driver.session();
+                try {
+                    let nodes = [];
+                    let edges = [];
+
+                    if (nodeId.includes(':person:') || nodeId.startsWith('prov:person:')) {
+                        // Person neighborhood: person + all groups they're MEMBER_OF
+                        const result = await session.run(`
+                            MATCH (p:Person {person_id: $nodeId})
+                            OPTIONAL MATCH (p)-[m:MEMBER_OF]->(g:Group)
+                            RETURN p,
+                                   collect(DISTINCT {
+                                       group: g,
+                                       role: m.role,
+                                       from_date: m.from_date,
+                                       to_date: m.to_date,
+                                       instruments: m.instruments
+                                   }) as memberships
+                            LIMIT 1
+                        `, { nodeId });
+
+                        if (result.records.length > 0) {
+                            const record = result.records[0];
+                            const p = record.get('p');
+                            if (p) {
+                                nodes.push({
+                                    id: p.properties.person_id,
+                                    name: p.properties.name,
+                                    type: 'person',
+                                    color: p.properties.color || null
+                                });
+
+                                const memberships = record.get('memberships').filter(m => m.group !== null);
+                                for (const m of memberships.slice(0, limitGroups)) {
+                                    const g = m.group;
+                                    nodes.push({
+                                        id: g.properties.group_id,
+                                        name: g.properties.name,
+                                        type: 'group'
+                                    });
+                                    edges.push({
+                                        source: p.properties.person_id,
+                                        target: g.properties.group_id,
+                                        type: 'MEMBER_OF',
+                                        role: m.role,
+                                        from_date: m.from_date,
+                                        to_date: m.to_date,
+                                        instruments: m.instruments
+                                    });
+                                }
+                            }
+                        }
+                    } else if (nodeId.includes(':group:') || nodeId.startsWith('prov:group:')) {
+                        // Group neighborhood: group + members + limited tracks + releases
+                        const result = await session.run(`
+                            MATCH (g:Group {group_id: $nodeId})
+                            OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                            WITH g, collect(DISTINCT {
+                                person: p,
+                                role: m.role,
+                                from_date: m.from_date,
+                                to_date: m.to_date,
+                                instruments: m.instruments
+                            }) as memberships
+                            OPTIONAL MATCH (g)-[:PERFORMED_ON]->(t:Track)
+                            WITH g, memberships, collect(DISTINCT t)[0..$limitTracks] as tracks
+                            UNWIND tracks as t
+                            OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+                            RETURN g, memberships,
+                                   collect(DISTINCT {track: t}) as trackNodes,
+                                   collect(DISTINCT {release: r, trackId: t.track_id}) as releaseEdges
+                        `, { nodeId, limitTracks: neo4j.int(limitTracks) });
+
+                        if (result.records.length > 0) {
+                            const record = result.records[0];
+                            const g = record.get('g');
+                            if (g) {
+                                nodes.push({
+                                    id: g.properties.group_id,
+                                    name: g.properties.name,
+                                    type: 'group'
+                                });
+
+                                const memberships = record.get('memberships').filter(m => m.person !== null);
+                                for (const m of memberships.slice(0, limitPersons)) {
+                                    const p = m.person;
+                                    nodes.push({
+                                        id: p.properties.person_id,
+                                        name: p.properties.name,
+                                        type: 'person',
+                                        color: p.properties.color || null
+                                    });
+                                    edges.push({
+                                        source: p.properties.person_id,
+                                        target: g.properties.group_id,
+                                        type: 'MEMBER_OF',
+                                        role: m.role,
+                                        from_date: m.from_date,
+                                        to_date: m.to_date,
+                                        instruments: m.instruments
+                                    });
+                                }
+
+                                const trackNodes = record.get('trackNodes').filter(t => t.track !== null);
+                                for (const tn of trackNodes) {
+                                    const t = tn.track;
+                                    nodes.push({
+                                        id: t.properties.track_id,
+                                        name: t.properties.title || t.properties.name,
+                                        type: 'track'
+                                    });
+                                    edges.push({
+                                        source: g.properties.group_id,
+                                        target: t.properties.track_id,
+                                        type: 'PERFORMED_ON'
+                                    });
+                                }
+
+                                const releaseEdges = record.get('releaseEdges').filter(re => re.release !== null);
+                                const seenReleases = new Set();
+                                for (const re of releaseEdges) {
+                                    const r = re.release;
+                                    if (!seenReleases.has(r.properties.release_id)) {
+                                        seenReleases.add(r.properties.release_id);
+                                        nodes.push({
+                                            id: r.properties.release_id,
+                                            name: r.properties.name,
+                                            type: 'release'
+                                        });
+                                    }
+                                    edges.push({
+                                        source: re.trackId,
+                                        target: r.properties.release_id,
+                                        type: 'IN_RELEASE'
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        // Generic fallback: try known node types
+                        const nodeTypes = [
+                            { label: 'Person', idField: 'person_id', type: 'person' },
+                            { label: 'Group', idField: 'group_id', type: 'group' },
+                            { label: 'Track', idField: 'track_id', type: 'track' },
+                            { label: 'Release', idField: 'release_id', type: 'release' },
+                            { label: 'Song', idField: 'song_id', type: 'song' }
+                        ];
+                        for (const meta of nodeTypes) {
+                            const result = await session.run(
+                                `MATCH (n:${meta.label} {${meta.idField}: $nodeId}) RETURN n LIMIT 1`,
+                                { nodeId }
+                            );
+                            if (result.records.length > 0) {
+                                const n = result.records[0].get('n');
+                                nodes.push({
+                                    id: n.properties[meta.idField],
+                                    name: n.properties.name || n.properties.title || 'Unknown',
+                                    type: meta.type
+                                });
+                                break;
+                            }
+                        }
+                    }
+
+                    // Deduplicate nodes by id
+                    const nodeMap = new Map();
+                    for (const n of nodes) {
+                        if (n && n.id) nodeMap.set(n.id, n);
+                    }
+
+                    res.json({
+                        success: true,
+                        nodes: Array.from(nodeMap.values()),
+                        edges
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Neighborhood fetch failed:', error);
                 res.status(500).json({
                     success: false,
                     error: error.message
