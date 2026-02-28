@@ -37,7 +37,20 @@ export class MusicGraph {
         this.rawGraph = null;
 
         // Poincaré distance threshold for showing full-name tooltip
-        this.labelProximityThreshold = 0.40;
+        this.labelProximityThreshold = 0.64;
+
+        // Long-press pan state (replaces JIT's built-in panning to prevent
+        // micro-drags from swallowing node clicks)
+        this.PAN_HOLD_MS = 900;
+        this._pan = {
+            isDown: false,
+            isPanning: false,
+            suppressNextClick: false,
+            timer: null,
+            lastPos: null,
+            latestPos: null,
+            raf: null
+        };
 
         // Initialize the visualization
         this.initializeHypertree();
@@ -252,6 +265,10 @@ export class MusicGraph {
                 type: 'Native',
 
                 onClick: (node, eventInfo, e) => {
+                    if (this._pan && this._pan.suppressNextClick) {
+                        this._pan.suppressNextClick = false;
+                        return;
+                    }
                     if (node) {
                         this.handleNodeClick(node);
                     }
@@ -288,10 +305,10 @@ export class MusicGraph {
 
             levelDistance: 100,
 
-            // Navigation
+            // Navigation – panning disabled; replaced by long-press pan
             Navigation: {
                 enable: true,
-                panning: 'avoid nodes',
+                panning: false,
                 zooming: 20
             },
 
@@ -318,7 +335,99 @@ export class MusicGraph {
             }
         });
 
+        this.setupLongPressPan();
         console.log('Hypertree initialized');
+    }
+
+    /**
+     * Wire up long-press panning on the canvas element.
+     * Hold ~900ms then drag to pan; quick clicks pass through to node selection.
+     */
+    setupLongPressPan() {
+        if (!this.ht || !this.ht.canvas) return;
+        const el = this.ht.canvas.getElement();
+        if (!el) return;
+
+        el.addEventListener('mousedown', (e) => this.onPanMouseDown(e));
+        el.addEventListener('mousemove', (e) => this.onPanMouseMove(e));
+        window.addEventListener('mouseup', (e) => this.onPanMouseUp(e));
+        el.addEventListener('mouseleave', (e) => this.onPanMouseUp(e));
+    }
+
+    eventToCanvasPos(e) {
+        const canvas = this.ht.canvas;
+        const s = canvas.getSize();
+        const p = canvas.getPos();
+        const ox = canvas.translateOffsetX;
+        const oy = canvas.translateOffsetY;
+        const sx = canvas.scaleOffsetX;
+        const sy = canvas.scaleOffsetY;
+
+        const pos = $jit.util.event.getPos(e, window);
+        return {
+            x: (pos.x - p.x - s.width / 2 - ox) * (1 / sx),
+            y: (pos.y - p.y - s.height / 2 - oy) * (1 / sy)
+        };
+    }
+
+    onPanMouseDown(e) {
+        if (e.button !== 0) return;
+        this._pan.isDown = true;
+        this._pan.isPanning = false;
+        this._pan.suppressNextClick = false;
+
+        const pos = this.eventToCanvasPos(e);
+        this._pan.latestPos = pos;
+        this._pan.lastPos = pos;
+
+        clearTimeout(this._pan.timer);
+        this._pan.timer = setTimeout(() => {
+            if (!this._pan.isDown) return;
+            this._pan.isPanning = true;
+            this._pan.suppressNextClick = true;
+            this.ht.canvas.getElement().classList.add('grabbing');
+        }, this.PAN_HOLD_MS);
+    }
+
+    onPanMouseMove(e) {
+        if (!this._pan.isDown) return;
+        this._pan.latestPos = this.eventToCanvasPos(e);
+
+        if (!this._pan.isPanning) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const pos = this._pan.latestPos;
+        const last = this._pan.lastPos;
+        const dx = pos.x - last.x;
+        const dy = pos.y - last.y;
+
+        if (dx === 0 && dy === 0) return;
+
+        this.ht.canvas.translate(dx, dy, true);
+        this._pan.lastPos = pos;
+
+        if (!this._pan.raf) {
+            this._pan.raf = requestAnimationFrame(() => {
+                this.ht.plot();
+                this._pan.raf = null;
+            });
+        }
+    }
+
+    onPanMouseUp(e) {
+        if (!this._pan.isDown) return;
+
+        clearTimeout(this._pan.timer);
+        this._pan.timer = null;
+
+        if (this._pan.isPanning) {
+            this.ht.canvas.getElement().classList.remove('grabbing');
+            this._pan.isPanning = false;
+        }
+
+        this._pan.isDown = false;
     }
 
     /**
@@ -879,6 +988,17 @@ export class MusicGraph {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    /**
+     * Clear browse history and refresh the panel/count
+     */
+    clearHistory() {
+        this.pathTracker.clearBrowseHistory();
+        this.updateHistoryCount();
+        if (this.historyPanelOpen) {
+            this.renderHistoryPanel();
+        }
     }
 
     // ========== Missing-node navigation ==========

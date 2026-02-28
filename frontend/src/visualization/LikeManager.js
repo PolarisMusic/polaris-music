@@ -34,12 +34,13 @@ export class LikeManager {
             // Record like locally with path
             const likeRecord = this.pathTracker.recordLike(nodeId, nodeData);
 
-            // Submit to blockchain if requested and wallet is connected
+            // Submit squashed path to blockchain (loop-free traversal)
+            const pathForChain = likeRecord.pathSquashed || likeRecord.path;
             if (submitToBlockchain && this.walletManager.isConnected()) {
-                await this.submitToBlockchain(nodeId, likeRecord.path);
+                await this.submitToBlockchain(nodeId, pathForChain);
             } else if (submitToBlockchain) {
                 // Queue for later submission
-                this.queueSubmission(nodeId, likeRecord.path);
+                this.queueSubmission(nodeId, pathForChain);
                 console.log('Like queued for blockchain submission (wallet not connected)');
             }
 
