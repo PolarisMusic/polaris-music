@@ -25,7 +25,7 @@
                 <button id="connect-wallet" class="btn-wallet">Connect Wallet</button>
             </div>
             <div class="stats">
-                <span class="stat-item">
+                <span class="stat-item stat-clickable" id="favorites-toggle">
                     <span class="icon">⭐</span>
                     <span id="favorites-count">0</span> Favorites
                 </span>
@@ -49,6 +49,17 @@
         <ul id="history-list"></ul>
     </div>
 
+    <!-- Favorites Panel (hidden by default) -->
+    <div id="favorites-panel" style="display: none;">
+        <div class="history-header">
+            <h3>Favorites</h3>
+            <div class="history-actions">
+                <button id="favorites-close" class="btn-close">&times;</button>
+            </div>
+        </div>
+        <ul id="favorites-list"></ul>
+    </div>
+
     <!-- Main Container -->
     <div id="main-container">
         <!-- Visualization Canvas -->
@@ -61,6 +72,10 @@
                     <label>Zoom</label>
                     <input type="range" id="zoom-slider" min="0.5" max="2" step="0.1" value="1">
                 </div>
+                <div class="control-group">
+                    <label>Geometry</label>
+                    <input type="range" id="geometry-slider" min="0" max="0.6" step="0.02" value="0">
+                </div>
                 <button id="center-view" class="btn-control">Center View</button>
                 <button id="toggle-labels" class="btn-control">Toggle Labels</button>
             </div>
@@ -70,8 +85,7 @@
         <div id="info-viewer">
             <div class="info-header">
                 <h2 id="info-title">Select a node</h2>
-                <button id="like-button" class="btn-like" style="display: none;">🤍 Like</button>
-                <button id="close-info" class="btn-close">×</button>
+                <button id="node-favorite" class="btn-favorite" title="Like">☆</button>
             </div>
             <div id="info-content" class="info-content">
                 <p class="placeholder">Click on a Group or Person to see details</p>
@@ -240,13 +254,43 @@
                 });
             }
 
+            // Star favorite button in info panel
+            const nodeFavBtn = document.getElementById('node-favorite');
+            if (nodeFavBtn) {
+                nodeFavBtn.addEventListener('click', () => graph.likeSelectedNode());
+            }
+
+            // Favorites panel toggle
+            const favoritesToggle = document.getElementById('favorites-toggle');
+            if (favoritesToggle) {
+                favoritesToggle.addEventListener('click', () => graph.toggleFavoritesPanel());
+            }
+            const favoritesClose = document.getElementById('favorites-close');
+            if (favoritesClose) {
+                favoritesClose.addEventListener('click', () => graph.toggleFavoritesPanel());
+            }
+
+            // Geometry slider
+            const geometrySlider = document.getElementById('geometry-slider');
+            if (geometrySlider) {
+                geometrySlider.addEventListener('input', (e) => {
+                    graph.setGeometryOffset(parseFloat(e.target.value));
+                });
+            }
+
             // Listen for wallet events
-            walletManager.on('onConnect', (accountInfo) => {
+            walletManager.on('onConnect', async (accountInfo) => {
                 console.log('Wallet connected event:', accountInfo);
+                await graph.refreshFavoritesFromChain();
+                await graph.updateFavoriteButton();
             });
 
             walletManager.on('onDisconnect', () => {
                 console.log('Wallet disconnected event');
+                graph.chainFavorites = new Set();
+                graph.chainFavoritesLoaded = false;
+                graph.updateFavoritesCount();
+                graph.updateFavoriteButton();
             });
 
             walletManager.on('onError', (error) => {

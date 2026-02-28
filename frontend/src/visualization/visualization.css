@@ -523,6 +523,51 @@ body {
     font-style: italic;
 }
 
+/* Favorite star button in info panel */
+.btn-favorite {
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #888;
+    line-height: 1;
+    width: 34px;
+    height: 34px;
+    transition: color 0.2s;
+}
+
+.btn-favorite:hover {
+    color: #fff;
+}
+
+.btn-favorite.liked {
+    color: #f5c542;
+}
+
+/* Favorites Panel */
+#favorites-panel {
+    position: absolute;
+    top: 60px;
+    right: 320px;
+    width: 320px;
+    max-height: calc(100vh - 120px);
+    background: #1a1a1a;
+    border-left: 1px solid #333;
+    border-bottom: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    z-index: 600;
+    overflow: hidden;
+}
+
+#favorites-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+}
+
 .grabbing {
     cursor: grabbing !important;
 }

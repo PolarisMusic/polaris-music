@@ -14,6 +14,7 @@
 import { GraphAPI } from './graphApi.js';
 import { ColorPalette } from './colorPalette.js';
 import { PathTracker } from './PathTracker.js';
+import { LikeManager } from './LikeManager.js';
 
 export class MusicGraph {
     constructor(containerId, walletManager) {
@@ -26,12 +27,19 @@ export class MusicGraph {
         this.colorPalette = new ColorPalette();
         this.walletManager = walletManager || null;
         this.pathTracker = new PathTracker();
+        this.likeManager = new LikeManager(this.walletManager, this.pathTracker);
 
         // State tracking
         this.hoveredNode = null;
         this.selectedNode = null;
         this.labelsVisible = true;
         this.historyPanelOpen = false;
+        this.favoritesPanelOpen = false;
+
+        // On-chain favorites state
+        this.chainFavorites = new Set();
+        this.chainFavoritesLoaded = false;
+        this.hashIndex = new Map();
 
         // Raw graph model for dynamic merging (populated in loadGraphData)
         this.rawGraph = null;
@@ -654,6 +662,9 @@ export class MusicGraph {
             this.renderHistoryPanel();
         }
 
+        // Update favorite star state
+        this.updateFavoriteButton();
+
         // Center on node
         this.ht.onClick(node.id, {
             onComplete: () => {
@@ -840,11 +851,28 @@ export class MusicGraph {
             this.ht.refresh();
             this.syncZoomSlider();
             this.updateHistoryCount();
+            await this.rebuildHashIndexFromRawGraph();
 
             console.log('Graph rendered');
         } catch (error) {
             console.error('Failed to load graph data:', error);
         }
+    }
+
+    /**
+     * Build a local checksum256 → {nodeId, name, type} index from the raw graph.
+     * Used to map on-chain like hashes back to displayable node info.
+     */
+    async rebuildHashIndexFromRawGraph() {
+        if (!this.rawGraph?.nodes || !this.likeManager) return;
+        this.hashIndex.clear();
+
+        const pairs = await Promise.all(this.rawGraph.nodes.map(async (n) => {
+            const h = await this.likeManager.nodeIdToChecksum256(n.id);
+            return [h, { nodeId: n.id, name: n.name, type: n.type }];
+        }));
+
+        for (const [h, meta] of pairs) this.hashIndex.set(h, meta);
     }
 
     // ========== View controls (wired from visualization.html) ==========
@@ -906,6 +934,25 @@ export class MusicGraph {
         // Clamp in case wheel zoom exceeds slider range
         const clamped = Math.max(min, Math.min(max, z));
         slider.value = String(clamped);
+    }
+
+    /**
+     * Set Hypertree geometry offset (controls hyperbolic compactness).
+     * @param {number} value - Offset in [0, 1)
+     */
+    setGeometryOffset(value) {
+        if (!this.ht) return;
+        this.ht.config.offset = value;
+
+        const focusId = this.selectedNode?.id || this.ht.root;
+        this.ht.refresh();
+        if (focusId) {
+            this.ht.onClick(focusId, {
+                onComplete: () => this.updateInfoPanel(this.ht.graph.getNode(focusId))
+            });
+        } else {
+            this.ht.plot();
+        }
     }
 
     /**
@@ -1001,6 +1048,130 @@ export class MusicGraph {
         }
     }
 
+    // ========== Favorites / Like ==========
+
+    /**
+     * Update the star button to reflect on-chain like state for the selected node
+     */
+    async updateFavoriteButton() {
+        const btn = document.getElementById('node-favorite');
+        if (!btn) return;
+
+        if (!this.selectedNode) {
+            btn.textContent = '\u2606';
+            btn.classList.remove('liked');
+            return;
+        }
+
+        const hash = await this.likeManager.nodeIdToChecksum256(this.selectedNode.id);
+        const liked = this.chainFavorites.has(hash);
+
+        btn.textContent = liked ? '\u2605' : '\u2606';
+        btn.classList.toggle('liked', liked);
+    }
+
+    /**
+     * Like the currently selected node (requires wallet connection)
+     */
+    async likeSelectedNode() {
+        if (!this.selectedNode) return;
+
+        if (!this.walletManager?.isConnected()) {
+            alert('Connect wallet to like nodes.');
+            return;
+        }
+
+        if (!this.chainFavoritesLoaded) {
+            await this.refreshFavoritesFromChain();
+        }
+
+        const node = this.selectedNode;
+        const nodeHash = await this.likeManager.nodeIdToChecksum256(node.id);
+
+        if (this.chainFavorites.has(nodeHash)) {
+            return;
+        }
+
+        await this.likeManager.likeNode(node.id, { name: node.name, type: node.data?.type }, true);
+
+        this.chainFavorites.add(nodeHash);
+        this.chainFavoritesLoaded = true;
+        this.updateFavoritesCount();
+        await this.updateFavoriteButton();
+
+        if (this.favoritesPanelOpen) await this.renderFavoritesPanel();
+    }
+
+    updateFavoritesCount() {
+        const el = document.getElementById('favorites-count');
+        if (el) el.textContent = String(this.chainFavorites.size);
+    }
+
+    async refreshFavoritesFromChain() {
+        const rows = await this.likeManager.fetchAccountLikes(200);
+        this.chainFavorites = new Set(rows.map(r => r.node_id));
+        this.chainFavoritesLoaded = true;
+        this.updateFavoritesCount();
+        return rows;
+    }
+
+    toggleFavoritesPanel() {
+        this.favoritesPanelOpen = !this.favoritesPanelOpen;
+        const panel = document.getElementById('favorites-panel');
+        if (!panel) return;
+
+        if (this.favoritesPanelOpen) {
+            panel.style.display = 'flex';
+            this.renderFavoritesPanel();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    async renderFavoritesPanel() {
+        const list = document.getElementById('favorites-list');
+        if (!list) return;
+
+        if (!this.walletManager?.isConnected()) {
+            list.innerHTML = '<li class="history-empty">Login to see your favorites.</li>';
+            return;
+        }
+
+        list.innerHTML = '<li class="history-empty">Loading favorites...</li>';
+
+        try {
+            const rows = await this.refreshFavoritesFromChain();
+
+            if (!rows.length) {
+                list.innerHTML = '<li class="history-empty">No favorites yet.</li>';
+                return;
+            }
+
+            list.innerHTML = rows.map(r => {
+                const meta = this.hashIndex.get(r.node_id);
+                const name = meta?.name || (r.node_id.slice(0, 8) + '\u2026');
+                const nodeId = meta?.nodeId || '';
+                const type = (meta?.type || 'unknown').toLowerCase();
+
+                const disabled = nodeId ? '' : ' style="opacity:0.6; cursor:not-allowed;" ';
+                return `<li class="history-item" ${disabled} data-node-id="${this.escapeHtml(nodeId)}">
+                    <span class="history-type-badge history-type-${type}">${type}</span>
+                    <span class="history-name">${this.escapeHtml(name)}</span>
+                    <span class="history-time"></span>
+                </li>`;
+            }).join('');
+
+            list.querySelectorAll('.history-item').forEach(li => {
+                const nodeId = li.dataset.nodeId;
+                if (!nodeId) return;
+                li.addEventListener('click', () => this.navigateToNodeId(nodeId));
+            });
+        } catch (error) {
+            console.error('Failed to load favorites:', error);
+            list.innerHTML = '<li class="history-empty">Failed to load favorites.</li>';
+        }
+    }
+
     // ========== Missing-node navigation ==========
 
     /**
@@ -1055,6 +1226,7 @@ export class MusicGraph {
         const jit = this.api.transformToJIT(this.rawGraph);
         this.ht.loadJSON(jit);
         this.ht.refresh();
+        await this.rebuildHashIndexFromRawGraph();
     }
 
     /**
