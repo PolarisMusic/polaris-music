@@ -1,0 +1,331 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": __TIMESTAMP__,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000033",
+"name": "Smoke Don't Panic",
+"alt_names": ["Don't Panic"],
+"release_date": "2012-10-09",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-033",
+"trivia": "Smoke-test release bundle based on Don't Panic by All Time Low (Discogs). Fifth studio album, marking a return to their pop-punk roots after Future Hearts. Features guest vocals from Jason Vena, Cassadee Pope, and Anthony Raneri."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000725",
+"name": "Hopeless Records",
+"alt_names": ["Hopeless"]
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000015",
+"name": "Smoke All Time Low",
+"alt_names": ["All Time Low"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000449",
+"name": "Smoke Alex Gaskarth",
+"role": "lead vocals, rhythm guitar"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000451",
+"name": "Smoke Jack Barakat",
+"role": "lead guitar, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000452",
+"name": "Smoke Zack Merrick",
+"role": "bass, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000453",
+"name": "Smoke Rian Dawson",
+"role": "drums, percussion"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004384",
+"title": "The Reckless and the Brave",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004385",
+"title": "Backseat Serenade",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004386",
+"title": "If These Sheets Were States",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004387",
+"title": "Somewhere in Neverland",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004388",
+"title": "So Long Soldier",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004389",
+"title": "The Irony of Choking on a Lifesaver",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004390",
+"title": "To Live and Let Go",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004391",
+"title": "Outlines",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000455", "name": "Smoke Patrick Stump", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004392",
+"title": "Thanks to You",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004393",
+"title": "For Baltimore",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004394",
+"title": "Paint You Wings",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004395",
+"title": "So Long, and Thanks for All the Booze",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000449", "name": "Smoke Alex Gaskarth", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green", "roles": ["music"] }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005383",
+"title": "The Reckless and the Brave",
+"duration": 202,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004384",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005384",
+"title": "Backseat Serenade",
+"duration": 208,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004385",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+],
+"guests": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000456", "name": "Smoke Cassadee Pope", "roles": ["vocals"] }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005385",
+"title": "If These Sheets Were States",
+"duration": 197,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004386",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005386",
+"title": "Somewhere in Neverland",
+"duration": 217,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004387",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005387",
+"title": "So Long Soldier",
+"duration": 174,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004388",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+],
+"guests": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000457", "name": "Smoke Anthony Raneri", "roles": ["vocals"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000458", "name": "Smoke Jason Vena", "roles": ["vocals"] }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005388",
+"title": "The Irony of Choking on a Lifesaver",
+"duration": 208,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004389",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005389",
+"title": "To Live and Let Go",
+"duration": 205,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004390",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005390",
+"title": "Outlines",
+"duration": 199,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004391",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000459", "name": "Smoke Neal Avron" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005391",
+"title": "Thanks to You",
+"duration": 197,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004392",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005392",
+"title": "For Baltimore",
+"duration": 184,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004393",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005393",
+"title": "Paint You Wings",
+"duration": 209,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004394",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005394",
+"title": "So Long, and Thanks for All the Booze",
+"duration": 199,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004395",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000015", "name": "Smoke All Time Low" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000454", "name": "Smoke Mike Green" }
+]
+}
+],
+"tracklist": [
+{ "position": "1", "track_title": "The Reckless and the Brave", "duration": 202 },
+{ "position": "2", "track_title": "Backseat Serenade", "duration": 208 },
+{ "position": "3", "track_title": "If These Sheets Were States", "duration": 197 },
+{ "position": "4", "track_title": "Somewhere in Neverland", "duration": 217 },
+{ "position": "5", "track_title": "So Long Soldier", "duration": 174 },
+{ "position": "6", "track_title": "The Irony of Choking on a Lifesaver", "duration": 208 },
+{ "position": "7", "track_title": "To Live and Let Go", "duration": 205 },
+{ "position": "8", "track_title": "Outlines", "duration": 199 },
+{ "position": "9", "track_title": "Thanks to You", "duration": 197 },
+{ "position": "10", "track_title": "For Baltimore", "duration": 184 },
+{ "position": "11", "track_title": "Paint You Wings", "duration": 209 },
+{ "position": "12", "track_title": "So Long, and Thanks for All the Booze", "duration": 199 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/700740-All-Time-Low-Dont-Panic",
+"accessed_at": "2026-02-27"
+},
+{
+"type": "discogs",
+"url": "https://www.discogs.com/artist/1004520-All-Time-Low",
+"accessed_at": "2026-02-27"
+}
+]
+}
+}

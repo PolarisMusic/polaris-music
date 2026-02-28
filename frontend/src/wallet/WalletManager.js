@@ -121,6 +121,23 @@ export class WalletManager {
     }
 
     /**
+     * Lazily fetch and cache the public key — only call this in flows that
+     * truly need the on-chain key (e.g., release submission). Login and
+     * restore deliberately skip this to avoid CORS/network failures.
+     *
+     * @returns {Promise<string>} Public key (e.g., "EOS6...")
+     */
+    async ensurePublicKey() {
+        if (!this.session) throw new Error('No active session');
+        if (this.publicKey) return this.publicKey;
+
+        const accountName = this.session.actor.toString();
+        const permission = this.session.permission.toString();
+        this.publicKey = await this.fetchPublicKey(accountName, permission);
+        return this.publicKey;
+    }
+
+    /**
      * Connect wallet (login)
      * @returns {Promise<Object>} Session information
      */
@@ -136,15 +153,25 @@ export class WalletManager {
                 const permission = this.session.permission.toString();
                 const chainId = this.session.chain.id.toString();
 
-                // CRITICAL: Fetch the actual public key from the blockchain
-                // This is required for cryptographic signature verification
-                this.publicKey = await this.fetchPublicKey(accountName, permission);
+                // Reject owner permission — only active should be used.
+                if (permission === 'owner') {
+                    try { await this.sessionKit.logout(this.session); } catch (_) {}
+                    this.session = null;
+                    throw new Error(
+                        "Please connect using the 'active' permission (e.g., " +
+                        accountName + "@active). Owner permission is not allowed."
+                    );
+                }
+
+                // Do NOT block login on browser-side RPC calls (CORS/network).
+                // Fetch lazily via ensurePublicKey() only when a flow truly requires it.
+                this.publicKey = null;
 
                 const accountInfo = {
                     accountName,
                     permission,
                     chainId,
-                    publicKey: this.publicKey  // Real public key, not account name
+                    publicKey: this.publicKey
                 };
 
                 console.log('Wallet connected:', accountInfo);
@@ -193,15 +220,25 @@ export class WalletManager {
                 const permission = this.session.permission.toString();
                 const chainId = this.session.chain.id.toString();
 
-                // CRITICAL: Fetch the actual public key from the blockchain
-                // This is required for cryptographic signature verification
-                this.publicKey = await this.fetchPublicKey(accountName, permission);
+                // Reject owner permission — clear the restored session and bail out.
+                if (permission === 'owner') {
+                    try { await this.sessionKit.logout(this.session); } catch (_) {}
+                    this.session = null;
+                    console.warn(
+                        `Restored session ${accountName}@owner rejected — owner permission is not allowed.`
+                    );
+                    return null;
+                }
+
+                // Do NOT block restore on browser-side RPC calls (CORS/network).
+                // Fetch lazily via ensurePublicKey() only when a flow truly requires it.
+                this.publicKey = null;
 
                 const accountInfo = {
                     accountName,
                     permission,
                     chainId,
-                    publicKey: this.publicKey  // Real public key, not account name
+                    publicKey: this.publicKey
                 };
 
                 console.log('Session restored:', accountInfo);

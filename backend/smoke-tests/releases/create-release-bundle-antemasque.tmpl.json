@@ -1,0 +1,277 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": __TIMESTAMP__,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000028",
+"name": "Smoke Antemasque",
+"alt_names": ["Antemasque"],
+"release_date": "2014-11-10",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-028",
+"trivia": "Smoke-test release bundle based on Antemasque by Antemasque (Discogs). Self-titled debut album featuring former Mars Volta members Cedric Bixler-Zavala and Omar Rodriguez-Lopez, with Dave Elitch on drums and Flea on bass."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000721",
+"name": "Smoke Nadie Sound",
+"alt_names": ["Nadie Sound"]
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"name": "Smoke Antemasque",
+"alt_names": ["Antemasque"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000428",
+"name": "Smoke Cedric Bixler-Zavala",
+"role": "vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000429",
+"name": "Smoke Omar Rodriguez-Lopez",
+"role": "guitar, keyboards"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000430",
+"name": "Smoke Dave Elitch",
+"role": "drums"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000431",
+"name": "Smoke Flea",
+"role": "bass"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004336",
+"title": "4AM",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004337",
+"title": "I Got No Remorse",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004338",
+"title": "Ride Like The Devil's Son",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004339",
+"title": "In The Lurch",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004340",
+"title": "50,000 Kilowatts",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004341",
+"title": "Memento Mori",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004342",
+"title": "Drown All Your Witches",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004343",
+"title": "Providence",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004344",
+"title": "People Forget",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004345",
+"title": "Rome Armed To The Teeth",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez", "roles": ["lyrics", "music"] }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005336",
+"title": "4AM",
+"duration": 176,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004336",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005337",
+"title": "I Got No Remorse",
+"duration": 186,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004337",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005338",
+"title": "Ride Like The Devil's Son",
+"duration": 181,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004338",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005339",
+"title": "In The Lurch",
+"duration": 187,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004339",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005340",
+"title": "50,000 Kilowatts",
+"duration": 175,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004340",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005341",
+"title": "Memento Mori",
+"duration": 215,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004341",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005342",
+"title": "Drown All Your Witches",
+"duration": 212,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004342",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005343",
+"title": "Providence",
+"duration": 287,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004343",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005344",
+"title": "People Forget",
+"duration": 234,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004344",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005345",
+"title": "Rome Armed To The Teeth",
+"duration": 224,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004345",
+"groups": [
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000010", "name": "Smoke Antemasque" }
+],
+"producers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "4AM", "duration": 176 },
+{ "position": "1", "track_title": "I Got No Remorse", "duration": 186 },
+{ "position": "2", "track_title": "Ride Like The Devil's Son", "duration": 181 },
+{ "position": "3", "track_title": "In The Lurch", "duration": 187 },
+{ "position": "4", "track_title": "50,000 Kilowatts", "duration": 175 },
+{ "position": "5", "track_title": "Memento Mori", "duration": 215 },
+{ "position": "6", "track_title": "Drown All Your Witches", "duration": 212 },
+{ "position": "7", "track_title": "Providence", "duration": 287 },
+{ "position": "8", "track_title": "People Forget", "duration": 234 },
+{ "position": "9", "track_title": "Rome Armed To The Teeth", "duration": 224 }
+],
+"sources": [
+{
+"type": "discogs",
+"url": "https://www.discogs.com/master/759081-Antemasque-Antemasque",
+"accessed_at": "2026-02-27"
+}
+]
+}
+}
