@@ -41,7 +41,10 @@
     <div id="history-panel" style="display: none;">
         <div class="history-header">
             <h3>History</h3>
-            <button id="history-close" class="btn-close">&times;</button>
+            <div class="history-actions">
+                <button id="history-clear" class="btn-history">Clear</button>
+                <button id="history-close" class="btn-close">&times;</button>
+            </div>
         </div>
         <ul id="history-list"></ul>
     </div>
@@ -226,6 +229,14 @@
             if (historyClose) {
                 historyClose.addEventListener('click', () => {
                     graph.toggleHistoryPanel();
+                });
+            }
+
+            // History panel clear button
+            const historyClear = document.getElementById('history-clear');
+            if (historyClear) {
+                historyClear.addEventListener('click', () => {
+                    graph.clearHistory();
                 });
             }
 

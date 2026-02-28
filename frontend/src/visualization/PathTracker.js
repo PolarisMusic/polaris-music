@@ -122,15 +122,52 @@ export class PathTracker {
     }
 
     /**
-     * Record a "like" with the current path
+     * Remove loops from a path by keeping only the most recent visit to each node.
+     * E.g. [A, B, C, B, D] → [A, B, D]
+     * @param {Array<string>} path - Array of node IDs
+     * @returns {Array<string>} Loop-free path
+     */
+    squashPath(path) {
+        const stack = [];
+        const index = new Map();
+
+        for (const id of path) {
+            if (index.has(id)) {
+                const i = index.get(id);
+                while (stack.length - 1 > i) {
+                    const popped = stack.pop();
+                    index.delete(popped);
+                }
+            } else {
+                index.set(id, stack.length);
+                stack.push(id);
+            }
+        }
+        return stack;
+    }
+
+    /**
+     * Get the current path with loops squashed
+     * @returns {Array<string>} Squashed path
+     */
+    getSquashedCurrentPath() {
+        return this.squashPath(this.getCurrentPath());
+    }
+
+    /**
+     * Record a "like" with the current path (includes squashed version)
      * @param {string} nodeId - Liked node ID
      * @param {Object} metadata - Additional metadata (type, name, etc.)
      * @returns {Object} Like record
      */
     recordLike(nodeId, metadata = {}) {
+        const rawPath = this.getCurrentPath();
+        const squashedPath = this.squashPath(rawPath);
+
         const likeRecord = {
             nodeId,
-            path: this.getCurrentPath(),
+            path: rawPath,
+            pathSquashed: squashedPath,
             startNode: this.startNode,
             timestamp: Date.now(),
             metadata: {
