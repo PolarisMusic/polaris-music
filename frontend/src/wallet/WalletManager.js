@@ -350,6 +350,43 @@ export class WalletManager {
     }
 
     /**
+     * Read rows from a contract table via the chain RPC
+     * @param {Object} opts - get_table_rows parameters
+     * @param {string} opts.code - Contract account
+     * @param {string} opts.scope - Table scope
+     * @param {string} opts.table - Table name
+     * @param {number} [opts.limit=200] - Max rows
+     * @param {string} [opts.lower_bound]
+     * @param {string} [opts.upper_bound]
+     * @param {string} [opts.index_position]
+     * @param {string} [opts.key_type]
+     * @param {boolean} [opts.reverse=false]
+     * @returns {Promise<Object>} { rows, more, next_key }
+     */
+    async getTableRows({ code, scope, table, limit = 200, lower_bound, upper_bound, index_position, key_type, reverse = false }) {
+        const body = {
+            json: true,
+            code,
+            scope,
+            table,
+            limit,
+            reverse
+        };
+        if (lower_bound !== undefined) body.lower_bound = lower_bound;
+        if (upper_bound !== undefined) body.upper_bound = upper_bound;
+        if (index_position !== undefined) body.index_position = index_position;
+        if (key_type !== undefined) body.key_type = key_type;
+
+        const resp = await fetch(`${this.config.rpcUrl}/v1/chain/get_table_rows`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!resp.ok) throw new Error(`get_table_rows failed: ${resp.status} ${resp.statusText}`);
+        return await resp.json();
+    }
+
+    /**
      * Add event listener
      * @param {string} event - Event name (onConnect, onDisconnect, onError)
      * @param {Function} callback - Callback function

@@ -255,6 +255,28 @@ export class LikeManager {
     }
 
     /**
+     * Fetch the connected account's likes from the contract table
+     * @param {number} [limit=200] - Max rows to fetch
+     * @returns {Promise<Array<Object>>} Rows from the likes table
+     */
+    async fetchAccountLikes(limit = 200) {
+        if (!this.walletManager.isConnected()) {
+            throw new Error('Wallet not connected');
+        }
+        const actor = this.walletManager.session.actor.toString();
+
+        const res = await this.walletManager.getTableRows({
+            code: CONTRACT_ACCOUNT,
+            scope: actor,
+            table: 'likes',
+            limit,
+            reverse: true
+        });
+
+        return res.rows || [];
+    }
+
+    /**
      * Get number of pending submissions
      * @returns {number} Count
      */
