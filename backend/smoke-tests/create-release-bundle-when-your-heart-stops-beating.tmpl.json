@@ -1,0 +1,320 @@
+{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE",
+  "created_at": __TIMESTAMP__,
+  "parents": [],
+  "body": {
+    "release": {
+      "release_id": "polaris:release:00000000-0000-4000-8000-000000000025",
+      "name": "Smoke When Your Heart Stops Beating",
+      "alt_names": ["When Your Heart Stops Beating"],
+      "release_date": "2006-11-13",
+      "format": "CD",
+      "country": "US",
+      "catalog_number": "SMOKE-TEST-025",
+      "trivia": "Smoke-test release bundle based on When Your Heart Stops Beating by +44 (Discogs). Debut and only studio album by the band, formed by Blink-182 members during their hiatus. Features additional production by Jerry Finn and Chris Holmes."
+    },
+    "labels": [
+      {
+        "label_id": "polaris:label:00000000-0000-4000-8000-000000000719",
+        "name": "Interscope Records",
+        "alt_names": ["Interscope"]
+      }
+    ],
+    "groups": [
+      {
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000008",
+        "name": "Smoke +44",
+        "alt_names": ["+44"],
+        "members": [
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000413",
+            "name": "Smoke Mark Hoppus",
+            "role": "bass, vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000414",
+            "name": "Smoke Travis Barker",
+            "role": "drums, keyboards, piano"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000419",
+            "name": "Smoke Craig Fairbaugh",
+            "role": "guitar, vocals"
+          },
+          {
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000420",
+            "name": "Smoke Shane Gallagher",
+            "role": "lead guitar"
+          }
+        ]
+      }
+    ],
+    "songs": [
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004312",
+        "title": "Lycanthrope",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004313",
+        "title": "Baby Come On",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004314",
+        "title": "When Your Heart Stops Beating",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004315",
+        "title": "Little Death",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004316",
+        "title": "155",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004317",
+        "title": "Lillian",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004318",
+        "title": "Cliffdiving",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004319",
+        "title": "Weatherman",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004320",
+        "title": "No, It Isn't",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004321",
+        "title": "Make You Smile",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      },
+      {
+        "song_id": "polaris:song:00000000-0000-4000-8000-000000004322",
+        "title": "Chapter 13",
+        "writers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus", "roles": ["lyrics", "music"] },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker", "roles": ["lyrics", "music"] }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005312",
+        "title": "Lycanthrope",
+        "duration": 238,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004312",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005313",
+        "title": "Baby Come On",
+        "duration": 166,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004313",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005314",
+        "title": "When Your Heart Stops Beating",
+        "duration": 192,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004314",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005315",
+        "title": "Little Death",
+        "duration": 249,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004315",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005316",
+        "title": "155",
+        "duration": 209,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004316",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005317",
+        "title": "Lillian",
+        "duration": 285,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004317",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005318",
+        "title": "Cliffdiving",
+        "duration": 205,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004318",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005319",
+        "title": "Weatherman",
+        "duration": 267,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004319",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005320",
+        "title": "No, It Isn't",
+        "duration": 209,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004320",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005321",
+        "title": "Make You Smile",
+        "duration": 202,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004321",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      },
+      {
+        "track_id": "polaris:track:00000000-0000-4000-8000-000000005322",
+        "title": "Chapter 13",
+        "duration": 307,
+        "recording_of": "polaris:song:00000000-0000-4000-8000-000000004322",
+        "groups": [
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+        ],
+        "producers": [
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000414", "name": "Smoke Travis Barker" },
+          { "person_id": "polaris:person:00000000-0000-4000-8000-000000000605", "name": "Smoke Jerry Finn" }
+        ]
+      }
+    ],
+    "tracklist": [
+      { "position": "0", "track_title": "Lycanthrope", "duration": 238 },
+      { "position": "1", "track_title": "Baby Come On", "duration": 166 },
+      { "position": "2", "track_title": "When Your Heart Stops Beating", "duration": 192 },
+      { "position": "3", "track_title": "Little Death", "duration": 249 },
+      { "position": "4", "track_title": "155", "duration": 209 },
+      { "position": "5", "track_title": "Lillian", "duration": 285 },
+      { "position": "6", "track_title": "Cliffdiving", "duration": 205 },
+      { "position": "7", "track_title": "Weatherman", "duration": 267 },
+      { "position": "8", "track_title": "No, It Isn't", "duration": 209 },
+      { "position": "9", "track_title": "Make You Smile", "duration": 202 },
+      { "position": "10", "track_title": "Chapter 13", "duration": 307 }
+    ],
+    "sources": [
+      {
+        "type": "discogs",
+        "url": "https://www.discogs.com/master/208826-44-When-Your-Heart-Stops-Beating",
+        "accessed_at": "2026-02-27"
+      }
+    ]
+  }
+}

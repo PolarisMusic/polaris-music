@@ -1,0 +1,416 @@
+{
+"v": 1,
+"type": "CREATE_RELEASE_BUNDLE",
+"created_at": __TIMESTAMP__,
+"parents": [],
+"body": {
+"release": {
+"release_id": "polaris:release:00000000-0000-4000-8000-000000000011",
+"name": "Smoke Group Sounds",
+"alt_names": ["Group Sounds"],
+"release_date": "2001-03-06",
+"format": "CD",
+"country": "US",
+"catalog_number": "SMOKE-TEST-009",
+"trivia": "Smoke-test release bundle based on Group Sounds (Wikipedia) track listing and personnel. First album for Vagrant Records and with new drummer Ruby Mars (Mario Rubalcaba). Includes European bonus tracks. Reuses Smoke John Reis, Andy Stamets, Pete Reichert, Paul O'Beirne, Jason Crane person_ids from previous bundles."
+},
+"labels": [
+{
+"label_id": "polaris:label:00000000-0000-4000-8000-000000000708",
+"name": "Vagrant Records",
+"alt_names": []
+}
+],
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt",
+"alt_names": ["Rocket from the Crypt"],
+"members": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000425",
+"name": "Smoke John Reis",
+"role": "guitar, lead vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000426",
+"name": "Smoke Andy Stamets",
+"role": "guitar, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000427",
+"name": "Smoke Pete Reichert",
+"role": "bass, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000428",
+"name": "Smoke Paul O'Beirne",
+"role": "saxophone, percussion, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000429",
+"name": "Smoke Jason Crane",
+"role": "trumpet, percussion, backing vocals"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000430",
+"name": "Smoke Mario Rubalcaba",
+"role": "drums"
+}
+]
+}
+],
+"songs": [
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004080",
+"title": "Straight American Slave",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004081",
+"title": "Carne Voodoo",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004082",
+"title": "White Belt",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004083",
+"title": "Out of Control",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004084",
+"title": "Return of the Liar",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004085",
+"title": "Heart of a Rat",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004086",
+"title": "Venom Venom",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004087",
+"title": "Savoir Faire",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004088",
+"title": "S.O.S.",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004089",
+"title": "Dead Seeds",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004090",
+"title": "This Bad Check is Gonna Stick",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004091",
+"title": "Spitting",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004092",
+"title": "Ghost Shark",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004093",
+"title": "Chariots on Fire",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004094",
+"title": "I Won't Stare",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+},
+{
+"song_id": "polaris:song:00000000-0000-4000-8000-000000004095",
+"title": "Alone",
+"writers": [
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000425", "name": "Smoke John Reis" }
+]
+}
+],
+"tracks": [
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005080",
+"title": "Straight American Slave",
+"duration": 116,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004080",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005081",
+"title": "Carne Voodoo",
+"duration": 112,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004081",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005082",
+"title": "White Belt",
+"duration": 162,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004082",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005083",
+"title": "Out of Control",
+"duration": 115,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004083",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005084",
+"title": "Return of the Liar",
+"duration": 120,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004084",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005085",
+"title": "Heart of a Rat",
+"duration": 177,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004085",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005086",
+"title": "Venom Venom",
+"duration": 198,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004086",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005087",
+"title": "Savoir Faire",
+"duration": 114,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004087",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005088",
+"title": "S.O.S.",
+"duration": 189,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004088",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005089",
+"title": "Dead Seeds",
+"duration": 219,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004089",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005090",
+"title": "This Bad Check is Gonna Stick",
+"duration": 145,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004090",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005091",
+"title": "Spitting",
+"duration": 125,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004091",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000436",
+"name": "Smoke Gar Wood",
+"roles": ["backing vocals"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005092",
+"title": "Ghost Shark",
+"duration": 333,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004092",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+],
+"guests": [
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000437",
+"name": "Smoke Jim Dickinson",
+"roles": ["piano"]
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005093",
+"title": "Chariots on Fire",
+"duration": 161,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004093",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005094",
+"title": "I Won't Stare",
+"duration": 182,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004094",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+},
+{
+"track_id": "polaris:track:00000000-0000-4000-8000-000000005095",
+"title": "Alone",
+"duration": 147,
+"recording_of": "polaris:song:00000000-0000-4000-8000-000000004095",
+"groups": [
+{
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000009",
+"name": "Smoke Rocket from the Crypt"
+}
+]
+}
+],
+"tracklist": [
+{ "position": "0", "track_title": "Straight American Slave", "duration": 116 },
+{ "position": "1", "track_title": "Carne Voodoo", "duration": 112 },
+{ "position": "2", "track_title": "White Belt", "duration": 162 },
+{ "position": "3", "track_title": "Out of Control", "duration": 115 },
+{ "position": "4", "track_title": "Return of the Liar", "duration": 120 },
+{ "position": "5", "track_title": "Heart of a Rat", "duration": 177 },
+{ "position": "6", "track_title": "Venom Venom", "duration": 198 },
+{ "position": "7", "track_title": "Savoir Faire", "duration": 114 },
+{ "position": "8", "track_title": "S.O.S.", "duration": 189 },
+{ "position": "9", "track_title": "Dead Seeds", "duration": 219 },
+{ "position": "10", "track_title": "This Bad Check is Gonna Stick", "duration": 145 },
+{ "position": "11", "track_title": "Spitting", "duration": 125 },
+{ "position": "12", "track_title": "Ghost Shark", "duration": 333 },
+{ "position": "13", "track_title": "Chariots on Fire", "duration": 161 },
+{ "position": "14", "track_title": "I Won't Stare", "duration": 182 },
+{ "position": "15", "track_title": "Alone", "duration": 147 }
+],
+"sources": [
+{
+"type": "wikipedia",
+"url": "https://en.wikipedia.org/wiki/Group_Sounds_(album)",
+"accessed_at": "2026-02-12"
+},
+{
+"type": "discogs",
+"url": "https://www.discogs.com/release/600628-Rocket-From-The-Crypt-Group-Sounds",
+"accessed_at": "2026-02-12"
+}
+]
+}
+}
