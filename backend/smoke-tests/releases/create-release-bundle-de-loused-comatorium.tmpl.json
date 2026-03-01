@@ -51,6 +51,11 @@
 "person_id": "polaris:person:00000000-0000-4000-8000-000000000434",
 "name": "Smoke Jeremy Ward",
 "role": "sound manipulation"
+},
+{
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000431",
+"name": "Smoke Flea",
+"role": "bass"
 }
 ]
 }
@@ -150,9 +155,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 },
 {
@@ -166,9 +168,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 },
 {
@@ -182,9 +181,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 },
 {
@@ -198,9 +194,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 },
 {
@@ -214,9 +207,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 },
 {
@@ -232,7 +222,6 @@
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
 ],
 "guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000438", "name": "Smoke Lenny Castro", "roles": ["percussion"] }
 ]
 },
@@ -249,7 +238,6 @@
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
 ],
 "guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["additional guitar", "synthesizer"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000437", "name": "Smoke Larry Harlow", "roles": ["piano", "clavinet"] }
 ]
@@ -265,9 +253,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 },
 {
@@ -297,9 +282,6 @@
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
-],
-"guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["bass"] }
 ]
 }
 ],
@@ -325,3 +307,7 @@
 "type": "wikipedia",
 "url": "https://en.wikipedia.org/wiki/De-Loused_in_the_Comatorium",
 "accessed_at": "2026-02-27"
+}
+]
+}
+}
