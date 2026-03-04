@@ -18,6 +18,10 @@ export class ClaimManager {
     /**
      * Submit a field edit as an EDIT_CLAIM event (type=31).
      *
+     * Pipeline mirrors index.js submitRelease():
+     *   prepare → sign canonical_payload → resolve key → re-prepare if key differs
+     *   → store with sig → anchor on-chain → dev-ingest
+     *
      * @param {string} nodeType - Entity type ('person', 'group', etc.)
      * @param {string} nodeId   - Entity ID (person_id, group_id, etc.)
      * @param {string} field    - Property name to edit
@@ -34,7 +38,7 @@ export class ClaimManager {
         const authorAccount = String(session.actor);
         const authorPubkey = String(session.publicKey || '');
 
-        // 1. Build EDIT_CLAIM event
+        // 1. Build EDIT_CLAIM event (without sig)
         const body = {
             node: { type: nodeType, id: nodeId },
             field,
@@ -54,29 +58,66 @@ export class ClaimManager {
         };
 
         // 2. Prepare (normalize + canonical hash)
-        const prepared = await api.prepareEvent(event);
-        const eventHash = prepared.hash;
-        const normalizedEvent = prepared.normalizedEvent || event;
+        let prepared = await api.prepareEvent(event);
 
-        // 3. Sign canonical payload
-        const canonical = JSON.stringify(normalizedEvent);
-        let signedEvent = { ...normalizedEvent };
-
-        try {
-            const sigResult = await this.walletManager.signString(canonical);
-            signedEvent.signature = sigResult.signature || sigResult;
-            if (sigResult.pubkey) {
-                signedEvent.author_pubkey = sigResult.pubkey;
-            }
-        } catch (signError) {
-            console.warn('Signing skipped or failed:', signError.message);
+        if (!prepared.normalizedEvent) {
+            throw new Error(
+                'Backend /api/events/prepare did not return normalizedEvent. ' +
+                'This is required for pipeline integrity.'
+            );
         }
 
-        // 4. Store to off-chain storage
-        const storageResult = await api.storeEvent(signedEvent, eventHash);
+        let normalizedEvent = prepared.normalizedEvent;
+        let eventHash = prepared.hash;
+        let canonicalPayload = prepared.canonical_payload;
+
+        // 3. Sign the canonical_payload (NOT JSON.stringify of the event)
+        const signResult = await this.walletManager.signMessage(canonicalPayload);
+        let signature = signResult.signature;
+
+        // 4. Resolve signing key if wallet didn't return it
+        const sessionInfo = this.walletManager.getSessionInfo();
+        let actualSigningKey = signResult.signingKey;
+
+        if (!actualSigningKey) {
+            actualSigningKey = await api.resolveSigningKey(
+                sessionInfo.accountName,
+                sessionInfo.permission,
+                canonicalPayload,
+                signature
+            );
+        }
+
+        // 5. If signing key differs from pre-fetched key, re-prepare and re-sign
+        if (actualSigningKey && actualSigningKey !== authorPubkey) {
+            console.warn(
+                'Signing key differs from pre-fetched key. ' +
+                `Pre-fetched: ${authorPubkey}, Actual: ${actualSigningKey}. ` +
+                'Re-preparing event with actual signing key...'
+            );
+
+            normalizedEvent.author_pubkey = actualSigningKey;
+
+            const rePrepared = await api.prepareEvent(normalizedEvent);
+            normalizedEvent = rePrepared.normalizedEvent;
+            eventHash = rePrepared.hash;
+            canonicalPayload = rePrepared.canonical_payload;
+
+            const reSignResult = await this.walletManager.signMessage(canonicalPayload);
+            signature = reSignResult.signature;
+        }
+
+        // 6. Build signed event with `sig` field (NOT `signature`)
+        const eventWithSig = {
+            ...normalizedEvent,
+            sig: signature
+        };
+
+        // 7. Store to off-chain storage
+        const storageResult = await api.storeEvent(eventWithSig, eventHash);
         const eventCid = storageResult.cid || storageResult.event_cid || '';
 
-        // 5. Anchor on-chain via put() with type=31
+        // 8. Anchor on-chain via put() with type=31
         const action = this.transactionBuilder.buildAnchorAction(
             eventHash, authorAccount, eventCid, {
                 type: 31,
@@ -88,7 +129,7 @@ export class ClaimManager {
         const transactionId = txResult?.resolved?.transaction?.id
             || txResult?.transaction_id || '';
 
-        // 6. Dev-mode ingestion
+        // 9. Dev-mode ingestion
         if (INGEST_MODE === 'dev') {
             try {
                 const actionData = {

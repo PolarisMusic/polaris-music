@@ -782,6 +782,16 @@ export class MusicGraph {
         if (formed) {
             html += `<p class="info-meta"><strong>Active:</strong> ${esc(formed)}\u2013${esc(disbanded)}</p>`;
         }
+
+        // Show inferred active range from release dates when claimed dates are missing
+        const inferFirst = group.inferred_first_release_date;
+        const inferLast = group.inferred_last_release_date;
+        if (inferFirst && !formed) {
+            const inferRange = inferLast && inferLast !== inferFirst
+                ? `${esc(inferFirst)}\u2013${esc(inferLast)}`
+                : esc(inferFirst);
+            html += `<p class="info-meta info-inferred"><strong>Active (from releases):</strong> ${inferRange}</p>`;
+        }
         html += this._editableRow('group', nodeId, 'formed_date', formed, 'Formed');
         html += this._editableRow('group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
 

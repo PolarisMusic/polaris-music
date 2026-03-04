@@ -76,6 +76,8 @@ const schema = buildSchema(`
     bio: String
     formed_date: String
     disbanded_date: String
+    inferred_first_release_date: String
+    inferred_last_release_date: String
     status: String!
     members: [Member!]
     releases: [Release!]
@@ -499,9 +501,22 @@ class APIServer {
                         .filter(r => r !== null)
                         .map(r => r.properties);
 
+                    // Compute inferred active dates from release dates
+                    const releaseDates = releases
+                        .map(r => r.release_date)
+                        .filter(d => d != null && d !== '');
+                    const inferred_first_release_date = releaseDates.length > 0
+                        ? releaseDates.reduce((a, b) => a < b ? a : b)
+                        : null;
+                    const inferred_last_release_date = releaseDates.length > 0
+                        ? releaseDates.reduce((a, b) => a > b ? a : b)
+                        : null;
+
                     return {
                         ...group,
                         alt_names: group.alt_names || [],
+                        inferred_first_release_date,
+                        inferred_last_release_date,
                         members,
                         tracks,
                         releases
