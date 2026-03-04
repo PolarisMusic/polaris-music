@@ -676,14 +676,6 @@ public:
         check(current_time_point().sec_since_epoch() >= anchor_itr->expires_at,
               "Voting window still open");
 
-        // Check attestation requirement for high-value submissions
-        if(requires_attestation(anchor_itr->type)) {
-            attestations_table attestations(get_self(), get_self().value);
-            auto att_idx = attestations.get_index<"byhash"_n>();
-            auto att_itr = att_idx.find(tx_hash);
-            check(att_itr != att_idx.end(), "Attestation required but not found");
-        }
-
         // Calculate weighted vote totals
         auto [up_votes, down_votes] = calculate_weighted_votes(tx_hash);
         uint64_t total_votes = up_votes + down_votes;
@@ -904,8 +896,8 @@ public:
 
         // Remove the pending reward record
         pending.erase(pending_pk_itr);
-        // Issue tokens to the staker
-        issue_tokens(account, reward_amount.amount,
+        // Transfer tokens from contract escrow to the staker
+        transfer_tokens(get_self(), account, reward_amount,
                     "Staker reward from node " + checksum_to_hex(node_id).substr(0, 16));
     }
 
@@ -942,8 +934,8 @@ public:
             itr = pending.erase(itr);
         }
 
-        // Issue total rewards in single transaction
-        issue_tokens(account, total_claimed,
+        // Transfer total rewards from contract escrow in single transaction
+        transfer_tokens(get_self(), account, asset(total_claimed, symbol("MUS", 4)),
                     "Staker rewards from " + std::to_string(node_count) + " nodes");
     }
 
@@ -1515,8 +1507,8 @@ private:
     /**
      * @brief Check if event type requires attestation before finalization
      */
-    bool requires_attestation(uint8_t type) const {
-        return type == 21; // Only releases require attestation
+    bool requires_attestation(uint8_t /*type*/) const {
+        return false; // Attestation disabled until Respect + governance is fully implemented
     }
 
     /**
@@ -1609,14 +1601,18 @@ private:
         uint64_t author_share = (total_amount * g.approved_author_pct) / 10000;
         uint64_t voters_share = total_amount - author_share;
 
-        // Transfer to author
-        if (author_share > 0) {
-            issue_tokens(author, author_share, "Approved submission reward");
+        // Distribute to voters who voted YES (equal distribution among voters)
+        // Do voters first so remainder can be added to author share
+        uint64_t remainder = 0;
+        if (voters_share > 0) {
+            remainder = distribute_to_voters(tx_hash, voters_share, true);
         }
 
-        // Distribute to voters who voted YES (equal distribution among voters)
-        if (voters_share > 0) {
-            distribute_to_voters(tx_hash, voters_share, true); // true = up voters only
+        // Transfer to author (including any voter rounding remainder)
+        uint64_t author_total = author_share + remainder;
+        if (author_total > 0) {
+            transfer_tokens(get_self(), author, asset(author_total, symbol("MUS", 4)),
+                           "Approved submission reward");
         }
     }
 
@@ -1638,13 +1634,14 @@ private:
         uint64_t stakers_share = total_amount - voters_share;
 
         // Distribute to voters who voted NO (down voters, equal distribution)
+        uint64_t remainder = 0;
         if (voters_share > 0) {
-            distribute_to_voters(tx_hash, voters_share, false); // false = down voters only
+            remainder = distribute_to_voters(tx_hash, voters_share, false);
         }
 
-        // Distribute to stakers
-        if (stakers_share > 0) {
-            distribute_to_stakers(stakers_share);
+        // Distribute to stakers (including any voter rounding remainder)
+        if (stakers_share + remainder > 0) {
+            distribute_to_stakers(stakers_share + remainder);
         }
     }
 
@@ -1662,9 +1659,10 @@ private:
      * @param tx_hash - Event hash to distribute rewards for
      * @param total_amount - Total amount to distribute
      * @param up_voters_only - If true, distribute only to YES voters; if false, only to NO voters
+     * @return Remainder amount not distributed (due to integer division)
      */
-    void distribute_to_voters(const checksum256& tx_hash, uint64_t total_amount, bool up_voters_only) {
-        if(total_amount == 0) return;
+    uint64_t distribute_to_voters(const checksum256& tx_hash, uint64_t total_amount, bool up_voters_only) {
+        if(total_amount == 0) return 0;
 
         votes_table votes(get_self(), get_self().value);
         auto hash_idx = votes.get_index<"byhash"_n>();
@@ -1682,11 +1680,15 @@ private:
             ++itr;
         }
 
-        if(voter_count == 0) return;
+        if(voter_count == 0) return total_amount;
 
         // Calculate equal share per voter
         uint64_t share_per_voter = total_amount / voter_count;
-        if(share_per_voter == 0) return;
+        if(share_per_voter == 0) return total_amount;
+
+        // Calculate remainder (total - distributed)
+        uint64_t distributed = share_per_voter * voter_count;
+        uint64_t remainder = total_amount - distributed;
 
         // Second pass: collect all voters (avoid reentrancy)
         std::vector<name> voters;
@@ -1698,11 +1700,13 @@ private:
             ++itr;
         }
 
-        // Third pass: execute all token distributions (external calls last)
+        // Third pass: execute all token transfers from escrow (external calls last)
         std::string memo = up_voters_only ? "YES vote reward" : "NO vote reward";
         for(const auto& voter : voters) {
-            issue_tokens(voter, share_per_voter, memo);
+            transfer_tokens(get_self(), voter, asset(share_per_voter, symbol("MUS", 4)), memo);
         }
+
+        return remainder;
     }
 
     /**

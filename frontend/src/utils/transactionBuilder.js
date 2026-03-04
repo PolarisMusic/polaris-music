@@ -149,6 +149,9 @@ export class TransactionBuilder {
         // Sanitize tags to valid blockchain names
         const tags = this.sanitizeTags(metadata.tags || ['release']);
 
+        // Event type: default 21 (CREATE_RELEASE_BUNDLE), but callers can override
+        const type = metadata.type || 21;
+
         return {
             account: this.config.contractAccount,
             name: 'put',
@@ -158,7 +161,7 @@ export class TransactionBuilder {
             }],
             data: {
                 author: authorAccount,
-                type: 21, // CREATE_RELEASE_BUNDLE event type
+                type,
                 hash: hash,
                 event_cid: eventCid,
                 parent: metadata.parent || null, // Use null for optional, not empty string

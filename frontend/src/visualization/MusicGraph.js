@@ -15,6 +15,7 @@ import { GraphAPI } from './graphApi.js';
 import { ColorPalette } from './colorPalette.js';
 import { PathTracker } from './PathTracker.js';
 import { LikeManager } from './LikeManager.js';
+import { ClaimManager } from './ClaimManager.js';
 
 export class MusicGraph {
     constructor(containerId, walletManager) {
@@ -28,6 +29,7 @@ export class MusicGraph {
         this.walletManager = walletManager || null;
         this.pathTracker = new PathTracker();
         this.likeManager = new LikeManager(this.walletManager, this.pathTracker);
+        this.claimManager = new ClaimManager(this.walletManager);
 
         // State tracking
         this.hoveredNode = null;
@@ -749,9 +751,9 @@ export class MusicGraph {
 
             const typeLower = type.toLowerCase();
             if (typeLower === 'group') {
-                this.renderGroupDetails(details, infoTitle, infoContent);
+                this.renderGroupDetails(details, infoTitle, infoContent, nodeId);
             } else if (typeLower === 'person') {
-                this.renderPersonDetails(details, infoTitle, infoContent);
+                this.renderPersonDetails(details, infoTitle, infoContent, nodeId);
             } else {
                 infoContent.innerHTML = `<p><strong>Type:</strong> ${type}</p>`;
             }
@@ -764,75 +766,172 @@ export class MusicGraph {
     /**
      * Render Group details in info panel
      */
-    renderGroupDetails(group, titleElement, contentElement) {
+    renderGroupDetails(group, titleElement, contentElement, nodeId) {
         titleElement.textContent = group.name || group.group_name || 'Unknown Group';
 
+        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         let html = '';
 
         if (group.photo) {
-            html += `<div class="info-photo"><img src="${group.photo}" alt="${group.name}" /></div>`;
+            html += `<div class="info-photo"><img src="${esc(group.photo)}" alt="${esc(group.name)}" /></div>`;
         }
+        html += this._editableRow('group', nodeId, 'photo', group.photo || '', 'Photo URL');
 
         const formed = group.formed_date || '';
         const disbanded = group.disbanded_date || 'present';
         if (formed) {
-            html += `<p class="info-meta"><strong>Active:</strong> ${formed}\u2013${disbanded}</p>`;
+            html += `<p class="info-meta"><strong>Active:</strong> ${esc(formed)}\u2013${esc(disbanded)}</p>`;
         }
+        html += this._editableRow('group', nodeId, 'formed_date', formed, 'Formed');
+        html += this._editableRow('group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
 
         if (group.members && group.members.length > 0) {
             html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
             group.members.forEach(member => {
                 const role = member.role || '';
-                html += `<li><strong>${member.person}</strong>${role ? ` - ${role}` : ''}</li>`;
+                html += `<li><strong>${esc(member.person)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
             });
             html += `</ul></div>`;
         }
 
         if (group.bio || group.description) {
-            html += `<div class="info-section"><h4>Biography</h4><p>${group.bio || group.description}</p></div>`;
+            html += `<div class="info-section"><h4>Biography</h4><p>${esc(group.bio || group.description)}</p></div>`;
         }
+        html += this._editableRow('group', nodeId, 'bio', group.bio || group.description || '', 'Biography', true);
 
         if (group.trivia) {
-            html += `<div class="info-section"><h4>Trivia</h4><p>${group.trivia}</p></div>`;
+            html += `<div class="info-section"><h4>Trivia</h4><p>${esc(group.trivia)}</p></div>`;
         }
+        html += this._editableRow('group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
 
         contentElement.innerHTML = html;
+        this._attachEditListeners(contentElement);
     }
 
     /**
      * Render Person details in info panel
      */
-    renderPersonDetails(person, titleElement, contentElement) {
+    renderPersonDetails(person, titleElement, contentElement, nodeId) {
         titleElement.textContent = person.name || person.person_name || 'Unknown Person';
 
+        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         let html = '';
 
         if (person.photo) {
-            html += `<div class="info-photo"><img src="${person.photo}" alt="${person.name}" /></div>`;
+            html += `<div class="info-photo"><img src="${esc(person.photo)}" alt="${esc(person.name)}" /></div>`;
         }
+        html += this._editableRow('person', nodeId, 'photo', person.photo || '', 'Photo URL');
 
         if (person.city) {
-            html += `<p class="info-meta"><strong>Location:</strong> ${person.city}</p>`;
+            html += `<p class="info-meta"><strong>Location:</strong> ${esc(person.city)}</p>`;
         }
+        html += this._editableRow('person', nodeId, 'city', person.city || '', 'City');
 
         if (person.groups && person.groups.length > 0) {
             html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
             person.groups.forEach(group => {
                 const role = group.role || '';
-                html += `<li><strong>${group.group}</strong>${role ? ` - ${role}` : ''}</li>`;
+                html += `<li><strong>${esc(group.group)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
             });
             html += `</ul></div>`;
         }
 
         if (person.bio) {
-            html += `<div class="info-section"><h4>Biography</h4><p>${person.bio}</p></div>`;
+            html += `<div class="info-section"><h4>Biography</h4><p>${esc(person.bio)}</p></div>`;
         }
+        html += this._editableRow('person', nodeId, 'bio', person.bio || '', 'Biography', true);
 
         if (person.trivia) {
-            html += `<div class="info-section"><h4>Trivia</h4><p>${person.trivia}</p></div>`;
+            html += `<div class="info-section"><h4>Trivia</h4><p>${esc(person.trivia)}</p></div>`;
         }
+        html += this._editableRow('person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
 
         contentElement.innerHTML = html;
+        this._attachEditListeners(contentElement);
+    }
+
+    /**
+     * Build HTML for an editable property row with an edit button.
+     * @private
+     */
+    _editableRow(nodeType, nodeId, field, currentValue, label, isTextarea = false) {
+        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        return `<button class="edit-btn" data-node-type="${esc(nodeType)}" data-node-id="${esc(nodeId)}" data-field="${esc(field)}" data-current-value="${esc(currentValue)}" data-textarea="${isTextarea}" title="Edit ${esc(label)}">&#9998; ${esc(label)}</button> `;
+    }
+
+    /**
+     * Attach click listeners to .edit-btn buttons inside a container.
+     * Opens an inline editor; on save, submits via ClaimManager.
+     * @private
+     */
+    _attachEditListeners(container) {
+        container.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const { nodeType, nodeId, field, currentValue, textarea } = btn.dataset;
+                this._openInlineEditor(btn, nodeType, nodeId, field, currentValue, textarea === 'true');
+            });
+        });
+    }
+
+    /**
+     * Replace an edit button with an inline editor (input or textarea).
+     * @private
+     */
+    _openInlineEditor(btn, nodeType, nodeId, field, currentValue, useTextarea) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'inline-edit-wrapper';
+
+        const input = document.createElement(useTextarea ? 'textarea' : 'input');
+        input.className = 'inline-edit-input';
+        input.value = currentValue;
+        if (!useTextarea) input.type = 'text';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'inline-edit-save';
+        saveBtn.textContent = 'Save';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'inline-edit-cancel';
+        cancelBtn.textContent = 'Cancel';
+
+        wrapper.appendChild(input);
+        wrapper.appendChild(saveBtn);
+        wrapper.appendChild(cancelBtn);
+
+        btn.replaceWith(wrapper);
+        input.focus();
+
+        cancelBtn.addEventListener('click', () => {
+            wrapper.replaceWith(btn);
+            this._attachEditListeners(btn.parentElement);
+        });
+
+        saveBtn.addEventListener('click', async () => {
+            const newValue = input.value;
+            if (newValue === currentValue) {
+                wrapper.replaceWith(btn);
+                this._attachEditListeners(btn.parentElement);
+                return;
+            }
+
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            try {
+                await this.claimManager.submitEdit(nodeType, nodeId, field, newValue);
+
+                // Re-fetch and re-render the panel
+                if (this.selectedNode) {
+                    await this.updateInfoPanel(this.selectedNode);
+                }
+            } catch (error) {
+                console.error('Edit submission failed:', error);
+                alert('Edit failed: ' + error.message);
+                wrapper.replaceWith(btn);
+                this._attachEditListeners(btn.parentElement);
+            }
+        });
     }
 
     /**

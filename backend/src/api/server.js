@@ -2116,6 +2116,16 @@ class APIServer {
             }
         }
 
+        // Backfill deterministic Person colors (idempotent, safe to run every boot)
+        try {
+            const updated = await this.db.backfillPersonColors();
+            if (updated > 0) {
+                console.log(` Backfilled ${updated} person colors`);
+            }
+        } catch (error) {
+            console.warn('  Person color backfill failed:', error.message);
+        }
+
         // Fail fast: if account auth is required but RPC is not configured,
         // the server cannot verify signing keys and should not start.
         const requireAuth = process.env.REQUIRE_ACCOUNT_AUTH !== 'false';
