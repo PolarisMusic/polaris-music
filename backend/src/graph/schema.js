@@ -155,7 +155,7 @@ function assertSafePropertyName(field) {
 
 /**
  * Derive track placement (disc, side, track number) from position string.
- * Handles common formats like "A1", "B2", "2-A3", or plain numbers "1", "02".
+ * Handles common formats like "A1", "B2", "2-A3", "1.3", "2-7", or plain numbers "1", "02".
  *
  * @param {string|number} positionRaw - Position string from tracklist (e.g., "A1", "B12", "2-A3")
  * @param {number} index - Zero-based index in tracklist (used as fallback)
@@ -173,6 +173,15 @@ function deriveTrackPlacement(positionRaw, index) {
     if (m) {
         side = m[1].toUpperCase();
         trackNo = parseInt(m[2], 10);
+    }
+
+    // Disc + track (numeric): "1.3", "2.07", "1-3", "2-7"
+    if (!m) {
+        m = position.match(/^([0-9]+)[.\-]([0-9]+)$/);
+        if (m) {
+            disc = parseInt(m[1], 10);
+            trackNo = parseInt(m[2], 10);
+        }
     }
 
     // Numeric-only: "1", "02"
@@ -2525,4 +2534,5 @@ constructor(config = {}) {
     }
 }
 
+export { deriveTrackPlacement };
 export default MusicGraphDatabase;
