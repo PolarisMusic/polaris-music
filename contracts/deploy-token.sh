@@ -12,7 +12,7 @@ BLUE='\033[1;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}=====================================${NC}"
-echo -e "${BLUE}  Deploy MUS Token Contract${NC}"
+echo -e "${BLUE}  Deploy Token Contract${NC}"
 echo -e "${BLUE}  Jungle4 Testnet${NC}"
 echo -e "${BLUE}=====================================${NC}"
 echo ""
@@ -27,11 +27,14 @@ RPC_URL=${CHAIN_RPC_URL:-https://jungle4.greymass.com}
 TOKEN_ACCOUNT=${TOKEN_CONTRACT_ACCOUNT:-polaristoken}
 POLARIS_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
 PRIVATE_KEY=${TESTNET_PRIVATE_KEY}
+TOKEN_SYM=${TOKEN_SYMBOL:-MUS}
+TOKEN_PREC=${TOKEN_PRECISION:-4}
 
 echo "Network: Jungle4 Testnet"
 echo "RPC URL: $RPC_URL"
 echo "Token Account: $TOKEN_ACCOUNT"
 echo "Polaris Account: $POLARIS_ACCOUNT"
+echo "Token Symbol: $TOKEN_SYM (precision: $TOKEN_PREC)"
 echo ""
 
 # Validate required environment variables
@@ -119,20 +122,24 @@ else
 fi
 echo ""
 
-# Step 5: Create MUS token (max supply: 1 billion)
-echo -e "${YELLOW}[5/5] Creating MUS token...${NC}"
+# Step 5: Create token (max supply: 1 billion)
+# Build the formatted max supply string with correct precision
+ZEROS=$(printf '%0*d' "$TOKEN_PREC" 0 2>/dev/null || echo "0000")
+MAX_SUPPLY="1000000000.${ZEROS} ${TOKEN_SYM}"
+
+echo -e "${YELLOW}[5/5] Creating ${TOKEN_SYM} token...${NC}"
 echo "Issuer: $POLARIS_ACCOUNT"
-echo "Max Supply: 1,000,000,000.0000 MUS"
+echo "Max Supply: $MAX_SUPPLY"
 echo ""
 
 # Check if token already exists
-if cleos -u "$RPC_URL" get currency stats "$TOKEN_ACCOUNT" MUS 2>/dev/null | grep -q "MUS"; then
-    echo -e "${YELLOW}⚠${NC}  MUS token already exists, skipping creation"
+if cleos -u "$RPC_URL" get currency stats "$TOKEN_ACCOUNT" "$TOKEN_SYM" 2>/dev/null | grep -q "$TOKEN_SYM"; then
+    echo -e "${YELLOW}⚠${NC}  ${TOKEN_SYM} token already exists, skipping creation"
 else
-    if cleos -u "$RPC_URL" push action "$TOKEN_ACCOUNT" create "[\"$POLARIS_ACCOUNT\", \"1000000000.0000 MUS\"]" -p "$TOKEN_ACCOUNT" --private-key "$PRIVATE_KEY"; then
-        echo -e "${GREEN}✓${NC} MUS token created successfully"
+    if cleos -u "$RPC_URL" push action "$TOKEN_ACCOUNT" create "[\"$POLARIS_ACCOUNT\", \"$MAX_SUPPLY\"]" -p "$TOKEN_ACCOUNT" --private-key "$PRIVATE_KEY"; then
+        echo -e "${GREEN}✓${NC} ${TOKEN_SYM} token created successfully"
     else
-        echo -e "${RED}ERROR: Failed to create MUS token${NC}"
+        echo -e "${RED}ERROR: Failed to create ${TOKEN_SYM} token${NC}"
         exit 1
     fi
 fi
@@ -144,19 +151,20 @@ echo -e "${GREEN}  ✓ Token Deployment Complete!${NC}"
 echo -e "${GREEN}=====================================${NC}"
 echo ""
 echo "Token Contract: $TOKEN_ACCOUNT"
+echo "Token Symbol: ${TOKEN_SYM} (precision: ${TOKEN_PREC})"
 echo "Token Issuer: $POLARIS_ACCOUNT"
 echo "Network: Jungle4 Testnet"
 echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
 echo ""
-echo "1. Initialize Polaris contract with token account:"
+echo "1. Initialize Polaris contract with token account and symbol:"
 echo "   cleos -u $RPC_URL push action $POLARIS_ACCOUNT init \\"
-echo "     '[\"<oracle_account>\", \"$TOKEN_ACCOUNT\"]' \\"
+echo "     '[\"<oracle_account>\", \"$TOKEN_ACCOUNT\", \"${TOKEN_PREC},${TOKEN_SYM}\"]' \\"
 echo "     -p $POLARIS_ACCOUNT --private-key \$TESTNET_PRIVATE_KEY"
 echo ""
 echo "2. Verify token creation:"
-echo "   cleos -u $RPC_URL get currency stats $TOKEN_ACCOUNT MUS"
+echo "   cleos -u $RPC_URL get currency stats $TOKEN_ACCOUNT $TOKEN_SYM"
 echo ""
-echo "3. Test token issuance (Polaris contract can now issue MUS):"
-echo "   # MUS will be issued automatically when rewards are distributed via finalize()"
+echo "3. Test token issuance (Polaris contract can now issue $TOKEN_SYM):"
+echo "   # Tokens will be issued automatically when rewards are distributed via finalize()"
 echo ""

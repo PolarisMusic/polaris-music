@@ -24,6 +24,7 @@
 #include <eosio/system.hpp>
 #include <eosio/action.hpp>
 #include <cmath>
+#include <limits>
 
 using namespace eosio;
 
@@ -485,18 +486,26 @@ public:
                           uint64_t add_claim, uint64_t edit_claim, uint64_t merge) {
         require_auth(get_self());
 
-        // Validation: reasonable multiplier ranges (0 to 100M)
-        const uint64_t MAX_MULTIPLIER = 100000000; // 100 million
-
-        check(release <= MAX_MULTIPLIER, "Release multiplier too high (max 100M)");
-        check(mint <= MAX_MULTIPLIER, "Mint multiplier too high (max 100M)");
-        check(resolve <= MAX_MULTIPLIER, "Resolve multiplier too high (max 100M)");
-        check(add_claim <= MAX_MULTIPLIER, "Add claim multiplier too high (max 100M)");
-        check(edit_claim <= MAX_MULTIPLIER, "Edit claim multiplier too high (max 100M)");
-        check(merge <= MAX_MULTIPLIER, "Merge multiplier too high (max 100M)");
-
         globals_singleton globals(get_self(), get_self().value);
         auto g = get_globals();
+
+        // Cap = 10,000 tokens worth of atomic units (precision-aware)
+        // At precision=4: 10000 * 10^4 = 100,000,000 (same as before)
+        // At precision=8: 10000 * 10^8 = 1,000,000,000,000
+        uint64_t atomic_per_token = 1;
+        for (uint8_t i = 0; i < g.token_symbol.precision(); ++i) {
+            atomic_per_token *= 10;
+        }
+        const uint64_t MAX_MULTIPLIER = 10000 * atomic_per_token;
+        const std::string cap_msg = "Multiplier too high (max 10,000 tokens-worth: " +
+                                    std::to_string(MAX_MULTIPLIER) + ")";
+
+        check(release <= MAX_MULTIPLIER, "Release: " + cap_msg);
+        check(mint <= MAX_MULTIPLIER, "Mint: " + cap_msg);
+        check(resolve <= MAX_MULTIPLIER, "Resolve: " + cap_msg);
+        check(add_claim <= MAX_MULTIPLIER, "Add claim: " + cap_msg);
+        check(edit_claim <= MAX_MULTIPLIER, "Edit claim: " + cap_msg);
+        check(merge <= MAX_MULTIPLIER, "Merge: " + cap_msg);
 
         g.multiplier_release = release;
         g.multiplier_mint = mint;
@@ -723,7 +732,7 @@ public:
         auto g = get_globals();
         check(!g.paused, "Contract is paused");
 
-        check(quantity.symbol == symbol("MUS", 4), "Invalid token symbol (must be MUS)");
+        check(quantity.symbol == g.token_symbol, "Invalid token symbol");
         check(quantity.amount > 0, "Must stake positive amount");
 
         // Transfer tokens from account to contract
@@ -807,7 +816,8 @@ public:
      */
     ACTION unstake(name account, checksum256 node_id, asset quantity) {
         require_auth(account);
-        check(quantity.symbol == symbol("MUS", 4), "Invalid token symbol (must be MUS)");
+        auto g = get_globals();
+        check(quantity.symbol == g.token_symbol, "Invalid token symbol");
         check(quantity.amount > 0, "Must unstake positive amount");
 
         // Update individual stake
@@ -935,7 +945,8 @@ public:
         }
 
         // Transfer total rewards from contract escrow in single transaction
-        transfer_tokens(get_self(), account, asset(total_claimed, symbol("MUS", 4)),
+        auto g = get_globals();
+        transfer_tokens(get_self(), account, asset(total_claimed, g.token_symbol),
                     "Staker rewards from " + std::to_string(node_count) + " nodes");
     }
 
@@ -945,7 +956,7 @@ public:
      * @param oracle - Initial Fractally oracle account
      * @param token_contract - Token contract for MUS token
      */
-    ACTION init(name oracle, name token_contract) {
+    ACTION init(name oracle, name token_contract, symbol token_symbol) {
         require_auth(get_self());
 
         globals_singleton globals(get_self(), get_self().value);
@@ -958,9 +969,12 @@ public:
         check(is_account(token_contract), "Token contract account does not exist");
         check(token_contract != get_self(), "Token contract cannot be self");
 
-        // Validate token contract implements eosio.token interface
-        // Check if the stat table exists with MUS symbol
-        validate_token_contract(token_contract);
+        // Validate token symbol
+        check(token_symbol.is_valid(), "Invalid token symbol");
+        check(token_symbol.precision() <= 18, "Token precision too high (max 18)");
+
+        // Validate token contract implements eosio.token interface for configured symbol
+        validate_token_contract(token_contract, token_symbol);
 
         global_state g;
         g.x = 1; // Start at 1 to avoid log(0)
@@ -968,6 +982,7 @@ public:
         g.round = 0;
         g.fractally_oracle = oracle;
         g.token_contract = token_contract;
+        g.token_symbol = token_symbol;
 
         // Initialize governance parameters with defaults
         g.approval_threshold_bp = 9000;  // 90% approval required
@@ -991,7 +1006,7 @@ public:
      * @pre Requires contract authority
      * @pre Oracle and token_contract must be valid accounts
      */
-    ACTION reinit(name oracle, name token_contract) {
+    ACTION reinit(name oracle, name token_contract, symbol token_symbol) {
         require_auth(get_self());
 
         globals_singleton globals(get_self(), get_self().value);
@@ -1004,13 +1019,47 @@ public:
         check(is_account(token_contract), "Token contract account does not exist");
         check(token_contract != get_self(), "Token contract cannot be self");
 
-        // Validate token contract implements eosio.token interface
-        validate_token_contract(token_contract);
+        // Validate token symbol
+        check(token_symbol.is_valid(), "Invalid token symbol");
+        check(token_symbol.precision() <= 18, "Token precision too high (max 18)");
 
-        // Update only oracle and token_contract, preserve all other state
+        // Validate token contract implements eosio.token interface for configured symbol
+        validate_token_contract(token_contract, token_symbol);
+
         auto g = globals.get();
+
+        // If changing token_contract or token_symbol, enforce economy-empty safety
+        bool changing_token = (token_contract != g.token_contract || token_symbol != g.token_symbol);
+        if (changing_token) {
+            check(g.paused, "Contract must be paused before changing token config (call pause() first)");
+
+            // Ensure no active stakes
+            nodeagg_table aggregates(get_self(), get_self().value);
+            check(aggregates.begin() == aggregates.end(),
+                  "Cannot change token: active stakes exist (unstake all first)");
+
+            staker_nodes_table staker_nodes(get_self(), get_self().value);
+            check(staker_nodes.begin() == staker_nodes.end(),
+                  "Cannot change token: staker node records exist");
+
+            // Ensure no unfinalized escrows with balance
+            anchors_table anchors(get_self(), get_self().value);
+            for (auto itr = anchors.begin(); itr != anchors.end(); ++itr) {
+                check(itr->finalized || itr->escrowed_amount == 0,
+                      "Cannot change token: unfinalized escrows with balance exist (finalize all first)");
+            }
+
+            // Ensure contract balance of old token is zero
+            auto old_balance = get_token_balance(g.token_contract, get_self(), g.token_symbol.code());
+            check(old_balance.amount == 0,
+                  "Cannot change token: contract still holds " + old_balance.to_string() +
+                  " (drain balance first)");
+        }
+
+        // Update oracle, token_contract, and token_symbol; preserve all other state
         g.fractally_oracle = oracle;
         g.token_contract = token_contract;
+        g.token_symbol = token_symbol;
         globals.set(g, get_self());
     }
 
@@ -1368,7 +1417,8 @@ private:
         double      carry;          // Fractional emission accumulator
         uint64_t    round;          // Current round
         name        fractally_oracle; // Who can update Respect
-        name        token_contract; // MUS token contract
+        name        token_contract; // Token contract (e.g. eosio.token compatible)
+        symbol      token_symbol;   // Token symbol+precision (e.g. symbol("MUS",4) or symbol("POL",8))
         name        council_account; // Optional: authorized council attestor (e.g., council.pol on mainnet)
 
         // Configurable governance parameters
@@ -1402,7 +1452,7 @@ private:
         uint64_t    rejected_voters_pct = 5000;    // 50% to no-voters if rejected (equal distribution)
         uint64_t    rejected_stakers_pct = 5000;   // 50% to stakers if rejected
 
-        EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)(council_account)
+        EOSLIB_SERIALIZE(global_state, (x)(carry)(round)(fractally_oracle)(token_contract)(token_symbol)(council_account)
                         (approval_threshold_bp)(max_vote_weight)(attestor_respect_threshold)
                         (paused)
                         (vote_window_release)(vote_window_mint)(vote_window_resolve)
@@ -1611,7 +1661,7 @@ private:
         // Transfer to author (including any voter rounding remainder)
         uint64_t author_total = author_share + remainder;
         if (author_total > 0) {
-            transfer_tokens(get_self(), author, asset(author_total, symbol("MUS", 4)),
+            transfer_tokens(get_self(), author, asset(author_total, g.token_symbol),
                            "Approved submission reward");
         }
     }
@@ -1664,6 +1714,7 @@ private:
     uint64_t distribute_to_voters(const checksum256& tx_hash, uint64_t total_amount, bool up_voters_only) {
         if(total_amount == 0) return 0;
 
+        auto g = get_globals();
         votes_table votes(get_self(), get_self().value);
         auto hash_idx = votes.get_index<"byhash"_n>();
 
@@ -1703,7 +1754,7 @@ private:
         // Third pass: execute all token transfers from escrow (external calls last)
         std::string memo = up_voters_only ? "YES vote reward" : "NO vote reward";
         for(const auto& voter : voters) {
-            transfer_tokens(get_self(), voter, asset(share_per_voter, symbol("MUS", 4)), memo);
+            transfer_tokens(get_self(), voter, asset(share_per_voter, g.token_symbol), memo);
         }
 
         return remainder;
@@ -1730,6 +1781,7 @@ private:
     void distribute_to_stakers(uint64_t total_amount) {
         if(total_amount == 0) return;
 
+        auto g = get_globals();
         nodeagg_table aggregates(get_self(), get_self().value);
 
         // Calculate total staked across all nodes
@@ -1762,7 +1814,7 @@ private:
                     auto pending_by_node = pending.get_index<"bynode"_n>();
                     auto pending_itr = pending_by_node.find(node_itr->node_id);
 
-                    asset reward = asset(staker_share, symbol("MUS", 4));
+                    asset reward = asset(staker_share, g.token_symbol);
 
                     if (pending_itr == pending_by_node.end()) {
                         // New pending reward
@@ -1808,7 +1860,9 @@ private:
         if(amount == 0) return;
 
         auto g = get_globals();
-        asset quantity = asset(amount, symbol("MUS", 4));
+        check(amount <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
+              "Issue amount exceeds int64 maximum");
+        asset quantity = asset(static_cast<int64_t>(amount), g.token_symbol);
 
         action(
             permission_level{get_self(), "active"_n},
@@ -1865,7 +1919,7 @@ private:
      *
      * @param token_contract - Account to validate as token contract
      */
-    void validate_token_contract(name token_contract) {
+    void validate_token_contract(name token_contract, symbol token_sym) {
         // Define the stat table structure (from eosio.token standard)
         struct [[eosio::table]] currency_stats {
             asset    supply;
@@ -1877,20 +1931,41 @@ private:
 
         typedef eosio::multi_index<"stat"_n, currency_stats> stats;
 
-        // Access the stat table for MUS token
-        stats statstable(token_contract, symbol("MUS", 4).code().raw());
+        // Access the stat table scoped by the symbol code
+        stats statstable(token_contract, token_sym.code().raw());
 
-        // CRITICAL VALIDATION: MUS token must exist and be properly configured
-        auto itr = statstable.find(symbol_code("MUS").raw());
+        auto itr = statstable.find(token_sym.code().raw());
         check(itr != statstable.end(),
-              "MUS token not created on token contract - run deploy-token.sh first");
+              "Token " + token_sym.code().to_string() +
+              " not created on token contract - run deploy-token.sh first");
 
-        // Validate token precision (must be 4 decimals)
-        check(itr->max_supply.symbol == symbol("MUS", 4),
-              "MUS token must have 4-decimal precision (e.g., 1000000000.0000 MUS)");
+        // Validate symbol and precision match exactly
+        check(itr->max_supply.symbol == token_sym,
+              "Token symbol/precision mismatch: expected " +
+              std::to_string(token_sym.precision()) + "," + token_sym.code().to_string());
 
         // CRITICAL: Issuer must be this Polaris contract for inline issue authorization
         check(itr->issuer == get_self(),
-              "MUS token issuer must be this contract account - token was created with wrong issuer");
+              "Token issuer must be this contract account - token was created with wrong issuer");
+    }
+
+    /**
+     * @brief Read token balance from an eosio.token-compatible accounts table
+     */
+    asset get_token_balance(name token_contract, name owner, symbol_code sym) const {
+        struct [[eosio::table]] account {
+            asset balance;
+            uint64_t primary_key() const { return balance.symbol.code().raw(); }
+        };
+        typedef eosio::multi_index<"accounts"_n, account> accounts_table;
+
+        accounts_table accts(token_contract, owner.value);
+        auto itr = accts.find(sym.raw());
+        if (itr == accts.end()) {
+            // No row means zero balance; construct zero asset with configured symbol
+            auto g = get_globals();
+            return asset(0, g.token_symbol);
+        }
+        return itr->balance;
     }
 };
