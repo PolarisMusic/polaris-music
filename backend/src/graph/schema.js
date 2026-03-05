@@ -141,6 +141,18 @@ function pickPersonColor() {
 }
 
 /**
+ * Derive a deterministic color from a person ID using SHA-256.
+ * Returns a hex color string like '#a3f0b2' — same ID always yields the same color.
+ *
+ * @param {string} personId - The person_id value
+ * @returns {string} Hex color string
+ */
+function personColorFromId(personId) {
+    const hex = createHash('sha256').update(String(personId)).digest('hex');
+    return `#${hex.slice(0, 6)}`;
+}
+
+/**
  * Validate that a field name is safe for use as a Neo4j property.
  * Throws an error if the field name contains invalid characters.
  *
@@ -155,7 +167,7 @@ function assertSafePropertyName(field) {
 
 /**
  * Derive track placement (disc, side, track number) from position string.
- * Handles common formats like "A1", "B2", "2-A3", or plain numbers "1", "02".
+ * Handles common formats like "A1", "B2", "2-A3", "1.3", "2-7", or plain numbers "1", "02".
  *
  * @param {string|number} positionRaw - Position string from tracklist (e.g., "A1", "B12", "2-A3")
  * @param {number} index - Zero-based index in tracklist (used as fallback)
@@ -173,6 +185,15 @@ function deriveTrackPlacement(positionRaw, index) {
     if (m) {
         side = m[1].toUpperCase();
         trackNo = parseInt(m[2], 10);
+    }
+
+    // Disc + track (numeric): "1.3", "2.07", "1-3", "2-7"
+    if (!m) {
+        m = position.match(/^([0-9]+)[.\-]([0-9]+)$/);
+        if (m) {
+            disc = parseInt(m[1], 10);
+            trackNo = parseInt(m[2], 10);
+        }
     }
 
     // Numeric-only: "1", "02"
@@ -638,10 +659,10 @@ constructor(config = {}) {
                     MERGE (g:Group {group_id: $groupId})
                     SET g.id = $groupId,
                         g.name = $name,
-                        g.alt_names = $altNames,
-                        g.bio = $bio,
-                        g.formed_date = $formed,
-                        g.disbanded_date = $disbanded,
+                        g.alt_names = coalesce($altNames, g.alt_names, []),
+                        g.bio = coalesce($bio, g.bio),
+                        g.formed_date = coalesce($formed, g.formed_date),
+                        g.disbanded_date = coalesce($disbanded, g.disbanded_date),
                         g.status = $status,
                         g.id_kind = $id_kind,
                         g.updated_by = $eventHash,
@@ -727,7 +748,7 @@ constructor(config = {}) {
                     `, {
                         eventTs,
                         personId,
-                        personColor: pickPersonColor(),
+                        personColor: personColorFromId(personId),
                         name: member.name,
                         status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
                         originCityName: member.origin_city?.name || null,
@@ -848,7 +869,7 @@ constructor(config = {}) {
                         g.scope = 'release'
                 `, {
                     personId,
-                    personColor: pickPersonColor(),
+                    personColor: personColorFromId(personId),
                     name: guest.name,
                     status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
                     originCityName: guest.origin_city?.name || null,
@@ -923,7 +944,7 @@ constructor(config = {}) {
                             w.share_percentage = $share
                     `, {
                         personId: writerId,
-                        personColor: pickPersonColor(),
+                        personColor: personColorFromId(writerId),
                         name: writer.name,
                         status: writer.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         songId,
@@ -1102,7 +1123,7 @@ constructor(config = {}) {
                                         roles: roles,
                                         role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || [],
-                                        color: pickPersonColor()
+                                        color: personColorFromId(memberId)
                                     });
                                 } catch (memberResolveError) {
                                     this.log.warn('explicit_member_resolve_fail', { name: member.name, error: memberResolveError.message });
@@ -1189,7 +1210,7 @@ constructor(config = {}) {
                                         roles: roles,
                                         role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || [],
-                                        color: pickPersonColor()
+                                        color: personColorFromId(memberId)
                                     });
                                 } catch (memberResolveError) {
                                     this.log.warn('derived_member_resolve_fail', { name: member.name, error: memberResolveError.message });
@@ -1259,7 +1280,7 @@ constructor(config = {}) {
                             g.scope = 'track'
                     `, {
                         personId: guestId,
-                        personColor: pickPersonColor(),
+                        personColor: personColorFromId(guestId),
                         name: guest.name,
                         status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         originCityName: guest.origin_city?.name || null,
@@ -1290,7 +1311,7 @@ constructor(config = {}) {
                         SET pr.role = $role
                     `, {
                         personId: producerId,
-                        personColor: pickPersonColor(),
+                        personColor: personColorFromId(producerId),
                         name: producer.name,
                         status: producer.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         trackId,
@@ -1316,7 +1337,7 @@ constructor(config = {}) {
                         SET a.role = $role
                     `, {
                         personId: arrangerId,
-                        personColor: pickPersonColor(),
+                        personColor: personColorFromId(arrangerId),
                         name: arranger.name,
                         status: arranger.person_id ? 'ACTIVE' : 'PROVISIONAL',
                         trackId,
@@ -1740,41 +1761,58 @@ constructor(config = {}) {
         const eventTs = toNeo4jEpochMillis(eventTimestamp);
 
         try {
-            const { claim_id: oldClaimId, value, source } = editData;
+            // Support two input shapes:
+            // Shape 1 (legacy): { claim_id, value, source? }
+            // Shape 2 (field edit): { node: { type, id }, field, value, source? }
+            const isFieldEdit = editData.node && editData.field !== undefined;
+            const oldClaimId = editData.claim_id;
+            const value = editData.value;
+            const source = editData.source;
 
-            if (!oldClaimId) {
-                throw new Error('Invalid edit data: missing claim_id');
+            if (!isFieldEdit && !oldClaimId) {
+                throw new Error('Invalid edit data: missing claim_id or node+field');
             }
 
             if (value === undefined) {
                 throw new Error('Invalid edit data: missing value');
             }
 
-            this.log.info('edit_claim_start', { event_hash: eventHash.substring(0, 16), claim_id: oldClaimId.substring(0, 12) });
+            let nodeType, nodeId, field, mapping;
 
-            // Load the old claim to get node type, node ID, and field name
-            const oldClaimResult = await tx.run(`
-                MATCH (old:Claim {claim_id: $oldClaimId})
-                RETURN old.node_type as nodeType,
-                       old.node_id as nodeId,
-                       old.field as field,
-                       old.value as oldValue
-            `, { oldClaimId });
+            if (isFieldEdit) {
+                // Shape 2: node + field provided directly by UI
+                nodeType = editData.node.type;
+                nodeId = editData.node.id;
+                field = editData.field;
 
-            if (oldClaimResult.records.length === 0) {
-                throw new Error(`Claim not found: ${oldClaimId}`);
+                this.log.info('edit_claim_start', { event_hash: eventHash.substring(0, 16), node_type: nodeType, node_id: String(nodeId).substring(0, 12), field });
+            } else {
+                // Shape 1: look up node info from existing claim
+                this.log.info('edit_claim_start', { event_hash: eventHash.substring(0, 16), claim_id: oldClaimId.substring(0, 12) });
+
+                const oldClaimResult = await tx.run(`
+                    MATCH (old:Claim {claim_id: $oldClaimId})
+                    RETURN old.node_type as nodeType,
+                           old.node_id as nodeId,
+                           old.field as field,
+                           old.value as oldValue
+                `, { oldClaimId });
+
+                if (oldClaimResult.records.length === 0) {
+                    throw new Error(`Claim not found: ${oldClaimId}`);
+                }
+
+                const oldClaim = oldClaimResult.records[0];
+                nodeType = oldClaim.get('nodeType');
+                nodeId = oldClaim.get('nodeId');
+                field = oldClaim.get('field');
             }
-
-            const oldClaim = oldClaimResult.records[0];
-            const nodeType = oldClaim.get('nodeType');
-            const nodeId = oldClaim.get('nodeId');
-            const field = oldClaim.get('field');
 
             // Validate node.type against whitelist to prevent Cypher injection
             const key = String(nodeType).toLowerCase();
-            const mapping = SAFE_NODE_TYPES[key];
+            mapping = SAFE_NODE_TYPES[key];
             if (!mapping) {
-                throw new Error(`Invalid node.type from old claim: ${nodeType}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
+                throw new Error(`Invalid node type: ${nodeType}. Allowed types: ${Object.keys(SAFE_NODE_TYPES).join(', ')}`);
             }
 
             // Validate field name to prevent corruption of protected/system fields
@@ -1792,7 +1830,7 @@ constructor(config = {}) {
             // Generate deterministic new claim ID from edit event hash
             const newClaimId = this.generateOpId(eventHash, 0);
 
-            this.log.debug('edit_claim_supersede', { new_claim_id: newClaimId.substring(0, 12), old_claim_id: oldClaimId.substring(0, 12) });
+            this.log.debug('edit_claim_supersede', { new_claim_id: newClaimId.substring(0, 12) });
 
             // Create new claim (idempotent via MERGE)
             await this.createClaim(tx, newClaimId, nodeType, nodeId,
@@ -1808,18 +1846,39 @@ constructor(config = {}) {
                 nodeId
             });
 
-            // Create SUPERSEDES relationship and mark old claim as superseded
-            await tx.run(`
-                MATCH (newClaim:Claim {claim_id: $newClaimId})
-                MATCH (oldClaim:Claim {claim_id: $oldClaimId})
-                MERGE (newClaim)-[:SUPERSEDES]->(oldClaim)
-                SET oldClaim.superseded_by = $newClaimId,
-                    oldClaim.superseded_at = datetime({epochMillis: $eventTs})
-            `, {
-                newClaimId,
-                oldClaimId,
-                eventTs
-            });
+            // Best-effort supersede: find prior claim for same (node, field)
+            // For Shape 1: use the provided oldClaimId directly
+            // For Shape 2: find the most recent claim for this node+field
+            let resolvedOldClaimId = oldClaimId;
+
+            if (isFieldEdit) {
+                const priorResult = await tx.run(`
+                    MATCH (c:Claim {node_type: $nodeType, node_id: $nodeId, field: $field})
+                    WHERE c.claim_id <> $newClaimId AND c.superseded_by IS NULL
+                    RETURN c.claim_id AS claimId
+                    ORDER BY c.created_ts DESC
+                    LIMIT 1
+                `, { nodeType, nodeId: String(nodeId), field: normalizedField, newClaimId });
+
+                resolvedOldClaimId = priorResult.records.length > 0
+                    ? priorResult.records[0].get('claimId')
+                    : null;
+            }
+
+            // Create SUPERSEDES relationship if we found a prior claim
+            if (resolvedOldClaimId) {
+                await tx.run(`
+                    MATCH (newClaim:Claim {claim_id: $newClaimId})
+                    MATCH (oldClaim:Claim {claim_id: $oldClaimId})
+                    MERGE (newClaim)-[:SUPERSEDES]->(oldClaim)
+                    SET oldClaim.superseded_by = $newClaimId,
+                        oldClaim.superseded_at = datetime({epochMillis: $eventTs})
+                `, {
+                    newClaimId,
+                    oldClaimId: resolvedOldClaimId,
+                    eventTs
+                });
+            }
 
             // Normalize value for Neo4j storage (handle objects/complex types)
             const normalizedValue = normalizeValueForNeo4j(value);
@@ -1864,9 +1923,9 @@ constructor(config = {}) {
             }
 
             await tx.commit();
-            timer.end('edit_claim_end', { new_claim_id: newClaimId.substring(0, 12), old_claim_id: oldClaimId.substring(0, 12) });
+            timer.end('edit_claim_end', { new_claim_id: newClaimId.substring(0, 12), old_claim_id: resolvedOldClaimId ? resolvedOldClaimId.substring(0, 12) : null });
 
-            return { success: true, newClaimId, oldClaimId };
+            return { success: true, newClaimId, oldClaimId: resolvedOldClaimId || null };
 
         } catch (error) {
             await tx.rollback();
@@ -1958,16 +2017,42 @@ constructor(config = {}) {
         try {
             this.log.info('backfill_person_colors_start');
 
-            const result = await session.run(`
-                MATCH (p:Person) WHERE p.color IS NULL
-                WITH p, $palette[toInteger(abs(id(p))) % size($palette)] AS c
-                SET p.color = c
-                RETURN count(p) AS updated
-            `, { palette: PERSON_COLOR_PALETTE });
+            const BATCH_SIZE = 500;
+            let totalUpdated = 0;
 
-            const updated = result.records[0].get('updated').toNumber();
-            this.log.info('backfill_person_colors_end', { updated });
-            return updated;
+            // Process in batches until no Person nodes are missing color
+            while (true) {
+                // Fetch batch of person IDs missing color
+                const fetchResult = await session.run(`
+                    MATCH (p:Person) WHERE p.color IS NULL
+                    RETURN p.person_id AS personId
+                    LIMIT $limit
+                `, { limit: BATCH_SIZE });
+
+                const rows = fetchResult.records.map(r => {
+                    const personId = r.get('personId');
+                    return { personId, color: personColorFromId(personId) };
+                });
+
+                if (rows.length === 0) break;
+
+                // Apply computed colors in batch
+                const updateResult = await session.run(`
+                    UNWIND $rows AS row
+                    MATCH (p:Person {person_id: row.personId})
+                    WHERE p.color IS NULL
+                    SET p.color = row.color
+                    RETURN count(p) AS updated
+                `, { rows });
+
+                const updated = updateResult.records[0].get('updated').toNumber();
+                totalUpdated += updated;
+
+                if (updated === 0) break;
+            }
+
+            this.log.info('backfill_person_colors_end', { updated: totalUpdated });
+            return totalUpdated;
         } catch (error) {
             this.log.error('backfill_person_colors_fail', { error: error.message });
             throw error;
@@ -2525,4 +2610,5 @@ constructor(config = {}) {
     }
 }
 
+export { deriveTrackPlacement, personColorFromId };
 export default MusicGraphDatabase;

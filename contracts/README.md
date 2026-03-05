@@ -107,7 +107,7 @@ cleos create account eosio eosio.token EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHu
 # Deploy eosio.token contract (for MUS token)
 cleos set contract eosio.token /path/to/eosio.contracts/contracts/eosio.token
 
-# Create MUS token
+# Create token (symbol and precision are configurable; default: MUS with 4 decimals)
 cleos push action eosio.token create '["polaris", "1000000000.0000 MUS"]' -p eosio.token
 
 # Issue tokens for testing
@@ -121,8 +121,8 @@ cleos push action eosio.token issue '["bob", "10000.0000 MUS", "initial supply"]
 # Set contract code and ABI
 cleos set contract polaris ./build polaris.music.wasm polaris.music.abi -p polaris
 
-# Initialize contract
-cleos push action polaris init '["fractally", "eosio.token"]' -p polaris
+# Initialize contract (third argument is "precision,SYMBOL")
+cleos push action polaris init '["fractally", "eosio.token", "4,MUS"]' -p polaris
 ```
 
 ## Testnet Deployment (Jungle4)
@@ -177,8 +177,9 @@ After deploying both the Polaris contract AND the token contract, initialize:
 ```bash
 # Replace <oracle_account> with actual Fractally oracle (e.g., fractally4)
 # Replace polaristoken with your token contract account if different
+# Third argument is "precision,SYMBOL" (e.g., "4,MUS" or "8,POL")
 cleos -u https://jungle4.greymass.com push action polarismusic init \
-  '["<oracle_account>", "polaristoken"]' -p polarismusic@active
+  '["<oracle_account>", "polaristoken", "4,MUS"]' -p polarismusic@active
 ```
 
 **Note**: You CANNOT use system `eosio.token` on Jungle4. See "Token Contract Setup" section below for required token deployment.
@@ -234,10 +235,12 @@ After token deployment, initialize the Polaris contract with the token account:
 
 ```bash
 cleos -u https://jungle4.greymass.com push action polarismusic init \
-  '["<oracle_account>", "polaristoken"]' -p polarismusic@active
+  '["<oracle_account>", "polaristoken", "4,MUS"]' -p polarismusic@active
 ```
 
 Replace `<oracle_account>` with the actual Fractally oracle account on Jungle4.
+
+> **Token symbol/precision**: The third argument to `init` is `"precision,SYMBOL"`. If you change precision, scale `setmults()` inputs accordingly (multipliers are in atomic units).
 
 ### Verify Token Setup
 
@@ -375,7 +378,8 @@ cleos -u https://jungle4.cryptolions.io:443 \
 | `unlike` | Remove a like | User |
 | `updrespect` | Update Respect from Fractally | Oracle only |
 | `setoracle` | Set Fractally oracle account | Contract only |
-| `init` | Initialize contract | Contract only |
+| `init` | Initialize contract (oracle, token_contract, token_symbol) | Contract only |
+| `reinit` | Reinitialize config (requires pause + empty economy to change token) | Contract only |
 | `clear` | Clear all data (**TESTNET only** - compiled out in production via `#ifdef TESTNET`) | Contract only |
 
 ## Event Types
@@ -446,7 +450,7 @@ Before deploying to mainnet:
 - [ ] Compile WITHOUT `-DTESTNET` flag (this automatically excludes the `clear()` action)
 - [ ] Verify `clear` does NOT appear in the generated ABI file
 - [ ] Set proper Fractally oracle account
-- [ ] Configure correct token contract
+- [ ] Configure correct token contract and symbol/precision
 - [ ] Test all actions on testnet
 - [ ] Audit emission calculations
 - [ ] Verify Respect weight logic
