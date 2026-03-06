@@ -304,8 +304,7 @@ export class MusicGraph {
                 },
 
                 onMouseWheel: (delta, e) => {
-                    // Let JIT apply zoom first, then sync slider
-                    setTimeout(() => this.syncZoomSlider(), 0);
+                    // Wheel zoom disabled (controls removed)
                 }
             },
 
@@ -319,7 +318,7 @@ export class MusicGraph {
             Navigation: {
                 enable: true,
                 panning: false,
-                zooming: 20
+                zooming: false
             },
 
             // Controller callbacks
@@ -346,6 +345,7 @@ export class MusicGraph {
         });
 
         this.setupLongPressPan();
+        this._isolateInfoPanelScroll();
         console.log('Hypertree initialized');
     }
 
@@ -362,6 +362,16 @@ export class MusicGraph {
         el.addEventListener('mousemove', (e) => this.onPanMouseMove(e));
         window.addEventListener('mouseup', (e) => this.onPanMouseUp(e));
         el.addEventListener('mouseleave', (e) => this.onPanMouseUp(e));
+    }
+
+    /**
+     * Prevent wheel/touch events inside the info panel from reaching the graph canvas.
+     */
+    _isolateInfoPanelScroll() {
+        const infoContent = document.getElementById('info-content');
+        if (!infoContent) return;
+        infoContent.addEventListener('wheel', (e) => e.stopPropagation());
+        infoContent.addEventListener('touchmove', (e) => e.stopPropagation());
     }
 
     eventToCanvasPos(e) {
@@ -832,6 +842,15 @@ export class MusicGraph {
         }
         html += this._editableRow('person', nodeId, 'photo', person.photo || '', 'Photo URL');
 
+        if (person.color) {
+            html += `<div class="info-color-row">
+                <strong>Color:</strong>
+                <span class="info-color-swatch" style="background:${esc(person.color)}"></span>
+                <span class="info-color-hex">${esc(person.color)}</span>
+                <input type="color" class="color-picker-input" data-node-id="${esc(nodeId)}" value="${esc(person.color)}" title="Edit color" />
+            </div>`;
+        }
+
         if (person.city) {
             html += `<p class="info-meta"><strong>Location:</strong> ${esc(person.city)}</p>`;
         }
@@ -858,6 +877,40 @@ export class MusicGraph {
 
         contentElement.innerHTML = html;
         this._attachEditListeners(contentElement);
+        this._attachColorPickerListeners(contentElement);
+    }
+
+    /**
+     * Attach change listeners to color picker inputs.
+     * On change, submits the new color via ClaimManager.
+     * @private
+     */
+    _attachColorPickerListeners(container) {
+        container.querySelectorAll('.color-picker-input').forEach(picker => {
+            picker.addEventListener('change', async (e) => {
+                const newColor = e.target.value;
+                const pickerNodeId = picker.dataset.nodeId;
+                try {
+                    await this.claimManager.submitEdit('person', pickerNodeId, 'color', newColor);
+                    // Update swatch and hex display immediately
+                    const row = picker.closest('.info-color-row');
+                    if (row) {
+                        const swatch = row.querySelector('.info-color-swatch');
+                        const hex = row.querySelector('.info-color-hex');
+                        if (swatch) swatch.style.background = newColor;
+                        if (hex) hex.textContent = newColor;
+                    }
+                    // Update the graph node color in-memory for immediate visual feedback
+                    if (this.selectedNode) {
+                        this.selectedNode.data.color = newColor;
+                        if (this.ht) this.ht.plot();
+                    }
+                } catch (error) {
+                    console.error('Color edit failed:', error);
+                    alert('Color edit failed: ' + error.message);
+                }
+            });
+        });
     }
 
     /**

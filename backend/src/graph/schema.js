@@ -1880,8 +1880,19 @@ constructor(config = {}) {
                 });
             }
 
+            // Normalize color values: accept hex with or without '#', validate 6-digit hex
+            let finalValue = value;
+            if (normalizedField === 'color') {
+                let raw = String(value).trim().toLowerCase();
+                if (!raw.startsWith('#')) raw = '#' + raw;
+                if (!/^#[0-9a-f]{6}$/.test(raw)) {
+                    throw new Error(`Invalid color value: "${value}". Must be a 6-digit hex color (e.g. #a3f0b2).`);
+                }
+                finalValue = raw;
+            }
+
             // Normalize value for Neo4j storage (handle objects/complex types)
-            const normalizedValue = normalizeValueForNeo4j(value);
+            const normalizedValue = normalizeValueForNeo4j(finalValue);
 
             // Update the target node's current value
             // Note: We use backtick-escaped property name instead of $field parameter

@@ -135,22 +135,6 @@ body {
     z-index: 100;
 }
 
-.control-group {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.control-group label {
-    font-size: 12px;
-    color: #aaa;
-    text-transform: uppercase;
-}
-
-#zoom-slider {
-    width: 150px;
-}
-
 .btn-control {
     background: #2a2a2a;
     color: #e0e0e0;
@@ -175,6 +159,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
 }
 
 .info-header {
@@ -299,6 +284,97 @@ body {
 .person-link:hover, .track-link:hover {
     color: #357ABD;
     text-decoration: underline;
+}
+
+/* Color property row */
+.info-color-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 14px;
+    color: #ddd;
+}
+
+.info-color-swatch {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    flex-shrink: 0;
+}
+
+.info-color-hex {
+    font-family: monospace;
+    font-size: 13px;
+    color: #aaa;
+}
+
+.color-picker-input {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    margin-left: auto;
+}
+
+/* Edit buttons */
+.edit-btn {
+    background: none;
+    border: 1px solid #444;
+    color: #888;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.edit-btn:hover {
+    color: #ddd;
+    border-color: #666;
+}
+
+.inline-edit-wrapper {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    margin: 4px 0;
+}
+
+.inline-edit-input {
+    flex: 1;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    color: #e0e0e0;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+.inline-edit-save,
+.inline-edit-cancel {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    color: #ddd;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.inline-edit-save:hover {
+    background: #3a5a3a;
+    border-color: #4CAF50;
+}
+
+.inline-edit-cancel:hover {
+    background: #5a3a3a;
+    border-color: #c44;
 }
 
 /* Node Images */
