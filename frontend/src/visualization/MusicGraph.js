@@ -43,6 +43,7 @@ export class MusicGraph {
         this.labelsVisible = true;
         this.historyPanelOpen = false;
         this.favoritesPanelOpen = false;
+        this.curatePanelOpen = false;
 
         // On-chain favorites state
         this.chainFavorites = new Set();
@@ -1586,6 +1587,190 @@ export class MusicGraph {
         this.ht.loadJSON(jit);
         this.ht.refresh();
         await this.rebuildHashIndexFromRawGraph();
+    }
+
+    // ========== Curate Panel ==========
+
+    toggleCuratePanel() {
+        this.curatePanelOpen = !this.curatePanelOpen;
+        const panel = document.getElementById('curate-panel');
+        if (!panel) return;
+
+        if (this.curatePanelOpen) {
+            panel.style.display = 'flex';
+            this.renderCuratePanel();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    async renderCuratePanel() {
+        const list = document.getElementById('curate-list');
+        if (!list) return;
+
+        list.innerHTML = '<div class="history-empty">Loading operations...</div>';
+
+        try {
+            const resp = await this.api.fetchCurateOperations({ limit: 50 });
+            if (!resp.success || !resp.operations || resp.operations.length === 0) {
+                list.innerHTML = '<div class="history-empty">No operations found.</div>';
+                return;
+            }
+
+            list.innerHTML = '';
+            for (const op of resp.operations) {
+                list.appendChild(this._renderCurateRow(op));
+            }
+        } catch (e) {
+            console.error('Failed to render curate panel:', e);
+            list.innerHTML = '<div class="history-empty">Failed to load operations.</div>';
+        }
+    }
+
+    _renderCurateRow(op) {
+        const row = document.createElement('div');
+        row.className = 'curate-row';
+
+        // Event type label
+        const typeNames = {
+            21: 'Release', 30: 'Add Claim', 31: 'Edit Claim',
+            40: 'Vote', 41: 'Like', 50: 'Finalize', 60: 'Merge'
+        };
+        const typeName = typeNames[op.type] || `Type ${op.type}`;
+
+        // Summary text
+        const summary = op.event_summary;
+        let title = summary?.release_name || summary?.group_name || op.hash.substring(0, 12) + '...';
+
+        // Time
+        const ts = op.ts ? new Date(op.ts + 'Z') : null;
+        const timeStr = ts ? ts.toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+
+        // Tally
+        const tally = op.tally || { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 };
+        const netScore = tally.up_weight - tally.down_weight;
+
+        // Status
+        const statusClass = op.finalized ? 'curate-status--finalized' : '';
+        const statusLabel = op.finalized ? 'Finalized' : 'Open';
+
+        row.innerHTML = `
+            <div class="curate-row__header">
+                <span class="curate-type-badge curate-type-${op.type}">${typeName}</span>
+                <span class="curate-row__title">${this._escapeHtml(title)}</span>
+                <span class="curate-row__time">${timeStr}</span>
+            </div>
+            <div class="curate-row__author">by ${this._escapeHtml(op.author)}</div>
+            <div class="curate-row__tally">
+                <span class="curate-score ${netScore > 0 ? 'curate-score--positive' : netScore < 0 ? 'curate-score--negative' : ''}">
+                    ${netScore > 0 ? '+' : ''}${netScore}
+                </span>
+                <span class="curate-voters">
+                    <span class="curate-up">${tally.up_weight} (${tally.up_voter_count})</span>
+                    /
+                    <span class="curate-down">${tally.down_weight} (${tally.down_voter_count})</span>
+                </span>
+                <span class="curate-status ${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="curate-row__actions"></div>
+        `;
+
+        // Vote buttons (only if not finalized and wallet connected)
+        if (!op.finalized) {
+            const actionsDiv = row.querySelector('.curate-row__actions');
+            const upBtn = document.createElement('button');
+            upBtn.className = 'curate-vote-btn curate-vote-up';
+            upBtn.textContent = 'Upvote';
+            upBtn.addEventListener('click', () => this._curateVote(op, 1, row));
+
+            const downBtn = document.createElement('button');
+            downBtn.className = 'curate-vote-btn curate-vote-down';
+            downBtn.textContent = 'Downvote';
+            downBtn.addEventListener('click', () => this._curateVote(op, -1, row));
+
+            actionsDiv.appendChild(upBtn);
+            actionsDiv.appendChild(downBtn);
+        }
+
+        return row;
+    }
+
+    async _curateVote(op, val, rowEl) {
+        if (!this.walletManager?.isConnected()) {
+            alert('Please connect your wallet to vote.');
+            return;
+        }
+
+        const session = this.walletManager.getSessionInfo();
+        const contractAccount = this.walletManager.config.contractAccount;
+
+        try {
+            // Disable buttons while voting
+            const btns = rowEl.querySelectorAll('.curate-vote-btn');
+            btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+
+            await this.walletManager.transact({
+                account: contractAccount,
+                name: 'vote',
+                authorization: [{
+                    actor: session.accountName,
+                    permission: session.permission
+                }],
+                data: {
+                    voter: session.accountName,
+                    hash: op.hash,
+                    val: val
+                }
+            });
+
+            // Refetch tally from chain and update row
+            await this._refreshCurateRow(op, rowEl);
+        } catch (e) {
+            console.error('Vote failed:', e);
+            alert('Vote failed: ' + (e.message || e));
+            // Re-enable buttons
+            const btns = rowEl.querySelectorAll('.curate-vote-btn');
+            btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+        }
+    }
+
+    async _refreshCurateRow(op, rowEl) {
+        try {
+            const contractAccount = this.walletManager.config.contractAccount;
+            const tallyResp = await this.walletManager.getTableRows({
+                code: contractAccount,
+                scope: contractAccount,
+                table: 'votetally',
+                lower_bound: String(op.anchor_id),
+                upper_bound: String(op.anchor_id),
+                limit: 1
+            });
+
+            if (tallyResp.rows && tallyResp.rows[0]) {
+                const t = tallyResp.rows[0];
+                op.tally = {
+                    up_weight: parseInt(t.up_weight) || 0,
+                    down_weight: parseInt(t.down_weight) || 0,
+                    up_voter_count: parseInt(t.up_voter_count) || 0,
+                    down_voter_count: parseInt(t.down_voter_count) || 0
+                };
+            }
+
+            // Replace the row DOM
+            const newRow = this._renderCurateRow(op);
+            rowEl.replaceWith(newRow);
+        } catch (e) {
+            console.error('Failed to refresh tally:', e);
+            // Re-enable buttons as fallback
+            const btns = rowEl.querySelectorAll('.curate-vote-btn');
+            btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+        }
+    }
+
+    _escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     }
 
     /**

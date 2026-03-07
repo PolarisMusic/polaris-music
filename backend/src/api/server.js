@@ -1877,6 +1877,247 @@ class APIServer {
             }
         });
 
+        // ========== CURATION ENDPOINTS ==========
+
+        /**
+         * GET /api/curate/operations
+         * Get recent anchored operations with on-chain vote tallies.
+         * Reads anchors + votetally tables from the blockchain.
+         *
+         * Query params:
+         *   limit (default 50)
+         *   lower_bound (anchor id for pagination)
+         *   type (filter by event type)
+         */
+        this.app.get('/api/curate/operations', async (req, res) => {
+            try {
+                const rpcUrl = process.env.RPC_URL || this.config.rpcUrl;
+                if (!rpcUrl) {
+                    return res.status(503).json({ success: false, error: 'RPC_URL not configured' });
+                }
+
+                const contractAccount = process.env.CONTRACT_ACCOUNT || 'polaris';
+                const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+                const lower_bound = req.query.lower_bound || undefined;
+
+                // Fetch anchors
+                const anchorsBody = {
+                    json: true,
+                    code: contractAccount,
+                    scope: contractAccount,
+                    table: 'anchors',
+                    limit,
+                    reverse: true // newest first
+                };
+                if (lower_bound !== undefined) anchorsBody.lower_bound = lower_bound;
+
+                const anchorsResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(anchorsBody)
+                });
+                if (!anchorsResp.ok) throw new Error(`Chain RPC error: ${anchorsResp.status}`);
+                const anchorsData = await anchorsResp.json();
+
+                // Filter by type if requested
+                let rows = anchorsData.rows || [];
+                if (req.query.type) {
+                    const filterType = parseInt(req.query.type);
+                    rows = rows.filter(r => r.type === filterType);
+                }
+
+                // Fetch tallies for each anchor
+                const operations = [];
+                for (const anchor of rows) {
+                    const tallyBody = {
+                        json: true,
+                        code: contractAccount,
+                        scope: contractAccount,
+                        table: 'votetally',
+                        limit: 1,
+                        lower_bound: String(anchor.id),
+                        upper_bound: String(anchor.id)
+                    };
+
+                    let tally = null;
+                    try {
+                        const tallyResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(tallyBody)
+                        });
+                        if (tallyResp.ok) {
+                            const tallyData = await tallyResp.json();
+                            tally = tallyData.rows && tallyData.rows[0] || null;
+                        }
+                    } catch (e) {
+                        // Tally fetch failure is non-fatal
+                    }
+
+                    // Try to get stored event summary from our event store
+                    let eventSummary = null;
+                    try {
+                        const stored = await this.store.retrieve(anchor.hash);
+                        if (stored && stored.body) {
+                            eventSummary = {
+                                type_name: stored.type || null,
+                                release_name: stored.body?.release?.name || null,
+                                group_name: stored.body?.groups?.[0]?.name || null
+                            };
+                        }
+                    } catch (e) {
+                        // Event retrieval is best-effort
+                    }
+
+                    operations.push({
+                        anchor_id: anchor.id,
+                        author: anchor.author,
+                        type: anchor.type,
+                        hash: anchor.hash,
+                        event_cid: anchor.event_cid,
+                        ts: anchor.ts,
+                        expires_at: anchor.expires_at,
+                        finalized: anchor.finalized ? true : false,
+                        tally: tally ? {
+                            up_weight: parseInt(tally.up_weight) || 0,
+                            down_weight: parseInt(tally.down_weight) || 0,
+                            up_voter_count: parseInt(tally.up_voter_count) || 0,
+                            down_voter_count: parseInt(tally.down_voter_count) || 0
+                        } : { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+                        event_summary: eventSummary
+                    });
+                }
+
+                res.json({
+                    success: true,
+                    operations,
+                    more: anchorsData.more || false,
+                    next_key: anchorsData.next_key || null
+                });
+            } catch (error) {
+                console.error('Curate operations failed:', error);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        /**
+         * GET /api/curate/operations/:hash
+         * Get full details for a single anchored operation.
+         * Returns anchor, tally, stored event payload, and individual votes.
+         */
+        this.app.get('/api/curate/operations/:hash', async (req, res) => {
+            try {
+                const rpcUrl = process.env.RPC_URL || this.config.rpcUrl;
+                if (!rpcUrl) {
+                    return res.status(503).json({ success: false, error: 'RPC_URL not configured' });
+                }
+
+                const contractAccount = process.env.CONTRACT_ACCOUNT || 'polaris';
+                const hash = req.params.hash;
+
+                // Fetch anchor by hash (secondary index)
+                const anchorsResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        json: true,
+                        code: contractAccount,
+                        scope: contractAccount,
+                        table: 'anchors',
+                        index_position: 2, // byhash
+                        key_type: 'sha256',
+                        lower_bound: hash,
+                        upper_bound: hash,
+                        limit: 1
+                    })
+                });
+                if (!anchorsResp.ok) throw new Error(`Chain RPC error: ${anchorsResp.status}`);
+                const anchorsData = await anchorsResp.json();
+
+                if (!anchorsData.rows || anchorsData.rows.length === 0) {
+                    return res.status(404).json({ success: false, error: 'Anchor not found' });
+                }
+
+                const anchor = anchorsData.rows[0];
+
+                // Fetch tally
+                let tally = null;
+                try {
+                    const tallyResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            json: true,
+                            code: contractAccount,
+                            scope: contractAccount,
+                            table: 'votetally',
+                            limit: 1,
+                            lower_bound: String(anchor.id),
+                            upper_bound: String(anchor.id)
+                        })
+                    });
+                    if (tallyResp.ok) {
+                        const tallyData = await tallyResp.json();
+                        tally = tallyData.rows?.[0] || null;
+                    }
+                } catch (e) { /* non-fatal */ }
+
+                // Fetch individual votes for this hash
+                let votes = [];
+                try {
+                    const votesResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            json: true,
+                            code: contractAccount,
+                            scope: contractAccount,
+                            table: 'votes',
+                            index_position: 3, // byhash
+                            key_type: 'sha256',
+                            lower_bound: hash,
+                            upper_bound: hash,
+                            limit: 200
+                        })
+                    });
+                    if (votesResp.ok) {
+                        const votesData = await votesResp.json();
+                        votes = votesData.rows || [];
+                    }
+                } catch (e) { /* non-fatal */ }
+
+                // Fetch stored event payload
+                let eventPayload = null;
+                try {
+                    eventPayload = await this.store.retrieve(anchor.hash);
+                } catch (e) { /* non-fatal */ }
+
+                res.json({
+                    success: true,
+                    data: {
+                        anchor,
+                        tally: tally ? {
+                            up_weight: parseInt(tally.up_weight) || 0,
+                            down_weight: parseInt(tally.down_weight) || 0,
+                            up_voter_count: parseInt(tally.up_voter_count) || 0,
+                            down_voter_count: parseInt(tally.down_voter_count) || 0,
+                            updated_at: tally.updated_at
+                        } : null,
+                        votes: votes.map(v => ({
+                            voter: v.voter,
+                            val: v.val,
+                            weight: v.weight,
+                            ts: v.ts
+                        })),
+                        event: eventPayload
+                    }
+                });
+            } catch (error) {
+                console.error('Curate operation detail failed:', error);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         /**
          * GET /api/graph/initial
          * Get initial graph data for visualization

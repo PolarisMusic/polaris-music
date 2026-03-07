@@ -29,6 +29,10 @@
                     <span class="icon">⭐</span>
                     <span id="favorites-count">0</span> Favorites
                 </span>
+                <span class="stat-item stat-clickable" id="curate-toggle">
+                    <span class="icon">🗳</span>
+                    Curate
+                </span>
                 <span class="stat-item stat-clickable" id="history-toggle">
                     <span class="icon">❄️</span>
                     <span id="history-count">0</span> History
@@ -58,6 +62,17 @@
             </div>
         </div>
         <ul id="favorites-list"></ul>
+    </div>
+
+    <!-- Curate Panel (hidden by default) -->
+    <div id="curate-panel" style="display: none;">
+        <div class="history-header">
+            <h3>Curate</h3>
+            <div class="history-actions">
+                <button id="curate-close" class="btn-close">&times;</button>
+            </div>
+        </div>
+        <div id="curate-list" class="curate-list"></div>
     </div>
 
     <!-- Main Container -->
@@ -245,6 +260,16 @@
             const nodeFavBtn = document.getElementById('node-favorite');
             if (nodeFavBtn) {
                 nodeFavBtn.addEventListener('click', () => graph.likeSelectedNode());
+            }
+
+            // Curate panel toggle
+            const curateToggle = document.getElementById('curate-toggle');
+            if (curateToggle) {
+                curateToggle.addEventListener('click', () => graph.toggleCuratePanel());
+            }
+            const curateClose = document.getElementById('curate-close');
+            if (curateClose) {
+                curateClose.addEventListener('click', () => graph.toggleCuratePanel());
             }
 
             // Favorites panel toggle

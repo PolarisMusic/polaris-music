@@ -156,6 +156,18 @@ public:
             a.submission_x = submission_x;
         });
 
+        // Initialize zeroed tally row for this anchor
+        votetally_table tallies(get_self(), get_self().value);
+        tallies.emplace(author, [&](auto& t) {
+            t.anchor_id = anchor_id;
+            t.tx_hash = hash;
+            t.up_weight = 0;
+            t.down_weight = 0;
+            t.up_voter_count = 0;
+            t.down_voter_count = 0;
+            t.updated_at = current_time_point();
+        });
+
         // NOW increment global submission counter AFTER capturing submission_x
         // Only increment for content submissions, not votes/likes/discussions
         if (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE) {
@@ -623,43 +635,67 @@ public:
               "Voting window has closed");
 
         // Get voter's Respect for weight calculation
-        // (g was already fetched for pause check above)
         respect_table respect(get_self(), get_self().value);
         auto respect_itr = respect.find(voter.value);
         uint32_t voter_respect = 1; // Default weight if no Respect
 
         if(respect_itr != respect.end()) {
             voter_respect = respect_itr->respect;
-            // Cap maximum individual influence to prevent whale control
             if(voter_respect > g.max_vote_weight) {
                 voter_respect = g.max_vote_weight;
             }
         }
 
-        // Store or update vote
+        // Resolve tally row for this anchor
+        votetally_table tallies(get_self(), get_self().value);
+        auto tally_itr = tallies.find(anchor_itr->id);
+        check(tally_itr != tallies.end(), "Vote tally not found for anchor");
+
+        // Find existing vote for this voter+hash
         votes_table votes(get_self(), get_self().value);
         auto vote_idx = votes.get_index<"byvoterhash"_n>();
         uint128_t composite_key = combine_keys(voter.value, tx_hash);
         auto vote_itr = vote_idx.find(composite_key);
 
-        if(vote_itr == vote_idx.end()) {
-            // New vote
-            votes.emplace(voter, [&](auto& v) {
-                v.id = votes.available_primary_key();
-                v.tx_hash = tx_hash;
-                v.voter = voter;
-                v.val = val;
-                v.weight = voter_respect;
-                v.ts = current_time_point();
-            });
-        } else {
-            // Update existing vote (allows changing mind during voting window)
-            vote_idx.modify(vote_itr, voter, [&](auto& v) {
-                v.val = val;
-                v.weight = voter_respect;
-                v.ts = current_time_point();
-            });
+        bool has_old_vote = (vote_itr != vote_idx.end());
+
+        // Remove old vote contribution from tally
+        if(has_old_vote) {
+            tally_remove_contribution(tallies, tally_itr, vote_itr->val, vote_itr->weight);
         }
+
+        if(val == 0) {
+            // Clear vote: erase row, tally already decremented above
+            if(has_old_vote) {
+                vote_idx.erase(vote_itr);
+            }
+        } else {
+            // Add or update vote row
+            if(!has_old_vote) {
+                votes.emplace(voter, [&](auto& v) {
+                    v.id = votes.available_primary_key();
+                    v.tx_hash = tx_hash;
+                    v.voter = voter;
+                    v.val = val;
+                    v.weight = voter_respect;
+                    v.ts = current_time_point();
+                });
+            } else {
+                vote_idx.modify(vote_itr, voter, [&](auto& v) {
+                    v.val = val;
+                    v.weight = voter_respect;
+                    v.ts = current_time_point();
+                });
+            }
+
+            // Add new vote contribution to tally
+            tally_add_contribution(tallies, tally_itr, val, voter_respect);
+        }
+
+        // Update tally timestamp
+        tallies.modify(tally_itr, same_payer, [&](auto& t) {
+            t.updated_at = current_time_point();
+        });
     }
 
     /**
@@ -685,8 +721,13 @@ public:
         check(current_time_point().sec_since_epoch() >= anchor_itr->expires_at,
               "Voting window still open");
 
-        // Calculate weighted vote totals
-        auto [up_votes, down_votes] = calculate_weighted_votes(tx_hash);
+        // Read aggregate tallies directly from on-chain tally table
+        votetally_table tallies(get_self(), get_self().value);
+        auto tally_itr = tallies.find(anchor_itr->id);
+        check(tally_itr != tallies.end(), "Vote tally not found for anchor");
+
+        uint64_t up_votes = tally_itr->up_weight;
+        uint64_t down_votes = tally_itr->down_weight;
         uint64_t total_votes = up_votes + down_votes;
 
         // Retrieve escrowed amount (tokens were minted at submission time)
@@ -1388,6 +1429,28 @@ private:
         EOSLIB_SERIALIZE(like_aggregate, (id)(node_id)(like_count))
     };
 
+    /**
+     * @brief Per-anchor vote tally (aggregate vote weights)
+     *
+     * One row per anchor. Updated atomically with individual vote rows.
+     * Used by finalize() for settlement and by the Curate UI for display.
+     */
+    TABLE vote_tally {
+        uint64_t    anchor_id;         // Primary key (matches anchor.id)
+        checksum256 tx_hash;           // Anchor event hash (for lookup)
+        uint64_t    up_weight = 0;     // Sum of upvote weights
+        uint64_t    down_weight = 0;   // Sum of downvote weights
+        uint32_t    up_voter_count = 0;   // Number of upvoters
+        uint32_t    down_voter_count = 0; // Number of downvoters
+        time_point  updated_at;        // Last tally update
+
+        uint64_t primary_key() const { return anchor_id; }
+        checksum256 by_hash() const { return tx_hash; }
+
+        EOSLIB_SERIALIZE(vote_tally, (anchor_id)(tx_hash)(up_weight)(down_weight)
+                                     (up_voter_count)(down_voter_count)(updated_at))
+    };
+
 
     /**
      * @brief Pending staker rewards (scoped by account)
@@ -1499,6 +1562,10 @@ private:
         indexed_by<"bynode"_n, const_mem_fun<like_aggregate, checksum256, &like_aggregate::by_node>>
     > likeagg_table;
 
+    typedef eosio::multi_index<"votetally"_n, vote_tally,
+        indexed_by<"byhash"_n, const_mem_fun<vote_tally, checksum256, &vote_tally::by_hash>>
+    > votetally_table;
+
     typedef eosio::multi_index<"pendingrwd"_n, pending_reward,
         indexed_by<"bynode"_n, const_mem_fun<pending_reward, checksum256, &pending_reward::by_node>>
     > pending_rewards_table;
@@ -1609,7 +1676,43 @@ private:
     }
 
     /**
-     * @brief Calculate weighted vote totals for an event
+     * @brief Remove a vote's contribution from the tally (underflow-safe)
+     */
+    void tally_remove_contribution(votetally_table& tallies,
+                                    votetally_table::const_iterator tally_itr,
+                                    int8_t old_val, uint32_t old_weight) {
+        if(old_val == 0) return; // No contribution to remove
+        tallies.modify(tally_itr, same_payer, [&](auto& t) {
+            if(old_val == 1) {
+                t.up_weight = (t.up_weight >= old_weight) ? t.up_weight - old_weight : 0;
+                t.up_voter_count = (t.up_voter_count > 0) ? t.up_voter_count - 1 : 0;
+            } else if(old_val == -1) {
+                t.down_weight = (t.down_weight >= old_weight) ? t.down_weight - old_weight : 0;
+                t.down_voter_count = (t.down_voter_count > 0) ? t.down_voter_count - 1 : 0;
+            }
+        });
+    }
+
+    /**
+     * @brief Add a vote's contribution to the tally
+     */
+    void tally_add_contribution(votetally_table& tallies,
+                                 votetally_table::const_iterator tally_itr,
+                                 int8_t val, uint32_t weight) {
+        if(val == 0) return;
+        tallies.modify(tally_itr, same_payer, [&](auto& t) {
+            if(val == 1) {
+                t.up_weight += weight;
+                t.up_voter_count += 1;
+            } else if(val == -1) {
+                t.down_weight += weight;
+                t.down_voter_count += 1;
+            }
+        });
+    }
+
+    /**
+     * @brief Calculate weighted vote totals for an event (legacy scan, kept for compatibility)
      *
      * @return pair<up_votes, down_votes> weighted by Respect
      */

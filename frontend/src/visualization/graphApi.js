@@ -454,6 +454,32 @@ export class GraphAPI {
     }
 
     /**
+     * Fetch curate operations (anchored submissions with vote tallies)
+     * @param {Object} [opts] - Query options
+     * @param {number} [opts.limit=50]
+     * @param {string} [opts.lower_bound]
+     * @param {number} [opts.type] - Event type filter
+     * @returns {Promise<Object>} { success, operations, more, next_key }
+     */
+    async fetchCurateOperations(opts = {}) {
+        try {
+            const params = new URLSearchParams();
+            if (opts.limit) params.set('limit', String(opts.limit));
+            if (opts.lower_bound) params.set('lower_bound', opts.lower_bound);
+            if (opts.type !== undefined) params.set('type', String(opts.type));
+
+            const qs = params.toString();
+            const url = `${this.baseUrl}/curate/operations${qs ? '?' + qs : ''}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching curate operations:', error);
+            return { success: false, operations: [], more: false };
+        }
+    }
+
+    /**
      * Clear cache
      */
     clearCache() {
