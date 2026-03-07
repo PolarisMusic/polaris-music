@@ -16,6 +16,7 @@ import { ColorPalette } from './colorPalette.js';
 import { PathTracker } from './PathTracker.js';
 import { LikeManager } from './LikeManager.js';
 import { ClaimManager } from './ClaimManager.js';
+import { ReleaseOrbitOverlay } from './ReleaseOrbitOverlay.js';
 
 export class MusicGraph {
     constructor(containerId, walletManager) {
@@ -30,6 +31,11 @@ export class MusicGraph {
         this.pathTracker = new PathTracker();
         this.likeManager = new LikeManager(this.walletManager, this.pathTracker);
         this.claimManager = new ClaimManager(this.walletManager);
+        this.releaseOverlay = new ReleaseOrbitOverlay({
+            api: this.api,
+            onReleaseSelect: (details) => this._onOverlayReleaseSelect(details),
+            onGuestClick: (personId) => this.navigateToNodeId(personId)
+        });
 
         // State tracking
         this.hoveredNode = null;
@@ -37,6 +43,7 @@ export class MusicGraph {
         this.labelsVisible = true;
         this.historyPanelOpen = false;
         this.favoritesPanelOpen = false;
+        this.curatePanelOpen = false;
 
         // On-chain favorites state
         this.chainFavorites = new Set();
@@ -304,8 +311,7 @@ export class MusicGraph {
                 },
 
                 onMouseWheel: (delta, e) => {
-                    // Let JIT apply zoom first, then sync slider
-                    setTimeout(() => this.syncZoomSlider(), 0);
+                    // Wheel zoom disabled (controls removed)
                 }
             },
 
@@ -319,7 +325,7 @@ export class MusicGraph {
             Navigation: {
                 enable: true,
                 panning: false,
-                zooming: 20
+                zooming: false
             },
 
             // Controller callbacks
@@ -346,6 +352,8 @@ export class MusicGraph {
         });
 
         this.setupLongPressPan();
+        this._isolateInfoPanelScroll();
+        window.addEventListener('resize', () => this._updateOverlayPosition());
         console.log('Hypertree initialized');
     }
 
@@ -362,6 +370,16 @@ export class MusicGraph {
         el.addEventListener('mousemove', (e) => this.onPanMouseMove(e));
         window.addEventListener('mouseup', (e) => this.onPanMouseUp(e));
         el.addEventListener('mouseleave', (e) => this.onPanMouseUp(e));
+    }
+
+    /**
+     * Prevent wheel/touch events inside the info panel from reaching the graph canvas.
+     */
+    _isolateInfoPanelScroll() {
+        const infoContent = document.getElementById('info-content');
+        if (!infoContent) return;
+        infoContent.addEventListener('wheel', (e) => e.stopPropagation());
+        infoContent.addEventListener('touchmove', (e) => e.stopPropagation());
     }
 
     eventToCanvasPos(e) {
@@ -421,6 +439,7 @@ export class MusicGraph {
         if (!this._pan.raf) {
             this._pan.raf = requestAnimationFrame(() => {
                 this.ht.plot();
+                this._updateOverlayPosition();
                 this._pan.raf = null;
             });
         }
@@ -671,6 +690,7 @@ export class MusicGraph {
         this.ht.onClick(node.id, {
             onComplete: () => {
                 this.updateInfoPanel(node);
+                this._syncReleaseOverlay(node);
             }
         });
     }
@@ -832,6 +852,15 @@ export class MusicGraph {
         }
         html += this._editableRow('person', nodeId, 'photo', person.photo || '', 'Photo URL');
 
+        if (person.color) {
+            html += `<div class="info-color-row">
+                <strong>Color:</strong>
+                <span class="info-color-swatch" style="background:${esc(person.color)}"></span>
+                <span class="info-color-hex">${esc(person.color)}</span>
+                <input type="color" class="color-picker-input" data-node-id="${esc(nodeId)}" value="${esc(person.color)}" title="Edit color" />
+            </div>`;
+        }
+
         if (person.city) {
             html += `<p class="info-meta"><strong>Location:</strong> ${esc(person.city)}</p>`;
         }
@@ -858,6 +887,227 @@ export class MusicGraph {
 
         contentElement.innerHTML = html;
         this._attachEditListeners(contentElement);
+        this._attachColorPickerListeners(contentElement);
+    }
+
+    /**
+     * Attach change listeners to color picker inputs.
+     * On change, submits the new color via ClaimManager.
+     * @private
+     */
+    _attachColorPickerListeners(container) {
+        container.querySelectorAll('.color-picker-input').forEach(picker => {
+            picker.addEventListener('change', async (e) => {
+                const newColor = e.target.value;
+                const pickerNodeId = picker.dataset.nodeId;
+                try {
+                    await this.claimManager.submitEdit('person', pickerNodeId, 'color', newColor);
+                    // Update swatch and hex display immediately
+                    const row = picker.closest('.info-color-row');
+                    if (row) {
+                        const swatch = row.querySelector('.info-color-swatch');
+                        const hex = row.querySelector('.info-color-hex');
+                        if (swatch) swatch.style.background = newColor;
+                        if (hex) hex.textContent = newColor;
+                    }
+                    // Update the graph node color in-memory for immediate visual feedback
+                    if (this.selectedNode) {
+                        this.selectedNode.data.color = newColor;
+                        if (this.ht) this.ht.plot();
+                    }
+                } catch (error) {
+                    console.error('Color edit failed:', error);
+                    alert('Color edit failed: ' + error.message);
+                }
+            });
+        });
+    }
+
+    // ========== Release orbit overlay integration ==========
+
+    /**
+     * Convert a JIT node's Poincaré position to viewport screen coordinates.
+     * @param {Object} node - JIT graph node
+     * @returns {{x: number, y: number, dim: number}} Screen position and visual radius
+     */
+    _getNodeScreenPos(node) {
+        const canvas = this.ht.canvas;
+        const size = canvas.getSize();
+        const pos = canvas.getPos();
+        const ox = canvas.translateOffsetX;
+        const oy = canvas.translateOffsetY;
+        const sx = canvas.scaleOffsetX;
+        const sy = canvas.scaleOffsetY;
+
+        const p = node.pos.getc();
+        const sqNorm = p.squaredNorm();
+        // $scale mutates in place, so use the result directly for screen calc
+        const scaledX = p.x * node.scale;
+        const scaledY = p.y * node.scale;
+
+        const screenX = pos.x + size.width / 2 + ox + scaledX * sx;
+        const screenY = pos.y + size.height / 2 + oy + scaledY * sy;
+
+        // Compute visual dimension (same transform as node renderer)
+        let dim = node.getData('dim') || 9;
+        if (this.ht.config.Node.transform) {
+            dim = dim * (1 - sqNorm);
+        }
+
+        return { x: screenX, y: screenY, dim };
+    }
+
+    /**
+     * Show or hide the release orbit overlay based on node type.
+     * @param {Object} node - Selected JIT graph node
+     */
+    async _syncReleaseOverlay(node) {
+        const nodeType = (node.data.type || '').toLowerCase();
+
+        if (nodeType !== 'group') {
+            this.releaseOverlay.hide();
+            return;
+        }
+
+        const groupId = node.data.group_id || node.id;
+        const { x, y, dim } = this._getNodeScreenPos(node);
+
+        // Account for donut ring outer radius
+        const slices = node.getData('donutSlices');
+        let visualRadius = dim;
+        if (slices && slices.length > 0) {
+            const gap = Math.max(2, dim * 0.20);
+            const thickness = Math.max(3, dim * 0.45);
+            visualRadius = dim + gap + thickness;
+        }
+
+        // Convert to overlay-relative coordinates (overlay is positioned inside viz-container)
+        const vizContainer = document.getElementById('viz-container');
+        const vizRect = vizContainer ? vizContainer.getBoundingClientRect() : { left: 0, top: 0 };
+        const relX = x - vizRect.left;
+        const relY = y - vizRect.top;
+
+        await this.releaseOverlay.show(groupId, { x: relX, y: relY }, visualRadius);
+    }
+
+    /**
+     * Update overlay position (called after graph re-render).
+     */
+    _updateOverlayPosition() {
+        if (!this.releaseOverlay.visible || !this.selectedNode) return;
+        const { x, y, dim } = this._getNodeScreenPos(this.selectedNode);
+
+        const slices = this.selectedNode.getData('donutSlices');
+        let visualRadius = dim;
+        if (slices && slices.length > 0) {
+            const gap = Math.max(2, dim * 0.20);
+            const thickness = Math.max(3, dim * 0.45);
+            visualRadius = dim + gap + thickness;
+        }
+
+        const vizContainer = document.getElementById('viz-container');
+        const vizRect = vizContainer ? vizContainer.getBoundingClientRect() : { left: 0, top: 0 };
+        const relX = x - vizRect.left;
+        const relY = y - vizRect.top;
+
+        this.releaseOverlay.updatePosition({ x: relX, y: relY }, visualRadius);
+    }
+
+    /**
+     * Callback when a release is selected/deselected in the overlay.
+     * @param {Object|null} releaseDetails - Full release data or null to restore group view
+     */
+    _onOverlayReleaseSelect(releaseDetails) {
+        if (!releaseDetails) {
+            // Restore group info panel
+            if (this.selectedNode) {
+                this.updateInfoPanel(this.selectedNode);
+            }
+            return;
+        }
+
+        this.showReleaseDetailsInInfoPanel(releaseDetails);
+    }
+
+    /**
+     * Display release details in the info viewer (called from overlay).
+     * @param {Object} release - Release details from API
+     */
+    showReleaseDetailsInInfoPanel(release) {
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+        if (!infoTitle || !infoContent) return;
+
+        this.renderReleaseDetails(release, infoTitle, infoContent);
+    }
+
+    /**
+     * Render Release details in info panel
+     */
+    renderReleaseDetails(release, titleElement, contentElement) {
+        titleElement.textContent = release.name || 'Unknown Release';
+
+        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        let html = '';
+
+        if (release.album_art) {
+            html += `<div class="info-photo"><img src="${esc(release.album_art)}" alt="${esc(release.name)}" /></div>`;
+        }
+
+        if (release.release_date) {
+            html += `<p class="info-meta"><strong>Released:</strong> ${esc(release.release_date)}</p>`;
+        }
+
+        if (release.format) {
+            html += `<p class="info-meta"><strong>Format:</strong> ${esc(release.format)}</p>`;
+        }
+
+        // Labels
+        if (release.labels && release.labels.length > 0) {
+            html += `<p class="info-meta"><strong>Label:</strong> ${release.labels.map(l => esc(l.label || l.name)).join(', ')}</p>`;
+        }
+
+        // Groups
+        if (release.groups && release.groups.length > 0) {
+            html += `<div class="info-section"><h4>Performed by</h4><ul class="info-list">`;
+            release.groups.forEach(g => {
+                html += `<li><strong>${esc(g.name)}</strong></li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        // Tracks
+        if (release.tracks && release.tracks.length > 0) {
+            html += `<div class="info-section"><h4>Tracks</h4><ol class="info-list info-tracklist">`;
+            const sorted = [...release.tracks].sort((a, b) => {
+                const da = (a.disc_number || 1);
+                const db = (b.disc_number || 1);
+                if (da !== db) return da - db;
+                return (a.track_number || 0) - (b.track_number || 0);
+            });
+            sorted.forEach(t => {
+                const side = t.side ? `${esc(t.side)}-` : '';
+                const num = t.track_number ? `${side}${t.track_number}. ` : '';
+                html += `<li>${num}${esc(t.track || t.title || 'Untitled')}</li>`;
+            });
+            html += `</ol></div>`;
+        }
+
+        // Guests
+        if (release.guests && release.guests.length > 0) {
+            html += `<div class="info-section"><h4>Guests</h4><ul class="info-list">`;
+            release.guests.forEach(g => {
+                const roles = g.roles && g.roles.length > 0 ? ` - ${g.roles.map(r => esc(r)).join(', ')}` : '';
+                html += `<li><strong>${esc(g.name)}</strong>${roles}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        if (release.liner_notes) {
+            html += `<div class="info-section"><h4>Liner Notes</h4><p>${esc(release.liner_notes)}</p></div>`;
+        }
+
+        contentElement.innerHTML = html;
     }
 
     /**
@@ -991,6 +1241,7 @@ export class MusicGraph {
      */
     centerView() {
         if (!this.ht) return;
+        this.releaseOverlay.hide();
         const root = this.ht.root;
         if (root) {
             this.ht.onClick(root, {
@@ -1338,10 +1589,195 @@ export class MusicGraph {
         await this.rebuildHashIndexFromRawGraph();
     }
 
+    // ========== Curate Panel ==========
+
+    toggleCuratePanel() {
+        this.curatePanelOpen = !this.curatePanelOpen;
+        const panel = document.getElementById('curate-panel');
+        if (!panel) return;
+
+        if (this.curatePanelOpen) {
+            panel.style.display = 'flex';
+            this.renderCuratePanel();
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    async renderCuratePanel() {
+        const list = document.getElementById('curate-list');
+        if (!list) return;
+
+        list.innerHTML = '<div class="history-empty">Loading operations...</div>';
+
+        try {
+            const resp = await this.api.fetchCurateOperations({ limit: 50 });
+            if (!resp.success || !resp.operations || resp.operations.length === 0) {
+                list.innerHTML = '<div class="history-empty">No operations found.</div>';
+                return;
+            }
+
+            list.innerHTML = '';
+            for (const op of resp.operations) {
+                list.appendChild(this._renderCurateRow(op));
+            }
+        } catch (e) {
+            console.error('Failed to render curate panel:', e);
+            list.innerHTML = '<div class="history-empty">Failed to load operations.</div>';
+        }
+    }
+
+    _renderCurateRow(op) {
+        const row = document.createElement('div');
+        row.className = 'curate-row';
+
+        // Event type label
+        const typeNames = {
+            21: 'Release', 30: 'Add Claim', 31: 'Edit Claim',
+            40: 'Vote', 41: 'Like', 50: 'Finalize', 60: 'Merge'
+        };
+        const typeName = typeNames[op.type] || `Type ${op.type}`;
+
+        // Summary text
+        const summary = op.event_summary;
+        let title = summary?.release_name || summary?.group_name || op.hash.substring(0, 12) + '...';
+
+        // Time
+        const ts = op.ts ? new Date(op.ts + 'Z') : null;
+        const timeStr = ts ? ts.toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+
+        // Tally
+        const tally = op.tally || { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 };
+        const netScore = tally.up_weight - tally.down_weight;
+
+        // Status
+        const statusClass = op.finalized ? 'curate-status--finalized' : '';
+        const statusLabel = op.finalized ? 'Finalized' : 'Open';
+
+        row.innerHTML = `
+            <div class="curate-row__header">
+                <span class="curate-type-badge curate-type-${op.type}">${typeName}</span>
+                <span class="curate-row__title">${this._escapeHtml(title)}</span>
+                <span class="curate-row__time">${timeStr}</span>
+            </div>
+            <div class="curate-row__author">by ${this._escapeHtml(op.author)}</div>
+            <div class="curate-row__tally">
+                <span class="curate-score ${netScore > 0 ? 'curate-score--positive' : netScore < 0 ? 'curate-score--negative' : ''}">
+                    ${netScore > 0 ? '+' : ''}${netScore}
+                </span>
+                <span class="curate-voters">
+                    <span class="curate-up">${tally.up_weight} (${tally.up_voter_count})</span>
+                    /
+                    <span class="curate-down">${tally.down_weight} (${tally.down_voter_count})</span>
+                </span>
+                <span class="curate-status ${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="curate-row__actions"></div>
+        `;
+
+        // Vote buttons (only if not finalized and wallet connected)
+        if (!op.finalized) {
+            const actionsDiv = row.querySelector('.curate-row__actions');
+            const upBtn = document.createElement('button');
+            upBtn.className = 'curate-vote-btn curate-vote-up';
+            upBtn.textContent = 'Upvote';
+            upBtn.addEventListener('click', () => this._curateVote(op, 1, row));
+
+            const downBtn = document.createElement('button');
+            downBtn.className = 'curate-vote-btn curate-vote-down';
+            downBtn.textContent = 'Downvote';
+            downBtn.addEventListener('click', () => this._curateVote(op, -1, row));
+
+            actionsDiv.appendChild(upBtn);
+            actionsDiv.appendChild(downBtn);
+        }
+
+        return row;
+    }
+
+    async _curateVote(op, val, rowEl) {
+        if (!this.walletManager?.isConnected()) {
+            alert('Please connect your wallet to vote.');
+            return;
+        }
+
+        const session = this.walletManager.getSessionInfo();
+        const contractAccount = this.walletManager.config.contractAccount;
+
+        try {
+            // Disable buttons while voting
+            const btns = rowEl.querySelectorAll('.curate-vote-btn');
+            btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+
+            await this.walletManager.transact({
+                account: contractAccount,
+                name: 'vote',
+                authorization: [{
+                    actor: session.accountName,
+                    permission: session.permission
+                }],
+                data: {
+                    voter: session.accountName,
+                    hash: op.hash,
+                    val: val
+                }
+            });
+
+            // Refetch tally from chain and update row
+            await this._refreshCurateRow(op, rowEl);
+        } catch (e) {
+            console.error('Vote failed:', e);
+            alert('Vote failed: ' + (e.message || e));
+            // Re-enable buttons
+            const btns = rowEl.querySelectorAll('.curate-vote-btn');
+            btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+        }
+    }
+
+    async _refreshCurateRow(op, rowEl) {
+        try {
+            const contractAccount = this.walletManager.config.contractAccount;
+            const tallyResp = await this.walletManager.getTableRows({
+                code: contractAccount,
+                scope: contractAccount,
+                table: 'votetally',
+                lower_bound: String(op.anchor_id),
+                upper_bound: String(op.anchor_id),
+                limit: 1
+            });
+
+            if (tallyResp.rows && tallyResp.rows[0]) {
+                const t = tallyResp.rows[0];
+                op.tally = {
+                    up_weight: parseInt(t.up_weight) || 0,
+                    down_weight: parseInt(t.down_weight) || 0,
+                    up_voter_count: parseInt(t.up_voter_count) || 0,
+                    down_voter_count: parseInt(t.down_voter_count) || 0
+                };
+            }
+
+            // Replace the row DOM
+            const newRow = this._renderCurateRow(op);
+            rowEl.replaceWith(newRow);
+        } catch (e) {
+            console.error('Failed to refresh tally:', e);
+            // Re-enable buttons as fallback
+            const btns = rowEl.querySelectorAll('.curate-vote-btn');
+            btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+        }
+    }
+
+    _escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
     /**
      * Destroy the visualization and clean up
      */
     destroy() {
+        this.releaseOverlay.hide();
         if (this.container) {
             this.container.innerHTML = '';
         }

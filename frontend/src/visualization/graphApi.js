@@ -161,20 +161,54 @@ export class GraphAPI {
     }
 
     /**
-     * Fetch releases for a group
+     * Fetch releases for a group (for release orbit overlay)
      * @param {string} groupId - Group ID
-     * @returns {Promise<Array>} Array of releases
+     * @returns {Promise<Object>} { success, groupId, releases }
      */
     async fetchGroupReleases(groupId) {
+        const cacheKey = `groupReleases:${groupId}`;
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            if (Date.now() - cached.timestamp < this.cacheTimeout) return cached.data;
+        }
+
         try {
             const response = await fetch(`${this.baseUrl}/group/${groupId}/releases`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            return await response.json();
+            const data = await response.json();
+            this.cache.set(cacheKey, { data, timestamp: Date.now() });
+            return data;
         } catch (error) {
             console.error('Error fetching group releases:', error);
-            return [];
+            return { success: false, releases: [] };
+        }
+    }
+
+    /**
+     * Fetch full release details (tracks, labels, groups, guests)
+     * @param {string} releaseId - Release ID
+     * @returns {Promise<Object>} Release details
+     */
+    async fetchReleaseDetails(releaseId) {
+        const cacheKey = `releaseDetails:${releaseId}`;
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            if (Date.now() - cached.timestamp < this.cacheTimeout) return cached.data;
+        }
+
+        try {
+            const response = await fetch(`${this.baseUrl}/release/${releaseId}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            this.cache.set(cacheKey, { data, timestamp: Date.now() });
+            return data;
+        } catch (error) {
+            console.error('Error fetching release details:', error);
+            return null;
         }
     }
 
@@ -417,6 +451,32 @@ export class GraphAPI {
 
         this.cache.set(cacheKey, { data, timestamp: Date.now() });
         return data;
+    }
+
+    /**
+     * Fetch curate operations (anchored submissions with vote tallies)
+     * @param {Object} [opts] - Query options
+     * @param {number} [opts.limit=50]
+     * @param {string} [opts.lower_bound]
+     * @param {number} [opts.type] - Event type filter
+     * @returns {Promise<Object>} { success, operations, more, next_key }
+     */
+    async fetchCurateOperations(opts = {}) {
+        try {
+            const params = new URLSearchParams();
+            if (opts.limit) params.set('limit', String(opts.limit));
+            if (opts.lower_bound) params.set('lower_bound', opts.lower_bound);
+            if (opts.type !== undefined) params.set('type', String(opts.type));
+
+            const qs = params.toString();
+            const url = `${this.baseUrl}/curate/operations${qs ? '?' + qs : ''}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching curate operations:', error);
+            return { success: false, operations: [], more: false };
+        }
     }
 
     /**
