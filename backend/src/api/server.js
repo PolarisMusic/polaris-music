@@ -686,39 +686,15 @@ class APIServer {
 
             // ========== SEARCH ==========
             search: async ({ query, limit = 10 }) => {
-                const session = this.db.driver.session();
-                try {
-                    const result = await session.run(`
-                        CALL db.index.fulltext.queryNodes('entitySearch', $query)
-                        YIELD node, score
-                        WHERE node.status = 'ACTIVE'
-                        RETURN node, labels(node)[0] as type, score
-                        ORDER BY score DESC
-                        LIMIT $limit
-                    `, { query, limit });
-
-                    return result.records.map(record => {
-                        const node = record.get('node').properties;
-                        const type = record.get('type');
-                        return { __typename: type, ...node };
-                    });
-                } catch (error) {
-                    // Fallback to simple name matching if fulltext index doesn't exist
-                    console.warn('Fulltext search failed, using fallback:', error.message);
-                    const result = await session.run(`
-                        MATCH (n)
-                        WHERE n.name CONTAINS $query
-                          AND n.status = 'ACTIVE'
-                        RETURN n, labels(n)[0] as type
-                        LIMIT $limit
-                    `, { query, limit });
-
-                    return result.records.map(record => {
-                        const node = record.get('n').properties;
-                        const type = record.get('type');
-                        return { __typename: type, ...node };
-                    });
-                }
+                const searchService = new NodeSearchService(this.db.driver);
+                const results = await searchService.search(query, { limit });
+                return results.map(r => ({
+                    __typename: r.type,
+                    id: r.id,
+                    name: r.display_name,
+                    type: r.type,
+                    ...r
+                }));
             },
 
             // ========== STATS ==========

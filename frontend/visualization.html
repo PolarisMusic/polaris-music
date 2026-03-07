@@ -19,6 +19,9 @@
         <div class="top-bar-left">
             <div class="logo">Polaris Music Registry</div>
         </div>
+        <div class="top-bar-center">
+            <div id="graph-search-container"></div>
+        </div>
         <div class="top-bar-right">
             <div class="user-info">
                 <span id="user-account">Not connected</span>
@@ -121,6 +124,7 @@
     <script type="module">
         import { MusicGraph } from './src/visualization/MusicGraph.js';
         import { WalletManager } from './src/wallet/WalletManager.js';
+        import { NodeSearchBox } from './src/components/NodeSearchBox.js';
 
         // Initialize wallet manager
         const walletManager = new WalletManager();
@@ -170,6 +174,18 @@
             // Pass walletManager to enable like functionality
             const graph = new MusicGraph('infovis', walletManager);
             window.musicGraph = graph; // For debugging
+
+            // Search bar in top bar
+            const searchContainer = document.getElementById('graph-search-container');
+            if (searchContainer) {
+                new NodeSearchBox({
+                    container: searchContainer,
+                    placeholder: 'Search nodes...',
+                    onSelect: (result) => {
+                        graph.navigateToNodeId(result.id);
+                    }
+                });
+            }
 
             // Load initial graph data from backend
             await graph.loadGraphData();
