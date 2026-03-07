@@ -149,6 +149,12 @@ textarea {
     transition: border-color 0.3s;
 }
 
+input::placeholder,
+textarea::placeholder {
+    color: #9aa0a6;
+    opacity: 1;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
