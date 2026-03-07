@@ -553,6 +553,20 @@ constructor(config = {}) {
                 }
             }
 
+            // ========== FULLTEXT INDEX FOR SEARCH ==========
+            try {
+                await session.run(`
+                    CREATE FULLTEXT INDEX entitySearch IF NOT EXISTS
+                    FOR (n:Person|Group|Release|Track|Song|Label|City)
+                    ON EACH [n.name, n.title, n.alt_names]
+                `);
+                this.log.debug('fulltext_index_created', { name: 'entitySearch' });
+            } catch (error) {
+                if (!error.message.includes('already exists')) {
+                    this.log.warn('fulltext_index_warning', { name: 'entitySearch', error: error.message });
+                }
+            }
+
             // ========== CHECK APOC AVAILABILITY (optional) ==========
             // APOC is no longer required — merge operations use native Cypher.
             // Detection kept for informational purposes only.

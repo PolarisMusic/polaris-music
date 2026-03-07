@@ -213,7 +213,7 @@ export class GraphAPI {
     }
 
     /**
-     * Search for nodes
+     * Search for nodes via the unified REST endpoint.
      * @param {string} query - Search query
      * @param {string} type - Node type filter (optional)
      * @returns {Promise<Array>} Search results
@@ -221,13 +221,14 @@ export class GraphAPI {
     async search(query, type = null) {
         try {
             const params = new URLSearchParams({ q: query });
-            if (type) params.append('type', type);
+            if (type) params.set('types', type);
 
-            const response = await fetch(`${this.baseUrl}/search?${params}`);
+            const response = await fetch(`${this.baseUrl}/search/nodes?${params}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            return await response.json();
+            const data = await response.json();
+            return data.success ? data.results : [];
         } catch (error) {
             console.error('Error searching:', error);
             return [];

@@ -37,18 +37,18 @@ export class FormBuilder {
 
             <div class="form-group">
                 <label>Label Name *</label>
-                <input type="text" name="label-name-${index}" required placeholder="Apple Records">
+                <input type="text" name="label-name-${index}" required placeholder="Label name (e.g. Apple Records)">
                 <small>UNIMPLEMENTED: Add autocomplete search for existing labels</small>
             </div>
 
             <div class="form-group">
                 <label>Alternative Names</label>
-                <input type="text" name="label-altnames-${index}" placeholder="Apple Corps (comma-separated)">
+                <input type="text" name="label-altnames-${index}" placeholder="Alternative names, comma-separated">
             </div>
 
             <div class="form-group">
                 <label>Parent Label (if subsidiary)</label>
-                <input type="text" name="label-parent-${index}" placeholder="EMI Records">
+                <input type="text" name="label-parent-${index}" placeholder="Parent label name (if subsidiary)">
                 <small>UNIMPLEMENTED: Add search for parent label</small>
             </div>
 
@@ -57,17 +57,17 @@ export class FormBuilder {
                 <div class="form-row">
                     <div class="form-group">
                         <label>City Name</label>
-                        <input type="text" name="label-city-name-${index}" placeholder="London">
+                        <input type="text" name="label-city-name-${index}" placeholder="City name">
                         <small>UNIMPLEMENTED: Add autocomplete for cities</small>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Latitude</label>
-                            <input type="number" step="0.00001" name="label-city-lat-${index}" placeholder="51.50735">
+                            <input type="number" step="0.00001" name="label-city-lat-${index}" placeholder="Latitude">
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="label-city-lon-${index}" placeholder="-0.12776">
+                            <input type="number" step="0.00001" name="label-city-lon-${index}" placeholder="Longitude">
                         </div>
                     </div>
                 </div>
@@ -101,7 +101,7 @@ export class FormBuilder {
 
             <div class="form-group">
                 <label>Name *</label>
-                <input type="text" name="${type}-name-${parentIndex}-${index}" required placeholder="Paul McCartney">
+                <input type="text" name="${type}-name-${parentIndex}-${index}" required placeholder="Person name (e.g. Paul McCartney)">
                 <small>UNIMPLEMENTED: Add autocomplete search for existing persons</small>
             </div>
 
@@ -109,7 +109,7 @@ export class FormBuilder {
                 <label>Roles *</label>
                 <div class="roles-container" data-person="${type}-${parentIndex}-${index}">
                     <input type="text" name="${type}-roles-${parentIndex}-${index}"
-                           placeholder="Add roles (comma-separated): Lead Vocals, Bass Guitar">
+                           placeholder="Roles, comma-separated (e.g. Lead Vocals, Bass Guitar)">
                     <small>Separate multiple roles with commas. UNIMPLEMENTED: Add role autocomplete/chips</small>
                 </div>
             </div>
@@ -119,16 +119,16 @@ export class FormBuilder {
                 <div class="form-row">
                     <div class="form-group">
                         <label>City Name</label>
-                        <input type="text" name="${type}-city-name-${parentIndex}-${index}" placeholder="London">
+                        <input type="text" name="${type}-city-name-${parentIndex}-${index}" placeholder="City name">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Latitude</label>
-                            <input type="number" step="0.00001" name="${type}-city-lat-${parentIndex}-${index}" placeholder="51.50735">
+                            <input type="number" step="0.00001" name="${type}-city-lat-${parentIndex}-${index}" placeholder="Latitude">
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="${type}-city-lon-${parentIndex}-${index}" placeholder="-0.12776">
+                            <input type="number" step="0.00001" name="${type}-city-lon-${parentIndex}-${index}" placeholder="Longitude">
                         </div>
                     </div>
                 </div>
@@ -159,13 +159,13 @@ export class FormBuilder {
 
             <div class="form-group">
                 <label>Group Name *</label>
-                <input type="text" name="group-name-${trackIndex}-${groupIndex}" required placeholder="The Beatles">
+                <input type="text" name="group-name-${trackIndex}-${groupIndex}" required placeholder="Group name (e.g. The Beatles)">
                 <small>UNIMPLEMENTED: Add autocomplete search for existing groups</small>
             </div>
 
             <div class="form-group">
                 <label>Alternative Names</label>
-                <input type="text" name="group-altnames-${trackIndex}-${groupIndex}" placeholder="The Fab Four">
+                <input type="text" name="group-altnames-${trackIndex}-${groupIndex}" placeholder="Alternative names, comma-separated">
             </div>
 
             <div class="subsection">
@@ -211,7 +211,7 @@ export class FormBuilder {
 
             <div class="form-group">
                 <label>Name *</label>
-                <input type="text" name="release-guest-name-${index}" required placeholder="George Martin">
+                <input type="text" name="release-guest-name-${index}" required placeholder="Person name (e.g. George Martin)">
                 <small>UNIMPLEMENTED: Add autocomplete search for existing persons</small>
             </div>
 
@@ -219,7 +219,7 @@ export class FormBuilder {
                 <label>Roles *</label>
                 <div class="roles-container" data-person="release-guest-${index}">
                     <input type="text" name="release-guest-roles-${index}"
-                           placeholder="Add roles (comma-separated): Mastering Engineer, Producer">
+                           placeholder="Roles, comma-separated (e.g. Mastering Engineer, Producer)">
                     <small>Separate multiple roles with commas. UNIMPLEMENTED: Add role autocomplete/chips</small>
                 </div>
             </div>
@@ -229,16 +229,16 @@ export class FormBuilder {
                 <div class="form-row">
                     <div class="form-group">
                         <label>City Name</label>
-                        <input type="text" name="release-guest-city-name-${index}" placeholder="London">
+                        <input type="text" name="release-guest-city-name-${index}" placeholder="City name">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Latitude</label>
-                            <input type="number" step="0.00001" name="release-guest-city-lat-${index}" placeholder="51.50735">
+                            <input type="number" step="0.00001" name="release-guest-city-lat-${index}" placeholder="Latitude">
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="release-guest-city-lon-${index}" placeholder="-0.12776">
+                            <input type="number" step="0.00001" name="release-guest-city-lon-${index}" placeholder="Longitude">
                         </div>
                     </div>
                 </div>
@@ -270,13 +270,13 @@ export class FormBuilder {
 
             <div class="form-group">
                 <label>Group Name *</label>
-                <input type="text" name="release-group-name-${index}" required placeholder="The Beatles" data-group-index="${index}">
+                <input type="text" name="release-group-name-${index}" required placeholder="Group name (e.g. The Beatles)" data-group-index="${index}">
                 <small>This group will be added to all tracks. You can remove it from individual tracks if needed.</small>
             </div>
 
             <div class="form-group">
                 <label>Alternative Names</label>
-                <input type="text" name="release-group-altnames-${index}" placeholder="The Fab Four">
+                <input type="text" name="release-group-altnames-${index}" placeholder="Alternative names, comma-separated">
             </div>
 
             <div class="subsection">
@@ -323,7 +323,7 @@ export class FormBuilder {
 
             <div class="form-group">
                 <label>Track Title *</label>
-                <input type="text" name="track-title-${index}" required placeholder="Back in the U.S.S.R.">
+                <input type="text" name="track-title-${index}" required placeholder="Track title">
             </div>
 
             <div class="form-group">
@@ -379,12 +379,12 @@ export class FormBuilder {
                 <h4>Cover & Sample Information</h4>
                 <div class="form-group">
                     <label>Cover of (original track ID)</label>
-                    <input type="text" name="track-cover-${index}" placeholder="Original track hash (if this is a cover)">
+                    <input type="text" name="track-cover-${index}" placeholder="Original track ID (if this is a cover)">
                     <small>UNIMPLEMENTED: Add search for original tracks</small>
                 </div>
                 <div class="form-group">
                     <label>Samples (sampled track IDs)</label>
-                    <input type="text" name="track-samples-${index}" placeholder="Comma-separated sampled track IDs (polaris:track:...)">
+                    <input type="text" name="track-samples-${index}" placeholder="Sampled track IDs, comma-separated">
                     <small>UNIMPLEMENTED: Add multi-select search for sampled tracks</small>
                 </div>
             </div>

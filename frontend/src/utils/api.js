@@ -2,6 +2,8 @@
  * API client for Polaris Music Registry backend
  */
 
+import { searchNodes } from './searchClient.js';
+
 /**
  * Normalize API URL to ensure it has the /api prefix
  * @param {string} url - Base URL (with or without /api)
@@ -137,22 +139,26 @@ class APIClient {
     }
 
     /**
-     * Search for existing entities in the database
-     * UNIMPLEMENTED: This would query the backend for matching entities
-     * TODO: Implement autocomplete search functionality
+     * Search for existing entities in the database.
+     * Delegates to the shared searchClient.
      *
-     * @param {string} type - Entity type (person, group, label, city, role)
+     * @param {string} type - Entity type (person, group, label, city)
      * @param {string} query - Search query
      * @returns {Promise<Array>} Matching entities
      */
     async search(type, query) {
-        // UNIMPLEMENTED: Would call backend search endpoint
-        // const response = await fetch(`${API_BASE_URL}/search?type=${type}&q=${encodeURIComponent(query)}`);
-        // if (!response.ok) throw new Error('Search failed');
-        // return response.json();
-
-        console.warn('Search not implemented - returning empty results');
-        return [];
+        // Map form field types to Neo4j labels
+        const typeMap = {
+            person: 'Person',
+            group: 'Group',
+            label: 'Label',
+            city: 'City',
+            track: 'Track',
+            song: 'Song',
+            release: 'Release'
+        };
+        const mapped = typeMap[type.toLowerCase()] || type;
+        return searchNodes(query, { types: [mapped], limit: 10 });
     }
 
     /**

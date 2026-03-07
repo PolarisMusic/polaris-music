@@ -28,6 +28,7 @@ import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 
 import { IngestionHandler } from './ingestion.js';
+import { NodeSearchService } from './nodeSearchService.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
 import { createHash, timingSafeEqual } from 'crypto';
@@ -685,39 +686,15 @@ class APIServer {
 
             // ========== SEARCH ==========
             search: async ({ query, limit = 10 }) => {
-                const session = this.db.driver.session();
-                try {
-                    const result = await session.run(`
-                        CALL db.index.fulltext.queryNodes('entitySearch', $query)
-                        YIELD node, score
-                        WHERE node.status = 'ACTIVE'
-                        RETURN node, labels(node)[0] as type, score
-                        ORDER BY score DESC
-                        LIMIT $limit
-                    `, { query, limit });
-
-                    return result.records.map(record => {
-                        const node = record.get('node').properties;
-                        const type = record.get('type');
-                        return { __typename: type, ...node };
-                    });
-                } catch (error) {
-                    // Fallback to simple name matching if fulltext index doesn't exist
-                    console.warn('Fulltext search failed, using fallback:', error.message);
-                    const result = await session.run(`
-                        MATCH (n)
-                        WHERE n.name CONTAINS $query
-                          AND n.status = 'ACTIVE'
-                        RETURN n, labels(n)[0] as type
-                        LIMIT $limit
-                    `, { query, limit });
-
-                    return result.records.map(record => {
-                        const node = record.get('n').properties;
-                        const type = record.get('type');
-                        return { __typename: type, ...node };
-                    });
-                }
+                const searchService = new NodeSearchService(this.db.driver);
+                const results = await searchService.search(query, { limit });
+                return results.map(r => ({
+                    __typename: r.type,
+                    id: r.id,
+                    name: r.display_name,
+                    type: r.type,
+                    ...r
+                }));
             },
 
             // ========== STATS ==========
@@ -1874,6 +1851,34 @@ class APIServer {
                     success: false,
                     error: error.message
                 });
+            }
+        });
+
+        // ========== SEARCH ENDPOINT ==========
+
+        /**
+         * GET /api/search/nodes?q=<query>&types=Person,Group&limit=20
+         * Unified node search across user-facing entity labels.
+         */
+        this.app.get('/api/search/nodes', async (req, res) => {
+            try {
+                const q = req.query.q;
+                if (!q || q.trim().length < 2) {
+                    return res.json({ success: true, results: [] });
+                }
+
+                const types = req.query.types
+                    ? req.query.types.split(',').map(t => t.trim()).filter(Boolean)
+                    : [];
+                const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+                const searchService = new NodeSearchService(this.db.driver);
+                const results = await searchService.search(q, { types, limit });
+
+                res.json({ success: true, results });
+            } catch (error) {
+                console.error('Node search failed:', error);
+                res.status(500).json({ success: false, error: error.message });
             }
         });
 
