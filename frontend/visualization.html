@@ -81,14 +81,8 @@
         <div id="viz-container">
             <div id="infovis"></div>
 
-            <!-- Release orbit overlay (positioned above canvas, below controls) -->
+            <!-- Release orbit overlay (positioned above canvas) -->
             <div id="release-orbit-overlay"></div>
-
-            <!-- Controls Overlay -->
-            <div id="controls-overlay">
-                <button id="center-view" class="btn-control">Center View</button>
-                <button id="toggle-labels" class="btn-control">Toggle Labels</button>
-            </div>
         </div>
 
         <!-- Info Viewer Panel -->
@@ -213,22 +207,6 @@
             if (helpBtn) {
                 helpBtn.addEventListener('click', () => {
                     window.open('https://www.reddit.com/r/polarismusic/', '_blank');
-                });
-            }
-
-            // Center View button
-            const centerViewBtn = document.getElementById('center-view');
-            if (centerViewBtn) {
-                centerViewBtn.addEventListener('click', () => {
-                    graph.centerView();
-                });
-            }
-
-            // Toggle Labels button
-            const toggleLabelsBtn = document.getElementById('toggle-labels');
-            if (toggleLabelsBtn) {
-                toggleLabelsBtn.addEventListener('click', () => {
-                    graph.toggleLabels();
                 });
             }
 

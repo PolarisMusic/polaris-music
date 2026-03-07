@@ -378,8 +378,8 @@ export class MusicGraph {
     _isolateInfoPanelScroll() {
         const infoContent = document.getElementById('info-content');
         if (!infoContent) return;
-        infoContent.addEventListener('wheel', (e) => e.stopPropagation());
-        infoContent.addEventListener('touchmove', (e) => e.stopPropagation());
+        infoContent.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+        infoContent.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
     }
 
     eventToCanvasPos(e) {
@@ -852,14 +852,13 @@ export class MusicGraph {
         }
         html += this._editableRow('person', nodeId, 'photo', person.photo || '', 'Photo URL');
 
-        if (person.color) {
-            html += `<div class="info-color-row">
-                <strong>Color:</strong>
-                <span class="info-color-swatch" style="background:${esc(person.color)}"></span>
-                <span class="info-color-hex">${esc(person.color)}</span>
-                <input type="color" class="color-picker-input" data-node-id="${esc(nodeId)}" value="${esc(person.color)}" title="Edit color" />
-            </div>`;
-        }
+        const currentColor = person.color || '#888888';
+        html += `<div class="info-color-row">
+            <strong>Color:</strong>
+            <span class="info-color-swatch" style="background:${esc(currentColor)}"></span>
+            <span class="info-color-hex">${esc(currentColor)}</span>
+            <input type="color" class="color-picker-input" data-node-id="${esc(nodeId)}" value="${esc(currentColor)}" title="Edit color" />
+        </div>`;
 
         if (person.city) {
             html += `<p class="info-meta"><strong>Location:</strong> ${esc(person.city)}</p>`;
@@ -910,10 +909,15 @@ export class MusicGraph {
                         if (swatch) swatch.style.background = newColor;
                         if (hex) hex.textContent = newColor;
                     }
-                    // Update the graph node color in-memory for immediate visual feedback
+                    // Update the graph node color via JIT API for immediate visual feedback
                     if (this.selectedNode) {
-                        this.selectedNode.data.color = newColor;
+                        this.selectedNode.setData('color', newColor);
                         if (this.ht) this.ht.plot();
+                    }
+                    // Patch rawGraph so merges don't revert the color
+                    if (this.rawGraph && this.rawGraph.nodes) {
+                        const rawNode = this.rawGraph.nodes.find(n => n.id === pickerNodeId);
+                        if (rawNode) rawNode.color = newColor;
                     }
                 } catch (error) {
                     console.error('Color edit failed:', error);

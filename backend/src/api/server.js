@@ -28,6 +28,7 @@ import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 
 import { IngestionHandler } from './ingestion.js';
+import { NodeSearchService } from './nodeSearchService.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
 import { createHash, timingSafeEqual } from 'crypto';
@@ -1874,6 +1875,34 @@ class APIServer {
                     success: false,
                     error: error.message
                 });
+            }
+        });
+
+        // ========== SEARCH ENDPOINT ==========
+
+        /**
+         * GET /api/search/nodes?q=<query>&types=Person,Group&limit=20
+         * Unified node search across user-facing entity labels.
+         */
+        this.app.get('/api/search/nodes', async (req, res) => {
+            try {
+                const q = req.query.q;
+                if (!q || q.trim().length < 2) {
+                    return res.json({ success: true, results: [] });
+                }
+
+                const types = req.query.types
+                    ? req.query.types.split(',').map(t => t.trim()).filter(Boolean)
+                    : [];
+                const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+                const searchService = new NodeSearchService(this.db.driver);
+                const results = await searchService.search(q, { types, limit });
+
+                res.json({ success: true, results });
+            } catch (error) {
+                console.error('Node search failed:', error);
+                res.status(500).json({ success: false, error: error.message });
             }
         });
 
