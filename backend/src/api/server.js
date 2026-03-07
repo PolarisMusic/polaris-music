@@ -1481,13 +1481,70 @@ class APIServer {
         });
 
         /**
+         * GET /api/group/:groupId/releases
+         * Get releases associated with a group (for release orbit overlay)
+         */
+        this.app.get('/api/group/:groupId/releases', async (req, res) => {
+            try {
+                const session = this.db.driver.session();
+                try {
+                    const result = await session.run(`
+                        MATCH (g:Group {group_id: $groupId})
+                        MATCH (g)-[:PERFORMED_ON]->(t:Track)-[:IN_RELEASE]->(r:Release)
+                        WITH g, r, count(DISTINCT t) as trackCount
+                        OPTIONAL MATCH (guest:Person)-[:GUEST_ON]->(gt:Track)-[:IN_RELEASE]->(r)
+                        WHERE NOT (guest)-[:MEMBER_OF]->(g)
+                        WITH r, trackCount, count(DISTINCT guest) as guestCount
+                        RETURN r.release_id as release_id,
+                               r.name as name,
+                               r.release_date as release_date,
+                               r.album_art as album_art,
+                               r.format as format,
+                               r.master_id as master_id,
+                               trackCount as track_count,
+                               guestCount as guest_count
+                        ORDER BY r.release_date ASC, r.name ASC
+                    `, { groupId: req.params.groupId });
+
+                    const releases = result.records.map(rec => ({
+                        release_id: rec.get('release_id'),
+                        name: rec.get('name'),
+                        release_date: rec.get('release_date'),
+                        album_art: rec.get('album_art'),
+                        format: rec.get('format'),
+                        master_id: rec.get('master_id'),
+                        track_count: typeof rec.get('track_count')?.toNumber === 'function'
+                            ? rec.get('track_count').toNumber() : rec.get('track_count'),
+                        guest_count: typeof rec.get('guest_count')?.toNumber === 'function'
+                            ? rec.get('guest_count').toNumber() : rec.get('guest_count')
+                    }));
+
+                    res.json({
+                        success: true,
+                        groupId: req.params.groupId,
+                        releases
+                    });
+                } finally {
+                    await session.close();
+                }
+            } catch (error) {
+                console.error('Group releases failed:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        /**
          * GET /api/release/:releaseId
-         * Get release details
+         * Get release details (includes tracks, labels, groups, and guests)
          */
         this.app.get('/api/release/:releaseId', async (req, res) => {
             try {
                 const session = this.db.driver.session();
                 try {
+                    // Main release + tracks + labels
                     const result = await session.run(`
                         MATCH (r:Release {release_id: $releaseId})
                         OPTIONAL MATCH (t:Track)-[ir:IN_RELEASE]->(r)
@@ -1517,12 +1574,44 @@ class APIServer {
                     const record = result.records[0];
                     const release = record.get('r').properties;
 
+                    // Groups that performed on this release
+                    const groupResult = await session.run(`
+                        MATCH (t:Track)-[:IN_RELEASE]->(:Release {release_id: $releaseId})
+                        MATCH (g:Group)-[:PERFORMED_ON]->(t)
+                        RETURN DISTINCT g.group_id as group_id, g.name as name
+                    `, { releaseId: req.params.releaseId });
+
+                    const groups = groupResult.records.map(r => ({
+                        group_id: r.get('group_id'),
+                        name: r.get('name')
+                    }));
+
+                    // Guests: persons credited via GUEST_ON on tracks in this release
+                    const guestResult = await session.run(`
+                        MATCH (t:Track)-[:IN_RELEASE]->(:Release {release_id: $releaseId})
+                        MATCH (p:Person)-[go:GUEST_ON]->(t)
+                        WITH p, collect(DISTINCT coalesce(go.role, go.instrument, '')) as roles
+                        RETURN p.person_id as person_id,
+                               p.name as name,
+                               p.color as color,
+                               roles
+                    `, { releaseId: req.params.releaseId });
+
+                    const guests = guestResult.records.map(r => ({
+                        person_id: r.get('person_id'),
+                        name: r.get('name'),
+                        color: r.get('color'),
+                        roles: r.get('roles').filter(Boolean)
+                    }));
+
                     res.json({
                         success: true,
                         data: {
                             ...release,
                             tracks: record.get('tracks').filter(t => t.track !== null),
-                            labels: record.get('labels').filter(l => l.label !== null)
+                            labels: record.get('labels').filter(l => l.label !== null),
+                            groups,
+                            guests
                         }
                     });
                 } finally {

@@ -161,20 +161,54 @@ export class GraphAPI {
     }
 
     /**
-     * Fetch releases for a group
+     * Fetch releases for a group (for release orbit overlay)
      * @param {string} groupId - Group ID
-     * @returns {Promise<Array>} Array of releases
+     * @returns {Promise<Object>} { success, groupId, releases }
      */
     async fetchGroupReleases(groupId) {
+        const cacheKey = `groupReleases:${groupId}`;
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            if (Date.now() - cached.timestamp < this.cacheTimeout) return cached.data;
+        }
+
         try {
             const response = await fetch(`${this.baseUrl}/group/${groupId}/releases`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            return await response.json();
+            const data = await response.json();
+            this.cache.set(cacheKey, { data, timestamp: Date.now() });
+            return data;
         } catch (error) {
             console.error('Error fetching group releases:', error);
-            return [];
+            return { success: false, releases: [] };
+        }
+    }
+
+    /**
+     * Fetch full release details (tracks, labels, groups, guests)
+     * @param {string} releaseId - Release ID
+     * @returns {Promise<Object>} Release details
+     */
+    async fetchReleaseDetails(releaseId) {
+        const cacheKey = `releaseDetails:${releaseId}`;
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            if (Date.now() - cached.timestamp < this.cacheTimeout) return cached.data;
+        }
+
+        try {
+            const response = await fetch(`${this.baseUrl}/release/${releaseId}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            this.cache.set(cacheKey, { data, timestamp: Date.now() });
+            return data;
+        } catch (error) {
+            console.error('Error fetching release details:', error);
+            return null;
         }
     }
 

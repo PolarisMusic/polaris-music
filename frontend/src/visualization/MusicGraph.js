@@ -16,6 +16,7 @@ import { ColorPalette } from './colorPalette.js';
 import { PathTracker } from './PathTracker.js';
 import { LikeManager } from './LikeManager.js';
 import { ClaimManager } from './ClaimManager.js';
+import { ReleaseOrbitOverlay } from './ReleaseOrbitOverlay.js';
 
 export class MusicGraph {
     constructor(containerId, walletManager) {
@@ -30,6 +31,11 @@ export class MusicGraph {
         this.pathTracker = new PathTracker();
         this.likeManager = new LikeManager(this.walletManager, this.pathTracker);
         this.claimManager = new ClaimManager(this.walletManager);
+        this.releaseOverlay = new ReleaseOrbitOverlay({
+            api: this.api,
+            onReleaseSelect: (details) => this._onOverlayReleaseSelect(details),
+            onGuestClick: (personId) => this.navigateToNodeId(personId)
+        });
 
         // State tracking
         this.hoveredNode = null;
@@ -346,6 +352,7 @@ export class MusicGraph {
 
         this.setupLongPressPan();
         this._isolateInfoPanelScroll();
+        window.addEventListener('resize', () => this._updateOverlayPosition());
         console.log('Hypertree initialized');
     }
 
@@ -431,6 +438,7 @@ export class MusicGraph {
         if (!this._pan.raf) {
             this._pan.raf = requestAnimationFrame(() => {
                 this.ht.plot();
+                this._updateOverlayPosition();
                 this._pan.raf = null;
             });
         }
@@ -681,6 +689,7 @@ export class MusicGraph {
         this.ht.onClick(node.id, {
             onComplete: () => {
                 this.updateInfoPanel(node);
+                this._syncReleaseOverlay(node);
             }
         });
     }
@@ -913,6 +922,193 @@ export class MusicGraph {
         });
     }
 
+    // ========== Release orbit overlay integration ==========
+
+    /**
+     * Convert a JIT node's Poincaré position to viewport screen coordinates.
+     * @param {Object} node - JIT graph node
+     * @returns {{x: number, y: number, dim: number}} Screen position and visual radius
+     */
+    _getNodeScreenPos(node) {
+        const canvas = this.ht.canvas;
+        const size = canvas.getSize();
+        const pos = canvas.getPos();
+        const ox = canvas.translateOffsetX;
+        const oy = canvas.translateOffsetY;
+        const sx = canvas.scaleOffsetX;
+        const sy = canvas.scaleOffsetY;
+
+        const p = node.pos.getc();
+        const sqNorm = p.squaredNorm();
+        // $scale mutates in place, so use the result directly for screen calc
+        const scaledX = p.x * node.scale;
+        const scaledY = p.y * node.scale;
+
+        const screenX = pos.x + size.width / 2 + ox + scaledX * sx;
+        const screenY = pos.y + size.height / 2 + oy + scaledY * sy;
+
+        // Compute visual dimension (same transform as node renderer)
+        let dim = node.getData('dim') || 9;
+        if (this.ht.config.Node.transform) {
+            dim = dim * (1 - sqNorm);
+        }
+
+        return { x: screenX, y: screenY, dim };
+    }
+
+    /**
+     * Show or hide the release orbit overlay based on node type.
+     * @param {Object} node - Selected JIT graph node
+     */
+    async _syncReleaseOverlay(node) {
+        const nodeType = (node.data.type || '').toLowerCase();
+
+        if (nodeType !== 'group') {
+            this.releaseOverlay.hide();
+            return;
+        }
+
+        const groupId = node.data.group_id || node.id;
+        const { x, y, dim } = this._getNodeScreenPos(node);
+
+        // Account for donut ring outer radius
+        const slices = node.getData('donutSlices');
+        let visualRadius = dim;
+        if (slices && slices.length > 0) {
+            const gap = Math.max(2, dim * 0.20);
+            const thickness = Math.max(3, dim * 0.45);
+            visualRadius = dim + gap + thickness;
+        }
+
+        // Convert to overlay-relative coordinates (overlay is positioned inside viz-container)
+        const vizContainer = document.getElementById('viz-container');
+        const vizRect = vizContainer ? vizContainer.getBoundingClientRect() : { left: 0, top: 0 };
+        const relX = x - vizRect.left;
+        const relY = y - vizRect.top;
+
+        await this.releaseOverlay.show(groupId, { x: relX, y: relY }, visualRadius);
+    }
+
+    /**
+     * Update overlay position (called after graph re-render).
+     */
+    _updateOverlayPosition() {
+        if (!this.releaseOverlay.visible || !this.selectedNode) return;
+        const { x, y, dim } = this._getNodeScreenPos(this.selectedNode);
+
+        const slices = this.selectedNode.getData('donutSlices');
+        let visualRadius = dim;
+        if (slices && slices.length > 0) {
+            const gap = Math.max(2, dim * 0.20);
+            const thickness = Math.max(3, dim * 0.45);
+            visualRadius = dim + gap + thickness;
+        }
+
+        const vizContainer = document.getElementById('viz-container');
+        const vizRect = vizContainer ? vizContainer.getBoundingClientRect() : { left: 0, top: 0 };
+        const relX = x - vizRect.left;
+        const relY = y - vizRect.top;
+
+        this.releaseOverlay.updatePosition({ x: relX, y: relY }, visualRadius);
+    }
+
+    /**
+     * Callback when a release is selected/deselected in the overlay.
+     * @param {Object|null} releaseDetails - Full release data or null to restore group view
+     */
+    _onOverlayReleaseSelect(releaseDetails) {
+        if (!releaseDetails) {
+            // Restore group info panel
+            if (this.selectedNode) {
+                this.updateInfoPanel(this.selectedNode);
+            }
+            return;
+        }
+
+        this.showReleaseDetailsInInfoPanel(releaseDetails);
+    }
+
+    /**
+     * Display release details in the info viewer (called from overlay).
+     * @param {Object} release - Release details from API
+     */
+    showReleaseDetailsInInfoPanel(release) {
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+        if (!infoTitle || !infoContent) return;
+
+        this.renderReleaseDetails(release, infoTitle, infoContent);
+    }
+
+    /**
+     * Render Release details in info panel
+     */
+    renderReleaseDetails(release, titleElement, contentElement) {
+        titleElement.textContent = release.name || 'Unknown Release';
+
+        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        let html = '';
+
+        if (release.album_art) {
+            html += `<div class="info-photo"><img src="${esc(release.album_art)}" alt="${esc(release.name)}" /></div>`;
+        }
+
+        if (release.release_date) {
+            html += `<p class="info-meta"><strong>Released:</strong> ${esc(release.release_date)}</p>`;
+        }
+
+        if (release.format) {
+            html += `<p class="info-meta"><strong>Format:</strong> ${esc(release.format)}</p>`;
+        }
+
+        // Labels
+        if (release.labels && release.labels.length > 0) {
+            html += `<p class="info-meta"><strong>Label:</strong> ${release.labels.map(l => esc(l.label || l.name)).join(', ')}</p>`;
+        }
+
+        // Groups
+        if (release.groups && release.groups.length > 0) {
+            html += `<div class="info-section"><h4>Performed by</h4><ul class="info-list">`;
+            release.groups.forEach(g => {
+                html += `<li><strong>${esc(g.name)}</strong></li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        // Tracks
+        if (release.tracks && release.tracks.length > 0) {
+            html += `<div class="info-section"><h4>Tracks</h4><ol class="info-list info-tracklist">`;
+            const sorted = [...release.tracks].sort((a, b) => {
+                const da = (a.disc_number || 1);
+                const db = (b.disc_number || 1);
+                if (da !== db) return da - db;
+                return (a.track_number || 0) - (b.track_number || 0);
+            });
+            sorted.forEach(t => {
+                const side = t.side ? `${esc(t.side)}-` : '';
+                const num = t.track_number ? `${side}${t.track_number}. ` : '';
+                html += `<li>${num}${esc(t.track || t.title || 'Untitled')}</li>`;
+            });
+            html += `</ol></div>`;
+        }
+
+        // Guests
+        if (release.guests && release.guests.length > 0) {
+            html += `<div class="info-section"><h4>Guests</h4><ul class="info-list">`;
+            release.guests.forEach(g => {
+                const roles = g.roles && g.roles.length > 0 ? ` - ${g.roles.map(r => esc(r)).join(', ')}` : '';
+                html += `<li><strong>${esc(g.name)}</strong>${roles}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        if (release.liner_notes) {
+            html += `<div class="info-section"><h4>Liner Notes</h4><p>${esc(release.liner_notes)}</p></div>`;
+        }
+
+        contentElement.innerHTML = html;
+    }
+
     /**
      * Build HTML for an editable property row with an edit button.
      * @private
@@ -1044,6 +1240,7 @@ export class MusicGraph {
      */
     centerView() {
         if (!this.ht) return;
+        this.releaseOverlay.hide();
         const root = this.ht.root;
         if (root) {
             this.ht.onClick(root, {
@@ -1395,6 +1592,7 @@ export class MusicGraph {
      * Destroy the visualization and clean up
      */
     destroy() {
+        this.releaseOverlay.hide();
         if (this.container) {
             this.container.innerHTML = '';
         }
