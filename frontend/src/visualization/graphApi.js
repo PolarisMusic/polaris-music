@@ -481,6 +481,49 @@ export class GraphAPI {
     }
 
     /**
+     * Fetch full detail for a single curate operation.
+     * @param {string} hash - Operation hash
+     * @param {string} [viewer] - Viewer account name (to get viewer_vote)
+     * @returns {Promise<Object>} Operation detail
+     */
+    async fetchOperationDetail(hash, viewer) {
+        try {
+            const params = new URLSearchParams();
+            if (viewer) params.set('viewer', viewer);
+            const qs = params.toString();
+            const url = `${this.baseUrl}/curate/operations/${encodeURIComponent(hash)}${qs ? '?' + qs : ''}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching operation detail:', error);
+            return { success: false };
+        }
+    }
+
+    /**
+     * Fetch playback queue for a given context.
+     * @param {string} contextType - 'release', 'group', or 'person'
+     * @param {string} contextId - Entity ID
+     * @returns {Promise<Object>} { success, context, queue }
+     */
+    async fetchPlaybackQueue(contextType, contextId) {
+        try {
+            const params = new URLSearchParams({
+                contextType,
+                contextId
+            });
+            const url = `${this.baseUrl}/player/queue?${params}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching playback queue:', error);
+            return { success: false, queue: [] };
+        }
+    }
+
+    /**
      * Clear cache
      */
     clearCache() {

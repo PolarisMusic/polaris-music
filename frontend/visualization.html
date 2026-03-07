@@ -67,15 +67,22 @@
         <ul id="favorites-list"></ul>
     </div>
 
-    <!-- Curate Panel (hidden by default) -->
+    <!-- Curate Panel (hidden by default) - split list/detail layout -->
     <div id="curate-panel" style="display: none;">
-        <div class="history-header">
-            <h3>Curate</h3>
-            <div class="history-actions">
-                <button id="curate-close" class="btn-close">&times;</button>
+        <div class="curate-feed-column">
+            <div class="history-header">
+                <h3>Curate</h3>
+                <div class="history-actions">
+                    <button id="curate-close" class="btn-close">&times;</button>
+                </div>
+            </div>
+            <div id="curate-list" class="curate-list"></div>
+        </div>
+        <div class="curate-detail-column" id="curate-detail">
+            <div class="curate-detail-empty">
+                <p>Select an operation to inspect</p>
             </div>
         </div>
-        <div id="curate-list" class="curate-list"></div>
     </div>
 
     <!-- Main Container -->
