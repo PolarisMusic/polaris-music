@@ -38,7 +38,7 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Label Name *</label>
                 <input type="text" name="label-name-${index}" required placeholder="Label name (e.g. Apple Records)">
-                <small>UNIMPLEMENTED: Add autocomplete search for existing labels</small>
+                <input type="hidden" name="label-id-${index}" data-lookup-type="Label" data-lookup-pair="label-name-${index}">
             </div>
 
             <div class="form-group">
@@ -49,7 +49,7 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Parent Label (if subsidiary)</label>
                 <input type="text" name="label-parent-${index}" placeholder="Parent label name (if subsidiary)">
-                <small>UNIMPLEMENTED: Add search for parent label</small>
+                <input type="hidden" name="label-parent-id-${index}" data-lookup-type="Label" data-lookup-pair="label-parent-${index}">
             </div>
 
             <div class="subsection">
@@ -58,7 +58,7 @@ export class FormBuilder {
                     <div class="form-group">
                         <label>City Name</label>
                         <input type="text" name="label-city-name-${index}" placeholder="City name">
-                        <small>UNIMPLEMENTED: Add autocomplete for cities</small>
+                        <input type="hidden" name="label-city-id-${index}" data-lookup-type="City" data-lookup-pair="label-city-name-${index}">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -102,7 +102,7 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Name *</label>
                 <input type="text" name="${type}-name-${parentIndex}-${index}" required placeholder="Person name (e.g. Paul McCartney)">
-                <small>UNIMPLEMENTED: Add autocomplete search for existing persons</small>
+                <input type="hidden" name="${type}-person-id-${parentIndex}-${index}" data-lookup-type="Person" data-lookup-pair="${type}-name-${parentIndex}-${index}">
             </div>
 
             <div class="form-group">
@@ -160,7 +160,7 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Group Name *</label>
                 <input type="text" name="group-name-${trackIndex}-${groupIndex}" required placeholder="Group name (e.g. The Beatles)">
-                <small>UNIMPLEMENTED: Add autocomplete search for existing groups</small>
+                <input type="hidden" name="group-id-${trackIndex}-${groupIndex}" data-lookup-type="Group" data-lookup-pair="group-name-${trackIndex}-${groupIndex}">
             </div>
 
             <div class="form-group">
@@ -212,7 +212,7 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Name *</label>
                 <input type="text" name="release-guest-name-${index}" required placeholder="Person name (e.g. George Martin)">
-                <small>UNIMPLEMENTED: Add autocomplete search for existing persons</small>
+                <input type="hidden" name="release-guest-person-id-${index}" data-lookup-type="Person" data-lookup-pair="release-guest-name-${index}">
             </div>
 
             <div class="form-group">
@@ -271,6 +271,7 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Group Name *</label>
                 <input type="text" name="release-group-name-${index}" required placeholder="Group name (e.g. The Beatles)" data-group-index="${index}">
+                <input type="hidden" name="release-group-id-${index}" data-lookup-type="Group" data-lookup-pair="release-group-name-${index}">
                 <small>This group will be added to all tracks. You can remove it from individual tracks if needed.</small>
             </div>
 
@@ -324,6 +325,14 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Track Title *</label>
                 <input type="text" name="track-title-${index}" required placeholder="Track title">
+                <input type="hidden" name="track-id-${index}" data-lookup-type="Track" data-lookup-pair="track-title-${index}">
+            </div>
+
+            <div class="form-group">
+                <label>Song (composition)</label>
+                <input type="text" name="track-song-title-${index}" placeholder="Song title (if different from track, or to reuse existing song)">
+                <input type="hidden" name="track-song-id-${index}" data-lookup-type="Song" data-lookup-pair="track-song-title-${index}">
+                <small>Search for an existing song to reuse its identity, or leave blank to create from track title.</small>
             </div>
 
             <div class="form-group">
@@ -378,14 +387,16 @@ export class FormBuilder {
             <div class="subsection">
                 <h4>Cover & Sample Information</h4>
                 <div class="form-group">
-                    <label>Cover of (original track ID)</label>
-                    <input type="text" name="track-cover-${index}" placeholder="Original track ID (if this is a cover)">
-                    <small>UNIMPLEMENTED: Add search for original tracks</small>
+                    <label>Cover of (original song)</label>
+                    <input type="text" name="track-cover-${index}" placeholder="Search for original song (if this is a cover)">
+                    <input type="hidden" name="track-cover-song-id-${index}" data-lookup-type="Song" data-lookup-pair="track-cover-${index}">
                 </div>
                 <div class="form-group">
-                    <label>Samples (sampled track IDs)</label>
-                    <input type="text" name="track-samples-${index}" placeholder="Sampled track IDs, comma-separated">
-                    <small>UNIMPLEMENTED: Add multi-select search for sampled tracks</small>
+                    <label>Samples (sampled tracks)</label>
+                    <div class="samples-chips-container" data-track="${index}"></div>
+                    <input type="text" name="track-samples-search-${index}" placeholder="Search for sampled tracks">
+                    <input type="hidden" name="track-samples-${index}" value="">
+                    <small>Search and select tracks that were sampled. Selected tracks appear as chips above.</small>
                 </div>
             </div>
         `;
