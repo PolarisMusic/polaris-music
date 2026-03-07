@@ -686,6 +686,9 @@ export class MusicGraph {
         // Update favorite star state
         this.updateFavoriteButton();
 
+        // Load mini-player queue based on node type
+        this._loadPlayerQueue(node);
+
         // Center on node
         this.ht.onClick(node.id, {
             onComplete: () => {
@@ -1591,6 +1594,28 @@ export class MusicGraph {
         this.ht.loadJSON(jit);
         this.ht.refresh();
         await this.rebuildHashIndexFromRawGraph();
+    }
+
+    // ========== Mini Player Queue Loading ==========
+
+    /**
+     * Load a playback queue into the mini-player based on node type.
+     * Does not autoplay.
+     */
+    _loadPlayerQueue(node) {
+        if (!this.miniPlayer) return;
+
+        const nodeType = node.data && node.data.type;
+        const nodeId = node.id;
+
+        if (nodeType === 'release' || (nodeId && nodeId.includes(':release:'))) {
+            this.miniPlayer.loadQueue('release', nodeId);
+        } else if (nodeType === 'group' || (nodeId && nodeId.includes(':group:'))) {
+            this.miniPlayer.loadQueue('group', nodeId);
+        } else if (nodeType === 'person' || (nodeId && nodeId.includes(':person:'))) {
+            this.miniPlayer.loadQueue('person', nodeId);
+        }
+        // For other node types (track, song, etc.), don't load a queue
     }
 
     // ========== Curate Panel ==========

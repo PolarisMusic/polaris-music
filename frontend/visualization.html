@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://eos.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; frame-src https://*.anchor.link;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://eos.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; media-src 'self' https: blob:; frame-src https://*.anchor.link;">
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <title>Polaris Music Registry - Graph Visualization</title>
 
@@ -107,6 +107,9 @@
         </div>
     </div>
 
+    <!-- Mini Player (persistent bottom bar) -->
+    <div id="mini-player-container"></div>
+
     <!-- Bottom Bar -->
     <div id="bottom-bar">
         <button class="btn-action" id="submit-project">Submit a Project</button>
@@ -126,12 +129,14 @@
     <script type="module" src="./src/visualization/graphApi.js"></script>
     <script type="module" src="./src/visualization/PathTracker.js"></script>
     <script type="module" src="./src/visualization/LikeManager.js"></script>
+    <script type="module" src="./src/visualization/MiniPlayer.js"></script>
     <script type="module" src="./src/visualization/MusicGraph.js"></script>
     <script type="module" src="./src/wallet/WalletManager.js"></script>
     <script type="module">
         import { MusicGraph } from './src/visualization/MusicGraph.js';
         import { WalletManager } from './src/wallet/WalletManager.js';
         import { NodeSearchBox } from './src/components/NodeSearchBox.js';
+        import { MiniPlayer } from './src/visualization/MiniPlayer.js';
 
         // Initialize wallet manager
         const walletManager = new WalletManager();
@@ -181,6 +186,16 @@
             // Pass walletManager to enable like functionality
             const graph = new MusicGraph('infovis', walletManager);
             window.musicGraph = graph; // For debugging
+
+            // Initialize mini-player
+            const playerContainer = document.getElementById('mini-player-container');
+            if (playerContainer) {
+                const miniPlayer = new MiniPlayer({
+                    container: playerContainer,
+                    api: graph.api
+                });
+                graph.miniPlayer = miniPlayer;
+            }
 
             // Search bar in top bar
             const searchContainer = document.getElementById('graph-search-container');
