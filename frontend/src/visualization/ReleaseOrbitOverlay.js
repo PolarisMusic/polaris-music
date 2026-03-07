@@ -37,6 +37,7 @@ export class ReleaseOrbitOverlay {
         this.GUEST_CHIP_SIZE = 22;
         this.GUEST_ORBIT_PADDING = 20;
         this.MAX_SINGLE_RING = 12;
+        this.MAX_GUEST_SINGLE_RING = 8;
 
         // Create DOM
         this.root = document.getElementById('release-orbit-overlay');
@@ -60,8 +61,11 @@ export class ReleaseOrbitOverlay {
         this.activeReleaseId = null;
         this.activeReleaseDetails = null;
         this.visible = true;
+        this._lastNodeRadius = nodeRadius;
 
-        // Fetch releases
+        // Show loading spinner while fetching
+        this._showLoading(screenPos);
+
         const resp = await this.api.fetchGroupReleases(groupId);
         this.releases = (resp && resp.releases) || [];
 
@@ -94,8 +98,22 @@ export class ReleaseOrbitOverlay {
 
     // ========== Internal rendering ==========
 
+    _showLoading(screenPos) {
+        this.root.innerHTML = '';
+        this.cluster = document.createElement('div');
+        this.cluster.className = 'release-orbit-cluster';
+        this.cluster.style.left = screenPos.x + 'px';
+        this.cluster.style.top = screenPos.y + 'px';
+
+        const spinner = document.createElement('div');
+        spinner.className = 'release-orbit-spinner';
+        this.cluster.appendChild(spinner);
+        this.root.appendChild(this.cluster);
+    }
+
     _render(nodeRadius) {
         this.root.innerHTML = '';
+        this._lastNodeRadius = nodeRadius;
 
         if (this.releases.length === 0) {
             this.visible = false;
@@ -124,6 +142,12 @@ export class ReleaseOrbitOverlay {
         if (ring2.length > 0) {
             this._renderRing(ring2, baseOrbitRadius + this.TILE_SIZE + 10);
         }
+
+        // Shared hover tooltip element
+        this._tooltip = document.createElement('div');
+        this._tooltip.className = 'release-orbit-tooltip';
+        this._tooltip.style.display = 'none';
+        this.cluster.appendChild(this._tooltip);
 
         this.root.appendChild(this.cluster);
     }
@@ -169,6 +193,14 @@ export class ReleaseOrbitOverlay {
                 tile.appendChild(placeholder);
             }
 
+            // Hover tooltip
+            tile.addEventListener('mouseenter', () => {
+                this._showTooltip(tile, rel);
+            });
+            tile.addEventListener('mouseleave', () => {
+                this._hideTooltip();
+            });
+
             tile.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this._handleTileClick(rel, radius);
@@ -185,41 +217,62 @@ export class ReleaseOrbitOverlay {
 
     async _handleTileClick(release, orbitRadius) {
         const wasActive = this.activeReleaseId === release.release_id;
+        const nodeRadius = orbitRadius - this.ORBIT_PADDING - this.TILE_SIZE / 2;
 
         if (wasActive) {
-            // Deselect
             this.activeReleaseId = null;
             this.activeReleaseDetails = null;
-            this._render(orbitRadius - this.ORBIT_PADDING - this.TILE_SIZE / 2);
-            // Notify parent to restore group details
+            this._render(nodeRadius);
             this.onReleaseSelect(null);
             return;
         }
 
         this.activeReleaseId = release.release_id;
+        this.activeReleaseDetails = null;
 
-        // Fetch details
+        // Show tile as loading (expanded but with spinner)
+        this._render(nodeRadius);
+
+        // Add spinner to the active tile
+        const activeTile = this.cluster && this.cluster.querySelector('.release-tile--active');
+        if (activeTile) {
+            const spinner = document.createElement('div');
+            spinner.className = 'release-tile-spinner';
+            activeTile.appendChild(spinner);
+        }
+
         const resp = await this.api.fetchReleaseDetails(release.release_id);
         this.activeReleaseDetails = resp && resp.data ? resp.data : null;
 
-        // Re-render with expanded tile
-        this._render(orbitRadius - this.ORBIT_PADDING - this.TILE_SIZE / 2);
-
-        // Notify parent
+        // Re-render with guest orbit
+        this._render(nodeRadius);
         this.onReleaseSelect(this.activeReleaseDetails);
     }
 
     _renderGuestOrbit(centerX, centerY, guests) {
         if (!guests || guests.length === 0) return;
 
-        const guestRadius = this.TILE_SIZE_ACTIVE / 2 + this.GUEST_ORBIT_PADDING;
+        const baseGuestRadius = this.TILE_SIZE_ACTIVE / 2 + this.GUEST_ORBIT_PADDING;
+
+        // Split into rings if too many guests
+        const useDoubleRing = guests.length > this.MAX_GUEST_SINGLE_RING;
+        const ring1 = useDoubleRing ? guests.slice(0, this.MAX_GUEST_SINGLE_RING) : guests;
+        const ring2 = useDoubleRing ? guests.slice(this.MAX_GUEST_SINGLE_RING) : [];
+
+        this._renderGuestRing(centerX, centerY, ring1, baseGuestRadius);
+        if (ring2.length > 0) {
+            this._renderGuestRing(centerX, centerY, ring2, baseGuestRadius + this.GUEST_CHIP_SIZE + 6);
+        }
+    }
+
+    _renderGuestRing(centerX, centerY, guests, radius) {
         const startAngle = -Math.PI / 2;
         const angleStep = (2 * Math.PI) / guests.length;
 
         guests.forEach((guest, i) => {
             const angle = startAngle + i * angleStep;
-            const gx = centerX + Math.cos(angle) * guestRadius;
-            const gy = centerY + Math.sin(angle) * guestRadius;
+            const gx = centerX + Math.cos(angle) * radius;
+            const gy = centerY + Math.sin(angle) * radius;
 
             const chip = document.createElement('button');
             chip.className = 'release-guest-chip';
@@ -247,6 +300,31 @@ export class ReleaseOrbitOverlay {
 
             this.cluster.appendChild(chip);
         });
+    }
+
+    _showTooltip(tileEl, release) {
+        if (!this._tooltip) return;
+        const name = release.name || 'Untitled';
+        const year = release.release_date ? release.release_date.substring(0, 4) : '';
+        const format = release.format || '';
+        let text = name;
+        if (year) text += ` (${year})`;
+        if (format) text += ` \u2022 ${format}`;
+        this._tooltip.textContent = text;
+
+        // Position above the tile
+        const tileLeft = parseFloat(tileEl.style.left);
+        const tileTop = parseFloat(tileEl.style.top);
+        const tileW = parseFloat(tileEl.style.width);
+        this._tooltip.style.left = (tileLeft + tileW / 2) + 'px';
+        this._tooltip.style.top = (tileTop - 8) + 'px';
+        this._tooltip.style.display = '';
+    }
+
+    _hideTooltip() {
+        if (this._tooltip) {
+            this._tooltip.style.display = 'none';
+        }
     }
 
     _initials(name) {

@@ -470,6 +470,54 @@ body {
     user-select: none;
 }
 
+/* Release orbit tooltip */
+.release-orbit-tooltip {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: rgba(20, 20, 20, 0.92);
+    color: #eee;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+/* Release orbit loading spinner */
+.release-orbit-spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #333;
+    border-top-color: #aaa;
+    border-radius: 50%;
+    animation: orbit-spin 0.7s linear infinite;
+    position: absolute;
+    left: -12px;
+    top: -40px;
+    pointer-events: none;
+}
+
+/* Small spinner inside an expanded tile */
+.release-tile-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255,255,255,0.15);
+    border-top-color: rgba(255,255,255,0.7);
+    border-radius: 50%;
+    animation: orbit-spin 0.7s linear infinite;
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    pointer-events: none;
+}
+
+@keyframes orbit-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* Node Images */
 .node-image {
     width: 100%;
