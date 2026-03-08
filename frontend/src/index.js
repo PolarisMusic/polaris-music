@@ -676,7 +676,7 @@ class PolarisApp {
             this.currentTransaction = this.transactionBuilder.buildReleaseTransaction(
                 releaseData,
                 sessionInfo.accountName,
-                sessionInfo.publicKey, // Real public key from blockchain (e.g., "EOS6...")
+                sessionInfo.publicKey || sessionInfo.accountName, // Account name as fallback for author_pubkey metadata
                 sourceLinks
             );
 
@@ -752,84 +752,23 @@ class PolarisApp {
         this.showLoading(true);
 
         try {
-            console.log('=== STEP 0: Sign event with wallet ===');
+            // Anchor-auth flow: store event without off-chain signature,
+            // then anchor on-chain via transact(). The authenticated blockchain
+            // transaction serves as proof of authorship (replaces signMessage
+            // which is not supported by WharfKit sessions).
 
-            // CRITICAL: Sign the canonical payload, NOT the hash
-            // The backend verifies signatures against sha256(canonical_payload)
-            // Signing the hash string would produce an invalid signature
-            console.log('Signing canonical payload (length: ' + this.currentTransaction.canonicalPayload.length + ' bytes)');
-            const signResult = await this.walletManager.signMessage(this.currentTransaction.canonicalPayload);
-            const signature = signResult.signature;
-            console.log('Signature:', signature);
-
-            // Determine the actual signing key. Three paths:
-            //   1. Wallet returned signingKey directly → use it
-            //   2. Wallet didn't return signingKey → ask backend to resolve it
-            //   3. Backend can't resolve → fall through with pre-fetched key (best effort)
             const sessionInfo = this.walletManager.getSessionInfo();
-            let actualSigningKey = signResult.signingKey;
 
-            if (!actualSigningKey) {
-                // Wallet did not return the signing pubkey — ask the backend
-                // to verify the signature against each key in the account's
-                // active permission and tell us which one matched.
-                console.log('Wallet did not return signing key. Asking backend to resolve...');
-                actualSigningKey = await api.resolveSigningKey(
-                    sessionInfo.accountName,
-                    sessionInfo.permission,
-                    this.currentTransaction.canonicalPayload,
-                    signResult.signature
-                );
-                if (actualSigningKey) {
-                    console.log('Backend resolved signing key:', actualSigningKey);
-                } else {
-                    console.warn(
-                        'Backend could not resolve signing key. ' +
-                        'Proceeding with pre-fetched key (may fail if multi-key).'
-                    );
-                }
-            }
+            console.log('\n=== STEP 1: Store event off-chain (anchor-auth) ===');
 
-            // If the actual signing key differs from the pre-fetched author_pubkey,
-            // re-prepare the event with the correct key so the backend's signature
-            // verification succeeds.
-            if (actualSigningKey && actualSigningKey !== sessionInfo.publicKey) {
-                console.warn(
-                    'Signing key differs from pre-fetched key. ' +
-                    `Pre-fetched: ${sessionInfo.publicKey}, Actual: ${actualSigningKey}. ` +
-                    'Re-preparing event with actual signing key...'
-                );
-
-                // Rebuild event with correct author_pubkey
-                this.currentTransaction.event.author_pubkey = actualSigningKey;
-
-                // Re-prepare to get correct canonical hash
-                const rePrepared = await api.prepareEvent(this.currentTransaction.event);
-                this.currentTransaction.event = rePrepared.normalizedEvent;
-                this.currentTransaction.eventHash = rePrepared.hash;
-                this.currentTransaction.canonicalPayload = rePrepared.canonical_payload;
-
-                // Re-sign with the corrected canonical payload
-                console.log('Re-signing with corrected canonical payload...');
-                const reSignResult = await this.walletManager.signMessage(
-                    this.currentTransaction.canonicalPayload
-                );
-                // Use the new signature (key should be the same on second pass)
-                signResult.signature = reSignResult.signature;
-            }
-
-            // Create signed event
-            const eventWithSig = {
-                ...this.currentTransaction.event,
-                sig: signResult.signature
-            };
-
-            console.log('\n=== STEP 1: Store event off-chain ===');
-
-            // Store event to IPFS + S3 + Redis
-            // Pass expected hash from /api/events/prepare for verification
-            console.log('Storing signed event to off-chain storage...');
-            const storageResult = await api.storeEvent(eventWithSig, this.currentTransaction.eventHash);
+            // Store event WITHOUT sig using anchor-auth flow
+            console.log('Storing event to off-chain storage (anchor-auth mode)...');
+            const storageResult = await api.storeEventForAnchor(
+                this.currentTransaction.event,
+                sessionInfo.accountName,
+                sessionInfo.permission,
+                this.currentTransaction.eventHash
+            );
 
             console.log('Storage result:', storageResult);
 
@@ -880,10 +819,30 @@ class PolarisApp {
 
             console.log('Submitting blockchain transaction:', action);
 
-            // Sign and broadcast transaction using WharfKit
+            // Sign and broadcast transaction using WharfKit transact()
+            // This is the authoritative proof of authorship (replaces signMessage)
             const txResult = await this.walletManager.transact(action);
 
+            const transactionId = txResult?.resolved?.transaction?.id
+                || txResult?.transaction_id || '';
+
             console.log('Blockchain transaction result:', txResult);
+
+            // Confirm anchor with backend (links stored event to blockchain tx)
+            console.log('\n=== STEP 3b: Confirm anchor with backend ===');
+            try {
+                await api.confirmAnchor({
+                    hash: this.currentTransaction.eventHash,
+                    event_cid: eventCid,
+                    trx_id: transactionId,
+                    author_account: sessionInfo.accountName,
+                    author_permission: sessionInfo.permission
+                });
+                console.log('Anchor confirmed with backend');
+            } catch (confirmErr) {
+                // Non-fatal: tx already succeeded on chain
+                console.warn('Anchor confirmation failed (non-fatal):', confirmErr.message);
+            }
 
             // In dev mode, ingest the anchored event directly into Neo4j
             // so the graph updates immediately without needing Substreams
@@ -906,8 +865,7 @@ class PolarisApp {
                         payload: JSON.stringify(actionData),
                         contract_account: CONTRACT_ACCOUNT,
                         action_name: 'put',
-                        trx_id: txResult?.resolved?.transaction?.id
-                            || txResult?.transaction_id || '',
+                        trx_id: transactionId,
                         timestamp: Math.floor(Date.now() / 1000),
                         block_num: txResult?.resolved?.transaction?.block_num || 0,
                         block_id: '',
@@ -937,7 +895,7 @@ class PolarisApp {
                 Release submitted successfully!
 
                 Event Hash: ${this.currentTransaction.eventHash.substring(0, 16)}...
-                Transaction ID: ${txResult?.resolved?.transaction?.id || txResult?.transaction_id || 'pending'}
+                Transaction ID: ${transactionId || 'pending'}
 
                 Stored in:
                 ${storageInfo.join('\n')}${ingestStatus}

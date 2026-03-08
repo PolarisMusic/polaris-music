@@ -317,23 +317,32 @@ class EventStore {
      * @param {Object} [event.proofs] - Proof/source data
      * @param {string} event.sig - Cryptographic signature
      * @param {string} [expectedHash] - Optional expected hash for verification
+     * @param {Object} [options] - Storage options
+     * @param {boolean} [options.anchorAuth] - If true, skip signature verification.
+     *   Used for anchor-authenticated flow where the on-chain put() transaction
+     *   serves as the authoritative proof of authorship instead of an off-chain
+     *   arbitrary message signature. The event is stored without sig and will be
+     *   linked to a blockchain transaction via confirm-anchor.
      * @returns {Promise<Object>} Storage result with hash and locations
      * @throws {Error} If all storage methods fail or if expectedHash doesn't match computed hash
      */
-    async storeEvent(event, expectedHash = null) {
+    async storeEvent(event, expectedHash = null, options = {}) {
         const overallTimer = this.log.startTimer();
 
         // Validate event structure
-        this.validateEvent(event);
+        this.validateEvent(event, { anchorAuth: !!options.anchorAuth });
 
         // CRITICAL: Verify cryptographic signature
         // This prevents anchoring unsigned or tampered events
         // Signature must be over sha256(stable_stringify(event_without_sig))
+        // Skip verification for anchor-auth flow (authorship proven by on-chain tx)
         // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
-        verifyEventSignatureOrThrow(event, {
-            requireSignature: true,
-            allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
-        });
+        if (!options.anchorAuth) {
+            verifyEventSignatureOrThrow(event, {
+                requireSignature: true,
+                allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
+            });
+        }
 
         // Normalize expected hash if provided (defensive)
         const normalizedExpectedHash = expectedHash !== null ? this.normalizeHash(expectedHash) : null;
@@ -1418,16 +1427,16 @@ class EventStore {
      * @param {Object} event - Event to validate
      * @throws {Error} If event is invalid
      */
-    validateEvent(event) {
+    validateEvent(event, options = {}) {
         if (!event || typeof event !== 'object') {
             throw new Error('Event must be an object');
         }
 
-        // By default, sig is ALWAYS required
-        // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
-        const allowUnsigned = process.env.ALLOW_UNSIGNED_EVENTS === 'true';
-        const required = allowUnsigned
-            ? ['v', 'type', 'author_pubkey', 'created_at', 'body']
+        // Anchor-auth flow: sig not required (authorship proven by on-chain tx)
+        // ALLOW_UNSIGNED_EVENTS=true: sig not required (testing only!)
+        const skipSig = options.anchorAuth || process.env.ALLOW_UNSIGNED_EVENTS === 'true';
+        const required = skipSig
+            ? ['v', 'type', 'created_at', 'body']
             : ['v', 'type', 'author_pubkey', 'created_at', 'body', 'sig'];
 
         for (const field of required) {

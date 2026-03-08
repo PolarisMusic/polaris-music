@@ -73,6 +73,65 @@ class APIClient {
     }
 
     /**
+     * Store event using anchor-auth flow (no off-chain signature required).
+     * The on-chain put() transaction serves as proof of authorship.
+     *
+     * @param {Object} event - Event object WITHOUT sig
+     * @param {string} authorAccount - Blockchain account name
+     * @param {string} authorPermission - Permission (e.g. "active")
+     * @param {string} [expectedHash] - Expected hash from /api/events/prepare
+     * @returns {Promise<Object>} Storage result with hash and locations
+     */
+    async storeEventForAnchor(event, authorAccount, authorPermission, expectedHash = null) {
+        const payload = {
+            ...event,
+            author_account: authorAccount,
+            author_permission: authorPermission
+        };
+        if (expectedHash) payload.expected_hash = expectedHash;
+
+        const response = await fetch(`${API_BASE_URL}/events/store-for-anchor`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || error.message || 'Failed to store event for anchor');
+        }
+
+        return response.json();
+    }
+
+    /**
+     * Confirm that a stored event has been anchored on-chain.
+     * Completes the anchor-auth flow by linking event to blockchain tx.
+     *
+     * @param {Object} params
+     * @param {string} params.hash - Event hash
+     * @param {string} params.event_cid - IPFS CID of event
+     * @param {string} params.trx_id - Blockchain transaction ID
+     * @param {string} params.author_account - Account that submitted the tx
+     * @param {string} [params.author_permission] - Permission used
+     * @returns {Promise<Object>} Confirmation result
+     */
+    async confirmAnchor({ hash, event_cid, trx_id, author_account, author_permission }) {
+        const response = await fetch(`${API_BASE_URL}/events/confirm-anchor`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ hash, event_cid, trx_id, author_account, author_permission }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || error.message || 'Failed to confirm anchor');
+        }
+
+        return response.json();
+    }
+
+    /**
      * Retrieve event from storage by hash
      * @param {string} hash - Event hash
      * @returns {Promise<Object>} Event object
@@ -215,6 +274,49 @@ class APIClient {
         }
 
         return response.json();
+    }
+
+    /**
+     * Fetch likes for an account via backend chain reader
+     * (Replaces direct browser RPC to chain nodes)
+     *
+     * @param {string} account - Blockchain account name
+     * @param {number} [limit=200] - Max rows
+     * @returns {Promise<Array>} Rows from the likes table
+     */
+    async getAccountLikes(account, limit = 200) {
+        const response = await fetch(
+            `${API_BASE_URL}/chain/likes/${encodeURIComponent(account)}?limit=${limit}`
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || error.message || 'Failed to fetch likes');
+        }
+
+        const data = await response.json();
+        return data.rows || [];
+    }
+
+    /**
+     * Fetch vote tally for an anchor ID via backend chain reader
+     * (Replaces direct browser RPC to chain nodes)
+     *
+     * @param {string|number} anchorId - Anchor ID
+     * @returns {Promise<Object|null>} Tally row or null
+     */
+    async getVoteTally(anchorId) {
+        const response = await fetch(
+            `${API_BASE_URL}/chain/votetally/${encodeURIComponent(anchorId)}`
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || error.message || 'Failed to fetch vote tally');
+        }
+
+        const data = await response.json();
+        return data.tally || null;
     }
 
     /**

@@ -342,48 +342,20 @@ export class WalletManager {
     }
 
     /**
-     * Sign a message with the wallet's private key
+     * @deprecated signMessage is not supported by WharfKit Session objects.
+     * Use the anchor-auth flow instead: store event without sig via
+     * /api/events/store-for-anchor, then anchor on-chain via transact(),
+     * then confirm via /api/events/confirm-anchor.
      *
-     * Returns an object with both the signature and the public key that
-     * produced it (when the wallet provides one). This lets callers detect
-     * whether the signing key differs from the pre-fetched author_pubkey
-     * (e.g. multi-key permissions where Anchor picks a different key).
-     *
-     * @param {string} message - Message to sign (typically canonical payload)
-     * @returns {Promise<{signature: string, signingKey: string|null}>}
+     * @param {string} _message - Unused
+     * @throws {Error} Always throws - method not supported
      */
-    async signMessage(message) {
-        if (!this.session) {
-            throw new Error('No active session. Please connect your wallet first.');
-        }
-
-        try {
-            console.log('Signing message with wallet...');
-
-            // WharfKit's signMessage — some wallet plugins return an object
-            // with { signature, publicKey } while others return just the signature.
-            const result = await this.session.signMessage(message);
-
-            let signature;
-            let signingKey = null;
-
-            if (result && typeof result === 'object' && result.signature) {
-                signature = result.signature.toString();
-                signingKey = result.publicKey ? result.publicKey.toString() : null;
-            } else {
-                signature = result.toString();
-            }
-
-            console.log('Message signed successfully', {
-                signingKey: signingKey || '(not returned by wallet)'
-            });
-
-            return { signature, signingKey };
-        } catch (error) {
-            console.error('Message signing failed:', error);
-            this.emit('onError', error);
-            throw error;
-        }
+    async signMessage(_message) {
+        throw new Error(
+            'signMessage is not supported by WharfKit sessions. ' +
+            'Use the anchor-auth flow: store event without sig, ' +
+            'then anchor on-chain via transact().'
+        );
     }
 
     /**
