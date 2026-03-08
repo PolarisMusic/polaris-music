@@ -28,6 +28,7 @@ import { normalizeReleaseBundle } from '../graph/normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 
 import { IngestionHandler } from './ingestion.js';
+import { PlayerService } from './playerService.js';
 import { NodeSearchService } from './nodeSearchService.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 import { getStatus } from './status.js';
@@ -271,6 +272,7 @@ class APIServer {
         this.ingestionHandler = new IngestionHandler(this.store, this.eventProcessor, {
             rpcUrl: process.env.RPC_URL || config.rpcUrl
         });
+        this.playerService = new PlayerService(this.db.driver);
 
         // Setup middleware and routes
         this.setupMiddleware();
@@ -1962,7 +1964,7 @@ class APIServer {
                     // Try to get stored event summary from our event store
                     let eventSummary = null;
                     try {
-                        const stored = await this.store.retrieve(anchor.hash);
+                        const stored = await this.store.retrieveEvent(anchor.hash);
                         if (stored && stored.body) {
                             eventSummary = {
                                 type_name: stored.type || null,
@@ -2094,34 +2096,100 @@ class APIServer {
                 // Fetch stored event payload
                 let eventPayload = null;
                 try {
-                    eventPayload = await this.store.retrieve(anchor.hash);
+                    eventPayload = await this.store.retrieveEvent(anchor.hash);
                 } catch (e) { /* non-fatal */ }
+
+                // Parse type-specific detail for rendering
+                const detail = this._parseOperationDetail(eventPayload);
+
+                // Determine operation metadata
+                const typeCode = eventPayload?.type || anchor.type || 0;
+                const typeNames = {
+                    21: 'CREATE_RELEASE_BUNDLE', 30: 'ADD_CLAIM', 31: 'EDIT_CLAIM',
+                    40: 'VOTE', 41: 'LIKE', 50: 'FINALIZE', 60: 'MERGE_NODE'
+                };
+
+                // Check viewer's vote if account provided
+                const viewerAccount = req.query.viewer;
+                let viewerVote = null;
+                if (viewerAccount && votes.length > 0) {
+                    const found = votes.find(v => v.voter === viewerAccount);
+                    if (found) {
+                        viewerVote = { val: found.val, weight: found.weight };
+                    }
+                }
 
                 res.json({
                     success: true,
-                    data: {
-                        anchor,
-                        tally: tally ? {
-                            up_weight: parseInt(tally.up_weight) || 0,
-                            down_weight: parseInt(tally.down_weight) || 0,
-                            up_voter_count: parseInt(tally.up_voter_count) || 0,
-                            down_voter_count: parseInt(tally.down_voter_count) || 0,
-                            updated_at: tally.updated_at
-                        } : null,
-                        votes: votes.map(v => ({
-                            voter: v.voter,
-                            val: v.val,
-                            weight: v.weight,
-                            ts: v.ts
-                        })),
-                        event: eventPayload
-                    }
+                    operation: {
+                        hash: anchor.hash,
+                        anchor_id: anchor.id,
+                        type_code: typeCode,
+                        type_name: typeNames[typeCode] || `TYPE_${typeCode}`,
+                        author: anchor.author || eventPayload?.author || null,
+                        ts: anchor.ts || null,
+                        finalized: !!anchor.finalized,
+                        event_cid: anchor.event_cid || null
+                    },
+                    tally: tally ? {
+                        up_weight: parseInt(tally.up_weight) || 0,
+                        down_weight: parseInt(tally.down_weight) || 0,
+                        up_voter_count: parseInt(tally.up_voter_count) || 0,
+                        down_voter_count: parseInt(tally.down_voter_count) || 0,
+                        updated_at: tally.updated_at
+                    } : { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+                    viewer_vote: viewerVote,
+                    votes: votes.map(v => ({
+                        voter: v.voter,
+                        val: v.val,
+                        weight: v.weight,
+                        ts: v.ts
+                    })),
+                    event: eventPayload,
+                    detail
                 });
             } catch (error) {
                 console.error('Curate operation detail failed:', error);
                 res.status(500).json({ success: false, error: error.message });
             }
         });
+
+        // ========== PLAYER ENDPOINTS ==========
+
+        /**
+         * GET /api/player/queue
+         * Build a playback queue for a release, group, or person context.
+         *
+         * Query params:
+         *   contextType - 'release', 'group', or 'person'
+         *   contextId   - Entity ID (e.g. 'prov:release:...')
+         */
+        this.app.get('/api/player/queue', async (req, res) => {
+            try {
+                const { contextType, contextId } = req.query;
+                if (!contextType || !contextId) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'contextType and contextId are required'
+                    });
+                }
+
+                if (!['release', 'group', 'person'].includes(contextType)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'contextType must be release, group, or person'
+                    });
+                }
+
+                const { context, queue } = await this.playerService.buildQueue(contextType, contextId);
+                res.json({ success: true, context, queue });
+            } catch (error) {
+                console.error('Player queue failed:', error);
+                res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        // ========== GRAPH ENDPOINTS ==========
 
         /**
          * GET /api/graph/initial
@@ -2536,6 +2604,120 @@ class APIServer {
                 resolve();
             });
         });
+    }
+
+    /**
+     * Parse type-specific detail from stored event payload for rendering.
+     * Returns a structured object the frontend can render without deep
+     * knowledge of event internals.
+     */
+    _parseOperationDetail(event) {
+        if (!event || !event.body) return null;
+
+        const typeCode = event.type;
+        const body = event.body;
+
+        if (typeCode === 21) {
+            // CREATE_RELEASE_BUNDLE
+            return {
+                type: 'release_bundle',
+                release: {
+                    name: body.release?.name || null,
+                    alt_names: body.release?.alt_names || [],
+                    release_date: body.release?.release_date || null,
+                    format: body.release?.format || null,
+                    liner_notes: body.release?.liner_notes || null,
+                    master_id: body.release?.master_id || null,
+                    album_art: body.release?.album_art || null,
+                    labels: (body.release?.labels || []).map(l => ({
+                        name: l.name,
+                        label_id: l.label_id || null,
+                        parent_label: l.parent_label || null
+                    })),
+                    guests: (body.release?.guests || []).map(g => ({
+                        name: g.name,
+                        person_id: g.person_id || null,
+                        roles: g.roles || []
+                    }))
+                },
+                groups: (body.groups || []).map(g => ({
+                    name: g.name,
+                    group_id: g.group_id || null,
+                    alt_names: g.alt_names || [],
+                    members: (g.members || []).map(m => ({
+                        name: m.name,
+                        person_id: m.person_id || null,
+                        roles: m.roles || []
+                    }))
+                })),
+                tracks: (body.tracks || []).map(t => ({
+                    title: t.title,
+                    track_id: t.track_id || null,
+                    recording_of: t.recording_of || null,
+                    song_id: t.song_id || null,
+                    listen_links: t.listen_links || [],
+                    cover_of_song_id: t.cover_of_song_id || null,
+                    samples: t.samples || [],
+                    performed_by_groups: (t.performed_by_groups || []).map(g => ({
+                        name: g.name,
+                        group_id: g.group_id || null,
+                        members: (g.members || []).map(m => ({
+                            name: m.name,
+                            person_id: m.person_id || null,
+                            roles: m.roles || []
+                        }))
+                    })),
+                    guests: (t.guests || []).map(g => ({
+                        name: g.name,
+                        person_id: g.person_id || null,
+                        roles: g.roles || []
+                    })),
+                    producers: (t.producers || []).map(p => ({
+                        name: p.name,
+                        person_id: p.person_id || null,
+                        roles: p.roles || []
+                    }))
+                })),
+                tracklist: body.tracklist || [],
+                songs: (body.songs || []).map(s => ({
+                    title: s.title,
+                    song_id: s.song_id || null,
+                    writers: (s.writers || []).map(w => ({
+                        name: w.name,
+                        person_id: w.person_id || null,
+                        roles: w.roles || []
+                    }))
+                })),
+                sources: body.sources || []
+            };
+        }
+
+        if (typeCode === 30) {
+            // ADD_CLAIM
+            return {
+                type: 'add_claim',
+                target_type: body.target_type || null,
+                target_id: body.target_id || null,
+                field: body.field || null,
+                value: body.value || null,
+                source: body.source || null
+            };
+        }
+
+        if (typeCode === 31) {
+            // EDIT_CLAIM
+            return {
+                type: 'edit_claim',
+                target_type: body.target_type || null,
+                target_id: body.target_id || null,
+                field: body.field || null,
+                value: body.value || null,
+                source: body.source || null
+            };
+        }
+
+        // Fallback for other types
+        return { type: `type_${typeCode}`, raw: body };
     }
 
     /**

@@ -581,3 +581,149 @@ input[type="checkbox"] {
 .import-content .note strong {
     color: var(--text-dark);
 }
+
+/* Entity Lookup Field (autocomplete for form inputs) */
+.entity-lookup-wrapper {
+    position: relative;
+}
+
+.entity-lookup-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: white;
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    max-height: 280px;
+    overflow-y: auto;
+    z-index: 200;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.entity-lookup-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.9rem;
+}
+
+.entity-lookup-item:last-child {
+    border-bottom: none;
+}
+
+.entity-lookup-item:hover,
+.entity-lookup-item--active {
+    background-color: var(--bg-gray);
+}
+
+.entity-lookup-type-badge {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+}
+
+.entity-lookup-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.entity-lookup-subtitle {
+    color: var(--text-light);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.entity-lookup-id {
+    color: var(--text-light);
+    font-size: 0.7rem;
+    font-family: monospace;
+    flex-shrink: 0;
+}
+
+/* Entity binding badge (shown when existing entity selected) */
+.entity-lookup-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+    padding: 0.3rem 0.6rem;
+    background-color: #dbeafe;
+    border: 1px solid #93c5fd;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #1e40af;
+}
+
+.entity-lookup-badge-id {
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: #3b82f6;
+}
+
+.entity-lookup-badge-clear {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: #1e40af;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0 0.2rem;
+    line-height: 1;
+}
+
+.entity-lookup-badge-clear:hover {
+    color: var(--error-color);
+}
+
+/* Samples chip field */
+.samples-chips-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.samples-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.5rem;
+    background-color: #f3e8ff;
+    border: 1px solid #c084fc;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #6b21a8;
+}
+
+.samples-chip-id {
+    font-family: monospace;
+    font-size: 0.65rem;
+    color: #9333ea;
+}
+
+.samples-chip-remove {
+    background: none;
+    border: none;
+    color: #6b21a8;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 0.15rem;
+    line-height: 1;
+}
+
+.samples-chip-remove:hover {
+    color: var(--error-color);
+}

@@ -4,6 +4,7 @@
  */
 
 import { FormBuilder } from './components/FormBuilder.js';
+import { FormLookupManager } from './components/FormLookupManager.js';
 import { HashGenerator } from './utils/hashGenerator.js';
 import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
@@ -45,6 +46,12 @@ class PolarisApp {
 
         // Initialize form handlers
         this.initializeForm();
+
+        // Initialize entity lookup manager (binds autocomplete to dynamic form fields)
+        const formEl = document.getElementById('release-form');
+        if (formEl) {
+            this.lookupManager = new FormLookupManager(formEl);
+        }
 
         // Try to restore wallet session
         try {
@@ -211,10 +218,14 @@ class PolarisApp {
         const groups = this.extractReleaseGroups();
 
         // Build canonical tracklist from tracks
-        const tracklist = tracks.map((track, index) => ({
-            position: `${track._disc || 1}.${track._trackNumber || index + 1}`,
-            track_title: track.title,
-        }));
+        const tracklist = tracks.map((track, index) => {
+            const item = {
+                position: `${track._disc || 1}.${track._trackNumber || index + 1}`,
+                track_title: track.title,
+            };
+            if (track.track_id) item.track_id = track.track_id;
+            return item;
+        });
 
         // Build songs from track songwriters (deduplicated by title)
         const songs = this.buildSongsFromTracks(tracks);
@@ -263,6 +274,10 @@ class PolarisApp {
 
             const group = { name: groupName };
 
+            // Emit existing group_id if bound via autocomplete
+            const groupId = this.getInputValue(item, `release-group-id-${index}`);
+            if (groupId) group.group_id = groupId;
+
             // Alt names
             const altNamesStr = this.getInputValue(item, `release-group-altnames-${index}`);
             const altNames = this.parseCommaSeparated(altNamesStr);
@@ -292,12 +307,14 @@ class PolarisApp {
         const songMap = new Map();
 
         for (const track of tracks) {
-            const title = track.title;
-            if (!title) continue;
+            // Key songs by song_id if available, otherwise by title
+            const songKey = track.song_id || track.recording_of || track.title;
+            if (!songKey) continue;
 
             // Songwriters stored as internal _songwriters field
             const writers = (track._songwriters || []).map(sw => {
                 const writer = { name: sw.name };
+                if (sw.person_id) writer.person_id = sw.person_id;
                 if (sw.roles && sw.roles.length > 0) {
                     writer.roles = sw.roles;
                     writer.role = sw.roles[0];
@@ -307,10 +324,13 @@ class PolarisApp {
 
             if (writers.length === 0) continue;
 
-            if (!songMap.has(title)) {
-                songMap.set(title, { title, writers });
+            if (!songMap.has(songKey)) {
+                const song = { title: track.recording_of || track.title, writers };
+                // Emit existing song_id if track was bound to an existing song
+                if (track.song_id) song.song_id = track.song_id;
+                songMap.set(songKey, song);
             }
-            // If title already exists, skip (first occurrence wins)
+            // If key already exists, skip (first occurrence wins)
         }
 
         return Array.from(songMap.values());
@@ -333,13 +353,24 @@ class PolarisApp {
 
             const label = { name: labelName };
 
+            // Emit existing label_id if bound via autocomplete
+            const labelId = this.getInputValue(item, `label-id-${index}`);
+            if (labelId) label.label_id = labelId;
+
             // Alt names
             const altNames = this.parseCommaSeparated(this.getInputValue(item, `label-altnames-${index}`));
             if (altNames.length > 0) label.alt_names = altNames;
 
-            // Parent label (string form → backend normalizes to { name })
+            // Parent label - emit as object with ID if bound, otherwise string
             const parentLabel = this.getInputValue(item, `label-parent-${index}`);
-            if (parentLabel) label.parent_label = parentLabel;
+            const parentLabelId = this.getInputValue(item, `label-parent-id-${index}`);
+            if (parentLabel) {
+                if (parentLabelId) {
+                    label.parent_label = { name: parentLabel, label_id: parentLabelId };
+                } else {
+                    label.parent_label = parentLabel;
+                }
+            }
 
             // Origin city (optional)
             const cityName = this.getInputValue(item, `label-city-name-${index}`);
@@ -376,6 +407,11 @@ class PolarisApp {
             const roles = this.parseRoles(rolesStr);
 
             const guest = { name };
+
+            // Emit existing person_id if bound via autocomplete
+            const personId = this.getInputValue(item, `release-guest-person-id-${index}`);
+            if (personId) guest.person_id = personId;
+
             if (roles.length > 0) guest.roles = roles;
 
             // Origin city (optional)
@@ -414,6 +450,20 @@ class PolarisApp {
                 recording_of: title, // Links Track to Song by title
             };
 
+            // Emit existing track_id if bound via autocomplete
+            const trackId = this.getInputValue(item, `track-id-${index}`);
+            if (trackId) track.track_id = trackId;
+
+            // Song lookup: if user selected an existing song, use its ID
+            const songId = this.getInputValue(item, `track-song-id-${index}`);
+            const songTitle = this.getInputValue(item, `track-song-title-${index}`);
+            if (songId) {
+                track.song_id = songId;
+                if (songTitle) track.recording_of = songTitle;
+            } else if (songTitle) {
+                track.recording_of = songTitle;
+            }
+
             // Performing groups → performed_by_groups (canonical key)
             const performedByGroups = this.extractGroups(item, index);
             if (performedByGroups.length > 0) track.performed_by_groups = performedByGroups;
@@ -430,14 +480,26 @@ class PolarisApp {
             const listenLinks = this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`));
             if (listenLinks.length > 0) track.listen_links = listenLinks;
 
-            // Cover of (original song ID)
-            const coverOfSongId = this.getInputValue(item, `track-cover-${index}`);
+            // Cover of (original song) - prefer hidden ID from lookup
+            const coverOfSongId = this.getInputValue(item, `track-cover-song-id-${index}`)
+                || this.getInputValue(item, `track-cover-${index}`);
             if (coverOfSongId) track.cover_of_song_id = coverOfSongId;
 
-            // Samples (comma-separated IDs → canonical SampleCredit objects)
-            const sampleIds = this.parseCommaSeparated(this.getInputValue(item, `track-samples-${index}`));
-            if (sampleIds.length > 0) {
-                track.samples = sampleIds.map(id => ({ sampled_track_id: id }));
+            // Samples - parse from hidden serialized field or chips
+            const samplesJson = this.getInputValue(item, `track-samples-${index}`);
+            if (samplesJson) {
+                try {
+                    const sampleIds = JSON.parse(samplesJson);
+                    if (Array.isArray(sampleIds) && sampleIds.length > 0) {
+                        track.samples = sampleIds.map(id => ({ sampled_track_id: id }));
+                    }
+                } catch {
+                    // Fallback: treat as comma-separated IDs
+                    const ids = this.parseCommaSeparated(samplesJson);
+                    if (ids.length > 0) {
+                        track.samples = ids.map(id => ({ sampled_track_id: id }));
+                    }
+                }
             }
 
             // Internal fields (used by buildReleaseData for tracklist/songs, stripped before output)
@@ -489,6 +551,11 @@ class PolarisApp {
         const roles = this.parseRoles(rolesStr);
 
         const person = { name };
+
+        // Emit existing person_id if bound via autocomplete
+        const personId = this.getInputValue(item, `${type}-person-id-${parentIndex}-${index}`);
+        if (personId) person.person_id = personId;
+
         if (roles.length > 0) person.roles = roles;
 
         // Build origin_city if city name is provided
@@ -523,6 +590,10 @@ class PolarisApp {
                 name: groupName,
                 role: 'performer'
             };
+
+            // Emit existing group_id if bound via autocomplete
+            const groupId = this.getInputValue(item, `group-id-${trackIndex}-${groupIndex}`);
+            if (groupId) group.group_id = groupId;
 
             // Alt names
             const altNamesStr = this.getInputValue(item, `group-altnames-${trackIndex}-${groupIndex}`);

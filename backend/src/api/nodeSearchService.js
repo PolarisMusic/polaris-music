@@ -3,10 +3,26 @@
  *
  * Searches Person, Group, Release, Track, Song, Label, City nodes.
  * Excludes internal nodes (Claim, Source, IdentityMap, Account, etc.).
+ *
+ * Supports two search modes:
+ *   1. Text search (name, title, alt_names) via fulltext index
+ *   2. ID exact/prefix match on canonical ID fields (person_id, group_id, etc.)
+ * Results are merged and ranked: exact ID > prefix name > fulltext score.
  */
 
 // Labels eligible for search
 const SEARCHABLE_LABELS = ['Person', 'Group', 'Release', 'Track', 'Song', 'Label', 'City'];
+
+// Canonical ID property per label
+const ID_FIELDS = {
+    Person: 'person_id',
+    Group: 'group_id',
+    Release: 'release_id',
+    Track: 'track_id',
+    Song: 'song_id',
+    Label: 'label_id',
+    City: 'city_id'
+};
 
 /**
  * Normalize a Neo4j node into a unified search result shape.
@@ -104,6 +120,9 @@ export class NodeSearchService {
 
     /**
      * Search nodes using fulltext index with fallback to substring matching.
+     * Also searches canonical ID fields for exact/prefix matches.
+     * Results are merged and ranked: exact ID match > prefix name > fulltext score.
+     *
      * @param {string} query - Search term
      * @param {Object} [opts]
      * @param {string[]} [opts.types] - Label filter (e.g. ['Person', 'Group'])
@@ -115,10 +134,16 @@ export class NodeSearchService {
 
         const session = this.driver.session();
         try {
-            return await this._fulltextSearch(session, query, types, limit);
-        } catch (error) {
-            console.warn('Fulltext search failed, using fallback:', error.message);
-            return await this._fallbackSearch(session, query, types, limit);
+            // Run text search and ID search in parallel
+            const [textResults, idResults] = await Promise.all([
+                this._fulltextSearch(session, query, types, limit).catch(err => {
+                    console.warn('Fulltext search failed, using fallback:', err.message);
+                    return this._fallbackSearch(session, query, types, limit);
+                }),
+                this._idSearch(session, query, types, limit)
+            ]);
+
+            return this._mergeResults(idResults, textResults, limit);
         } finally {
             await session.close();
         }
@@ -148,6 +173,76 @@ export class NodeSearchService {
             const score = r.get('score');
             return normalizeResult(props, label, score);
         });
+    }
+
+    /**
+     * Search canonical ID fields for exact or prefix matches.
+     * Exact matches get score 1000, prefix matches get score 500.
+     */
+    async _idSearch(session, query, types, limit) {
+        const allowedLabels = types.length > 0 ? types : SEARCHABLE_LABELS;
+        const trimmed = query.trim();
+
+        // Build UNION queries for each allowed label's ID field
+        const unions = [];
+        const params = { query: trimmed, limit: parseInt(limit) };
+
+        for (const label of allowedLabels) {
+            const idField = ID_FIELDS[label];
+            if (!idField) continue;
+            unions.push(`
+                MATCH (n:${label})
+                WHERE n.${idField} = $query
+                RETURN n, '${label}' AS label, 1000.0 AS score
+                UNION ALL
+                MATCH (n:${label})
+                WHERE n.${idField} STARTS WITH $query AND n.${idField} <> $query
+                RETURN n, '${label}' AS label, 500.0 AS score
+            `);
+        }
+
+        if (unions.length === 0) return [];
+
+        const cypher = unions.join(' UNION ALL ') + ' ORDER BY score DESC LIMIT $limit';
+
+        try {
+            const result = await session.run(cypher, params);
+            return result.records.map(r => {
+                const props = r.get('n').properties;
+                const label = r.get('label');
+                const score = r.get('score');
+                return normalizeResult(props, label, score);
+            });
+        } catch (error) {
+            console.warn('ID search failed:', error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Merge ID results (highest priority) with text results, deduplicating by id.
+     */
+    _mergeResults(idResults, textResults, limit) {
+        const seen = new Set();
+        const merged = [];
+
+        // ID results first (higher priority)
+        for (const r of idResults) {
+            if (r.id && !seen.has(r.id)) {
+                seen.add(r.id);
+                merged.push(r);
+            }
+        }
+
+        // Then text results
+        for (const r of textResults) {
+            if (r.id && !seen.has(r.id)) {
+                seen.add(r.id);
+                merged.push(r);
+            }
+        }
+
+        return merged.slice(0, limit);
     }
 
     async _fallbackSearch(session, query, types, limit) {
