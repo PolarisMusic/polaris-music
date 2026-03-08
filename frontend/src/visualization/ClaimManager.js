@@ -1,8 +1,9 @@
 /**
  * ClaimManager - Handles EDIT_CLAIM submissions (type=31) for property edits.
  *
- * Mirrors the proven "prepare -> sign -> store -> anchor -> dev-ingest" pipeline
- * used by release submissions, but for individual field edits.
+ * Uses anchor-auth pipeline: prepare -> store (no sig) -> anchor on-chain
+ * via transact() -> confirm-anchor -> dev-ingest.
+ * The on-chain transaction serves as proof of authorship.
  */
 
 import { api } from '../utils/api.js';
@@ -18,9 +19,9 @@ export class ClaimManager {
     /**
      * Submit a field edit as an EDIT_CLAIM event (type=31).
      *
-     * Pipeline mirrors index.js submitRelease():
-     *   prepare → sign canonical_payload → resolve key → re-prepare if key differs
-     *   → store with sig → anchor on-chain → dev-ingest
+     * Pipeline (anchor-auth flow):
+     *   prepare → store without sig → anchor on-chain via transact()
+     *   → confirm anchor → dev-ingest
      *
      * @param {string} nodeType - Entity type ('person', 'group', etc.)
      * @param {string} nodeId   - Entity ID (person_id, group_id, etc.)
@@ -36,7 +37,7 @@ export class ClaimManager {
 
         const session = this.walletManager.getSession();
         const authorAccount = String(session.actor);
-        const authorPubkey = String(session.publicKey || '');
+        const authorPermission = String(session.permission);
 
         // 1. Build EDIT_CLAIM event (without sig)
         const body = {
@@ -51,7 +52,7 @@ export class ClaimManager {
         const event = {
             v: 1,
             type: 'EDIT_CLAIM',
-            author_pubkey: authorPubkey,
+            author_pubkey: authorAccount, // Account name as metadata (not used for signing)
             created_at: Math.floor(Date.now() / 1000),
             parents: [],
             body
@@ -69,55 +70,19 @@ export class ClaimManager {
 
         let normalizedEvent = prepared.normalizedEvent;
         let eventHash = prepared.hash;
-        let canonicalPayload = prepared.canonical_payload;
 
-        // 3. Sign the canonical_payload (NOT JSON.stringify of the event)
-        const signResult = await this.walletManager.signMessage(canonicalPayload);
-        let signature = signResult.signature;
+        // 3. Store event using anchor-auth flow (no off-chain signature needed).
+        // The on-chain put() transaction serves as proof of authorship.
+        const storageResult = await api.storeEventForAnchor(
+            normalizedEvent,
+            authorAccount,
+            authorPermission,
+            eventHash
+        );
+        const eventCid = storageResult?.stored?.event_cid
+            || storageResult.cid || storageResult.event_cid || '';
 
-        // 4. Resolve signing key if wallet didn't return it
-        const sessionInfo = this.walletManager.getSessionInfo();
-        let actualSigningKey = signResult.signingKey;
-
-        if (!actualSigningKey) {
-            actualSigningKey = await api.resolveSigningKey(
-                sessionInfo.accountName,
-                sessionInfo.permission,
-                canonicalPayload,
-                signature
-            );
-        }
-
-        // 5. If signing key differs from pre-fetched key, re-prepare and re-sign
-        if (actualSigningKey && actualSigningKey !== authorPubkey) {
-            console.warn(
-                'Signing key differs from pre-fetched key. ' +
-                `Pre-fetched: ${authorPubkey}, Actual: ${actualSigningKey}. ` +
-                'Re-preparing event with actual signing key...'
-            );
-
-            normalizedEvent.author_pubkey = actualSigningKey;
-
-            const rePrepared = await api.prepareEvent(normalizedEvent);
-            normalizedEvent = rePrepared.normalizedEvent;
-            eventHash = rePrepared.hash;
-            canonicalPayload = rePrepared.canonical_payload;
-
-            const reSignResult = await this.walletManager.signMessage(canonicalPayload);
-            signature = reSignResult.signature;
-        }
-
-        // 6. Build signed event with `sig` field (NOT `signature`)
-        const eventWithSig = {
-            ...normalizedEvent,
-            sig: signature
-        };
-
-        // 7. Store to off-chain storage
-        const storageResult = await api.storeEvent(eventWithSig, eventHash);
-        const eventCid = storageResult.cid || storageResult.event_cid || '';
-
-        // 8. Anchor on-chain via put() with type=31
+        // 4. Anchor on-chain via put() with type=31
         const action = this.transactionBuilder.buildAnchorAction(
             eventHash, authorAccount, eventCid, {
                 type: 31,
@@ -129,7 +94,20 @@ export class ClaimManager {
         const transactionId = txResult?.resolved?.transaction?.id
             || txResult?.transaction_id || '';
 
-        // 9. Dev-mode ingestion
+        // 5. Confirm anchor with backend
+        try {
+            await api.confirmAnchor({
+                hash: eventHash,
+                event_cid: eventCid,
+                trx_id: transactionId,
+                author_account: authorAccount,
+                author_permission: authorPermission
+            });
+        } catch (confirmErr) {
+            console.warn('Anchor confirmation failed (non-fatal):', confirmErr.message);
+        }
+
+        // 6. Dev-mode ingestion
         if (INGEST_MODE === 'dev') {
             try {
                 const actionData = {

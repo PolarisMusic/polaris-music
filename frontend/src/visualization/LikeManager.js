@@ -6,6 +6,7 @@
  */
 
 import { CONTRACT_ACCOUNT } from '../config/chain.js';
+import { api } from '../utils/api.js';
 
 export class LikeManager {
     constructor(walletManager, pathTracker) {
@@ -255,7 +256,10 @@ export class LikeManager {
     }
 
     /**
-     * Fetch the connected account's likes from the contract table
+     * Fetch the connected account's likes via backend chain reader.
+     * Uses the backend API to proxy chain table reads, eliminating
+     * CSP/CORS issues from direct browser-to-chain RPC calls.
+     *
      * @param {number} [limit=200] - Max rows to fetch
      * @returns {Promise<Array<Object>>} Rows from the likes table
      */
@@ -265,15 +269,7 @@ export class LikeManager {
         }
         const actor = this.walletManager.session.actor.toString();
 
-        const res = await this.walletManager.getTableRows({
-            code: CONTRACT_ACCOUNT,
-            scope: actor,
-            table: 'likes',
-            limit,
-            reverse: true
-        });
-
-        return res.rows || [];
+        return api.getAccountLikes(actor, limit);
     }
 
     /**

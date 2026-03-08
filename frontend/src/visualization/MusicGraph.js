@@ -17,6 +17,7 @@ import { PathTracker } from './PathTracker.js';
 import { LikeManager } from './LikeManager.js';
 import { ClaimManager } from './ClaimManager.js';
 import { ReleaseOrbitOverlay } from './ReleaseOrbitOverlay.js';
+import { api as backendApi } from '../utils/api.js';
 
 export class MusicGraph {
     constructor(containerId, walletManager) {
@@ -1448,8 +1449,14 @@ export class MusicGraph {
             return;
         }
 
+        // Pre-load favorites if not yet loaded, but don't block the like
+        // action if the preload fails (e.g., contract not deployed yet)
         if (!this.chainFavoritesLoaded) {
-            await this.refreshFavoritesFromChain();
+            try {
+                await this.refreshFavoritesFromChain();
+            } catch (err) {
+                console.warn('Favorites preload failed (continuing with like):', err.message);
+            }
         }
 
         const node = this.selectedNode;
@@ -2021,23 +2028,16 @@ export class MusicGraph {
 
     async _refreshCurateRowTally(op) {
         try {
-            const contractAccount = this.walletManager.config.contractAccount;
-            const tallyResp = await this.walletManager.getTableRows({
-                code: contractAccount,
-                scope: contractAccount,
-                table: 'votetally',
-                lower_bound: String(op.anchor_id),
-                upper_bound: String(op.anchor_id),
-                limit: 1
-            });
+            // Use backend chain reader to avoid CSP/CORS issues
+            // from direct browser-to-chain RPC calls
+            const tally = await backendApi.getVoteTally(op.anchor_id);
 
-            if (tallyResp.rows && tallyResp.rows[0]) {
-                const t = tallyResp.rows[0];
+            if (tally) {
                 op.tally = {
-                    up_weight: parseInt(t.up_weight) || 0,
-                    down_weight: parseInt(t.down_weight) || 0,
-                    up_voter_count: parseInt(t.up_voter_count) || 0,
-                    down_voter_count: parseInt(t.down_voter_count) || 0
+                    up_weight: parseInt(tally.up_weight) || 0,
+                    down_weight: parseInt(tally.down_weight) || 0,
+                    up_voter_count: parseInt(tally.up_voter_count) || 0,
+                    down_voter_count: parseInt(tally.down_voter_count) || 0
                 };
             }
 
