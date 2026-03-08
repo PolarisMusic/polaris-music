@@ -314,15 +314,20 @@ export class WalletManager {
             // Conditionally provide ABI based on USE_LOCAL_ABI flag
             // Production: WharfKit fetches ABI from deployed contract (no abiProvider)
             // Dev/Test: Use local ABI fallback for resilience
+            // WharfKit's abiProvider.getAbi() must return the same shape as
+            // the chain's /v1/chain/get_abi response: { account_name, abi }.
+            // Returning the raw ABI blob causes "Read past end of buffer" errors.
             const transactOptions = this.config.useLocalAbi
                 ? {
                     abiProvider: {
                         getAbi: async (account) => {
-                            // Convert to string to handle WharfKit Name objects
                             const accountStr = typeof account === 'string'
                                 ? account : String(account);
                             if (accountStr === this.config.contractAccount) {
-                                return POLARIS_ABI;
+                                return {
+                                    account_name: accountStr,
+                                    abi: POLARIS_ABI
+                                };
                             }
                             return null;
                         }
