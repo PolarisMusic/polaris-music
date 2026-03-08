@@ -567,6 +567,29 @@ constructor(config = {}) {
                 }
             }
 
+            // Verify the fulltext index actually exists and is online
+            try {
+                const indexCheck = await session.run(`
+                    SHOW INDEXES YIELD name, state
+                    WHERE name = 'entitySearch'
+                    RETURN name, state
+                `);
+                if (indexCheck.records.length === 0) {
+                    this.log.warn('fulltext_index_missing', {
+                        message: 'entitySearch fulltext index not found — search will use fallback'
+                    });
+                } else {
+                    const state = indexCheck.records[0].get('state');
+                    if (state !== 'ONLINE') {
+                        this.log.warn('fulltext_index_not_online', { state });
+                    } else {
+                        this.log.info('fulltext_index_verified', { name: 'entitySearch', state });
+                    }
+                }
+            } catch (error) {
+                this.log.warn('fulltext_index_check_failed', { error: error.message });
+            }
+
             // ========== CHECK APOC AVAILABILITY (optional) ==========
             // APOC is no longer required — merge operations use native Cypher.
             // Detection kept for informational purposes only.

@@ -250,14 +250,20 @@ export class NodeSearchService {
         // Build a label filter clause
         const labelFilter = allowedLabels.map(l => `n:${l}`).join(' OR ');
 
+        // Case-insensitive fallback. alt_names is a list property, so we use
+        // any() to search within the list items rather than CONTAINS on the list itself.
         const result = await session.run(`
             MATCH (n)
             WHERE (${labelFilter})
-              AND (n.name CONTAINS $query OR n.title CONTAINS $query OR n.alt_names CONTAINS $query)
+              AND (
+                toLower(n.name) CONTAINS toLower($query)
+                OR toLower(n.title) CONTAINS toLower($query)
+                OR any(x IN coalesce(n.alt_names, []) WHERE toLower(x) CONTAINS toLower($query))
+              )
             RETURN n, labels(n)[0] AS label
             ORDER BY
-                CASE WHEN n.name STARTS WITH $query THEN 0
-                     WHEN n.title STARTS WITH $query THEN 0
+                CASE WHEN toLower(n.name) STARTS WITH toLower($query) THEN 0
+                     WHEN toLower(n.title) STARTS WITH toLower($query) THEN 0
                      ELSE 1 END,
                 n.name, n.title
             LIMIT $limit

@@ -2010,7 +2010,7 @@ export class MusicGraph {
                 }],
                 data: {
                     voter: session.accountName,
-                    hash: op.hash,
+                    tx_hash: op.hash,
                     val: val
                 }
             });
