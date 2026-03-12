@@ -7,11 +7,18 @@
 }
 
 html, body {
+    --top-bar-height: 60px;
+    --bottom-bar-height: 60px;
+    --mini-player-height: 0px;
     height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background: #0a0a0a;
     color: #e0e0e0;
     overflow: hidden;
+}
+
+body.mini-player-visible {
+    --mini-player-height: 54px;
 }
 
 /* Top Bar */
@@ -178,8 +185,8 @@ html, body {
    and the info-viewer flex column can scroll properly. */
 #main-container {
     position: fixed;
-    top: 60px;       /* below #top-bar */
-    bottom: 60px;    /* above #bottom-bar */
+    top: var(--top-bar-height);
+    bottom: calc(var(--bottom-bar-height) + var(--mini-player-height));
     left: 0;
     right: 0;
     display: flex;
@@ -230,6 +237,7 @@ html, body {
     border-left: 1px solid #333;
     display: flex;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
     overflow: hidden;
 }
@@ -267,8 +275,9 @@ html, body {
 }
 
 .info-content {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
+    height: 0;
     padding: 20px;
     overflow-y: auto;
     overflow-x: hidden;

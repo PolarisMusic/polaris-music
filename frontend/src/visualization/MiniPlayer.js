@@ -275,6 +275,12 @@ export class MiniPlayer {
 
     _show() {
         this.container.style.display = 'flex';
+        document.body.classList.add('mini-player-visible');
+    }
+
+    _hide() {
+        this.container.style.display = 'none';
+        document.body.classList.remove('mini-player-visible');
     }
 
     _updateTrackDisplay() {

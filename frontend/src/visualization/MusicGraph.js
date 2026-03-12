@@ -375,12 +375,22 @@ export class MusicGraph {
 
     /**
      * Prevent wheel/touch events inside the info panel from reaching the graph canvas.
+     * Attaches to the whole #info-viewer so scrolling over the header also works,
+     * then forwards wheel deltas into the .info-content scroll container.
      */
     _isolateInfoPanelScroll() {
-        const infoContent = document.getElementById('info-content');
-        if (!infoContent) return;
-        infoContent.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
-        infoContent.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+        const infoViewer = document.getElementById('info-viewer');
+        if (!infoViewer) return;
+
+        infoViewer.addEventListener('wheel', (e) => {
+            e.stopPropagation();
+            const scrollable = infoViewer.querySelector('.info-content');
+            if (scrollable) {
+                scrollable.scrollTop += e.deltaY;
+            }
+        }, { passive: true });
+
+        infoViewer.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
     }
 
     eventToCanvasPos(e) {
