@@ -10,6 +10,8 @@
  * Results are merged and ranked: exact ID > prefix name > fulltext score.
  */
 
+import neo4j from 'neo4j-driver';
+
 // Labels eligible for search
 const SEARCHABLE_LABELS = ['Person', 'Group', 'Release', 'Track', 'Song', 'Label', 'City'];
 
@@ -138,7 +140,10 @@ export class NodeSearchService {
             const [textResults, idResults] = await Promise.all([
                 this._fulltextSearch(session, query, types, limit).catch(err => {
                     console.warn('Fulltext search failed, using fallback:', err.message);
-                    return this._fallbackSearch(session, query, types, limit);
+                    return this._fallbackSearch(session, query, types, limit).catch(err2 => {
+                        console.warn('Fallback search also failed:', err2.message);
+                        return [];
+                    });
                 }),
                 this._idSearch(session, query, types, limit)
             ]);
@@ -164,7 +169,7 @@ export class NodeSearchService {
         `, {
             query: ftQuery,
             allowed: types.length > 0 ? types : SEARCHABLE_LABELS,
-            limit: parseInt(limit)
+            limit: neo4j.int(parseInt(limit))
         });
 
         return result.records.map(r => {
@@ -185,7 +190,7 @@ export class NodeSearchService {
 
         // Build UNION queries for each allowed label's ID field
         const unions = [];
-        const params = { query: trimmed, limit: parseInt(limit) };
+        const params = { query: trimmed, limit: neo4j.int(parseInt(limit)) };
 
         for (const label of allowedLabels) {
             const idField = ID_FIELDS[label];
@@ -267,7 +272,7 @@ export class NodeSearchService {
                      ELSE 1 END,
                 n.name, n.title
             LIMIT $limit
-        `, { query: query.trim(), limit: parseInt(limit) });
+        `, { query: query.trim(), limit: neo4j.int(parseInt(limit)) });
 
         return result.records.map(r => {
             const props = r.get('n').properties;

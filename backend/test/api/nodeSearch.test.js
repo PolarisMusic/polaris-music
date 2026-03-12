@@ -247,14 +247,16 @@ describe('NodeSearchService', () => {
         expect(driver._session.run).toHaveBeenCalled();
     });
 
-    test('closes session even on error', async () => {
+    test('closes session and returns empty when all searches fail', async () => {
         const driver = makeDriverStub(async () => {
             throw new Error('DB down');
         });
 
         const svc = new NodeSearchService(driver);
 
-        await expect(svc.search('test')).rejects.toThrow();
+        // Should not throw — all failures are caught and return []
+        const results = await svc.search('test');
+        expect(results).toEqual([]);
         expect(driver._session.close).toHaveBeenCalled();
     });
 });
