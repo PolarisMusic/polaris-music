@@ -354,7 +354,9 @@ export class MusicGraph {
 
         this.setupLongPressPan();
         this._isolateInfoPanelScroll();
-        window.addEventListener('resize', () => this._updateOverlayPosition());
+        this._setupResizeObserver();
+        window.addEventListener('resize', () => this._handleCanvasResize());
+        requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
     }
 
@@ -391,6 +393,39 @@ export class MusicGraph {
         }, { passive: true });
 
         infoViewer.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+    }
+
+    /**
+     * Resize the JIT canvas to match the current container dimensions.
+     * Called when the layout changes (e.g. mini-player appearing) so that
+     * click hit-testing stays aligned with the visual node positions.
+     */
+    _handleCanvasResize() {
+        if (!this.ht || !this.ht.canvas || !this.container) return;
+
+        const width = this.container.clientWidth;
+        const height = this.container.clientHeight;
+        if (!width || !height) return;
+
+        if (typeof this.ht.canvas.resize === 'function') {
+            this.ht.canvas.resize(width, height);
+        }
+
+        this.ht.plot();
+        this._updateOverlayPosition();
+    }
+
+    /**
+     * Observe the graph container for size changes and re-sync the canvas.
+     */
+    _setupResizeObserver() {
+        if (typeof ResizeObserver === 'undefined' || !this.container) return;
+
+        this._resizeObserver = new ResizeObserver(() => {
+            this._handleCanvasResize();
+        });
+
+        this._resizeObserver.observe(this.container);
     }
 
     eventToCanvasPos(e) {
@@ -2075,6 +2110,10 @@ export class MusicGraph {
      */
     destroy() {
         this.releaseOverlay.hide();
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect();
+            this._resizeObserver = null;
+        }
         if (this.container) {
             this.container.innerHTML = '';
         }
