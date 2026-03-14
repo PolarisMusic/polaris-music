@@ -2000,45 +2000,44 @@ constructor(config = {}) {
             this.log.info('participation_start', { group_id: groupId.substring(0, 12) });
 
             // Anchors on MEMBER_OF so every known member appears (even with
-            // 0 releases).  Uses OPTIONAL MATCH on the Person→PERFORMED_ON
-            // {via_group_id}→Track→IN_RELEASE→Release path for the actual
-            // "features on" signal, avoiding brittle date() parsing.
+            // 0 tracks).  Uses OPTIONAL MATCH on the Person→PERFORMED_ON
+            // {via_group_id}→Track path for the actual "performed on"
+            // signal, avoiding brittle date() parsing.
             const result = await session.run(`
                 MATCH (g:Group {group_id: $groupId})
 
-                // Total distinct releases the group performed on
-                OPTIONAL MATCH (g)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
-                WITH g, count(DISTINCT r) AS totalReleases
+                // Total distinct tracks the group performed on
+                OPTIONAL MATCH (g)-[:PERFORMED_ON]->(t:Track)
+                WITH g, count(DISTINCT t) AS totalTracks
 
                 // All members of this group (anchor — guarantees rows)
                 MATCH (p:Person)-[:MEMBER_OF]->(g)
 
-                // Left-join: releases each member actually performed on
-                OPTIONAL MATCH (p)-[:PERFORMED_ON {via_group_id: g.group_id}]
-                               ->(:Track)-[:IN_RELEASE]->(r2:Release)
-                WITH p, totalReleases, count(DISTINCT r2) AS releaseCount
+                // Left-join: tracks each member actually performed on
+                OPTIONAL MATCH (p)-[:PERFORMED_ON {via_group_id: g.group_id}]->(t2:Track)
+                WITH p, totalTracks, count(DISTINCT t2) AS trackCount
 
                 RETURN
                   p.person_id  AS personId,
                   p.name       AS personName,
                   p.color      AS color,
-                  totalReleases,
-                  releaseCount,
+                  totalTracks,
+                  trackCount,
                   CASE
-                    WHEN totalReleases = 0 THEN 0.0
-                    ELSE toFloat(releaseCount)
-                         / toFloat(totalReleases) * 100.0
-                  END AS releasePctOfGroupReleases
-                ORDER BY releaseCount DESC, personName ASC
+                    WHEN totalTracks = 0 THEN 0.0
+                    ELSE toFloat(trackCount)
+                         / toFloat(totalTracks) * 100.0
+                  END AS trackPctOfGroupTracks
+                ORDER BY trackCount DESC, personName ASC
             `, { groupId });
 
             const participation = result.records.map(record => ({
                 personId: record.get('personId'),
                 personName: record.get('personName'),
                 color: record.get('color') || null,
-                releaseCount: record.get('releaseCount').toNumber(),
-                totalReleases: record.get('totalReleases').toNumber(),
-                releasePctOfGroupReleases: record.get('releasePctOfGroupReleases')
+                trackCount: record.get('trackCount').toNumber(),
+                totalTracks: record.get('totalTracks').toNumber(),
+                trackPctOfGroupTracks: record.get('trackPctOfGroupTracks')
             }));
 
             timer.end('participation_end', { group_id: groupId.substring(0, 12), member_count: participation.length });

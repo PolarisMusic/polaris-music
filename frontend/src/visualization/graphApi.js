@@ -435,7 +435,7 @@ export class GraphAPI {
     }
 
     /**
-     * Fetch group member participation data (release-based)
+     * Fetch group member participation data (track-based)
      * @param {string} groupId - Group ID
      * @returns {Promise<Object>} Participation data with members array
      */

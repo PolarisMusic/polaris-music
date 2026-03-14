@@ -252,10 +252,10 @@ describe.skip('MusicGraphDatabase', () => {
                         const data = {
                             personId: 'person:1',
                             personName: 'John Lennon',
-                            track_count: { toNumber: () => 213 },
-                            total_tracks: { toNumber: () => 213 },
-                            participationPercentage: 100.0,
-                            releaseCount: { toNumber: () => 13 }
+                            color: '#E74C3C',
+                            trackCount: { toNumber: () => 213 },
+                            totalTracks: { toNumber: () => 213 },
+                            trackPctOfGroupTracks: 100.0
                         };
                         return data[field];
                     }
@@ -265,10 +265,10 @@ describe.skip('MusicGraphDatabase', () => {
                         const data = {
                             personId: 'person:2',
                             personName: 'Paul McCartney',
-                            track_count: { toNumber: () => 210 },
-                            total_tracks: { toNumber: () => 213 },
-                            participationPercentage: 98.6,
-                            releaseCount: { toNumber: () => 13 }
+                            color: '#3498DB',
+                            trackCount: { toNumber: () => 210 },
+                            totalTracks: { toNumber: () => 213 },
+                            trackPctOfGroupTracks: 98.6
                         };
                         return data[field];
                     }
@@ -281,8 +281,10 @@ describe.skip('MusicGraphDatabase', () => {
 
             expect(result).toHaveLength(2);
             expect(result[0].personName).toBe('John Lennon');
-            expect(result[0].participationPercentage).toBe(100.0);
-            expect(result[1].participationPercentage).toBe(98.6);
+            expect(result[0].trackPctOfGroupTracks).toBe(100.0);
+            expect(result[0].trackCount).toBe(213);
+            expect(result[1].trackPctOfGroupTracks).toBe(98.6);
+            expect(result[1].trackCount).toBe(210);
         });
 
         test('should handle groups with no members', async () => {

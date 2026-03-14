@@ -48,9 +48,9 @@ describe.skip('API Server Integration Tests', () => {
                 {
                     personId: 'person:1',
                     personName: 'John Lennon',
-                    participationPercentage: 100.0,
+                    trackPctOfGroupTracks: 100.0,
                     trackCount: 213,
-                    releaseCount: 13
+                    totalTracks: 213
                 }
             ]),
             close: jest.fn().mockResolvedValue(undefined)
