@@ -538,9 +538,9 @@ class APIServer {
                 const participation = await this.db.calculateGroupMemberParticipation(group_id);
                 return participation.map(p => ({
                     person: { person_id: p.personId, name: p.personName },
-                    participation_percentage: p.releasePctOfGroupReleases,
-                    track_count: null,
-                    release_count: p.releaseCount
+                    participation_percentage: p.trackPctOfGroupTracks,
+                    track_count: p.trackCount,
+                    release_count: null
                 }));
             },
 
@@ -1479,20 +1479,20 @@ class APIServer {
             try {
                 const rows = await this.db.calculateGroupMemberParticipation(req.params.groupId);
 
-                // rows is a flat array; totalReleases is the same on every row
-                const totalReleases = rows.length > 0 ? rows[0].totalReleases : 0;
+                // rows is a flat array; totalTracks is the same on every row
+                const totalTracks = rows.length > 0 ? rows[0].totalTracks : 0;
                 const members = rows.map(r => ({
                     personId: r.personId,
                     personName: r.personName,
-                    releaseCount: r.releaseCount,
-                    releasePctOfGroupReleases: r.releasePctOfGroupReleases,
+                    trackCount: r.trackCount,
+                    trackPctOfGroupTracks: r.trackPctOfGroupTracks,
                     color: r.color ?? null
                 }));
 
                 res.json({
                     success: true,
                     groupId: req.params.groupId,
-                    totalReleases,
+                    totalTracks,
                     members
                 });
             } catch (error) {

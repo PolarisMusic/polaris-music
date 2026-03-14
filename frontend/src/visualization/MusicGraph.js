@@ -2,7 +2,7 @@
  * MusicGraph - JIT Hypertree visualization for Polaris Music Registry
  *
  * Main visualization using JIT Hypertree for exploring the music graph.
- * Groups display donut rings showing member participation by release count.
+ * Groups display donut rings showing member participation by track count.
  * Person->Group relationships use unique colors for visual distinction.
  *
  * Label strategy:
@@ -136,7 +136,7 @@ export class MusicGraph {
 
             /**
              * group-donut: circle with donut ring segments representing
-             * member participation (release counts). Slices are drawn
+             * member participation (track counts). Slices are drawn
              * between innerR and outerR using the shortnodepie approach.
              */
             'group-donut': {
@@ -621,7 +621,7 @@ export class MusicGraph {
     /**
      * Compute donut slice angles from backend member participation data.
      *
-     * @param {Array} members - Backend members array (personId, personName, releaseCount, releasePctOfGroupReleases)
+     * @param {Array} members - Backend members array (personId, personName, trackCount, trackPctOfGroupTracks)
      * @returns {Array} Slice descriptors with begin/end angles, color, and metadata
      */
     computeDonutSlices(members) {
@@ -629,7 +629,7 @@ export class MusicGraph {
 
         // Sanitise weights: coerce to finite non-negative numbers
         const weights = members.map(m => {
-            const v = Number(m.releaseCount ?? 0);
+            const v = Number(m.trackCount ?? 0);
             return Number.isFinite(v) && v > 0 ? v : 0;
         });
 
@@ -658,8 +658,8 @@ export class MusicGraph {
                 color: m.color || this.colorPalette.getColor(m.personId),
                 personId: m.personId,
                 personName: m.personName,
-                releaseCount: m.releaseCount,
-                releasePctOfGroupReleases: m.releasePctOfGroupReleases,
+                trackCount: m.trackCount,
+                trackPctOfGroupTracks: m.trackPctOfGroupTracks,
                 weightNormalized: weightNormalized
             });
 

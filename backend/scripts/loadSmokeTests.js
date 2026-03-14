@@ -269,6 +269,10 @@ async function processReleaseBundle(bundle, filename) {
                 // Use MERGE for Person to ensure cross-bundle persons are found
                 // even if not in this bundle's personsMap
                 for (const member of group.members || []) {
+                    // Normalize roles: handle comma-separated string or array
+                    const roles = Array.isArray(member.roles)
+                        ? member.roles
+                        : (typeof member.role === 'string' ? member.role.split(',').map(r => r.trim()) : ['member']);
                     await session.run(`
                         MERGE (p:Person {person_id: $person_id})
                         ON CREATE SET p.id = $person_id,
@@ -277,12 +281,18 @@ async function processReleaseBundle(bundle, filename) {
                         WITH p
                         MATCH (g:Group {group_id: $group_id})
                         MERGE (p)-[m:MEMBER_OF]->(g)
-                        ON CREATE SET m.role = $role
+                        ON CREATE SET m.role = $role,
+                                      m.roles = $roles,
+                                      m.from_date = $from_date,
+                                      m.to_date = $to_date
                     `, {
                         person_id: member.person_id,
                         name: member.name,
                         group_id: group.group_id,
-                        role: member.role || 'member'
+                        role: roles[0] || 'member',
+                        roles: roles,
+                        from_date: member.from_date || null,
+                        to_date: member.to_date || null
                     });
                 }
             }
@@ -407,6 +417,32 @@ async function processReleaseBundle(bundle, filename) {
                         group_id: group.group_id,
                         track_id: track.track_id
                     });
+
+                    // Create Person -> PERFORMED_ON -> Track edges for group members
+                    // Use per-track members if available, otherwise derive from release-level group
+                    const trackMembers = group.members || [];
+                    const releaseGroup = groups?.find(g => g.group_id === group.group_id);
+                    const membersToLink = trackMembers.length > 0 ? trackMembers : (releaseGroup?.members || []);
+                    const lineupSource = trackMembers.length > 0 ? 'track_explicit' : 'release_default';
+                    const isDerived = trackMembers.length === 0;
+
+                    for (const member of membersToLink) {
+                        await session.run(`
+                            MATCH (p:Person {person_id: $person_id})
+                            MATCH (t:Track {track_id: $track_id})
+                            MERGE (p)-[perf:PERFORMED_ON {via_group_id: $group_id}]->(t)
+                            SET perf.derived = $derived,
+                                perf.lineup_source = $lineup_source,
+                                perf.role = $role
+                        `, {
+                            person_id: member.person_id,
+                            track_id: track.track_id,
+                            group_id: group.group_id,
+                            derived: isDerived,
+                            lineup_source: lineupSource,
+                            role: member.role || 'member'
+                        });
+                    }
                 }
 
                 // Link guests

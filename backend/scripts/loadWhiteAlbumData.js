@@ -602,6 +602,24 @@ async function loadWhiteAlbumData() {
                         group_id: group.group_id
                     });
 
+                    // Person PERFORMED_ON Track (with group context)
+                    const roles = (member.person_roles || []).map(r => r.role_name);
+                    await session.run(`
+                        MATCH (p:Person {person_id: $person_id})
+                        MATCH (t:Track {track_id: $track_id})
+                        MERGE (p)-[perf:PERFORMED_ON {via_group_id: $group_id}]->(t)
+                        SET perf.derived = false,
+                            perf.lineup_source = 'track_explicit',
+                            perf.roles = $roles,
+                            perf.role = $role
+                    `, {
+                        person_id: member.person_id,
+                        track_id: track.track_id,
+                        group_id: group.group_id,
+                        roles: roles,
+                        role: roles[0] || 'member'
+                    });
+
                     // Member roles on track
                     for (const role of member.person_roles || []) {
                         await session.run(`
