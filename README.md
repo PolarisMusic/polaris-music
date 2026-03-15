@@ -19,6 +19,32 @@ The different pieces of the project include:
 - Blockchain rewards system for contributors and data validators
 - Graph database for entity-relationship data storage
 
+## Try It
+
+- Create a working directory
+- `cd <directory>`
+- `git clone https://github.com/PolarisMusic/polaris-music`
+- `cd polaris-music`
+- Make sure Docker is running
+- Make sure all docker services are stopped with `docker compose down -v`
+- Make sure latest is updated with `git pull origin main`
+- Start docker containers, making sure API is rebuilt `docker compose up -d --force-recreate api` (This will take a minute or two)
+- `cd frontend`
+- Install frontend with `npm install`
+- Start frontend with `npm run dev`
+- open a new terminal tab (this one will no longer accept inputs)
+- You can double check the Neo4j browser at `http://localhost:7474/browser/`. It should currently be empty, but you should still be able to connect.
+- You can double check the Front-end at `http://localhost:5173/visualization.html`. This should load but will also be blank.
+- `cd ..`
+- `cd backend`
+- `npm ci`
+- If both the Neo4j browser and the frontend seem good, you can load the smoke test release bundles with `node scripts/loadSmokeTests.js ` You'll see it load releases and then should finish with the message "✓ Successfully loaded: 29 bundles 🎉 Done!"
+- if you cannot see the visualization page, you may need to `cd ..`, `cd frontend`, `npm install`, and `npm run dev` again. 
+
+  You can now view the ingested data in the neo4j browser localhost:7474, and you can see the visualization on localhost:5173
+  This data is static and for testing purposes only.
+
+
 
 ## Architecture
 
