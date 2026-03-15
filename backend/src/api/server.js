@@ -2373,7 +2373,8 @@ class APIServer {
                             id: g.group_id,
                             name: g.name,
                             type: 'group',
-                            trackCount: trackCount
+                            trackCount: trackCount,
+                            photo: g.photo
                         }) as groups,
                         collect(DISTINCT CASE WHEN p IS NOT NULL THEN {
                             id: p.person_id,
@@ -2472,7 +2473,8 @@ class APIServer {
                                     nodes.push({
                                         id: g.properties.group_id,
                                         name: g.properties.name,
-                                        type: 'group'
+                                        type: 'group',
+                                        photo: g.properties.photo || null
                                     });
                                     edges.push({
                                         source: p.properties.person_id,
@@ -2514,7 +2516,8 @@ class APIServer {
                                 nodes.push({
                                     id: g.properties.group_id,
                                     name: g.properties.name,
-                                    type: 'group'
+                                    type: 'group',
+                                    photo: g.properties.photo || null
                                 });
 
                                 const memberships = record.get('memberships').filter(m => m.person !== null);

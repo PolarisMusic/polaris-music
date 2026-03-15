@@ -301,7 +301,8 @@ export class GraphAPI {
                 $type: 'circle-hover',
                 $color: node.color || undefined,  // DB-driven person color
                 type: node.type,
-                trackCount: node.trackCount || 0
+                trackCount: node.trackCount || 0,
+                photo: node.photo || null
             },
             adjacencies: adjacencyMap.get(node.id) || []
         }));

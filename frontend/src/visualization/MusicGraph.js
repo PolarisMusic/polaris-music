@@ -54,6 +54,9 @@ export class MusicGraph {
         // Raw graph model for dynamic merging (populated in loadGraphData)
         this.rawGraph = null;
 
+        // Image cache for node photos (keyed by URL)
+        this._imageCache = new Map();
+
         // Poincaré distance threshold for showing full-name tooltip
         this.labelProximityThreshold = 0.64;
 
@@ -75,9 +78,35 @@ export class MusicGraph {
     }
 
     /**
+     * Get a cached Image for a URL, starting the load if needed.
+     * Returns the Image if loaded, or null if still loading/failed.
+     */
+    _getCachedImage(url) {
+        if (!url) return null;
+        const entry = this._imageCache.get(url);
+        if (entry) return entry.loaded ? entry.img : null;
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const record = { img, loaded: false };
+        this._imageCache.set(url, record);
+        img.onload = () => {
+            record.loaded = true;
+            if (this.ht) this.ht.plot();
+        };
+        img.onerror = () => {
+            // Mark as failed so we don't retry
+            this._imageCache.delete(url);
+        };
+        img.src = url;
+        return null;
+    }
+
+    /**
      * Register custom Hypertree node types: circle-hover and group-donut
      */
     registerNodeTypes() {
+        const musicGraph = this;
         $jit.Hypertree.Plot.NodeTypes.implement({
             /**
              * circle-hover: standard circle with hover/selection outline
@@ -156,6 +185,22 @@ export class MusicGraph {
                         ctx.fillStyle = color;
                         ctx.fill();
 
+                        // Draw group photo inside circle if available
+                        var photoUrl = node.data.photo;
+                        if (photoUrl && dim > 3) {
+                            var img = musicGraph._getCachedImage(photoUrl);
+                            if (img) {
+                                ctx.save();
+                                ctx.beginPath();
+                                ctx.arc(p.x, p.y, dim, 0, Math.PI * 2, false);
+                                ctx.clip();
+                                // Draw image centered and covering the circle
+                                var size = dim * 2;
+                                ctx.drawImage(img, p.x - dim, p.y - dim, size, size);
+                                ctx.restore();
+                            }
+                        }
+
                         // Draw donut slices if data is loaded
                         var slices = node.getData('donutSlices');
                         if (slices && slices.length > 0) {
@@ -203,8 +248,9 @@ export class MusicGraph {
                             ctx.stroke();
                         }
 
-                        // Draw initials inside base circle
-                        if (dim > 3) {
+                        // Draw initials inside base circle (skip if photo is loaded)
+                        var hasPhoto = photoUrl && musicGraph._imageCache.has(photoUrl) && musicGraph._imageCache.get(photoUrl).loaded;
+                        if (dim > 3 && !hasPhoto) {
                             var name = node.name || '';
                             var words = name.split(/\s+/).filter(Boolean);
                             var initials = words.map(function(w) { return w[0] || ''; }).join('').substring(0, 3);
@@ -384,13 +430,16 @@ export class MusicGraph {
         const infoViewer = document.getElementById('info-viewer');
         if (!infoViewer) return;
 
+        // Use a non-passive listener so we can call preventDefault() to stop
+        // the browser from forwarding the wheel event to the canvas behind.
         infoViewer.addEventListener('wheel', (e) => {
+            e.preventDefault();
             e.stopPropagation();
             const scrollable = infoViewer.querySelector('.info-content');
             if (scrollable) {
                 scrollable.scrollTop += e.deltaY;
             }
-        }, { passive: true });
+        }, { passive: false });
 
         infoViewer.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
     }
@@ -735,6 +784,9 @@ export class MusicGraph {
         // Load mini-player queue based on node type
         this._loadPlayerQueue(node);
 
+        // Hide release overlay immediately so tiles don't float during animation
+        this.releaseOverlay.hide();
+
         // Center on node
         this.ht.onClick(node.id, {
             onComplete: () => {
@@ -868,7 +920,12 @@ export class MusicGraph {
             html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
             group.members.forEach(member => {
                 const role = member.role || '';
-                html += `<li><strong>${esc(member.person)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
+                const personId = member.person_id || '';
+                if (personId) {
+                    html += `<li><a href="#" class="info-nav-link" data-node-id="${esc(personId)}"><strong>${esc(member.person)}</strong></a>${role ? ` - ${esc(role)}` : ''}</li>`;
+                } else {
+                    html += `<li><strong>${esc(member.person)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
+                }
             });
             html += `</ul></div>`;
         }
@@ -885,6 +942,7 @@ export class MusicGraph {
 
         contentElement.innerHTML = html;
         this._attachEditListeners(contentElement);
+        this._attachNavLinkListeners(contentElement);
     }
 
     /**
@@ -918,7 +976,12 @@ export class MusicGraph {
             html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
             person.groups.forEach(group => {
                 const role = group.role || '';
-                html += `<li><strong>${esc(group.group)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
+                const groupId = group.group_id || '';
+                if (groupId) {
+                    html += `<li><a href="#" class="info-nav-link" data-node-id="${esc(groupId)}"><strong>${esc(group.group)}</strong></a>${role ? ` - ${esc(role)}` : ''}</li>`;
+                } else {
+                    html += `<li><strong>${esc(group.group)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
+                }
             });
             html += `</ul></div>`;
         }
@@ -936,6 +999,7 @@ export class MusicGraph {
         contentElement.innerHTML = html;
         this._attachEditListeners(contentElement);
         this._attachColorPickerListeners(contentElement);
+        this._attachNavLinkListeners(contentElement);
     }
 
     /**
@@ -1170,6 +1234,23 @@ export class MusicGraph {
     _editableRow(nodeType, nodeId, field, currentValue, label, isTextarea = false) {
         const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         return `<button class="edit-btn" data-node-type="${esc(nodeType)}" data-node-id="${esc(nodeId)}" data-field="${esc(field)}" data-current-value="${esc(currentValue)}" data-textarea="${isTextarea}" title="Edit ${esc(label)}">&#9998; ${esc(label)}</button> `;
+    }
+
+    /**
+     * Attach click listeners to .info-nav-link elements inside a container.
+     * Navigates the graph to the linked node when clicked.
+     * @private
+     */
+    _attachNavLinkListeners(container) {
+        container.querySelectorAll('.info-nav-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const nodeId = link.dataset.nodeId;
+                if (nodeId) {
+                    this.navigateToNodeId(nodeId);
+                }
+            });
+        });
     }
 
     /**
