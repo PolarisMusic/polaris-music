@@ -345,6 +345,17 @@ body.mini-player-visible {
     border-bottom: none;
 }
 
+.info-nav-link {
+    color: #4A90E2;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.info-nav-link:hover {
+    text-decoration: underline;
+    color: #6AAFE6;
+}
+
 .info-section ul {
     list-style: none;
     padding: 0;
