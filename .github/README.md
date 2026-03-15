@@ -1,5 +1,96 @@
 # Polaris Music Registry - CI/CD Documentation
 
+Overview
+Polaris is a decentralized, visualized music registry built on blockchain technology. It provides a canonical, auditable registry of music creators, releases, tracks, and compositions. All information is submitted in the form of projects, which are the core collaborative event used. Projects are things like Album releases, Album rereleases, EP releases, Single releases, documented live performances, and other auditable artifacts of musical creation.
+
+The project uses: Javascript InfoVis Toolkit (JIT) - https://github.com/philogb/jit Antelope Blockchain Framework - https://github.com/antelopeIO Wharfkit Antelope integration - https://github.com/wharfkit GQL-compliant Cypher by Neo4j - https://github.com/neo4j/neo4j IPFS decentralized storage - https://github.com/ipfs/ipfs fractally DAO platform - https://github.com/gofractally
+
+The different pieces of the project include:
+
+Submission form for releases
+Hyperbolic-plane graph visualization of musician connections
+User's traversal path through the visualization is stored when the user "likes" a node
+Blockchain rewards system for contributors and data validators
+Graph database for entity-relationship data storage
+
+
+## Quick Start
+### Prerequisites
+- Node.js 18+
+- Docker & Docker Compose
+
+The suite uses:
+- GQL-compabitble Neo4j replacement /// TO BE IMPLEMENTED
+- Redis 7.0+
+- IPFS node (optional, can use public gateway)
+- EOS/Vaulta account (for blockchain submission)
+
+### Instructions
+- Create a working directory
+
+- `cd <directory>`
+
+- `git clone https://github.com/PolarisMusic/polaris-music`
+
+- `cd polaris-music`
+
+- Make sure Docker is running
+
+- Make sure all docker services are stopped with `docker compose down -v`
+
+- Make sure latest is updated with `git pull origin main`
+
+- Start docker containers, making sure API is rebuilt: `docker compose up -d --force-recreate api` (This will take a minute or two)
+
+- `cd frontend`
+
+- Install frontend with `npm install`
+
+- Start frontend with `npm run dev`
+
+- open a new terminal tab (the current tab will no longer accept inputs)
+
+- You can double check the Neo4j browser at `http://localhost:7474/browser/`. It should currently be empty, but you should still be able to connect.
+
+- You can double check the Front-end at `http://localhost:5173/visualization.html`. This should load but will also be blank.
+
+- `cd ..`
+
+- `cd backend`
+
+- `npm ci`
+
+- If both the Neo4j browser and the frontend seem good, you can load the smoke test release bundles with node scripts/loadSmokeTests.js  You'll see it load releases and then should finish with the message "✓ Successfully loaded: 29 bundles 🎉 Done!"
+
+- if you cannot see the visualization page, you may need to `cd ..`, `cd frontend`, `npm install`, and `npm run dev` again.
+
+- You can now view the ingested data in the neo4j browser at `localhost:7474`, and you can see the visualization on `localhost:5173`. This data is static and for testing purposes only.
+
+Architecture
+┌─────────────────────────────────────────────────────┐
+│                   Frontend:                         │         ┌───────────────────────────────┐
+│         JIT Hypertree + RGraph Visualization        │<────────│  Graph->Frontend convertor:   │
+│             Project Submission Form                 │         │  Hypertree Populating Script  │
+│              WharfKit Integration                   │         └───────────────────────────────┘      
+└─────────────────────────────────────────────────────┘                  │          │
+                          │                                     entities │          │ Home node
+┌─────────────────────────────────────────────────────┐         ┌───────────────┐   │
+│                    API Layer:                       │         │   Graph DB    │   │ 
+│           GraphQL + REST Endpoints                  │         │      GQL      │   │
+└─────────────────────────────────────────────────────┘         └───────────────┘   │
+                          │                                              │          │
+        ┌─────────────────┴─────────────────┐                            │          │
+        │                                   │                     ┌──────────────────────┐
+┌───────────────┐                  ┌──────────────────┐           │      Ingestion:      │
+│   Storage:    │                  │    Blockchain:   │           │      Substreams      │
+│  Redis(hot)   │                  │    EOS/Vaulta    │           └──────────────────────┘
+│  IPFS + S3    │                  │    fractally     │                    │
+│  -> GQL       │                  │multi-chain design│────────────────────┘
+└───────────────┘                  └──────────────────┘
+
+
+
+
 ## Overview
 
 This directory contains GitHub Actions workflows for continuous integration and deployment of the Polaris Music Registry project.
