@@ -84,10 +84,12 @@ export class MusicGraph {
     _getCachedImage(url) {
         if (!url) return null;
         const entry = this._imageCache.get(url);
-        if (entry) return entry.loaded ? entry.img : null;
+        if (entry) return entry.loaded ? entry.img : null; // covers loading and failed
 
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        // Skip crossOrigin to avoid CORS failures on servers that don't
+        // send Access-Control-Allow-Origin. Without it we can still draw
+        // the image (canvas becomes "tainted" but we don't read pixels).
         const record = { img, loaded: false };
         this._imageCache.set(url, record);
         img.onload = () => {
@@ -95,8 +97,8 @@ export class MusicGraph {
             if (this.ht) this.ht.plot();
         };
         img.onerror = () => {
-            // Mark as failed so we don't retry
-            this._imageCache.delete(url);
+            // Mark as permanently failed so we don't retry every render
+            record.failed = true;
         };
         img.src = url;
         return null;
@@ -428,20 +430,21 @@ export class MusicGraph {
      */
     _isolateInfoPanelScroll() {
         const infoViewer = document.getElementById('info-viewer');
-        if (!infoViewer) return;
+        const infoContent = document.getElementById('info-content');
+        if (!infoViewer || !infoContent) return;
+        if (infoViewer.dataset.scrollIsolationBound === 'true') return;
 
-        // Use a non-passive listener so we can call preventDefault() to stop
-        // the browser from forwarding the wheel event to the canvas behind.
-        infoViewer.addEventListener('wheel', (e) => {
-            e.preventDefault();
+        // Let the browser do native scrolling inside the panel.
+        // Just stop events from reaching JIT/global handlers.
+        const stopPropagation = (e) => {
             e.stopPropagation();
-            const scrollable = infoViewer.querySelector('.info-content');
-            if (scrollable) {
-                scrollable.scrollTop += e.deltaY;
-            }
-        }, { passive: false });
+        };
 
-        infoViewer.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+        infoViewer.addEventListener('wheel', stopPropagation, { passive: true });
+        infoViewer.addEventListener('touchmove', stopPropagation, { passive: true });
+        infoViewer.addEventListener('mousedown', stopPropagation, { passive: true });
+        infoViewer.addEventListener('click', stopPropagation, { passive: true });
+        infoViewer.dataset.scrollIsolationBound = 'true';
     }
 
     /**
@@ -451,6 +454,8 @@ export class MusicGraph {
      */
     _handleCanvasResize() {
         if (!this.ht || !this.ht.canvas || !this.container) return;
+        // Don't resize before graph data is loaded (no root node yet)
+        if (!this.ht.graph || !this.ht.graph.getNode(this.ht.root)) return;
 
         const width = this.container.clientWidth;
         const height = this.container.clientHeight;
