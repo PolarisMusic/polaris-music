@@ -846,7 +846,7 @@ export class MusicGraph {
 
         if (!node) {
             infoTitle.textContent = 'Select a node';
-            infoContent.innerHTML = '<p class="placeholder">Click on a Group or Person to see details</p>';
+            infoContent.innerHTML = '<div class="info-inner"><p class="placeholder">Click on a Group or Person to see details</p></div>';
             return;
         }
 
@@ -854,7 +854,7 @@ export class MusicGraph {
         const nodeId = node.id;
 
         infoTitle.textContent = node.name || 'Loading...';
-        infoContent.innerHTML = '<p>Loading details...</p>';
+        infoContent.innerHTML = '<div class="info-inner"><p>Loading details...</p></div>';
 
         if (infoViewer) {
             infoViewer.style.display = 'block';
@@ -864,14 +864,14 @@ export class MusicGraph {
             const response = await this.api.fetchNodeDetails(nodeId, type);
 
             if (!response) {
-                infoContent.innerHTML = '<p>No details available</p>';
+                infoContent.innerHTML = '<div class="info-inner"><p>No details available</p></div>';
                 return;
             }
 
             const details = response.data || response;
 
             if (!details) {
-                infoContent.innerHTML = '<p>No details available</p>';
+                infoContent.innerHTML = '<div class="info-inner"><p>No details available</p></div>';
                 return;
             }
 
@@ -881,11 +881,11 @@ export class MusicGraph {
             } else if (typeLower === 'person') {
                 this.renderPersonDetails(details, infoTitle, infoContent, nodeId);
             } else {
-                infoContent.innerHTML = `<p><strong>Type:</strong> ${type}</p>`;
+                infoContent.innerHTML = `<div class="info-inner"><p><strong>Type:</strong> ${type}</p></div>`;
             }
         } catch (error) {
             console.error('Error fetching node details:', error);
-            infoContent.innerHTML = '<p>Error loading details</p>';
+            infoContent.innerHTML = '<div class="info-inner"><p>Error loading details</p></div>';
         }
     }
 
@@ -945,7 +945,7 @@ export class MusicGraph {
         }
         html += this._editableRow('group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
 
-        contentElement.innerHTML = html;
+        contentElement.innerHTML = `<div class="info-inner">${html}</div>`;
         this._attachEditListeners(contentElement);
         this._attachNavLinkListeners(contentElement);
     }
@@ -1001,7 +1001,7 @@ export class MusicGraph {
         }
         html += this._editableRow('person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
 
-        contentElement.innerHTML = html;
+        contentElement.innerHTML = `<div class="info-inner">${html}</div>`;
         this._attachEditListeners(contentElement);
         this._attachColorPickerListeners(contentElement);
         this._attachNavLinkListeners(contentElement);
@@ -1229,7 +1229,7 @@ export class MusicGraph {
             html += `<div class="info-section"><h4>Liner Notes</h4><p>${esc(release.liner_notes)}</p></div>`;
         }
 
-        contentElement.innerHTML = html;
+        contentElement.innerHTML = `<div class="info-inner">${html}</div>`;
     }
 
     /**
