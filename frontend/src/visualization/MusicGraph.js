@@ -429,22 +429,8 @@ export class MusicGraph {
      * then forwards wheel deltas into the .info-content scroll container.
      */
     _isolateInfoPanelScroll() {
-        const infoViewer = document.getElementById('info-viewer');
-        const infoContent = document.getElementById('info-content');
-        if (!infoViewer || !infoContent) return;
-        if (infoViewer.dataset.scrollIsolationBound === 'true') return;
-
-        // Let the browser do native scrolling inside the panel.
-        // Just stop events from reaching JIT/global handlers.
-        const stopPropagation = (e) => {
-            e.stopPropagation();
-        };
-
-        infoViewer.addEventListener('wheel', stopPropagation, { passive: true });
-        infoViewer.addEventListener('touchmove', stopPropagation, { passive: true });
-        infoViewer.addEventListener('mousedown', stopPropagation, { passive: true });
-        infoViewer.addEventListener('click', stopPropagation, { passive: true });
-        infoViewer.dataset.scrollIsolationBound = 'true';
+        // No-op. JIT listens for wheel events on the canvas element, not the
+        // info panel. Native scrolling happens on #info-scroll without JS.
     }
 
     /**
@@ -846,7 +832,7 @@ export class MusicGraph {
 
         if (!node) {
             infoTitle.textContent = 'Select a node';
-            infoContent.innerHTML = '<div class="info-inner"><p class="placeholder">Click on a Group or Person to see details</p></div>';
+            infoContent.innerHTML = '<p class="placeholder">Click on a Group or Person to see details</p>';
             return;
         }
 
@@ -854,7 +840,7 @@ export class MusicGraph {
         const nodeId = node.id;
 
         infoTitle.textContent = node.name || 'Loading...';
-        infoContent.innerHTML = '<div class="info-inner"><p>Loading details...</p></div>';
+        infoContent.innerHTML = '<p>Loading details...</p>';
 
         if (infoViewer) {
             infoViewer.style.display = 'block';
@@ -864,14 +850,14 @@ export class MusicGraph {
             const response = await this.api.fetchNodeDetails(nodeId, type);
 
             if (!response) {
-                infoContent.innerHTML = '<div class="info-inner"><p>No details available</p></div>';
+                infoContent.innerHTML = '<p>No details available</p>';
                 return;
             }
 
             const details = response.data || response;
 
             if (!details) {
-                infoContent.innerHTML = '<div class="info-inner"><p>No details available</p></div>';
+                infoContent.innerHTML = '<p>No details available</p>';
                 return;
             }
 
@@ -881,11 +867,11 @@ export class MusicGraph {
             } else if (typeLower === 'person') {
                 this.renderPersonDetails(details, infoTitle, infoContent, nodeId);
             } else {
-                infoContent.innerHTML = `<div class="info-inner"><p><strong>Type:</strong> ${type}</p></div>`;
+                infoContent.innerHTML = `<p><strong>Type:</strong> ${type}</p>`;
             }
         } catch (error) {
             console.error('Error fetching node details:', error);
-            infoContent.innerHTML = '<div class="info-inner"><p>Error loading details</p></div>';
+            infoContent.innerHTML = '<p>Error loading details</p>';
         }
     }
 
@@ -945,7 +931,7 @@ export class MusicGraph {
         }
         html += this._editableRow('group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
 
-        contentElement.innerHTML = `<div class="info-inner">${html}</div>`;
+        contentElement.innerHTML = html;
         this._attachEditListeners(contentElement);
         this._attachNavLinkListeners(contentElement);
     }
@@ -1001,7 +987,7 @@ export class MusicGraph {
         }
         html += this._editableRow('person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
 
-        contentElement.innerHTML = `<div class="info-inner">${html}</div>`;
+        contentElement.innerHTML = html;
         this._attachEditListeners(contentElement);
         this._attachColorPickerListeners(contentElement);
         this._attachNavLinkListeners(contentElement);
@@ -1229,7 +1215,7 @@ export class MusicGraph {
             html += `<div class="info-section"><h4>Liner Notes</h4><p>${esc(release.liner_notes)}</p></div>`;
         }
 
-        contentElement.innerHTML = `<div class="info-inner">${html}</div>`;
+        contentElement.innerHTML = html;
     }
 
     /**
