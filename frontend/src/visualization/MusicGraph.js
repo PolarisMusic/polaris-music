@@ -430,20 +430,21 @@ export class MusicGraph {
      */
     _isolateInfoPanelScroll() {
         const infoViewer = document.getElementById('info-viewer');
-        if (!infoViewer) return;
+        const infoContent = document.getElementById('info-content');
+        if (!infoViewer || !infoContent) return;
+        if (infoViewer.dataset.scrollIsolationBound === 'true') return;
 
-        // Use a non-passive listener so we can call preventDefault() to stop
-        // the browser from forwarding the wheel event to the canvas behind.
-        infoViewer.addEventListener('wheel', (e) => {
-            e.preventDefault();
+        // Let the browser do native scrolling inside the panel.
+        // Just stop events from reaching JIT/global handlers.
+        const stopPropagation = (e) => {
             e.stopPropagation();
-            const scrollable = infoViewer.querySelector('.info-content');
-            if (scrollable) {
-                scrollable.scrollTop += e.deltaY;
-            }
-        }, { passive: false });
+        };
 
-        infoViewer.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+        infoViewer.addEventListener('wheel', stopPropagation, { passive: true });
+        infoViewer.addEventListener('touchmove', stopPropagation, { passive: true });
+        infoViewer.addEventListener('mousedown', stopPropagation, { passive: true });
+        infoViewer.addEventListener('click', stopPropagation, { passive: true });
+        infoViewer.dataset.scrollIsolationBound = 'true';
     }
 
     /**

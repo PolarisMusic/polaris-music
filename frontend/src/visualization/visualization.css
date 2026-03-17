@@ -238,12 +238,13 @@ body.mini-player-visible {
     height: 100%;
     background: #1a1a1a;
     border-left: 1px solid #333;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
 }
 
 .info-header {
+    flex: 0 0 auto;
     padding: 20px;
     border-bottom: 1px solid #333;
     display: flex;
@@ -275,7 +276,9 @@ body.mini-player-visible {
 }
 
 .info-content {
+    flex: 1 1 auto;
     min-height: 0;
+    height: 0;
     min-width: 0;
     padding: 20px;
     overflow-y: auto;
