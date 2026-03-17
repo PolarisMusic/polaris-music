@@ -84,10 +84,12 @@ export class MusicGraph {
     _getCachedImage(url) {
         if (!url) return null;
         const entry = this._imageCache.get(url);
-        if (entry) return entry.loaded ? entry.img : null;
+        if (entry) return entry.loaded ? entry.img : null; // covers loading and failed
 
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        // Skip crossOrigin to avoid CORS failures on servers that don't
+        // send Access-Control-Allow-Origin. Without it we can still draw
+        // the image (canvas becomes "tainted" but we don't read pixels).
         const record = { img, loaded: false };
         this._imageCache.set(url, record);
         img.onload = () => {
@@ -95,8 +97,8 @@ export class MusicGraph {
             if (this.ht) this.ht.plot();
         };
         img.onerror = () => {
-            // Mark as failed so we don't retry
-            this._imageCache.delete(url);
+            // Mark as permanently failed so we don't retry every render
+            record.failed = true;
         };
         img.src = url;
         return null;
@@ -451,6 +453,8 @@ export class MusicGraph {
      */
     _handleCanvasResize() {
         if (!this.ht || !this.ht.canvas || !this.container) return;
+        // Don't resize before graph data is loaded (no root node yet)
+        if (!this.ht.graph || !this.ht.graph.getNode(this.ht.root)) return;
 
         const width = this.container.clientWidth;
         const height = this.container.clientHeight;
