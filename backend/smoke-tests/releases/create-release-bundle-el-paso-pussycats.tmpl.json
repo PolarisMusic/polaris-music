@@ -33,7 +33,7 @@
 "role": "drums, vocals"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000445",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000623",
 "name": "Smoke Beto O'Rourke",
 "role": "bass, vocals"
 },
@@ -55,7 +55,7 @@
 "song_id": "polaris:song:00000000-0000-4000-8000-000000004373",
 "title": "Al Sobrante",
 "writers": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000623", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000446", "name": "Smoke Arlo Klahr", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000447", "name": "Smoke Mike Stevens", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["music"] }
@@ -65,7 +65,7 @@
 "song_id": "polaris:song:00000000-0000-4000-8000-000000004374",
 "title": "Snowzone In His Pants",
 "writers": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000623", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000446", "name": "Smoke Arlo Klahr", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000447", "name": "Smoke Mike Stevens", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["music"] }
@@ -75,7 +75,7 @@
 "song_id": "polaris:song:00000000-0000-4000-8000-000000004375",
 "title": "Got The Chutzpah Rolling",
 "writers": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000623", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000446", "name": "Smoke Arlo Klahr", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000447", "name": "Smoke Mike Stevens", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["music"] }
@@ -85,7 +85,7 @@
 "song_id": "polaris:song:00000000-0000-4000-8000-000000004376",
 "title": "Rise",
 "writers": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000445", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000623", "name": "Smoke Beto O'Rourke", "roles": ["lyrics", "music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000446", "name": "Smoke Arlo Klahr", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000447", "name": "Smoke Mike Stevens", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000428", "name": "Smoke Cedric Bixler-Zavala", "roles": ["music"] }

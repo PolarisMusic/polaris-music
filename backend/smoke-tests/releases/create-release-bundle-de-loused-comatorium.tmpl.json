@@ -222,7 +222,7 @@
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
 ],
 "guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000438", "name": "Smoke Lenny Castro", "roles": ["percussion"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000617", "name": "Smoke Lenny Castro", "roles": ["percussion"] }
 ]
 },
 {
@@ -238,8 +238,8 @@
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000429", "name": "Smoke Omar Rodriguez-Lopez" }
 ],
 "guests": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["additional guitar", "synthesizer"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000437", "name": "Smoke Larry Harlow", "roles": ["piano", "clavinet"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["additional guitar", "synthesizer"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000616", "name": "Smoke Larry Harlow", "roles": ["piano", "clavinet"] }
 ]
 },
 {

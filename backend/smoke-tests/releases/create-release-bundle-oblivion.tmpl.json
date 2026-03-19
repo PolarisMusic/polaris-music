@@ -38,7 +38,7 @@
 "role": "bass, vocals"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000424",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000609",
 "name": "Smoke Atom Willard",
 "role": "drums"
 }
@@ -52,7 +52,7 @@
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000415", "name": "Smoke Matt Skiba" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000423", "name": "Smoke Dan Andriano" },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000424", "name": "Smoke Atom Willard" }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000609", "name": "Smoke Atom Willard" }
 ]
 }
 ],

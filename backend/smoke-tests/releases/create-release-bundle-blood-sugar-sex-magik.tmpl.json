@@ -23,7 +23,7 @@
 ],
 "groups": [
 {
-"group_id": "polaris:group:00000000-0000-4000-8000-000000000012",
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000025",
 "name": "Smoke Red Hot Chili Peppers",
 "alt_names": ["Red Hot Chili Peppers", "RHCP"],
 "members": [
@@ -33,7 +33,7 @@
 "role": "lead vocals"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000436",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000615",
 "name": "Smoke John Frusciante",
 "role": "guitar, backing vocals, percussion"
 },
@@ -43,7 +43,7 @@
 "role": "bass, backing vocals, trumpet, percussion"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000441",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000620",
 "name": "Smoke Chad Smith",
 "role": "drums, percussion"
 }
@@ -56,9 +56,9 @@
 "title": "The Power of Equality",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -66,9 +66,9 @@
 "title": "If You Have to Ask",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -76,9 +76,9 @@
 "title": "Breaking the Girl",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -86,9 +86,9 @@
 "title": "Funky Monks",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -96,9 +96,9 @@
 "title": "Suck My Kiss",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -106,9 +106,9 @@
 "title": "I Could Have Lied",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -116,9 +116,9 @@
 "title": "Mellowship Slinky in B Major",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -126,9 +126,9 @@
 "title": "The Righteous & the Wicked",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -136,9 +136,9 @@
 "title": "Give It Away",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -146,9 +146,9 @@
 "title": "Blood Sugar Sex Magik",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -156,9 +156,9 @@
 "title": "Under the Bridge",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -166,9 +166,9 @@
 "title": "Naked in the Rain",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -176,9 +176,9 @@
 "title": "Apache Rose Peacock",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -186,9 +186,9 @@
 "title": "The Greeting Song",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -196,9 +196,9 @@
 "title": "My Lovely Man",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
@@ -206,16 +206,16 @@
 "title": "Sir Psycho Sexy",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Anthony Kiedis", "roles": ["lyrics", "music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000436", "name": "Smoke John Frusciante", "roles": ["music"] },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000615", "name": "Smoke John Frusciante", "roles": ["music"] },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000431", "name": "Smoke Flea", "roles": ["music"] },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000441", "name": "Smoke Chad Smith", "roles": ["music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000620", "name": "Smoke Chad Smith", "roles": ["music"] }
 ]
 },
 {
 "song_id": "polaris:song:00000000-0000-4000-8000-000000004372",
 "title": "They're Red Hot",
 "writers": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000442", "name": "Smoke Robert Johnson", "roles": ["lyrics", "music"] }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000621", "name": "Smoke Robert Johnson", "roles": ["lyrics", "music"] }
 ]
 }
 ],
@@ -226,7 +226,7 @@
 "duration": 243,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004356",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -238,7 +238,7 @@
 "duration": 217,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004357",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -250,7 +250,7 @@
 "duration": 295,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004358",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -265,7 +265,7 @@
 "duration": 323,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004359",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -277,7 +277,7 @@
 "duration": 215,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004360",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -289,7 +289,7 @@
 "duration": 244,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004361",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -301,7 +301,7 @@
 "duration": 240,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004362",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -313,7 +313,7 @@
 "duration": 246,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004363",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -325,7 +325,7 @@
 "duration": 283,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004364",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -337,7 +337,7 @@
 "duration": 271,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004365",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -349,7 +349,7 @@
 "duration": 264,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004366",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -361,7 +361,7 @@
 "duration": 266,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004367",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -373,7 +373,7 @@
 "duration": 282,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004368",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -385,7 +385,7 @@
 "duration": 193,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004369",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -397,7 +397,7 @@
 "duration": 284,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004370",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -409,7 +409,7 @@
 "duration": 497,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004371",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }
@@ -421,7 +421,7 @@
 "duration": 62,
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004372",
 "groups": [
-{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000012", "name": "Smoke Red Hot Chili Peppers" }
+{ "group_id": "polaris:group:00000000-0000-4000-8000-000000000025", "name": "Smoke Red Hot Chili Peppers" }
 ],
 "producers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Rick Rubin" }

@@ -23,7 +23,7 @@
     ],
     "groups": [
       {
-        "group_id": "polaris:group:00000000-0000-4000-8000-000000000008",
+        "group_id": "polaris:group:00000000-0000-4000-8000-000000000022",
         "name": "Smoke +44",
         "alt_names": ["+44"],
         "members": [
@@ -38,12 +38,12 @@
             "role": "drums, keyboards, piano"
           },
           {
-            "person_id": "polaris:person:00000000-0000-4000-8000-000000000419",
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000634",
             "name": "Smoke Craig Fairbaugh",
             "role": "guitar, vocals"
           },
           {
-            "person_id": "polaris:person:00000000-0000-4000-8000-000000000420",
+            "person_id": "polaris:person:00000000-0000-4000-8000-000000000635",
             "name": "Smoke Shane Gallagher",
             "role": "lead guitar"
           }
@@ -147,7 +147,7 @@
         "duration": 238,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004312",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -161,7 +161,7 @@
         "duration": 166,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004313",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -175,7 +175,7 @@
         "duration": 192,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004314",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -189,7 +189,7 @@
         "duration": 249,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004315",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -203,7 +203,7 @@
         "duration": 209,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004316",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -217,7 +217,7 @@
         "duration": 285,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004317",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -231,7 +231,7 @@
         "duration": 205,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004318",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -245,7 +245,7 @@
         "duration": 267,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004319",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -259,7 +259,7 @@
         "duration": 209,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004320",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -273,7 +273,7 @@
         "duration": 202,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004321",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
@@ -287,7 +287,7 @@
         "duration": 307,
         "recording_of": "polaris:song:00000000-0000-4000-8000-000000004322",
         "groups": [
-          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000008", "name": "Smoke +44" }
+          { "group_id": "polaris:group:00000000-0000-4000-8000-000000000022", "name": "Smoke +44" }
         ],
         "producers": [
           { "person_id": "polaris:person:00000000-0000-4000-8000-000000000413", "name": "Smoke Mark Hoppus" },
