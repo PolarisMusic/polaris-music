@@ -23,7 +23,7 @@
 ],
 "groups": [
 {
-"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000023",
 "name": "Smoke Earthless",
 "alt_names": ["Earthless"],
 "members": [
@@ -33,7 +33,7 @@
 "role": "guitar, vocals"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000439",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000618",
 "name": "Smoke Mike Eginton",
 "role": "bass"
 },
@@ -51,7 +51,7 @@
 "title": "Godspeed",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000438", "name": "Smoke Isaiah Mitchell" },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Mike Eginton" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000618", "name": "Smoke Mike Eginton" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
 ]
 },
@@ -60,7 +60,7 @@
 "title": "Sonic Prayer",
 "writers": [
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000438", "name": "Smoke Isaiah Mitchell" },
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000439", "name": "Smoke Mike Eginton" },
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000618", "name": "Smoke Mike Eginton" },
 { "person_id": "polaris:person:00000000-0000-4000-8000-000000000430", "name": "Smoke Mario Rubalcaba" }
 ]
 },
@@ -68,7 +68,7 @@
 "song_id": "polaris:song:00000000-0000-4000-8000-000000004102",
 "title": "Cherry Red",
 "writers": [
-{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000440", "name": "Smoke Tony McPhee" }
+{ "person_id": "polaris:person:00000000-0000-4000-8000-000000000619", "name": "Smoke Tony McPhee" }
 ]
 }
 ],
@@ -80,7 +80,7 @@
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004100",
 "groups": [
 {
-"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000023",
 "name": "Smoke Earthless"
 }
 ]
@@ -92,7 +92,7 @@
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004101",
 "groups": [
 {
-"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000023",
 "name": "Smoke Earthless"
 }
 ]
@@ -104,7 +104,7 @@
 "recording_of": "polaris:song:00000000-0000-4000-8000-000000004102",
 "groups": [
 {
-"group_id": "polaris:group:00000000-0000-4000-8000-000000000010",
+"group_id": "polaris:group:00000000-0000-4000-8000-000000000023",
 "name": "Smoke Earthless"
 }
 ]

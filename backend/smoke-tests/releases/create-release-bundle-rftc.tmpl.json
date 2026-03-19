@@ -43,12 +43,12 @@
 "role": "bass, backing vocals"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000428",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000606",
 "name": "Smoke Paul O'Beirne",
 "role": "saxophone, vibraslap, backing vocals"
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000429",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000607",
 "name": "Smoke Jason Crane",
 "role": "trumpet, percussion, organ, backing vocals"
 },
@@ -167,7 +167,7 @@
 ],
 "guests": [
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000431",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000610",
 "name": "Smoke Holly Golightly",
 "roles": ["additional vocals"]
 }
@@ -222,7 +222,7 @@
 ],
 "guests": [
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000432",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000611",
 "name": "Smoke Derek Sherinian",
 "roles": ["organ"]
 }
@@ -253,12 +253,12 @@
 ],
 "guests": [
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000432",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000611",
 "name": "Smoke Derek Sherinian",
 "roles": ["piano"]
 },
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000433",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000612",
 "name": "Smoke Anton Fig",
 "roles": ["congas"]
 }
@@ -313,7 +313,7 @@
 ],
 "guests": [
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000434",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000613",
 "name": "Smoke King Django",
 "roles": ["trombone"]
 }
@@ -344,7 +344,7 @@
 ],
 "guests": [
 {
-"person_id": "polaris:person:00000000-0000-4000-8000-000000000435",
+"person_id": "polaris:person:00000000-0000-4000-8000-000000000614",
 "name": "Smoke Mike Gent",
 "roles": ["additional vocals"]
 }
