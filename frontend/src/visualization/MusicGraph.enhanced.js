@@ -145,7 +145,8 @@ export class MusicGraph {
 
         // Make info viewer visible
         if (infoViewer) {
-            infoViewer.style.display = 'block';
+            infoViewer.style.removeProperty('display');
+            infoViewer.classList.add('open');
         }
 
         // Update like button state

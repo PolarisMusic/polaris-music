@@ -932,7 +932,8 @@ export class MusicGraph {
         infoContent.innerHTML = '<p>Loading details...</p>';
 
         if (infoViewer) {
-            infoViewer.style.display = 'block';
+            infoViewer.style.removeProperty('display');
+            infoViewer.classList.add('open');
         }
 
         try {
@@ -1949,7 +1950,10 @@ export class MusicGraph {
 
         infoTitle.textContent = 'Loading...';
         infoContent.innerHTML = '<p>Loading song details...</p>';
-        if (infoViewer) infoViewer.style.display = 'block';
+        if (infoViewer) {
+            infoViewer.style.removeProperty('display');
+            infoViewer.classList.add('open');
+        }
 
         try {
             const resp = await this.api.fetchNodeDetails(songId, 'Song');
