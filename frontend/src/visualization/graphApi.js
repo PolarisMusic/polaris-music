@@ -40,13 +40,20 @@ export class GraphAPI {
                 });
             }
 
-            return this.transformToJIT(data);
+            const jitNodes = this.transformToJIT(data);
+
+            // Return JIT nodes plus participation data so the caller can
+            // pre-populate donut slices without per-group fetches.
+            return {
+                jitNodes,
+                participation: data.participation || {}
+            };
         } catch (error) {
             console.error('Error fetching initial graph:', error);
             // Only use mock data if explicitly enabled (prevents silent failures)
             if (this.useMockFallback) {
                 console.warn('Using mock graph data (VITE_USE_GRAPH_MOCK=true)');
-                return this.getMockInitialGraph();
+                return { jitNodes: this.getMockInitialGraph(), participation: {} };
             }
             throw error;
         }
@@ -55,7 +62,8 @@ export class GraphAPI {
     /**
      * Fetch initial graph as raw {nodes, edges} (not JIT-transformed).
      * Used when the caller needs to merge subgraphs before transforming.
-     * @returns {Promise<Object>} Raw graph data {nodes, edges}
+     * Also returns participation data if available.
+     * @returns {Promise<Object>} Raw graph data {nodes, edges, participation}
      */
     async fetchInitialGraphRaw() {
         try {
@@ -65,9 +73,13 @@ export class GraphAPI {
             }
             const data = await response.json();
             if (!data || !data.nodes || !data.edges) {
-                return { nodes: [], edges: [] };
+                return { nodes: [], edges: [], participation: {} };
             }
-            return { nodes: data.nodes, edges: data.edges };
+            return {
+                nodes: data.nodes,
+                edges: data.edges,
+                participation: data.participation || {}
+            };
         } catch (error) {
             console.error('Error fetching initial graph raw:', error);
             throw error;
@@ -567,12 +579,29 @@ export class GraphAPI {
             if (Date.now() - cached.timestamp < this.cacheTimeout) return cached.data;
         }
 
-        const resp = await fetch(`${this.baseUrl}/groups/${groupId}/participation`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
+        const maxRetries = 2;
+        const delays = [250, 750];
+        let lastError;
 
-        this.cache.set(cacheKey, { data, timestamp: Date.now() });
-        return data;
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const resp = await fetch(`${this.baseUrl}/groups/${groupId}/participation`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+
+                this.cache.set(cacheKey, { data, timestamp: Date.now() });
+                return data;
+            } catch (err) {
+                lastError = err;
+                // Only retry on network-level failures (TypeError: Failed to fetch)
+                if (err instanceof TypeError && attempt < maxRetries) {
+                    await new Promise(r => setTimeout(r, delays[attempt]));
+                    continue;
+                }
+                throw err;
+            }
+        }
+        throw lastError;
     }
 
     /**

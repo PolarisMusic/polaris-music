@@ -54,6 +54,12 @@ export class MusicGraph {
         // Raw graph model for dynamic merging (populated in loadGraphData)
         this.rawGraph = null;
 
+        // Concurrency-limited donut fetch queue (for on-demand loading)
+        this._donutQueue = [];
+        this._activeDonutLoads = 0;
+        this._maxConcurrentDonutLoads = 4;
+        this._donutStats = { started: 0, succeeded: 0, failed: 0 };
+
         // Image cache for node photos (keyed by URL)
         this._imageCache = new Map();
 
@@ -646,11 +652,11 @@ export class MusicGraph {
         if (nodeType === 'group') {
             node.setData('type', 'group-donut');
 
-            // Lazy-load participation data (only once)
+            // Lazy-load participation data (only once) via concurrency-limited queue
             const donutStatus = node.getData('donutStatus');
             if (!donutStatus) {
                 node.setData('donutStatus', 'loading');
-                this.loadDonutData(node);
+                this.enqueueDonutLoad(node);
             }
         } else {
             // All other nodes use circle-hover
@@ -659,16 +665,38 @@ export class MusicGraph {
     }
 
     /**
-     * Lazy-load participation data for a group node and attach donut slices.
-     * Non-blocking: fires and forgets, triggers redraw on completion.
+     * Enqueue a group node for donut data loading via the concurrency-limited queue.
+     * Prevents thundering-herd when many group nodes need participation data.
      */
-    async loadDonutData(node) {
+    enqueueDonutLoad(node) {
+        this._donutQueue.push(node);
+        this._processDonutQueue();
+    }
+
+    /**
+     * Process the donut fetch queue, respecting the concurrency limit.
+     */
+    _processDonutQueue() {
+        while (this._donutQueue.length > 0 && this._activeDonutLoads < this._maxConcurrentDonutLoads) {
+            const node = this._donutQueue.shift();
+            this._activeDonutLoads++;
+            this._donutStats.started++;
+            this._loadDonutDataSingle(node);
+        }
+    }
+
+    /**
+     * Load participation data for a single group node.
+     * Called by the queue processor; decrements active count on completion.
+     */
+    async _loadDonutDataSingle(node) {
         const groupId = node.data.group_id || node.id;
         try {
             const data = await this.api.fetchGroupParticipation(groupId);
             const slices = this.computeDonutSlices(data.members || []);
             node.setData('donutSlices', slices);
             node.setData('donutStatus', 'ready');
+            this._donutStats.succeeded++;
             // Trigger redraw so the ring appears
             if (this.ht) {
                 this.ht.plot();
@@ -676,6 +704,14 @@ export class MusicGraph {
         } catch (error) {
             console.error(`Failed to load donut data for ${groupId}:`, error);
             node.setData('donutStatus', 'error');
+            this._donutStats.failed++;
+        } finally {
+            this._activeDonutLoads--;
+            this._processDonutQueue();
+            // Log stats when queue drains
+            if (this._activeDonutLoads === 0 && this._donutQueue.length === 0) {
+                console.log('Donut load stats:', { ...this._donutStats });
+            }
         }
     }
 
@@ -1361,11 +1397,17 @@ export class MusicGraph {
     /**
      * Load graph data from API.
      * Stores raw {nodes, edges} for later dynamic merging, then transforms to JIT.
+     * Pre-populates donut participation data from the initial response to avoid
+     * per-group fetch storms.
      */
     async loadGraphData() {
         try {
             console.log('Loading graph data...');
-            this.rawGraph = await this.api.fetchInitialGraphRaw();
+            const raw = await this.api.fetchInitialGraphRaw();
+            this.rawGraph = { nodes: raw.nodes, edges: raw.edges };
+
+            // Store participation map for pre-populating donut data after render
+            this._initialParticipation = raw.participation || {};
 
             console.log('Graph data loaded:', this.rawGraph);
 
@@ -1376,9 +1418,45 @@ export class MusicGraph {
             this.updateHistoryCount();
             await this.rebuildHashIndexFromRawGraph();
 
+            // Pre-populate donut slices from participation data bundled in the
+            // initial response, so styleNode does not trigger per-group fetches.
+            this._prePopulateDonutData();
+
             console.log('Graph rendered');
         } catch (error) {
             console.error('Failed to load graph data:', error);
+        }
+    }
+
+    /**
+     * Pre-populate donut slice data on group nodes from the initial response's
+     * participation map. This avoids firing one HTTP request per group during
+     * the first render pass.
+     */
+    _prePopulateDonutData() {
+        const participation = this._initialParticipation;
+        if (!participation || !this.ht) return;
+
+        let prePopulated = 0;
+        const graph = this.ht.graph;
+        graph.eachNode(node => {
+            const nodeType = (node.data.type || '').toLowerCase();
+            if (nodeType !== 'group') return;
+
+            const groupId = node.data.group_id || node.id;
+            const pData = participation[groupId];
+            if (!pData || !pData.members) return;
+
+            const slices = this.computeDonutSlices(pData.members);
+            node.setData('donutSlices', slices);
+            node.setData('donutStatus', 'ready');
+            prePopulated++;
+        });
+
+        console.log(`Donut data pre-populated for ${prePopulated} groups`);
+
+        if (prePopulated > 0) {
+            this.ht.plot();
         }
     }
 
