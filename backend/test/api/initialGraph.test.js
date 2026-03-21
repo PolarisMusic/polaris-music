@@ -2,7 +2,7 @@
  * Regression tests for GET /api/graph/initial
  *
  * Ensures the endpoint returns ALL groups with tracks (no silent cap),
- * along with their MEMBER_OF person relationships.
+ * along with their MEMBER_OF person relationships and participation data.
  */
 
 import { jest } from '@jest/globals';
@@ -50,6 +50,8 @@ function buildTestApp(driver) {
                     WITH g, count(DISTINCT t) as trackCount
                     ORDER BY trackCount DESC
                     OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                    OPTIONAL MATCH (p)-[:PERFORMED_ON {via_group_id: g.group_id}]->(pt:Track)
+                    WITH g, trackCount, p, m, count(DISTINCT pt) as memberTrackCount
 
                     RETURN collect(DISTINCT {
                         id: g.group_id,
@@ -72,21 +74,52 @@ function buildTestApp(driver) {
                         from_date: m.from_date,
                         to_date: m.to_date,
                         instruments: m.instruments
-                    } ELSE null END) as edges
+                    } ELSE null END) as edges,
+                    collect(DISTINCT CASE WHEN p IS NOT NULL THEN {
+                        groupId: g.group_id,
+                        personId: p.person_id,
+                        personName: p.name,
+                        color: p.color,
+                        trackCount: memberTrackCount,
+                        totalTracks: trackCount
+                    } ELSE null END) as participationRows
                 `);
 
                 if (result.records.length === 0) {
-                    return res.json({ success: true, nodes: [], edges: [] });
+                    return res.json({ success: true, nodes: [], edges: [], participation: {} });
                 }
 
                 const groups = result.records[0].get('groups');
                 const persons = result.records[0].get('persons').filter(p => p !== null);
                 const edges = result.records[0].get('edges').filter(e => e !== null);
 
+                const participationRows = result.records[0].get('participationRows').filter(r => r !== null);
+                const participation = {};
+                for (const row of participationRows) {
+                    const gid = row.groupId;
+                    if (!participation[gid]) {
+                        participation[gid] = { totalTracks: row.totalTracks, members: [] };
+                    }
+                    const totalTracks = participation[gid].totalTracks;
+                    const tc = typeof row.trackCount === 'object' && row.trackCount.toNumber
+                        ? row.trackCount.toNumber() : Number(row.trackCount) || 0;
+                    const tt = typeof totalTracks === 'object' && totalTracks.toNumber
+                        ? totalTracks.toNumber() : Number(totalTracks) || 0;
+                    participation[gid].totalTracks = tt;
+                    participation[gid].members.push({
+                        personId: row.personId,
+                        personName: row.personName,
+                        color: row.color || null,
+                        trackCount: tc,
+                        trackPctOfGroupTracks: tt > 0 ? (tc / tt) * 100.0 : 0.0
+                    });
+                }
+
                 res.json({
                     success: true,
                     nodes: [...groups, ...persons],
-                    edges: edges
+                    edges: edges,
+                    participation: participation
                 });
             } finally {
                 await session.close();
@@ -110,6 +143,7 @@ describe('GET /api/graph/initial', () => {
         const groups = [];
         const persons = [];
         const edges = [];
+        const participationRows = [];
 
         for (let i = 1; i <= groupCount; i++) {
             groups.push({
@@ -134,10 +168,18 @@ describe('GET /api/graph/initial', () => {
                 to_date: null,
                 instruments: null
             });
+            participationRows.push({
+                groupId: `group:${i}`,
+                personId: `person:${i}`,
+                personName: `Person ${i}`,
+                color: '#aaa',
+                trackCount: groupCount - i + 1,
+                totalTracks: groupCount - i + 1
+            });
         }
 
         const driver = makeDriverStub(async () => ({
-            records: [makeRecord({ groups, persons, edges })]
+            records: [makeRecord({ groups, persons, edges, participationRows })]
         }));
 
         const app = buildTestApp(driver);
@@ -161,12 +203,45 @@ describe('GET /api/graph/initial', () => {
         expect(returnedGroups.find(g => g.id === 'group:30')).toBeDefined();
     });
 
+    test('includes participation data in response', async () => {
+        const driver = makeDriverStub(async () => ({
+            records: [makeRecord({
+                groups: [{ id: 'group:1', name: 'Test Band', type: 'group', trackCount: 10, photo: null }],
+                persons: [{ id: 'person:1', name: 'Alice', type: 'person', color: '#f00' }],
+                edges: [{ source: 'person:1', target: 'group:1', type: 'MEMBER_OF', role: 'vocals' }],
+                participationRows: [{
+                    groupId: 'group:1',
+                    personId: 'person:1',
+                    personName: 'Alice',
+                    color: '#f00',
+                    trackCount: 8,
+                    totalTracks: 10
+                }]
+            })]
+        }));
+
+        const app = buildTestApp(driver);
+
+        const response = await request(app)
+            .get('/api/graph/initial')
+            .expect(200);
+
+        expect(response.body.participation).toBeDefined();
+        expect(response.body.participation['group:1']).toBeDefined();
+        expect(response.body.participation['group:1'].totalTracks).toBe(10);
+        expect(response.body.participation['group:1'].members).toHaveLength(1);
+        expect(response.body.participation['group:1'].members[0].personId).toBe('person:1');
+        expect(response.body.participation['group:1'].members[0].trackCount).toBe(8);
+        expect(response.body.participation['group:1'].members[0].trackPctOfGroupTracks).toBe(80.0);
+    });
+
     test('Cypher query does not contain LIMIT', async () => {
         const driver = makeDriverStub(async () => ({
             records: [makeRecord({
                 groups: [],
                 persons: [],
-                edges: []
+                edges: [],
+                participationRows: []
             })]
         }));
 
@@ -192,6 +267,7 @@ describe('GET /api/graph/initial', () => {
         expect(response.body.success).toBe(true);
         expect(response.body.nodes).toEqual([]);
         expect(response.body.edges).toEqual([]);
+        expect(response.body.participation).toEqual({});
     });
 
     test('filters null persons and edges from OPTIONAL MATCH', async () => {
@@ -199,7 +275,11 @@ describe('GET /api/graph/initial', () => {
             records: [makeRecord({
                 groups: [{ id: 'group:1', name: 'Solo Act', type: 'group', trackCount: 5, photo: null }],
                 persons: [null, { id: 'person:1', name: 'Alice', type: 'person', color: '#fff' }],
-                edges: [null, { source: 'person:1', target: 'group:1', type: 'MEMBER_OF', role: 'vocals' }]
+                edges: [null, { source: 'person:1', target: 'group:1', type: 'MEMBER_OF', role: 'vocals' }],
+                participationRows: [null, {
+                    groupId: 'group:1', personId: 'person:1', personName: 'Alice',
+                    color: '#fff', trackCount: 5, totalTracks: 5
+                }]
             })]
         }));
 
@@ -214,5 +294,7 @@ describe('GET /api/graph/initial', () => {
         expect(response.body.edges.every(e => e !== null)).toBe(true);
         expect(response.body.nodes.length).toBe(2); // 1 group + 1 person
         expect(response.body.edges.length).toBe(1);
+        // Participation should also be clean
+        expect(response.body.participation['group:1'].members).toHaveLength(1);
     });
 });

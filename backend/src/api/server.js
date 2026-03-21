@@ -1476,8 +1476,10 @@ class APIServer {
          * Get member participation data for RGraph visualization
          */
         this.app.get('/api/groups/:groupId/participation', async (req, res) => {
+            const groupId = req.params.groupId;
+            const startMs = Date.now();
             try {
-                const rows = await this.db.calculateGroupMemberParticipation(req.params.groupId);
+                const rows = await this.db.calculateGroupMemberParticipation(groupId);
 
                 // rows is a flat array; totalTracks is the same on every row
                 const totalTracks = rows.length > 0 ? rows[0].totalTracks : 0;
@@ -1489,14 +1491,18 @@ class APIServer {
                     color: r.color ?? null
                 }));
 
+                const durationMs = Date.now() - startMs;
+                console.log(`Participation request: group=${groupId.substring(0, 12)} members=${members.length} duration=${durationMs}ms`);
+
                 res.json({
                     success: true,
-                    groupId: req.params.groupId,
+                    groupId,
                     totalTracks,
                     members
                 });
             } catch (error) {
-                console.error('Participation calculation failed:', error);
+                const durationMs = Date.now() - startMs;
+                console.error(`Participation request failed: group=${groupId.substring(0, 12)} duration=${durationMs}ms`, error);
                 res.status(500).json({
                     success: false,
                     error: error.message
@@ -2353,20 +2359,24 @@ class APIServer {
         /**
          * GET /api/graph/initial
          * Get initial graph data for visualization using all groups with tracks
-         * and their member relationships.
+         * and their member relationships. Includes per-group participation data
+         * so the frontend does not need separate per-group fetches.
          */
         this.app.get('/api/graph/initial', async (req, res) => {
             try {
                 const session = this.db.driver.session();
                 try {
                     // Return all groups that have performed on at least one track,
-                    // along with their MEMBER_OF person relationships.
+                    // along with their MEMBER_OF person relationships and
+                    // per-member participation counts (for donut visualization).
                     // No LIMIT — the full graph is needed for connected visualization.
                     const result = await session.run(`
                         MATCH (g:Group)-[:PERFORMED_ON]->(t:Track)
                         WITH g, count(DISTINCT t) as trackCount
                         ORDER BY trackCount DESC
                         OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                        OPTIONAL MATCH (p)-[:PERFORMED_ON {via_group_id: g.group_id}]->(pt:Track)
+                        WITH g, trackCount, p, m, count(DISTINCT pt) as memberTrackCount
 
                         RETURN collect(DISTINCT {
                             id: g.group_id,
@@ -2389,14 +2399,23 @@ class APIServer {
                             from_date: m.from_date,
                             to_date: m.to_date,
                             instruments: m.instruments
-                        } ELSE null END) as edges
+                        } ELSE null END) as edges,
+                        collect(DISTINCT CASE WHEN p IS NOT NULL THEN {
+                            groupId: g.group_id,
+                            personId: p.person_id,
+                            personName: p.name,
+                            color: p.color,
+                            trackCount: memberTrackCount,
+                            totalTracks: trackCount
+                        } ELSE null END) as participationRows
                     `);
 
                     if (result.records.length === 0) {
                         return res.json({
                             success: true,
                             nodes: [],
-                            edges: []
+                            edges: [],
+                            participation: {}
                         });
                     }
 
@@ -2405,10 +2424,34 @@ class APIServer {
                     const persons = result.records[0].get('persons').filter(p => p !== null);
                     const edges = result.records[0].get('edges').filter(e => e !== null);
 
+                    // Build participation map keyed by groupId
+                    const participationRows = result.records[0].get('participationRows').filter(r => r !== null);
+                    const participation = {};
+                    for (const row of participationRows) {
+                        const gid = row.groupId;
+                        if (!participation[gid]) {
+                            participation[gid] = { totalTracks: row.totalTracks, members: [] };
+                        }
+                        const totalTracks = participation[gid].totalTracks;
+                        const tc = typeof row.trackCount === 'object' && row.trackCount.toNumber
+                            ? row.trackCount.toNumber() : Number(row.trackCount) || 0;
+                        const tt = typeof totalTracks === 'object' && totalTracks.toNumber
+                            ? totalTracks.toNumber() : Number(totalTracks) || 0;
+                        participation[gid].totalTracks = tt;
+                        participation[gid].members.push({
+                            personId: row.personId,
+                            personName: row.personName,
+                            color: row.color || null,
+                            trackCount: tc,
+                            trackPctOfGroupTracks: tt > 0 ? (tc / tt) * 100.0 : 0.0
+                        });
+                    }
+
                     res.json({
                         success: true,
                         nodes: [...groups, ...persons],
-                        edges: edges
+                        edges: edges,
+                        participation: participation
                     });
                 } finally {
                     await session.close();
