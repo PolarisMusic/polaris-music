@@ -1846,6 +1846,7 @@ class APIServer {
                         MATCH (s:Song {song_id: $songId})
                         OPTIONAL MATCH (p:Person)-[:WROTE]->(s)
                         OPTIONAL MATCH (t:Track)-[:RECORDING_OF]->(s)
+                        OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
 
                         RETURN s,
                                collect(DISTINCT {
@@ -1855,7 +1856,13 @@ class APIServer {
                                collect(DISTINCT {
                                    track: t.title,
                                    track_id: t.track_id
-                               }) as recordings
+                               }) as recordings,
+                               collect(DISTINCT {
+                                   release: r.name,
+                                   release_id: r.release_id,
+                                   release_date: r.release_date,
+                                   album_art: r.album_art
+                               }) as releases
                     `, { songId: req.params.songId });
 
                     if (result.records.length === 0) {
@@ -1873,7 +1880,8 @@ class APIServer {
                         data: {
                             ...song,
                             writers: record.get('writers').filter(w => w.writer !== null),
-                            recordings: record.get('recordings').filter(r => r.track !== null)
+                            recordings: record.get('recordings').filter(r => r.track !== null),
+                            releases: record.get('releases').filter(r => r.release !== null)
                         }
                     });
                 } finally {

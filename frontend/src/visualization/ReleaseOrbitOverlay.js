@@ -72,6 +72,27 @@ export class ReleaseOrbitOverlay {
         this._render(nodeRadius);
     }
 
+    /**
+     * Programmatically select a release tile in the overlay (e.g. from search navigation).
+     * @param {string} releaseId - Release to select
+     * @param {Object|null} releaseDetails - Pre-fetched release details (avoids re-fetch)
+     */
+    selectRelease(releaseId, releaseDetails = null) {
+        if (!this.visible || this.releases.length === 0) return;
+
+        // Check if this release is in the overlay
+        const found = this.releases.find(r => r.release_id === releaseId);
+        if (!found) return;
+
+        this.activeReleaseId = releaseId;
+        this.activeReleaseDetails = releaseDetails;
+        this._render(this._lastNodeRadius);
+
+        if (releaseDetails) {
+            this.onReleaseSelect(releaseDetails);
+        }
+    }
+
     /** Hide and clear the overlay. */
     hide() {
         this.visible = false;

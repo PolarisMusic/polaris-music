@@ -97,7 +97,7 @@ body.mini-player-visible {
     display: flex;
     justify-content: center;
     padding: 0 20px;
-    max-width: 400px;
+    max-width: 600px;
 }
 
 /* Node Search Box */
@@ -178,6 +178,20 @@ body.mini-player-visible {
     color: #888;
     font-size: 11px;
     flex-shrink: 0;
+}
+
+.node-search-tooltip {
+    position: absolute;
+    left: calc(100% + 8px);
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10001;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
 
 /* Main Container — pinned between fixed top-bar and bottom-bar.
@@ -379,6 +393,19 @@ body.mini-player-visible {
 
 .info-section li:last-child {
     border-bottom: none;
+}
+
+.info-lyrics {
+    white-space: pre-wrap;
+    font-family: inherit;
+    color: #ccc;
+    font-size: 13px;
+    line-height: 1.7;
+    background: #1a1a1a;
+    padding: 12px;
+    border-radius: 4px;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .person-link, .track-link {

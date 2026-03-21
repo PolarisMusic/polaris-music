@@ -66,6 +66,9 @@ export class MusicGraph {
         // Poincaré distance threshold for showing full-name tooltip
         this.labelProximityThreshold = 0.64;
 
+        // Hover tooltip timer (500ms delay before showing label on edge nodes)
+        this._hoverTooltipTimer = null;
+
         // Long-press pan state (replaces JIT's built-in panning to prevent
         // micro-drags from swallowing node clicks)
         this.PAN_HOLD_MS = 900;
@@ -609,14 +612,13 @@ export class MusicGraph {
             return;
         }
 
-        // Show tooltip only when selected or near center of the Poincaré disk.
-        // Hover alone does NOT trigger tooltip (prevents edge-node clutter,
-        // especially since JIT hit-testing isn't transform-scaled).
+        // Show tooltip when: selected, near center, or after 500ms hover delay.
         const isSelected = node.getData('isSelected');
         const sqNorm = node.pos.getc().squaredNorm();
         const isNearCenter = sqNorm < this.labelProximityThreshold;
+        const hoverTooltip = node.getData('hoverTooltip');
 
-        if (isSelected || isNearCenter) {
+        if (isSelected || isNearCenter || hoverTooltip) {
             style.display = '';
         } else {
             style.display = 'none';
@@ -870,12 +872,24 @@ export class MusicGraph {
             // Clear previous hover
             if (this.hoveredNode && this.hoveredNode.id !== node.id) {
                 this.hoveredNode.setData('isHovered', false);
+                this.hoveredNode.setData('hoverTooltip', false);
             }
             node.setData('isHovered', true);
             this.hoveredNode = node;
             this.container.style.cursor = 'pointer';
+
+            // Start 500ms timer to show tooltip for nodes near the edge
+            clearTimeout(this._hoverTooltipTimer);
+            this._hoverTooltipTimer = setTimeout(() => {
+                if (this.hoveredNode && this.hoveredNode.id === node.id) {
+                    node.setData('hoverTooltip', true);
+                    if (this.ht) this.ht.plot();
+                }
+            }, 500);
         } else {
+            clearTimeout(this._hoverTooltipTimer);
             node.setData('isHovered', false);
+            node.setData('hoverTooltip', false);
             if (this.hoveredNode && this.hoveredNode.id === node.id) {
                 this.hoveredNode = null;
             }
@@ -1778,6 +1792,233 @@ export class MusicGraph {
             console.error('Failed to load favorites:', error);
             list.innerHTML = '<li class="history-empty">Failed to load favorites.</li>';
         }
+    }
+
+    // ========== Search result navigation ==========
+
+    /**
+     * Handle selection of a search result with type-specific behavior.
+     * - Person/Group: navigate to the node in the graph (default behavior)
+     * - Release: navigate to the performing group and show the release in the orbit overlay
+     * - Track: find the release containing the track, then behave like Release
+     * - Song: display song details (songwriters, lyrics, releases) in the info panel only
+     * @param {Object} result - Search result { id, type, display_name, ... }
+     */
+    async navigateToSearchResult(result) {
+        const type = (result.type || '').toLowerCase();
+
+        if (type === 'song') {
+            await this._showSongInInfoPanel(result.id);
+            return;
+        }
+
+        if (type === 'release') {
+            await this._navigateToRelease(result.id);
+            return;
+        }
+
+        if (type === 'track') {
+            await this._navigateToTrack(result.id);
+            return;
+        }
+
+        // Person, Group, Label, City — default graph navigation
+        this.navigateToNodeId(result.id);
+    }
+
+    /**
+     * Navigate to the group that performed a release, then auto-select
+     * the release in the orbit overlay.
+     * @param {string} releaseId
+     */
+    async _navigateToRelease(releaseId) {
+        try {
+            // Fetch release details to find the performing group
+            const resp = await this.api.fetchReleaseDetails(releaseId);
+            const release = resp && resp.data ? resp.data : null;
+            if (!release) {
+                console.warn('Release not found:', releaseId);
+                return;
+            }
+
+            const groups = release.groups || [];
+            if (groups.length === 0) {
+                console.warn('No groups found for release:', releaseId);
+                // Fall back to showing release details in info panel
+                this.showReleaseDetailsInInfoPanel(release);
+                return;
+            }
+
+            // Navigate to the first group
+            const groupId = groups[0].group_id;
+            await this._navigateToGroupAndSelectRelease(groupId, releaseId, release);
+        } catch (error) {
+            console.error('Failed to navigate to release:', releaseId, error);
+        }
+    }
+
+    /**
+     * Navigate to a track by finding its release, then behaving like release navigation.
+     * @param {string} trackId
+     */
+    async _navigateToTrack(trackId) {
+        try {
+            const resp = await this.api.fetchNodeDetails(trackId, 'Track');
+            const track = resp && resp.data ? resp.data : null;
+            if (!track) {
+                console.warn('Track not found:', trackId);
+                return;
+            }
+
+            const releases = track.releases || [];
+            if (releases.length === 0) {
+                console.warn('No releases found for track:', trackId);
+                return;
+            }
+
+            // Navigate to the first release
+            await this._navigateToRelease(releases[0].release_id);
+        } catch (error) {
+            console.error('Failed to navigate to track:', trackId, error);
+        }
+    }
+
+    /**
+     * Navigate to a group node and then auto-select a release in the orbit overlay.
+     * @param {string} groupId
+     * @param {string} releaseId
+     * @param {Object} releaseDetails - Pre-fetched release details
+     */
+    async _navigateToGroupAndSelectRelease(groupId, releaseId, releaseDetails) {
+        if (!this.ht) return;
+
+        // Ensure the group node is in the graph
+        let node = this.ht.graph.getNode(groupId);
+        if (!node) {
+            await this.ensureNodeInGraph(groupId);
+            node = this.ht.graph.getNode(groupId);
+        }
+        if (!node) {
+            console.warn('Group node not found after fetch:', groupId);
+            return;
+        }
+
+        // Select and center on the group node
+        if (this.selectedNode && this.selectedNode.id !== node.id) {
+            this.selectedNode.setData('isSelected', false);
+        }
+        node.setData('isSelected', true);
+        this.selectedNode = node;
+
+        this.pathTracker.visitNode(node.id, {
+            name: node.name,
+            type: node.data && node.data.type
+        });
+        this.updateHistoryCount();
+        if (this.historyPanelOpen) {
+            this.renderHistoryPanel();
+        }
+        this.updateFavoriteButton();
+        this._loadPlayerQueue(node);
+        this.releaseOverlay.hide();
+
+        this.ht.onClick(node.id, {
+            onComplete: async () => {
+                // Show the release orbit overlay
+                await this._syncReleaseOverlay(node);
+
+                // Auto-select the target release in the overlay
+                this.releaseOverlay.selectRelease(releaseId, releaseDetails);
+
+                // Show release details in info panel
+                this.showReleaseDetailsInInfoPanel(releaseDetails);
+            }
+        });
+    }
+
+    /**
+     * Show song details in the info panel without changing the graph visualization.
+     * Displays: songwriters, lyrics, and a clickable list of releases.
+     * @param {string} songId
+     */
+    async _showSongInInfoPanel(songId) {
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+        const infoViewer = document.getElementById('info-viewer');
+        if (!infoTitle || !infoContent) return;
+
+        infoTitle.textContent = 'Loading...';
+        infoContent.innerHTML = '<p>Loading song details...</p>';
+        if (infoViewer) infoViewer.style.display = 'block';
+
+        try {
+            const resp = await this.api.fetchNodeDetails(songId, 'Song');
+            const song = resp && resp.data ? resp.data : null;
+            if (!song) {
+                infoContent.innerHTML = '<p>Song not found</p>';
+                return;
+            }
+
+            this._renderSongDetails(song, infoTitle, infoContent);
+        } catch (error) {
+            console.error('Failed to load song details:', error);
+            infoContent.innerHTML = '<p>Error loading song details</p>';
+        }
+    }
+
+    /**
+     * Render song details in the info panel.
+     * Shows songwriters, lyrics, and clickable releases.
+     */
+    _renderSongDetails(song, titleElement, contentElement) {
+        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        titleElement.textContent = song.title || song.name || 'Unknown Song';
+
+        let html = '';
+        html += `<p class="info-meta"><strong>Type:</strong> Song (Composition)</p>`;
+
+        // Songwriters
+        const writers = song.writers || [];
+        if (writers.length > 0) {
+            html += `<div class="info-section"><h4>Songwriters</h4><ul class="info-list">`;
+            writers.forEach(w => {
+                const nameHtml = w.person_id
+                    ? `<a href="#" class="info-nav-link" data-node-id="${esc(w.person_id)}">${esc(w.writer)}</a>`
+                    : esc(w.writer);
+                html += `<li>${nameHtml}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        // Lyrics
+        if (song.lyrics) {
+            html += `<div class="info-section"><h4>Lyrics</h4><pre class="info-lyrics">${esc(song.lyrics)}</pre></div>`;
+        }
+
+        // Releases (clickable)
+        const releases = song.releases || [];
+        if (releases.length > 0) {
+            html += `<div class="info-section"><h4>Appears On</h4><ul class="info-list">`;
+            releases.forEach(r => {
+                const date = r.release_date ? ` (${esc(r.release_date.substring(0, 4))})` : '';
+                html += `<li><a href="#" class="info-nav-link song-release-link" data-release-id="${esc(r.release_id)}">${esc(r.release)}</a>${date}</li>`;
+            });
+            html += `</ul></div>`;
+        }
+
+        contentElement.innerHTML = html;
+
+        // Attach click handlers for songwriter navigation
+        this._attachNavLinkListeners(contentElement);
+
+        // Attach click handlers for release navigation
+        contentElement.querySelectorAll('.song-release-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const releaseId = link.dataset.releaseId;
+                if (releaseId) this._navigateToRelease(releaseId);
+            });
+        });
     }
 
     // ========== Missing-node navigation ==========
