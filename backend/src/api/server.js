@@ -2352,21 +2352,20 @@ class APIServer {
 
         /**
          * GET /api/graph/initial
-         * Get initial graph data for visualization
+         * Get initial graph data for visualization using all groups with tracks
+         * and their member relationships.
          */
         this.app.get('/api/graph/initial', async (req, res) => {
             try {
                 const session = this.db.driver.session();
                 try {
-                    // Get top groups by track count for initial load
-                    // Use OPTIONAL MATCH for MEMBER_OF to show groups even without membership data
+                    // Return all groups that have performed on at least one track,
+                    // along with their MEMBER_OF person relationships.
+                    // No LIMIT — the full graph is needed for connected visualization.
                     const result = await session.run(`
                         MATCH (g:Group)-[:PERFORMED_ON]->(t:Track)
-                        WITH g, count(t) as trackCount
+                        WITH g, count(DISTINCT t) as trackCount
                         ORDER BY trackCount DESC
-                        LIMIT 20
-
-                        MATCH (g)-[:PERFORMED_ON]->(t:Track)
                         OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
 
                         RETURN collect(DISTINCT {

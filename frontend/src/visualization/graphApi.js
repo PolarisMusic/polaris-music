@@ -27,6 +27,19 @@ export class GraphAPI {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
+
+            // Diagnostic logging for initial graph
+            if (data && data.nodes && data.edges) {
+                const groups = data.nodes.filter(n => (n.type || '').toLowerCase() === 'group');
+                const persons = data.nodes.filter(n => (n.type || '').toLowerCase() === 'person');
+                console.log('Initial graph diagnostics:', {
+                    totalNodes: data.nodes.length,
+                    totalEdges: data.edges.length,
+                    groups: groups.length,
+                    persons: persons.length
+                });
+            }
+
             return this.transformToJIT(data);
         } catch (error) {
             console.error('Error fetching initial graph:', error);
@@ -236,6 +249,109 @@ export class GraphAPI {
     }
 
     /**
+     * Find connected components in a raw {nodes, edges} graph.
+     * Returns an array of Sets, each containing node IDs in one component.
+     * @param {Object} data - { nodes: [{id, ...}], edges: [{source, target, ...}] }
+     * @returns {Array<Set<string>>} Connected components
+     */
+    getConnectedComponents(data) {
+        const adj = new Map();
+        for (const node of data.nodes) {
+            adj.set(node.id, []);
+        }
+        for (const edge of data.edges) {
+            if (adj.has(edge.source) && adj.has(edge.target)) {
+                adj.get(edge.source).push(edge.target);
+                adj.get(edge.target).push(edge.source);
+            }
+        }
+
+        const visited = new Set();
+        const components = [];
+
+        for (const nodeId of adj.keys()) {
+            if (visited.has(nodeId)) continue;
+            const component = new Set();
+            const stack = [nodeId];
+            while (stack.length > 0) {
+                const current = stack.pop();
+                if (visited.has(current)) continue;
+                visited.add(current);
+                component.add(current);
+                for (const neighbor of (adj.get(current) || [])) {
+                    if (!visited.has(neighbor)) {
+                        stack.push(neighbor);
+                    }
+                }
+            }
+            components.push(component);
+        }
+
+        return components;
+    }
+
+    /**
+     * Ensure the raw graph is connected for hypertree layout.
+     * If the graph has multiple connected components, inject a synthetic
+     * invisible root node connected to one representative group per component.
+     * @param {Object} data - { nodes: [{id, type, ...}], edges: [{source, target, type, ...}] }
+     * @returns {Object} Possibly augmented { nodes, edges } with synthetic root
+     */
+    ensureConnectedForHypertree(data) {
+        if (!data || !data.nodes || data.nodes.length === 0) return data;
+
+        const components = this.getConnectedComponents(data);
+        const componentSizes = components.map(c => c.size);
+
+        console.log('Initial raw graph components:', components.length, componentSizes);
+
+        if (components.length <= 1) {
+            console.log('Synthetic root injected:', false);
+            return data;
+        }
+
+        // Build a lookup for node type by id
+        const nodeTypeMap = new Map();
+        for (const node of data.nodes) {
+            nodeTypeMap.set(node.id, (node.type || '').toLowerCase());
+        }
+
+        // Create synthetic root
+        const rootNode = {
+            id: 'polaris:root:initial',
+            name: '',
+            type: 'root'
+        };
+
+        const syntheticEdges = [];
+        for (const component of components) {
+            // Pick one representative: prefer a group node, else first node
+            let representative = null;
+            for (const nodeId of component) {
+                if (nodeTypeMap.get(nodeId) === 'group') {
+                    representative = nodeId;
+                    break;
+                }
+            }
+            if (!representative) {
+                representative = component.values().next().value;
+            }
+            syntheticEdges.push({
+                source: 'polaris:root:initial',
+                target: representative,
+                type: 'ROOT'
+            });
+        }
+
+        console.log('Synthetic root injected:', true);
+
+        return {
+            nodes: [...data.nodes, rootNode],
+            edges: [...data.edges, ...syntheticEdges]
+        };
+    }
+
+    /**
      * Transform Neo4j response to JIT-compatible format
      * @param {Object} data - Neo4j graph data {nodes, edges}
      * @returns {Array} JIT-compatible adjacency list
@@ -246,16 +362,19 @@ export class GraphAPI {
             return this.getMockInitialGraph();
         }
 
+        // Ensure graph connectivity for hypertree layout
+        const connectedData = this.ensureConnectedForHypertree(data);
+
         // Create a map of node adjacencies
         const adjacencyMap = new Map();
 
         // Initialize adjacency lists for all nodes
-        data.nodes.forEach(node => {
+        connectedData.nodes.forEach(node => {
             adjacencyMap.set(node.id, []);
         });
 
         // Build adjacency lists from edges
-        data.edges.forEach(edge => {
+        connectedData.edges.forEach(edge => {
             // Add bidirectional edges for undirected graph visualization
             if (adjacencyMap.has(edge.source)) {
                 adjacencyMap.get(edge.source).push({
@@ -285,6 +404,7 @@ export class GraphAPI {
         // Type-based base radius: groups largest, persons next, then releases/tracks.
         // With transform:true these shrink toward edges, so groups need bigger base.
         const dimForType = (v) => {
+            if (v === 'root') return 1;
             if (v === 'group') return 18;
             if (v === 'person') return 10;
             if (v === 'release') return 9;
@@ -293,7 +413,7 @@ export class GraphAPI {
         };
 
         // Transform nodes to JIT format with adjacencies
-        const jitNodes = data.nodes.map(node => ({
+        const jitNodes = connectedData.nodes.map(node => ({
             id: node.id,
             name: node.name,
             data: {

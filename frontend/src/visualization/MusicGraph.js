@@ -554,8 +554,15 @@ export class MusicGraph {
         domElement.innerHTML = '';
         domElement.className = 'node-tooltip-label';
 
-        const name = node.name || '';
         const nodeType = (node.data.type || '').toLowerCase();
+
+        // Hide label for synthetic root node
+        if (nodeType === 'root') {
+            domElement.style.display = 'none';
+            return;
+        }
+
+        const name = node.name || '';
 
         const tooltip = document.createElement('div');
         tooltip.className = 'node-name-tooltip';
@@ -574,6 +581,12 @@ export class MusicGraph {
      * "Near center" = pos.squaredNorm() < threshold.
      */
     placeNodeLabel(domElement, node) {
+        // Hide label for synthetic root node
+        if ((node.data.type || '').toLowerCase() === 'root') {
+            domElement.style.display = 'none';
+            return;
+        }
+
         const style = domElement.style;
         const left = parseInt(style.left) || 0;
         const top = parseInt(style.top) || 0;
@@ -611,6 +624,16 @@ export class MusicGraph {
     styleNode(node) {
         if (!node.data) return;
 
+        const nodeType = (node.data.type || '').toLowerCase();
+
+        // Synthetic root: invisible, minimal size, no donut
+        if (nodeType === 'root') {
+            node.setData('type', 'circle-hover');
+            node.setData('dim', 1);
+            node.setData('color', 'rgba(0,0,0,0)');
+            return;
+        }
+
         // Apply color/dim from data
         if (node.data.$color) {
             node.setData('color', node.data.$color);
@@ -618,8 +641,6 @@ export class MusicGraph {
         if (node.data.$dim) {
             node.setData('dim', node.data.$dim);
         }
-
-        const nodeType = (node.data.type || '').toLowerCase();
 
         // Group nodes use the group-donut renderer
         if (nodeType === 'group') {
@@ -715,6 +736,14 @@ export class MusicGraph {
     styleEdge(adj) {
         if (!adj.nodeFrom || !adj.nodeTo) return;
 
+        // Hide synthetic ROOT edges (invisible connectors for layout only)
+        const edgeType = adj.data?.type || '';
+        if (edgeType === 'ROOT') {
+            adj.setData('color', 'rgba(0,0,0,0)');
+            adj.setData('lineWidth', 0.01);
+            return;
+        }
+
         const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
         const toType = (adj.nodeTo.data.type || '').toLowerCase();
 
@@ -748,6 +777,9 @@ export class MusicGraph {
      * Handle node click - center on node and select it
      */
     handleNodeClick(node) {
+        // Ignore clicks on synthetic root node
+        if ((node.data.type || '').toLowerCase() === 'root') return;
+
         console.log('Node clicked:', node.id, node.data);
 
         // Clear previous selection
@@ -831,6 +863,13 @@ export class MusicGraph {
         if (!infoTitle || !infoContent) return;
 
         if (!node) {
+            infoTitle.textContent = 'Select a node';
+            infoContent.innerHTML = '<p class="placeholder">Click on a Group or Person to see details</p>';
+            return;
+        }
+
+        // Skip detail fetch for synthetic root node
+        if ((node.data.type || '').toLowerCase() === 'root') {
             infoTitle.textContent = 'Select a node';
             infoContent.innerHTML = '<p class="placeholder">Click on a Group or Person to see details</p>';
             return;
@@ -1730,6 +1769,8 @@ export class MusicGraph {
         if (!this.miniPlayer) return;
 
         const nodeType = node.data && node.data.type;
+        // Skip synthetic root node
+        if ((nodeType || '').toLowerCase() === 'root') return;
         const nodeId = node.id;
 
         if (nodeType === 'release' || (nodeId && nodeId.includes(':release:'))) {
