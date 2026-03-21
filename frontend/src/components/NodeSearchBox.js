@@ -32,6 +32,7 @@ export class NodeSearchBox {
         this.results = [];
         this.activeIndex = -1;
         this._debounceTimer = null;
+        this._hoverTooltipTimer = null;
 
         // Build DOM
         this.wrapper = document.createElement('div');
@@ -47,8 +48,13 @@ export class NodeSearchBox {
         this.dropdown.className = 'node-search-dropdown';
         this.dropdown.style.display = 'none';
 
+        this.tooltip = document.createElement('div');
+        this.tooltip.className = 'node-search-tooltip';
+        this.tooltip.style.display = 'none';
+
         this.wrapper.appendChild(this.input);
         this.wrapper.appendChild(this.dropdown);
+        this.wrapper.appendChild(this.tooltip);
         container.appendChild(this.wrapper);
 
         // Events
@@ -122,6 +128,14 @@ export class NodeSearchBox {
             item.addEventListener('mouseenter', () => {
                 this.activeIndex = idx;
                 this._updateActive();
+                clearTimeout(this._hoverTooltipTimer);
+                this._hoverTooltipTimer = setTimeout(() => {
+                    this._showResultTooltip(item, result);
+                }, 500);
+            });
+            item.addEventListener('mouseleave', () => {
+                clearTimeout(this._hoverTooltipTimer);
+                this._hideResultTooltip();
             });
 
             this.dropdown.appendChild(item);
@@ -164,9 +178,26 @@ export class NodeSearchBox {
         if (this.onSelect) this.onSelect(result);
     }
 
+    _showResultTooltip(itemEl, result) {
+        const name = result.display_name || '';
+        const subtitle = result.subtitle ? ` — ${result.subtitle}` : '';
+        this.tooltip.textContent = name + subtitle;
+
+        // Position to the right of the dropdown
+        const dropdownRect = this.dropdown.getBoundingClientRect();
+        const itemRect = itemEl.getBoundingClientRect();
+        this.tooltip.style.top = (itemRect.top - dropdownRect.top + this.dropdown.scrollTop) + 'px';
+        this.tooltip.style.display = '';
+    }
+
+    _hideResultTooltip() {
+        this.tooltip.style.display = 'none';
+    }
+
     clear() {
         this.input.value = '';
         this.results = [];
         this.dropdown.style.display = 'none';
+        this._hideResultTooltip();
     }
 }
