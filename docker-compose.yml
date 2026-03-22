@@ -161,11 +161,20 @@ services:
       # Only use for isolated testing with mock data
       # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
 
+      # Chain Profile (shared config from shared/config/chainProfiles.js)
+      - CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
+
       # Blockchain (Jungle4 testnet for development)
       - CHAIN_ID=${CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
       - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
       - CHAIN_WS_URL=${CHAIN_WS_URL:-wss://jungle4.greymass.com}
       - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
+
+      # Chain Ingestion Source (substreams = primary, ship = fallback)
+      - CHAIN_SOURCE=${CHAIN_SOURCE:-substreams}
+      - SHIP_URL=${SHIP_URL:-}
+      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-false}
+      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-false}
 
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
@@ -228,6 +237,7 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/test:/app/test
+      - ./shared:/app/shared
     networks:
       - polaris-network
     command: npm run dev:docker
@@ -328,6 +338,9 @@ services:
       - VITE_API_URL=http://localhost:3000/api
       - VITE_GRAPHQL_URL=http://localhost:3000/graphql
 
+      # Chain Profile (shared config from shared/config/chainProfiles.js)
+      - VITE_CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
+
       # Blockchain configuration (explicit values to avoid relying on code defaults)
       - VITE_CHAIN_ID=${VITE_CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
       - VITE_RPC_URL=${VITE_RPC_URL:-https://jungle4.greymass.com}
@@ -337,6 +350,7 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
+      - ./shared:/app/shared
     networks:
       - polaris-network
     command: npm run dev -- --host

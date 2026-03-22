@@ -1,0 +1,16 @@
+{
+    "description": "Same put action as ship/samplePutAction.json but as produced by Substreams path. Used to verify source parity.",
+    "anchoredEvent": {
+        "content_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+        "event_hash": "COMPUTED_AT_TEST_TIME",
+        "payload": "COMPUTED_AT_TEST_TIME",
+        "block_num": 100000050,
+        "block_id": "05f5e1320000000000000000000000000000000000000000000000000000abcd",
+        "trx_id": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "action_ordinal": 1,
+        "timestamp": 1704067200,
+        "source": "substreams-eos",
+        "contract_account": "polarismusic",
+        "action_name": "put"
+    }
+}
