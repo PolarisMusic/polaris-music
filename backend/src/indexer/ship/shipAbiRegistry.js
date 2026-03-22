@@ -35,6 +35,7 @@ export class ShipAbiRegistry {
         this.useLocalAbi = config.useLocalAbi || false;
         this.localAbiDir = config.localAbiDir || '';
         this.contractAccount = config.contractAccount || 'polarismusic';
+        this.contractAbiPath = config.contractAbiPath || '';
 
         /** @type {Map<string, ABI>} Account name -> parsed ABI */
         this.abiCache = new Map();
@@ -109,17 +110,33 @@ export class ShipAbiRegistry {
     async loadLocalAbi(account) {
         const searchPaths = [];
 
+        // Explicit path from CONTRACT_ABI_PATH takes priority
+        if (this.contractAbiPath && account === this.contractAccount) {
+            searchPaths.push(this.contractAbiPath);
+        }
+
         if (this.localAbiDir) {
             searchPaths.push(path.join(this.localAbiDir, `${account}.abi.json`));
         }
 
-        // Standard locations
+        // Standard locations - try multiple naming conventions
+        // Account names may differ from file names (e.g. "polarismusic" vs "polaris.music")
         const projectRoot = path.resolve(import.meta.dirname, '../../../../');
-        searchPaths.push(
-            path.join(projectRoot, 'substreams', 'abi', `${account}.abi.json`),
-            path.join(projectRoot, 'contracts', `${account}.abi.json`),
-            path.join(projectRoot, 'contracts', `${account}.abi`),
-        );
+        const dotName = account.replace(/([a-z])([A-Z])/g, '$1.$2').toLowerCase();
+        const names = [account, dotName];
+        // Also try the common Antelope convention: account with dots (polaris.music)
+        if (!names.includes('polaris.music') && account === 'polarismusic') {
+            names.push('polaris.music');
+        }
+
+        for (const name of names) {
+            searchPaths.push(
+                path.join(projectRoot, 'substreams', 'abi', `${name}.abi.json`),
+                path.join(projectRoot, 'substreams', 'abi', `${name}.json`),
+                path.join(projectRoot, 'contracts', `${name}.abi.json`),
+                path.join(projectRoot, 'contracts', `${name}.abi`),
+            );
+        }
 
         for (const abiPath of searchPaths) {
             try {

@@ -21,8 +21,10 @@ import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('indexer.ship.eventSource');
 
-/** Actions we care about from the Polaris contract */
-const POLARIS_ACTIONS = ['put', 'vote', 'finalize'];
+/** Actions we care about from the Polaris contract.
+ * Currently limited to 'put' (event anchoring). vote/finalize will be
+ * added once their downstream handlers in IngestionHandler are wired. */
+const POLARIS_ACTIONS = ['put'];
 
 /** eosio::setabi action for tracking ABI updates */
 const SETABI_ACCOUNT = 'eosio';
@@ -57,6 +59,7 @@ export class ShipEventSource extends EventEmitter {
             useLocalAbi: config.useLocalAbi || false,
             localAbiDir: config.localAbiDir,
             contractAccount: this.contractAccount,
+            contractAbiPath: config.contractAbiPath || '',
         });
 
         // SHiP Client

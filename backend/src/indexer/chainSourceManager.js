@@ -96,6 +96,7 @@ export class ChainSourceManager {
             reconnectMaxAttempts: 10,
             tlsCaCertPath: this.config.tlsCaCertPath || process.env.SHIP_CA_CERT_PATH || '',
             tlsRejectUnauthorized: this.config.tlsRejectUnauthorized ?? (process.env.SHIP_REJECT_UNAUTHORIZED !== 'false'),
+            contractAbiPath: this.config.contractAbiPath || process.env.CONTRACT_ABI_PATH || '',
         };
 
         log.info('Initializing SHiP event source', {
@@ -106,6 +107,11 @@ export class ChainSourceManager {
             irreversible_only: shipConfig.irreversibleOnly,
             use_local_abi: shipConfig.useLocalAbi,
         });
+
+        // Pass checkpoint store if available
+        if (this.config.checkpointStore) {
+            shipConfig.checkpointStore = this.config.checkpointStore;
+        }
 
         const ship = new ShipEventSource(shipConfig);
 

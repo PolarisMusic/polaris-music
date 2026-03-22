@@ -1,6 +1,6 @@
 # T6: SHiP Fallback Chain Ingestion - Implementation Summary
 
-**Status**: 🔄 IN PROGRESS — Real SHiP transport/protocol stack implemented, pending live-node validation
+**Status**: 🔄 IN PROGRESS — Real SHiP transport/protocol stack implemented and wired into runtime, pending live-node validation
 
 **Goal**: If Substreams is unavailable, SHiP can ingest the same events with identical results.
 
@@ -609,16 +609,19 @@ export SHIP_URL=ws://localhost:8080
 export CONTRACT_ACCOUNT=polarismusic
 export START_BLOCK=100000000
 
-# Start backend
+# Option A: npm start:ship (sets CHAIN_SOURCE=ship automatically)
 cd backend
-npm run dev
+npm run start:ship
+
+# Option B: Docker Compose with ship profile
+docker compose --profile ship up chain-source
 
 # Expected output:
-# Starting chain source: ship
-# Connecting to SHiP at ws://localhost:8080
-# SHiP WebSocket connected
-# Processing block 100000000
-# ✓ Event abc123... processed
+# chain_source_config { chain_source: 'ship', ship_url: 'ws://localhost:8080', ... }
+# ship_event_source_starting { contract: 'polarismusic', ... }
+# ship_connected
+# ship_protocol_initialized
+# chain_source_worker_started
 ```
 
 ### Switching from Substreams to SHiP
@@ -708,7 +711,8 @@ T6 implementation status:
 ✅ **Safe source switching** - Runbooks and tests verify no data loss
 ✅ **Shared chain profiles** - Single config source for frontend, backend, sinks
 ✅ **Chain-id verification** - Startup check prevents network mismatch
-✅ **Checkpoint persistence** - Redis-backed resume on restart
+✅ **Checkpoint persistence** - Redis-backed resume on restart (wired via runChainSource.js)
+✅ **Runtime entrypoint** - `runChainSource.js` worker, `npm run start:ship`, Docker `--profile ship`
 🔄 **Live-node validation** - Pending (requires local node with state_history_plugin)
 🔄 **Substreams parity test** - Pending (requires same action captured from both sources)
 

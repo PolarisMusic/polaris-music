@@ -1,6 +1,6 @@
 # Runbook: Running SHiP Mode
 
-**Status**: 🔄 Implementation complete, pending live-node validation
+**Status**: 🔄 Implementation complete, runtime wired, pending live-node validation
 
 > **Updated 2026-03-22**: The SHiP event source now uses a real binary protocol
 > stack (`backend/src/indexer/ship/`) with `@wharfkit/antelope` for protocol
@@ -118,14 +118,14 @@ EOF
 ```bash
 cd backend
 
-# Option A: Direct node execution
-node src/api/server.js
-
-# Option B: With npm script (if configured)
+# Option A: npm start:ship (recommended — sets CHAIN_SOURCE=ship automatically)
 npm run start:ship
 
-# Option C: Development mode
-npm run dev
+# Option B: Explicit chain-source worker
+CHAIN_SOURCE=ship npm run chain-source
+
+# Option C: Docker Compose with ship profile
+docker compose --profile ship up chain-source
 ```
 
 **Expected Output**:

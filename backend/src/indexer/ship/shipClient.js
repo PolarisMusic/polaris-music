@@ -287,9 +287,15 @@ export class ShipClient extends EventEmitter {
      * @param {ArrayBuffer|Buffer} rawData
      */
     _handleBinaryMessage(rawData) {
-        const data = rawData instanceof ArrayBuffer
-            ? new Uint8Array(rawData)
-            : new Uint8Array(rawData.buffer || rawData);
+        let data;
+        if (rawData instanceof ArrayBuffer) {
+            data = new Uint8Array(rawData);
+        } else if (Buffer.isBuffer(rawData)) {
+            // Buffer.buffer may be larger than the slice — use byteOffset/byteLength
+            data = new Uint8Array(rawData.buffer, rawData.byteOffset, rawData.byteLength);
+        } else {
+            data = new Uint8Array(rawData);
+        }
 
         const result = this.protocol.decodeResult(data);
         this.stats.messagesReceived++;
