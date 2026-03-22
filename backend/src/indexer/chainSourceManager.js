@@ -12,9 +12,11 @@
  * - Graceful source switching
  * - Unified event handling
  * - Statistics tracking
+ * - Chain-id verification at startup
  */
 
-import ShipEventSource from './shipEventSource.js';
+import { ShipEventSource } from './ship/shipEventSource.js';
+import { resolveChainConfig } from '../../../shared/config/chainProfiles.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('indexer.chainSourceManager');
@@ -69,43 +71,47 @@ export class ChainSourceManager {
 
         log.info('Stopping chain source', { source_type: this.sourceType });
 
-        if (this.sourceType === 'ship' && this.currentSource.stop) {
+        if (this.currentSource.stop) {
             await this.currentSource.stop();
         }
-
-        // For Substreams, the HTTP sink handles stopping externally
 
         this.currentSource = null;
     }
 
     /**
-     * Start SHiP event source
+     * Start SHiP event source using the new transport/protocol stack.
      */
     async startShipSource() {
-        // Determine default endpoints based on NODE_ENV
-        const nodeEnv = process.env.NODE_ENV || 'development';
-        // Note: Greymass does not provide SHiP endpoints, use a dedicated SHiP provider
-        const defaultShipUrl = nodeEnv === 'testnet'
-            ? process.env.CHAIN_WS_URL || 'wss://jungle4.eosusa.io'
-            : 'ws://localhost:8080';
+        const chainConfig = resolveChainConfig();
 
         const shipConfig = {
-            shipUrl: this.config.shipUrl || process.env.SHIP_URL || process.env.CHAIN_WS_URL || defaultShipUrl,
-            contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polarismusic',
+            shipUrl: this.config.shipUrl || process.env.SHIP_URL || chainConfig.shipUrl || 'ws://localhost:8080',
+            rpcUrl: this.config.rpcUrl || process.env.RPC_URL || chainConfig.rpcUrl,
+            contractAccount: this.config.contractAccount || process.env.CONTRACT_ACCOUNT || chainConfig.contractAccount,
             startBlock: parseInt(this.config.startBlock || process.env.START_BLOCK || '0', 10),
-            endBlock: parseInt(this.config.endBlock || process.env.END_BLOCK || '0xffffffff', 10),
+            endBlock: parseInt(this.config.endBlock || process.env.END_BLOCK || '4294967295', 10),
+            irreversibleOnly: parseBool(this.config.irreversibleOnly ?? process.env.IRREVERSIBLE_ONLY, chainConfig.irreversibleOnly),
+            useLocalAbi: parseBool(this.config.useLocalAbi ?? process.env.USE_LOCAL_ABI, chainConfig.useLocalAbi),
             reconnectDelay: 3000,
             reconnectMaxAttempts: 10,
-            // TLS/SSL options for wss:// connections
             tlsCaCertPath: this.config.tlsCaCertPath || process.env.SHIP_CA_CERT_PATH || '',
             tlsRejectUnauthorized: this.config.tlsRejectUnauthorized ?? (process.env.SHIP_REJECT_UNAUTHORIZED !== 'false'),
+            contractAbiPath: this.config.contractAbiPath || process.env.CONTRACT_ABI_PATH || '',
         };
 
         log.info('Initializing SHiP event source', {
             url: shipConfig.shipUrl,
+            rpc: shipConfig.rpcUrl,
             contract: shipConfig.contractAccount,
-            start_block: shipConfig.startBlock
+            start_block: shipConfig.startBlock,
+            irreversible_only: shipConfig.irreversibleOnly,
+            use_local_abi: shipConfig.useLocalAbi,
         });
+
+        // Pass checkpoint store if available
+        if (this.config.checkpointStore) {
+            shipConfig.checkpointStore = this.config.checkpointStore;
+        }
 
         const ship = new ShipEventSource(shipConfig);
 
@@ -227,9 +233,19 @@ export class ChainSourceManager {
             uptime,
             eventsPerSecond: uptime > 0
                 ? ((this.stats.eventsIngested / (uptime / 1000))).toFixed(2)
-                : '0'
+                : '0',
+            sourceStats: this.currentSource?.getStats?.() || null,
         };
     }
+}
+
+/**
+ * Parse a boolean-like value.
+ */
+function parseBool(value, defaultValue) {
+    if (value === undefined || value === null || value === '') return defaultValue;
+    if (typeof value === 'boolean') return value;
+    return value === 'true' || value === '1';
 }
 
 export default ChainSourceManager;

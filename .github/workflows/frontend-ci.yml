@@ -5,11 +5,13 @@ on:
     branches: [ main, develop ]
     paths:
       - 'frontend/**'
+      - 'shared/**'
       - '.github/workflows/frontend-ci.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'frontend/**'
+      - 'shared/**'
       - '.github/workflows/frontend-ci.yml'
 
 jobs:
@@ -72,7 +74,7 @@ jobs:
     - name: Build Docker image
       uses: docker/build-push-action@v5
       with:
-        context: ./frontend
+        context: .
         file: ./frontend/Dockerfile
         push: false
         tags: polaris/frontend:test

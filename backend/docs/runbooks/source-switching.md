@@ -1,5 +1,11 @@
 # Runbook: Switching Chain Ingestion Sources
 
+**Status**: 🔄 SHiP stack implemented, pending live-node validation before production switching
+
+> **Updated 2026-03-22**: SHiP now has a real binary protocol implementation.
+> Source switching logic remains the same (overlap + dedupe), but live validation
+> of the switch path is still needed before using in production.
+
 **Purpose**: Safely switch between Substreams and SHiP chain ingestion sources without double-ingesting events.
 
 **Key Safety Feature**: Robust deduplication by both eventHash and (block, trx, ordinal) prevents duplicate processing when switching sources.
@@ -505,6 +511,6 @@ export REDIS_DB=1  # Separate Redis database
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-01-03
+**Version**: 2.0
+**Last Updated**: 2026-03-22
 **Maintained By**: Polaris DevOps Team

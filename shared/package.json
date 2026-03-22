@@ -1,0 +1,6 @@
+{
+    "name": "polaris-shared",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "Shared configuration modules for Polaris Music Registry"
+}

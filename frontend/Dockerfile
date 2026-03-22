@@ -3,11 +3,14 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install deps (including devDeps needed for Vite build)
-COPY package*.json ./
+COPY frontend/package*.json ./
 RUN npm ci
 
+# Copy shared config (used by src/config/chain.js)
+COPY shared/ /shared/
+
 # Copy source and build
-COPY . .
+COPY frontend/ .
 RUN npm run build
 
 # Runtime stage

@@ -1,0 +1,61 @@
+{
+    "description": "Sample decoded put action from Polaris contract, as it would appear after ABI deserialization",
+    "action": {
+        "account": "polarismusic",
+        "name": "put",
+        "data": {
+            "author": "polarisuser1",
+            "type": 21,
+            "hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+            "parent": "",
+            "ts": 1704067200,
+            "tags": ["rock", "classic-rock"],
+            "body": {
+                "release": {
+                    "name": "Abbey Road",
+                    "release_date": "1969-09-26",
+                    "format": "LP"
+                },
+                "groups": [
+                    {
+                        "name": "The Beatles",
+                        "members": [
+                            { "name": "John Lennon", "role": "vocals, guitar" },
+                            { "name": "Paul McCartney", "role": "vocals, bass" },
+                            { "name": "George Harrison", "role": "guitar, vocals" },
+                            { "name": "Ringo Starr", "role": "drums, vocals" }
+                        ]
+                    }
+                ],
+                "tracks": [
+                    { "title": "Come Together", "duration": 259 },
+                    { "title": "Something", "duration": 182 },
+                    { "title": "Here Comes the Sun", "duration": 185 }
+                ],
+                "tracklist": [
+                    { "position": "A1", "track_title": "Come Together", "duration": 259 },
+                    { "position": "A2", "track_title": "Something", "duration": 182 },
+                    { "position": "B1", "track_title": "Here Comes the Sun", "duration": 185 }
+                ]
+            }
+        }
+    },
+    "metadata": {
+        "blockNum": 100000050,
+        "blockId": "05f5e1320000000000000000000000000000000000000000000000000000abcd",
+        "transactionId": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "actionOrdinal": 1,
+        "timestamp": 1704067200
+    },
+    "expectedAnchoredEvent": {
+        "content_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+        "block_num": 100000050,
+        "block_id": "05f5e1320000000000000000000000000000000000000000000000000000abcd",
+        "trx_id": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "action_ordinal": 1,
+        "timestamp": 1704067200,
+        "source": "ship-eos",
+        "contract_account": "polarismusic",
+        "action_name": "put"
+    }
+}

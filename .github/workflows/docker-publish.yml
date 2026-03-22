@@ -61,7 +61,7 @@ jobs:
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
-        context: ./${{ matrix.component }}
+        context: ${{ matrix.component == 'frontend' && '.' || format('./{0}', matrix.component) }}
         file: ./${{ matrix.component }}/Dockerfile
         push: true
         tags: ${{ steps.meta.outputs.tags }}

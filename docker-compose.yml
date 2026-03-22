@@ -161,11 +161,20 @@ services:
       # Only use for isolated testing with mock data
       # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
 
+      # Chain Profile (shared config from shared/config/chainProfiles.js)
+      - CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
+
       # Blockchain (Jungle4 testnet for development)
       - CHAIN_ID=${CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
       - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
       - CHAIN_WS_URL=${CHAIN_WS_URL:-wss://jungle4.greymass.com}
       - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
+
+      # Chain Ingestion Source (substreams = primary, ship = fallback)
+      - CHAIN_SOURCE=${CHAIN_SOURCE:-substreams}
+      - SHIP_URL=${SHIP_URL:-}
+      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-false}
+      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-false}
 
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
@@ -228,6 +237,7 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/test:/app/test
+      - ./shared:/app/shared
     networks:
       - polaris-network
     command: npm run dev:docker
@@ -328,6 +338,9 @@ services:
       - VITE_API_URL=http://localhost:3000/api
       - VITE_GRAPHQL_URL=http://localhost:3000/graphql
 
+      # Chain Profile (shared config from shared/config/chainProfiles.js)
+      - VITE_CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
+
       # Blockchain configuration (explicit values to avoid relying on code defaults)
       - VITE_CHAIN_ID=${VITE_CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
       - VITE_RPC_URL=${VITE_RPC_URL:-https://jungle4.greymass.com}
@@ -337,11 +350,70 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
+      - ./shared:/app/shared
     networks:
       - polaris-network
     command: npm run dev -- --host
     depends_on:
       - api
+
+  # Chain Source Worker (SHiP fallback ingestion)
+  # Runs the ChainSourceManager as a standalone worker process.
+  # Enable with: docker compose --profile ship up
+  chain-source:
+    profiles: ["ship"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: polaris-chain-source
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
+      - CHAIN_SOURCE=ship
+      - SHIP_URL=${SHIP_URL:-ws://localhost:8080}
+      - SHIP_CA_CERT_PATH=${SHIP_CA_CERT_PATH:-}
+      - SHIP_REJECT_UNAUTHORIZED=${SHIP_REJECT_UNAUTHORIZED:-true}
+      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-false}
+      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-true}
+      - CONTRACT_ABI_PATH=${CONTRACT_ABI_PATH:-}
+      - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
+      - START_BLOCK=${START_BLOCK:-0}
+      - GRAPH_URI=bolt://neo4j:7687
+      - GRAPH_USER=neo4j
+      - GRAPH_PASSWORD=polarisdev
+      - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
+      - IPFS_URL=http://ipfs:5001
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=polaris
+      - S3_SECRET_KEY=polarisdev123
+      - S3_BUCKET=polaris-events
+      - S3_REGION=us-east-1
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=polarisdev
+      - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
+      - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
+      - LOG_LEVEL=debug
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./backend/src:/app/src
+      - ./shared:/app/shared
+      - ./substreams/abi:/app/substreams/abi
+    networks:
+      - polaris-network
+    command: npm run chain-source:docker
+    restart: unless-stopped
 
   # Substreams HTTP Sink (Chain Ingestion)
   # NOTE: Requires SUBSTREAMS_API_TOKEN (or SUBSTREAMS_API_KEY) to be set in .env file

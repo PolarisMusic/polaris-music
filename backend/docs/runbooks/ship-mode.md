@@ -1,5 +1,13 @@
 # Runbook: Running SHiP Mode
 
+**Status**: 🔄 Implementation complete, runtime wired, pending live-node validation
+
+> **Updated 2026-03-22**: The SHiP event source now uses a real binary protocol
+> stack (`backend/src/indexer/ship/`) with `@wharfkit/antelope` for protocol
+> decoding and ABI-based action deserialization. The original stub that threw
+> on `start()` has been replaced. Live-node testing is still needed before
+> marking this as production-ready.
+
 **Purpose**: Run Polaris chain ingestion using SHiP (State History Plugin) as the event source instead of Substreams.
 
 **When to Use**:
@@ -7,6 +15,7 @@
 - Direct access to node's State History Plugin
 - Testing fallback ingestion path
 - Cost optimization (no Pinax fees)
+- Local development with a local Antelope node
 
 ---
 
@@ -109,14 +118,14 @@ EOF
 ```bash
 cd backend
 
-# Option A: Direct node execution
-node src/api/server.js
-
-# Option B: With npm script (if configured)
+# Option A: npm start:ship (recommended — sets CHAIN_SOURCE=ship automatically)
 npm run start:ship
 
-# Option C: Development mode
-npm run dev
+# Option B: Explicit chain-source worker
+CHAIN_SOURCE=ship npm run chain-source
+
+# Option C: Docker Compose with ship profile
+docker compose --profile ship up chain-source
 ```
 
 **Expected Output**:
@@ -429,6 +438,6 @@ curl http://localhost:3000/api/stats | jq .currentBlock
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-01-03
+**Version**: 2.0
+**Last Updated**: 2026-03-22
 **Maintained By**: Polaris DevOps Team
