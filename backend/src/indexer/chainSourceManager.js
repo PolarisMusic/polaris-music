@@ -108,9 +108,12 @@ export class ChainSourceManager {
             use_local_abi: shipConfig.useLocalAbi,
         });
 
-        // Pass checkpoint store if available
+        // Pass checkpoint store and key if available
         if (this.config.checkpointStore) {
             shipConfig.checkpointStore = this.config.checkpointStore;
+        }
+        if (this.config.checkpointKey) {
+            shipConfig.checkpointKey = this.config.checkpointKey;
         }
 
         const ship = new ShipEventSource(shipConfig);

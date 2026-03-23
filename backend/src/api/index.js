@@ -10,65 +10,7 @@
 
 import APIServer from './server.js';
 import { resolveChainConfig } from '../../../shared/config/chainProfiles.js';
-
-/**
- * Verify that the configured CHAIN_ID matches the chain we connect to.
- * Prevents accidental mainnet/testnet/local mismatches.
- * Only runs when RPC_URL and CHAIN_ID are both configured.
- */
-async function verifyChainId() {
-    const chainConfig = resolveChainConfig();
-    const { rpcUrl, chainId, name: profileName } = chainConfig;
-
-    // Skip verification if no RPC URL or chain ID configured
-    if (!rpcUrl || !chainId) return;
-
-    // Skip for dev mode without explicit chain config
-    const ingestMode = process.env.INGEST_MODE || chainConfig.ingestMode;
-    if (ingestMode === 'dev' && !process.env.CHAIN_ID && !process.env.CHAIN_PROFILE) return;
-
-    console.log(`[startup] Chain profile: ${profileName}`);
-    console.log(`[startup] RPC: ${rpcUrl}`);
-    console.log(`[startup] Expected chain ID: ${chainId.substring(0, 16)}...`);
-
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`${rpcUrl}/v1/chain/get_info`, {
-            signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-            console.warn(`[startup] Chain ID verification skipped: RPC returned ${response.status}`);
-            return;
-        }
-
-        const info = await response.json();
-        const remoteChainId = info.chain_id;
-
-        if (remoteChainId !== chainId) {
-            console.error('═══════════════════════════════════════════════════════════════');
-            console.error('FATAL: Chain ID mismatch!');
-            console.error(`  Configured: ${chainId}`);
-            console.error(`  RPC reports: ${remoteChainId}`);
-            console.error(`  Profile: ${profileName}, RPC: ${rpcUrl}`);
-            console.error('  Check CHAIN_PROFILE, CHAIN_ID, and RPC_URL in your environment.');
-            console.error('═══════════════════════════════════════════════════════════════');
-            process.exit(1);
-        }
-
-        console.log(`[startup] Chain ID verified: ${remoteChainId.substring(0, 16)}... (${profileName})`);
-        console.log(`[startup] Head block: ${info.head_block_num}, LIB: ${info.last_irreversible_block_num}`);
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            console.warn('[startup] Chain ID verification skipped: RPC timeout');
-        } else {
-            console.warn(`[startup] Chain ID verification skipped: ${error.message}`);
-        }
-    }
-}
+import { verifyChainId } from '../utils/verifyChainId.js';
 
 // Load configuration from environment variables
 const config = {
@@ -115,7 +57,7 @@ const config = {
 const server = new APIServer(config);
 
 (async () => {
-    await verifyChainId();
+    await verifyChainId(resolveChainConfig());
     await server.start();
 })().catch((error) => {
     console.error('Failed to start server:', error);

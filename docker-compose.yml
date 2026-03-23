@@ -161,20 +161,21 @@ services:
       # Only use for isolated testing with mock data
       # - ALLOW_UNSIGNED_EVENTS=true  # KEEP COMMENTED - only enable for testing!
 
-      # Chain Profile (shared config from shared/config/chainProfiles.js)
+      # Chain Profile — single source of truth (shared/config/chainProfiles.js)
+      # App code calls resolveChainConfig() which derives CHAIN_ID, RPC_URL,
+      # CONTRACT_ACCOUNT, CHAIN_SOURCE, etc. from the profile. Only set explicit
+      # overrides below when intentionally diverging from profile defaults.
       - CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
-
-      # Blockchain (Jungle4 testnet for development)
-      - CHAIN_ID=${CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
-      - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
-      - CHAIN_WS_URL=${CHAIN_WS_URL:-wss://jungle4.greymass.com}
-      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
+      - CHAIN_ID=${CHAIN_ID:-}
+      - RPC_URL=${RPC_URL:-}
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-}
+      - CHAIN_WS_URL=${CHAIN_WS_URL:-}
 
       # Chain Ingestion Source (substreams = primary, ship = fallback)
-      - CHAIN_SOURCE=${CHAIN_SOURCE:-substreams}
+      - CHAIN_SOURCE=${CHAIN_SOURCE:-}
       - SHIP_URL=${SHIP_URL:-}
-      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-false}
-      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-false}
+      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-}
+      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-}
 
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
@@ -338,14 +339,13 @@ services:
       - VITE_API_URL=http://localhost:3000/api
       - VITE_GRAPHQL_URL=http://localhost:3000/graphql
 
-      # Chain Profile (shared config from shared/config/chainProfiles.js)
+      # Chain Profile — frontend uses shared/config/chainProfiles.js via import
+      # Profile drives all defaults; only override when intentionally diverging.
       - VITE_CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
-
-      # Blockchain configuration (explicit values to avoid relying on code defaults)
-      - VITE_CHAIN_ID=${VITE_CHAIN_ID:-73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d}
-      - VITE_RPC_URL=${VITE_RPC_URL:-https://jungle4.greymass.com}
-      - VITE_CONTRACT_ACCOUNT=${VITE_CONTRACT_ACCOUNT:-polarismusic}
-      - VITE_USE_LOCAL_ABI=${VITE_USE_LOCAL_ABI:-true}
+      - VITE_CHAIN_ID=${VITE_CHAIN_ID:-}
+      - VITE_RPC_URL=${VITE_RPC_URL:-}
+      - VITE_CONTRACT_ACCOUNT=${VITE_CONTRACT_ACCOUNT:-}
+      - VITE_USE_LOCAL_ABI=${VITE_USE_LOCAL_ABI:-}
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
@@ -368,17 +368,18 @@ services:
     container_name: polaris-chain-source
     environment:
       - NODE_ENV=${NODE_ENV:-development}
+      # Chain Profile drives all chain defaults via resolveChainConfig()
       - CHAIN_PROFILE=${CHAIN_PROFILE:-jungle4}
       - CHAIN_SOURCE=ship
-      - SHIP_URL=${SHIP_URL:-ws://localhost:8080}
+      - SHIP_URL=${SHIP_URL:-}
       - SHIP_CA_CERT_PATH=${SHIP_CA_CERT_PATH:-}
-      - SHIP_REJECT_UNAUTHORIZED=${SHIP_REJECT_UNAUTHORIZED:-true}
-      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-false}
-      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-true}
+      - SHIP_REJECT_UNAUTHORIZED=${SHIP_REJECT_UNAUTHORIZED:-}
+      - IRREVERSIBLE_ONLY=${IRREVERSIBLE_ONLY:-}
+      - USE_LOCAL_ABI=${USE_LOCAL_ABI:-}
       - CONTRACT_ABI_PATH=${CONTRACT_ABI_PATH:-}
-      - RPC_URL=${RPC_URL:-https://jungle4.greymass.com}
-      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-polarismusic}
-      - START_BLOCK=${START_BLOCK:-0}
+      - RPC_URL=${RPC_URL:-}
+      - CONTRACT_ACCOUNT=${CONTRACT_ACCOUNT:-}
+      - START_BLOCK=${START_BLOCK:-}
       - GRAPH_URI=bolt://neo4j:7687
       - GRAPH_USER=neo4j
       - GRAPH_PASSWORD=polarisdev
