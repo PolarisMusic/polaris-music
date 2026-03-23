@@ -5,6 +5,10 @@
  * This worker replaces the legacy runProcessor.js for SHiP-based ingestion
  * and can also coordinate Substreams mode.
  *
+ * All chain-related defaults are driven by the shared chain profile
+ * (shared/config/chainProfiles.js). Environment variables override
+ * profile defaults when set.
+ *
  * Dependencies initialized:
  * - Neo4j (MusicGraphDatabase)
  * - EventStore (IPFS + S3 + Redis)
@@ -21,13 +25,17 @@ import EventStore from '../storage/eventStore.js';
 import EventProcessor from './eventProcessor.js';
 import { IngestionHandler } from '../api/ingestion.js';
 import { ChainSourceManager } from './chainSourceManager.js';
+import { resolveChainConfig } from '../../../shared/config/chainProfiles.js';
+import { verifyChainId } from '../utils/verifyChainId.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('indexer.runChainSource');
 
 // ---------------------------------------------------------------------------
-// Configuration from environment
+// Configuration — profile-driven with env overrides
 // ---------------------------------------------------------------------------
+
+const chainConfig = resolveChainConfig();
 
 const config = {
     database: {
@@ -57,16 +65,17 @@ const config = {
         },
     },
 
-    chainSource: process.env.CHAIN_SOURCE || 'ship',
-    rpcUrl: process.env.RPC_URL || 'https://jungle4.greymass.com',
-    contractAccount: process.env.CONTRACT_ACCOUNT || 'polarismusic',
-
-    // SHiP-specific
-    shipUrl: process.env.SHIP_URL || 'ws://localhost:8080',
-    startBlock: process.env.START_BLOCK ? parseInt(process.env.START_BLOCK) : 0,
-    endBlock: process.env.END_BLOCK ? parseInt(process.env.END_BLOCK) : 0xffffffff,
-    irreversibleOnly: process.env.IRREVERSIBLE_ONLY,
-    useLocalAbi: process.env.USE_LOCAL_ABI,
+    // Chain config — all driven by profile, env vars already folded in by resolveChainConfig()
+    chainSource: chainConfig.chainSource,
+    chainId: chainConfig.chainId,
+    profileName: chainConfig.name,
+    rpcUrl: chainConfig.rpcUrl,
+    contractAccount: chainConfig.contractAccount,
+    shipUrl: chainConfig.shipUrl || 'ws://localhost:8080',
+    startBlock: chainConfig.startBlock,
+    endBlock: chainConfig.endBlock,
+    irreversibleOnly: chainConfig.irreversibleOnly,
+    useLocalAbi: chainConfig.useLocalAbi,
     contractAbiPath: process.env.CONTRACT_ABI_PATH || '',
     tlsCaCertPath: process.env.SHIP_CA_CERT_PATH || '',
     tlsRejectUnauthorized: process.env.SHIP_REJECT_UNAUTHORIZED,
@@ -77,13 +86,19 @@ const config = {
 // ---------------------------------------------------------------------------
 
 log.info('chain_source_config', {
+    profile: config.profileName,
     chain_source: config.chainSource,
+    chain_id: config.chainId ? config.chainId.substring(0, 16) + '...' : '(none)',
     rpc_url: config.rpcUrl,
     contract: config.contractAccount,
     ship_url: config.shipUrl,
     start_block: config.startBlock,
+    irreversible_only: config.irreversibleOnly,
     graph_uri: config.database.uri,
 });
+
+// Verify chain ID before starting ingestion (prevents wrong-network corruption)
+await verifyChainId(chainConfig);
 
 // Initialize infrastructure
 const db = new MusicGraphDatabase(config.database);
@@ -115,11 +130,17 @@ try {
     checkpointRedis = null;
 }
 
+// Checkpoint key namespaced by chainId to prevent cross-environment contamination
+const checkpointKey = config.chainId
+    ? `ship:checkpoint:${config.chainId.substring(0, 16)}:${config.contractAccount}`
+    : `ship:checkpoint:${config.profileName}:${config.contractAccount}`;
+
 // Create ChainSourceManager with checkpoint store injected
 const manager = new ChainSourceManager(
     {
         ...config,
         checkpointStore: checkpointRedis,
+        checkpointKey,
     },
     ingestionHandler
 );

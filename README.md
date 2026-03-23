@@ -143,24 +143,34 @@ VITE_GRAPHQL_URL=http://localhost:3000/graphql
 
 ### Chain Ingestion (Blockchain Events)
 
-The system supports automated chain ingestion via **Substreams** (recommended), which monitors the blockchain for anchored events and automatically ingests them into the graph database.
+The system supports automated chain ingestion from the blockchain into the graph database. Three ingestion modes are available:
 
 #### Ingestion Modes
 
-**Default Mode: Substreams (Recommended)**
+**Substreams (Primary, Recommended)**
 
 The `substreams-sink` service consumes events from the blockchain via Pinax Firehose and posts them to the backend ingestion endpoint. This is the modern, reliable ingestion method that uses Substreams to stream blockchain data in real-time.
 
-**Legacy Mode: Direct Blockchain Polling**
+**SHiP Fallback (State History Plugin)**
 
-A legacy `processor` service is available that directly polls the blockchain via SHiP/History API. This service is **disabled by default** to prevent double-ingestion conflicts. To enable it:
+The `chain-source` worker connects directly to an Antelope node's `state_history_plugin` WebSocket endpoint using the real binary SHiP protocol (`@wharfkit/antelope`). It decodes action traces using the contract ABI and emits canonical `AnchoredEvent` objects identical to Substreams output. Use when Substreams is unavailable or for self-hosted ingestion.
 
 ```bash
-# Run with legacy processor instead of Substreams
+# Run with SHiP fallback
+npm run start:ship
+# Or via Docker:
+docker compose --profile ship up chain-source
+```
+
+**Legacy Processor (Deprecated)**
+
+A legacy `processor` service is available that directly polls the blockchain. This service is **disabled by default**. To enable it:
+
+```bash
 docker compose --profile legacy up
 ```
 
-⚠️ **Warning**: Do not run both ingestion methods simultaneously, as this will cause duplicate event processing and graph inconsistencies.
+⚠️ **Warning**: Do not run multiple ingestion methods simultaneously, as this may cause duplicate event processing. Built-in deduplication (content hash + block/trx/ordinal) provides safety during source switching, but avoid sustained overlap.
 
 #### Substreams HTTP Sink (Default)
 
