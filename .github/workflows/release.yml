@@ -36,7 +36,7 @@ jobs:
         echo "$CHANGELOG" > changelog.txt
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         body_path: changelog.txt
         draft: false
@@ -75,7 +75,7 @@ jobs:
           polaris.music.cpp
 
     - name: Upload to release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: contracts/polaris-contracts-${{ github.ref_name }}.tar.gz
       env:
