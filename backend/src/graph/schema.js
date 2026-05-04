@@ -22,6 +22,7 @@ import { normalizeReleaseBundle } from './normalizeReleaseBundle.js';
 import { validateReleaseBundleOrThrow } from '../schema/validateReleaseBundle.js';
 import { normalizeRole, normalizeRoles, normalizeRoleInput } from './roleNormalization.js';
 import { createLogger } from '../utils/logger.js';
+import { safeRollback, safeClose } from './safeTx.js';
 
 /**
  * Normalize an event timestamp to a Neo4j Integer suitable for
@@ -617,7 +618,7 @@ constructor(config = {}) {
             timer.endError('schema_init_fail', { error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -1644,12 +1645,13 @@ constructor(config = {}) {
             };
 
         } catch (error) {
-            // Rollback on any error
-            await tx.rollback();
+            // Rollback on any error. Use safeRollback so a rollback failure
+            // does not mask the original error.
+            await safeRollback(tx, this.log);
             timer.endError('release_bundle_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -1769,11 +1771,11 @@ constructor(config = {}) {
             return { success: true, claimId };
 
         } catch (error) {
-            await tx.rollback();
+            await safeRollback(tx, this.log);
             timer.endError('add_claim_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -1976,11 +1978,11 @@ constructor(config = {}) {
             return { success: true, newClaimId, oldClaimId: resolvedOldClaimId || null };
 
         } catch (error) {
-            await tx.rollback();
+            await safeRollback(tx, this.log);
             timer.endError('edit_claim_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -2048,7 +2050,7 @@ constructor(config = {}) {
             timer.endError('participation_fail', { group_id: groupId.substring(0, 12), error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -2104,7 +2106,7 @@ constructor(config = {}) {
             this.log.error('backfill_person_colors_fail', { error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -2159,7 +2161,7 @@ constructor(config = {}) {
             this.log.error('find_duplicates_fail', { error: error.message });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -2304,12 +2306,12 @@ constructor(config = {}) {
             return { success: true, mergeId };
 
         } catch (error) {
-            await tx.rollback();
+            await safeRollback(tx, this.log);
             timer.endError('merge_nodes_fail', { source_id: sourceId.substring(0, 12), target_id: targetId.substring(0, 12), error: error.message });
 
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -2613,7 +2615,7 @@ constructor(config = {}) {
             this.log.error('connection_test_fail', { error: error.message });
             return false;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -2640,7 +2642,7 @@ constructor(config = {}) {
 
             return { nodes };
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 

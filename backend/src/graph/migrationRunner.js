@@ -15,9 +15,14 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { safeClose } from './safeTx.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const closeLog = {
+    warn: (msg, fields) => console.error(`  ${msg}:`, fields && fields.error),
+};
 
 /**
  * List of all available migrations in order
@@ -62,7 +67,7 @@ async function getAppliedMigrations(driver) {
 
         return new Set(result.records.map(record => record.get('id')));
     } finally {
-        await session.close();
+        await safeClose(session, closeLog);
     }
 }
 
@@ -87,7 +92,7 @@ async function recordMigration(driver, migrationId, stats) {
         });
         console.log(`  Recorded migration: ${migrationId}`);
     } finally {
-        await session.close();
+        await safeClose(session, closeLog);
     }
 }
 
@@ -141,7 +146,7 @@ async function runMigration(driver, migration) {
         console.error(`  Migration ${migration.id} failed:`, error.message);
         return { id: migration.id, status: 'failed', error: error.message };
     } finally {
-        await session.close();
+        await safeClose(session, closeLog);
     }
 }
 
