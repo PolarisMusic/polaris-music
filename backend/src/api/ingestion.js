@@ -237,9 +237,18 @@ export class IngestionHandler {
      * PERF-03: Flush all pending batched events
      * Used during shutdown or when immediate processing is needed
      *
+     * Bounded by `timeoutMs` (default 30s) so a stuck batch doesn't hang
+     * shutdown indefinitely. Throws on timeout — the caller (typically
+     * the shutdown handler in runChainSource.js) is already in a try/catch
+     * that turns this into a non-zero exit.
+     *
+     * @param {Object} [opts]
+     * @param {number} [opts.timeoutMs=30000] - Max time to wait for an
+     *     in-flight batch to finish. Set to 0 to disable the timeout.
      * @returns {Promise<void>}
+     * @throws {Error} when `batchProcessing` does not clear within timeoutMs.
      */
-    async flushBatch() {
+    async flushBatch({ timeoutMs = 30000 } = {}) {
         if (this.batchTimer) {
             clearTimeout(this.batchTimer);
             this.batchTimer = null;
@@ -247,8 +256,14 @@ export class IngestionHandler {
 
         await this.processBatch();
 
-        // Wait for any in-flight batch processing
+        // Wait for any in-flight batch processing, bounded.
+        const start = Date.now();
         while (this.batchProcessing) {
+            if (timeoutMs > 0 && (Date.now() - start) >= timeoutMs) {
+                throw new Error(
+                    `flushBatch timed out after ${timeoutMs}ms with batchProcessing=true`
+                );
+            }
             await new Promise(resolve => setTimeout(resolve, 100));
         }
     }

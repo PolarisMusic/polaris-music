@@ -1,8 +1,20 @@
 /**
  * Generate deterministic hashes for entity IDs
  * Uses SHA-256 to create consistent identifiers
+ *
+ * @deprecated DO NOT CALL. As of Stage C of the staged refactor plan,
+ * this class is unused on the on-chain hash path. Stage C confirmed
+ * (see docs/canonicalization-divergence.md) that:
+ *   - All on-chain event hashes are produced by the backend
+ *     (`EventStore.calculateHash` → `fast-json-stable-stringify`).
+ *   - HashGenerator is imported in two files but never called.
+ * `HashGenerator.canonicalize` diverges from `fast-json-stable-stringify`
+ * on three edge cases (undefined-as-value, undefined-in-array, toJSON-
+ * bearing objects). If new code needs entity IDs, generate them
+ * server-side via `backend/src/graph/normalizeReleaseBundle.js` and
+ * its helpers. The class is retained only so the deprecation can be
+ * cleaned up in a later session without coupling it to Stage C.
  */
-
 import CryptoJS from 'crypto-js';
 
 export class HashGenerator {

@@ -36,6 +36,7 @@ import { getStatus } from './status.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { PublicKey, Signature } from 'eosjs/dist/eosjs-key-conversions.js';
 import { createLogger, generateRequestId } from '../utils/logger.js';
+import { sanitizeError } from '../utils/errorSanitizer.js';
 import neo4j from 'neo4j-driver';
 
 /**
@@ -827,11 +828,9 @@ class APIServer {
                 res.status(httpStatus).json(status);
             } catch (error) {
                 console.error('Status check failed:', error);
-                res.status(500).json({
-                    ok: false,
-                    timestamp: new Date().toISOString(),
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, {
+                    env: this.config.env,
+                }));
             }
         });
 
@@ -935,10 +934,7 @@ class APIServer {
                     author_pubkey: devSigner.getPublicKey()
                 });
             } catch (error) {
-                return res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                return res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1007,10 +1003,7 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('Dev signing failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1120,10 +1113,7 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('resolve-signing-key failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1378,7 +1368,7 @@ class APIServer {
                 });
             } catch (error) {
                 evtLog.error('confirm_anchor_error', { error: error.message });
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1461,11 +1451,7 @@ class APIServer {
                     error: error.message,
                     error_class: error.constructor.name
                 });
-                res.status(500).json({
-                    status: 'error',
-                    error: error.message,
-                    stack: this.config.env === 'development' ? error.stack : undefined
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { env: this.config.env }));
             }
         });
 
@@ -1503,10 +1489,7 @@ class APIServer {
             } catch (error) {
                 const durationMs = Date.now() - startMs;
                 console.error(`Participation request failed: group=${groupId.substring(0, 12)} duration=${durationMs}ms`, error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1560,10 +1543,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Person details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1617,10 +1597,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Group details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1673,10 +1650,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Group releases failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1763,10 +1737,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Release details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1827,10 +1798,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Track details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1889,10 +1857,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Song details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1940,10 +1905,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Label details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -1996,10 +1958,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Group details failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2022,10 +1981,7 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('Stats retrieval failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2053,7 +2009,7 @@ class APIServer {
                 res.json({ success: true, results });
             } catch (error) {
                 console.error('Node search failed:', error);
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2176,7 +2132,7 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('Curate operations failed:', error);
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2323,7 +2279,7 @@ class APIServer {
                 });
             } catch (error) {
                 console.error('Curate operation detail failed:', error);
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2358,7 +2314,7 @@ class APIServer {
                 res.json({ success: true, context, queue });
             } catch (error) {
                 console.error('Player queue failed:', error);
-                res.status(500).json({ success: false, error: error.message });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2466,10 +2422,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Initial graph failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 
@@ -2667,10 +2620,7 @@ class APIServer {
                 }
             } catch (error) {
                 console.error('Neighborhood fetch failed:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error.message
-                });
+                res.status(500).json(sanitizeError(error, req.requestId, { success: false, env: this.config.env }));
             }
         });
 

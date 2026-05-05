@@ -49,10 +49,17 @@ Opens on http://localhost:5173 with hot reload.
 ### Build for Production
 
 ```bash
-npm run build
+VITE_CHAIN_PROFILE=mainnet npm run build
 ```
 
 Output in `dist/` directory.
+
+**Required in production builds:** `VITE_CHAIN_PROFILE` (or the legacy
+alias `VITE_CHAIN_MODE`) MUST be set. Valid values: `jungle4` | `local`
+| `mainnet`. The build will throw at module load if it's missing — this
+is intentional, to prevent a deployable bundle from silently defaulting
+to the testnet. In `npm run dev` it's optional and defaults to
+`jungle4` with a console warning. See `frontend/.env.example`.
 
 ## Usage Guide
 

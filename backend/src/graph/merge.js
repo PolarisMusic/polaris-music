@@ -14,6 +14,7 @@
 import neo4j from 'neo4j-driver';
 import { IdentityService } from '../identity/idService.js';
 import { createLogger } from '../utils/logger.js';
+import { safeRollback, safeClose } from './safeTx.js';
 
 const log = createLogger('graph.merge');
 
@@ -561,8 +562,8 @@ export class MergeOperations {
             return stats;
 
         } catch (error) {
-            // Rollback on error
-            await tx.rollback();
+            // Rollback on error. Preserve original error if rollback throws.
+            await safeRollback(tx, log);
             timer.endError('merge_fail', { survivor_id: survivorId, error: error.message });
             throw error;
         }
@@ -908,14 +909,12 @@ async function mergeBundle(driver, relationships, options = {}) {
 
     } catch (error) {
         if (!existingTx && tx) {
-            await tx.rollback();
+            await safeRollback(tx, log);
         }
         log.error('merge_bundle_fail', { error: error.message, event_hash: eventHash });
         throw error;
     } finally {
-        if (session) {
-            await session.close();
-        }
+        await safeClose(session, log);
     }
 }
 
