@@ -48,6 +48,13 @@ spec:
             secretKeyRef:
               name: polaris-secrets
               key: NEO4J_AUTH
+        # NEO4J_PASSWORD is consumed by the liveness/readiness probes below.
+        # Sourced from the same secret as NEO4J_AUTH (the raw password, without the "neo4j/" prefix).
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: polaris-secrets
+              key: GRAPH_PASSWORD
         - name: NEO4J_PLUGINS
           valueFrom:
             configMapKeyRef:
@@ -94,7 +101,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - cypher-shell -u neo4j -p $NEO4J_PASSWORD 'RETURN 1'
+            - cypher-shell -u neo4j -p "$NEO4J_PASSWORD" 'RETURN 1'
           initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 10
@@ -103,7 +110,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - cypher-shell -u neo4j -p $NEO4J_PASSWORD 'RETURN 1'
+            - cypher-shell -u neo4j -p "$NEO4J_PASSWORD" 'RETURN 1'
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
