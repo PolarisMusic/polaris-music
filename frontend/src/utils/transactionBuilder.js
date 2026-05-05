@@ -46,9 +46,15 @@ export class TransactionBuilder {
     }
 
     /**
-     * Calculate SHA-256 hash of canonical event
-     * @param {Object} event - Event object
-     * @returns {string} Hex-encoded SHA-256 hash
+     * @deprecated DO NOT CALL. Unused on the on-chain hash path —
+     * the backend computes the canonical hash via /api/events/prepare
+     * (`EventStore.calculateHash` → `fast-json-stable-stringify`).
+     * This method's `canonicalizeJSON` would produce different bytes
+     * for `undefined`, array holes, and `toJSON`-bearing objects than
+     * the backend would. See docs/canonicalization-divergence.md.
+     * Calling this and submitting the resulting hash via
+     * `expected_hash` would cause `/api/events/create` to reject the
+     * event with "Hash mismatch". Retained pending Stage J cleanup.
      */
     calculateEventHash(event) {
         // Canonicalize the event (deterministic JSON)
@@ -60,10 +66,8 @@ export class TransactionBuilder {
     }
 
     /**
-     * Canonicalize JSON for deterministic hashing
-     * Simple implementation - in production, use RFC 8785
-     * @param {Object} obj - Object to canonicalize
-     * @returns {string} Canonical JSON string
+     * @deprecated Used only by the deprecated `calculateEventHash`.
+     * See header above and docs/canonicalization-divergence.md.
      */
     canonicalizeJSON(obj) {
         // Sort keys recursively and stringify
@@ -72,9 +76,7 @@ export class TransactionBuilder {
     }
 
     /**
-     * Recursively sort object keys
-     * @param {*} obj - Object to sort
-     * @returns {*} Object with sorted keys
+     * @deprecated Helper for the deprecated `canonicalizeJSON`.
      */
     sortKeysDeep(obj) {
         if (Array.isArray(obj)) {

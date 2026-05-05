@@ -1,16 +1,28 @@
 /**
- * Hash determinism harness — Stage A of the implementation plan.
+ * Hash determinism harness — originally Stage A, repositioned by Stage C.
  *
  * Compares the frontend's hand-rolled `HashGenerator.canonicalize`
  * (frontend/src/utils/hashGenerator.js) against the backend's
- * `fast-json-stable-stringify`. Every event currently anchored on-chain
- * was canonicalized by the frontend, so before unifying the two we must
- * know exactly which inputs produce different bytes.
+ * `fast-json-stable-stringify`. The Stage A premise was that the
+ * frontend canonicalizer was on the on-chain hash path; Stage C
+ * confirmed it is not (see docs/canonicalization-divergence.md), so
+ * this harness is no longer a pre-unification gate.
  *
- * This test is INTENDED to surface divergences. Cases where the two
- * implementations agree are asserted with .toBe; cases where they
- * diverge are pinned with .not.toBe so a future change that converges
- * them will trip the test and force a deliberate decision.
+ * It now serves two purposes:
+ *
+ *  1. Document, in executable form, the three known divergences
+ *     (undefined-as-value, undefined-in-array, toJSON-bearing
+ *     objects) so anyone who later reaches for HashGenerator from
+ *     new code immediately sees how it disagrees with the backend.
+ *  2. Drift-guard the mirrored fixture in
+ *     `__fixtures__/frontendCanonicalize.js` against the live
+ *     frontend source — if `HashGenerator.canonicalize` is ever
+ *     edited, this test will say so.
+ *
+ * The on-chain hash CI gate lives in `canonicalizationSnapshot.test.js`
+ * and locks the backend's `EventStore.calculateHash` output. That's
+ * the test that fails if anyone accidentally changes the bytes that
+ * become the on-chain anchor.
  */
 
 import { createHash } from 'crypto';

@@ -1,21 +1,73 @@
-# Canonicalization Divergence Report (Stage A)
+# Canonicalization Divergence Report (Stages A + C)
 
 **Generated:** 2026-05-04
+**Updated:** 2026-05-05 — Stage C audit reframed the risk; see "Stage
+C update" below before reading the body.
+
 **Scope:** Risk R1 — comparing the frontend's hand-rolled
 `HashGenerator.canonicalize` (`frontend/src/utils/hashGenerator.js`)
 against the backend's `fast-json-stable-stringify`
 (`backend/src/storage/eventStore.js`).
 
-**Why this matters:** every event already anchored on-chain was
-canonicalized by the frontend implementation before being SHA256'd.
-If the backend ever swaps its canonicalizer to one that produces
-different bytes for any historical event shape, hash verification
-for those events will fail forever. Blockchain anchors are immutable,
-so this MUST be a verification-first effort.
-
 The harness lives at `backend/test/crypto/hashDeterminism.test.js`.
 Run with `npm test -- test/crypto/hashDeterminism.test.js` from
 `backend/`. All 43 cases currently pass.
+
+---
+
+## Stage C update — R1 does not apply
+
+The Stage A plan assumed that "every event already anchored on-chain
+was canonicalized by the frontend implementation before being
+SHA256'd." Stage C traced the actual hash flow and that assumption
+turned out to be wrong. The corrected picture:
+
+1. The frontend never hashes events on the on-chain path. Submission
+   POSTs the unhashed event to `/api/events/prepare`. The **backend**
+   computes the canonical hash (`EventStore.calculateHash`, which
+   delegates to `fast-json-stable-stringify`) and returns it together
+   with the canonical payload. The frontend then signs that payload
+   and submits via `/api/events/create`, where `storeEvent`
+   recomputes the hash one more time as a verification step.
+2. `frontend/src/utils/hashGenerator.js` (the `HashGenerator` class
+   with its hand-rolled `canonicalize`) is imported in two files
+   (`frontend/src/index.js`, `frontend/src/components/FormBuilder.js`)
+   but **never called** anywhere in the frontend, tools, or backend.
+3. `frontend/src/utils/transactionBuilder.js` exposes
+   `calculateEventHash` / `canonicalizeJSON` / `sortKeysDeep`, but
+   nothing in the codebase calls them either. They are intra-class
+   helpers that no caller invokes.
+4. Backend git history shows `EventStore.calculateHash` has used
+   `fast-json-stable-stringify` since the function was introduced
+   (commit `d9ddddd`, Feb 2026).
+
+**Therefore:** the divergent cases enumerated below describe a
+behavioural difference between two canonicalizers that do not, and
+have never, both been on the hash path simultaneously. There are no
+historical on-chain anchors hashed via the frontend canonicalizer
+that we could orphan by changing the backend.
+
+**Stage C decision (revised):** drop the v1/v2 versioning plan. The
+canonicalizer was never split; we don't need to split it. Instead:
+
+- **Lock in** the backend's canonicalization output via a snapshot
+  test (`backend/test/crypto/canonicalizationSnapshot.test.js`) so
+  any future change to `fast-json-stable-stringify`, the way
+  `EventStore.calculateHash` calls it, or the set of fields stripped
+  before hashing, fails CI loudly. The pinned hex hashes for six
+  representative events ARE the contract.
+- **Deprecate** the dead frontend canonicalizers in place
+  (`HashGenerator`, `TransactionBuilder.calculateEventHash` /
+  `canonicalizeJSON` / `sortKeysDeep`) with a clear header pointing
+  back to this document. We do not delete them in the same session
+  to keep this change small and reversible — Stage D / a later
+  cleanup can do that once consumers have been re-confirmed.
+
+The body of this document (everything below this line) was the
+Stage A finding and is preserved for the historical record. The
+divergent cases are still real — they would matter if a future
+caller ever hashes via `HashGenerator.canonicalize` again. They
+just are not the on-chain risk Stage A thought they were.
 
 ---
 
@@ -135,26 +187,38 @@ diverges them surfaces immediately.
 
 ---
 
-## Stage C decision
+## Stage C decision (superseded)
 
-**Take the versioned path.**
+The original Stage A guidance — "take the versioned path; add a
+`canonicalization_version` field; v1 = legacy frontend, v2 =
+stable-stringify" — was made on the assumption that the frontend
+had been the canonicalizer of record for on-chain anchors. Stage C
+disproved that assumption (see the "Stage C update" section at the
+top of this document). The versioning plan is therefore unnecessary
+and was not implemented.
 
-- Add `canonicalization_version` to the event envelope.
-- For `version: 1` (every existing on-chain event), the backend
-  must use the legacy frontend canonicalizer logic — including the
-  three quirks above — to verify hashes.
-- For `version: 2`, the frontend signs with
-  `fast-json-stable-stringify`-equivalent output, and the backend
-  uses `fast-json-stable-stringify` directly. New events SHOULD
-  refuse `undefined` values and raw `toJSON` objects in the payload
-  before hashing.
-- The `hashDeterminism.test.js` harness should be promoted to a CI
-  gate before any Stage C code change lands, with the v1/v2
-  fixtures asserted explicitly.
+**What Stage C actually shipped:**
 
-Do **not** swap the frontend to `fast-json-stable-stringify`
-unconditionally. Do **not** retire v1 in the same change as v2 is
-introduced.
+1. `backend/test/crypto/canonicalizationSnapshot.test.js` — a CI
+   gate that pins the hex SHA-256 hash produced by
+   `EventStore.calculateHash` for six representative event shapes
+   (a release bundle, an ADD_CLAIM, a reverse-key-order body, a
+   Unicode payload, an event with a `sig` field that must be
+   stripped, and a deeply-nested-array event). If any of those
+   pinned values change, the test fails — which is what we want,
+   because changing them would orphan every on-chain anchor.
+2. Deprecation headers on `frontend/src/utils/hashGenerator.js`
+   and on the hashing helpers inside
+   `frontend/src/utils/transactionBuilder.js`, pointing back to
+   this document. Code is not deleted in the same session; a
+   later cleanup will do that once consumers (if any are added)
+   are re-confirmed.
+
+The divergence enumeration below is still accurate as a description
+of the two implementations' edge-case behaviour. It is no longer
+load-bearing for hash compatibility, but stays here as the
+authoritative reference for any future contributor who is tempted
+to call `HashGenerator.canonicalize` from new code.
 
 ---
 
