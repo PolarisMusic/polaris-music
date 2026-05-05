@@ -21,11 +21,41 @@ import { CHAIN_PROFILES } from '../../../shared/config/chainProfiles.js';
 /**
  * Chain profile name — determines which blockchain environment the UI targets.
  * Values: 'jungle4' | 'local' | 'mainnet'
+ *
+ * In production builds VITE_CHAIN_PROFILE (or the legacy alias
+ * VITE_CHAIN_MODE) MUST be set explicitly. We refuse to silently
+ * default to jungle4 in a production bundle, because that has bitten
+ * us in the past — a build intended for mainnet shipped pointing at
+ * the testnet because the env var wasn't wired through the deploy
+ * pipeline. Failing fast at import time surfaces the problem at
+ * build/start, not at first user transaction.
+ *
+ * In development we keep the jungle4 default and emit a single warn
+ * line so a fresh `npm run dev` still works without ceremony.
  */
-export const CHAIN_MODE =
+const PROFILE_FROM_ENV =
     import.meta.env.VITE_CHAIN_PROFILE ||
-    import.meta.env.VITE_CHAIN_MODE ||
-    'jungle4';
+    import.meta.env.VITE_CHAIN_MODE;
+
+if (!PROFILE_FROM_ENV) {
+    if (import.meta.env.PROD) {
+        throw new Error(
+            'VITE_CHAIN_PROFILE is required in production builds. ' +
+            'Set it (or the legacy alias VITE_CHAIN_MODE) to one of: ' +
+            Object.keys(CHAIN_PROFILES).join(', ') +
+            '. See frontend/.env.example.'
+        );
+    }
+    // Dev convenience: warn once, fall through to the jungle4 default.
+    if (typeof console !== 'undefined') {
+        console.warn(
+            '[chain.js] VITE_CHAIN_PROFILE not set — defaulting to "jungle4". ' +
+            'This is fine for local dev; production builds will refuse to start without it.'
+        );
+    }
+}
+
+export const CHAIN_MODE = PROFILE_FROM_ENV || 'jungle4';
 
 const preset = CHAIN_PROFILES[CHAIN_MODE] || CHAIN_PROFILES.jungle4;
 

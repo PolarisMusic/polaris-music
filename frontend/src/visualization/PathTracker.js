@@ -6,6 +6,8 @@
  * Paths are used to weight edges mimicking ant colony optimization.
  */
 
+import { getItem, setItem, removeItem } from '../utils/safeStorage.js';
+
 export class PathTracker {
     constructor() {
         // Current navigation path (stack of node IDs)
@@ -284,7 +286,7 @@ export class PathTracker {
      */
     clearAllLikes() {
         this.likedPaths.clear();
-        localStorage.removeItem('polaris_liked_paths');
+        removeItem('polaris_liked_paths');
         console.log('All likes cleared');
     }
 
@@ -297,15 +299,15 @@ export class PathTracker {
                 likes: Array.from(this.likedPaths.entries()),
                 version: 1
             };
-            localStorage.setItem('polaris_liked_paths', JSON.stringify(data));
+            setItem('polaris_liked_paths', JSON.stringify(data));
         } catch (error) {
-            console.error('Failed to save likes to storage:', error);
+            console.error('Failed to serialize likes for storage:', error);
         }
 
         try {
-            localStorage.setItem('polaris_browse_history', JSON.stringify(this.browseHistory));
+            setItem('polaris_browse_history', JSON.stringify(this.browseHistory));
         } catch (error) {
-            console.error('Failed to save browse history to storage:', error);
+            console.error('Failed to serialize browse history for storage:', error);
         }
     }
 
@@ -314,7 +316,7 @@ export class PathTracker {
      */
     loadFromStorage() {
         try {
-            const stored = localStorage.getItem('polaris_liked_paths');
+            const stored = getItem('polaris_liked_paths');
             if (stored) {
                 const data = JSON.parse(stored);
                 if (data.version === 1 && Array.isArray(data.likes)) {
@@ -323,11 +325,11 @@ export class PathTracker {
                 }
             }
         } catch (error) {
-            console.error('Failed to load likes from storage:', error);
+            console.error('Failed to parse likes from storage:', error);
         }
 
         try {
-            const stored = localStorage.getItem('polaris_browse_history');
+            const stored = getItem('polaris_browse_history');
             if (stored) {
                 const data = JSON.parse(stored);
                 if (Array.isArray(data)) {

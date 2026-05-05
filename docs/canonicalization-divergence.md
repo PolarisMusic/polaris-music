@@ -252,7 +252,8 @@ Pure log/display surfaces (read `error.message` from a thrown
 - `frontend/src/visualization/MusicGraph.js:1118, 1405, 1707` —
   `alert` / `console.warn` text
 - `frontend/src/visualization/MusicGraph.enhanced.js:239` — `alert`
-  text (this file is slated for deletion in Stage D)
+  text (this file was DELETED in Stage D; reference kept here for the
+  audit record)
 - `frontend/src/visualization/LikeManager.js:58, 85, 231` —
   diagnostic logging only
 - `frontend/src/wallet/WalletManager.js:119` — re-thrown error text

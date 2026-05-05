@@ -7,6 +7,7 @@
 
 import { CONTRACT_ACCOUNT } from '../config/chain.js';
 import { api } from '../utils/api.js';
+import { getItem, setItem, removeItem } from '../utils/safeStorage.js';
 
 export class LikeManager {
     constructor(walletManager, pathTracker) {
@@ -201,11 +202,12 @@ export class LikeManager {
     queueSubmission(nodeId, nodePath) {
         this.pendingSubmissions.push({ nodeId, nodePath, timestamp: Date.now() });
 
-        // Persist to localStorage
+        // Persist to localStorage (best-effort; safeStorage swallows
+        // unavailable-storage errors and the in-memory queue still works).
         try {
-            localStorage.setItem('polaris_pending_likes', JSON.stringify(this.pendingSubmissions));
+            setItem('polaris_pending_likes', JSON.stringify(this.pendingSubmissions));
         } catch (error) {
-            console.error('Failed to save pending submissions:', error);
+            console.error('Failed to serialize pending submissions:', error);
         }
     }
 
@@ -235,7 +237,7 @@ export class LikeManager {
 
         // Clear pending queue on success
         this.pendingSubmissions = [];
-        localStorage.removeItem('polaris_pending_likes');
+        removeItem('polaris_pending_likes');
 
         return results;
     }
@@ -245,13 +247,13 @@ export class LikeManager {
      */
     loadPendingSubmissions() {
         try {
-            const stored = localStorage.getItem('polaris_pending_likes');
+            const stored = getItem('polaris_pending_likes');
             if (stored) {
                 this.pendingSubmissions = JSON.parse(stored);
                 console.log(`Loaded ${this.pendingSubmissions.length} pending like submissions`);
             }
         } catch (error) {
-            console.error('Failed to load pending submissions:', error);
+            console.error('Failed to parse pending submissions:', error);
         }
     }
 
