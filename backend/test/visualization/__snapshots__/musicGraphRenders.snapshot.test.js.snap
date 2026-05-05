@@ -1,0 +1,111 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Stage H · _renderClaimDetail add_claim with object value and url source: add-claim-object-value 1`] = `
+"<div class="curate-section"><h4>Add Claim</h4><div class="curate-field"><span class="curate-field-label">Target Type</span><span class="curate-field-value">Person</span></div><div class="curate-field"><span class="curate-field-label">Target ID</span><span class="curate-field-value">person:lennon</span></div><div class="curate-field"><span class="curate-field-label">Field</span><span class="curate-field-value">aka</span></div><div class="curate-field"><span class="curate-field-label">Value</span><span class="curate-field-value">{
+  "official": "John Lennon",
+  "stage": "JL"
+}</span></div><div class="curate-field"><span class="curate-field-label">Source</span><span class="curate-field-value">https://en.wikipedia.org/wiki/John_Lennon</span></div></div>"
+`;
+
+exports[`Stage H · _renderClaimDetail edit_claim with primitive value and string source: edit-claim-primitive 1`] = `"<div class="curate-section"><h4>Edit Claim</h4><div class="curate-field"><span class="curate-field-label">Target Type</span><span class="curate-field-value">Track</span></div><div class="curate-field"><span class="curate-field-label">Target ID</span><span class="curate-field-value">track:abbey</span></div><div class="curate-field"><span class="curate-field-label">Field</span><span class="curate-field-value">duration</span></div><div class="curate-field"><span class="curate-field-label">Value</span><span class="curate-field-value">259</span></div><div class="curate-field"><span class="curate-field-label">Source</span><span class="curate-field-value">liner notes</span></div></div>"`;
+
+exports[`Stage H · _renderCurateDetail add_claim detail (finalized) suppresses vote buttons: add-claim-finalized 1`] = `
+"<div class="curate-detail-header">
+            <h3>ADD_CLAIM</h3>
+            <div class="curate-detail-meta">
+                <span>by eve</span>
+                <span>LOCALE_DATETIME(2026-05-05T00:00:00.000Z)</span>
+                <span>Finalized</span>
+            </div>
+        </div><div class="curate-detail-voting">
+            <span class="curate-score curate-score--positive">
+                +4
+            </span>
+            <span class="curate-voters">
+                <span class="curate-up">5 (3)</span> /
+                <span class="curate-down">1 (1)</span>
+            </span>
+        </div><div class="curate-detail-body"><div class="curate-section"><h4>Add Claim</h4><div class="curate-field"><span class="curate-field-label">Target Type</span><span class="curate-field-value">Person</span></div><div class="curate-field"><span class="curate-field-label">Target ID</span><span class="curate-field-value">person:lennon</span></div><div class="curate-field"><span class="curate-field-label">Field</span><span class="curate-field-value">bio</span></div><div class="curate-field"><span class="curate-field-label">Value</span><span class="curate-field-value">Songwriter and rhythm guitarist</span></div></div></div>"
+`;
+
+exports[`Stage H · _renderCurateDetail release_bundle detail (open) with raw event JSON: release-bundle-open 1`] = `
+"<div class="curate-detail-header">
+            <h3>CREATE_RELEASE_BUNDLE</h3>
+            <div class="curate-detail-meta">
+                <span>by alice</span>
+                <span>LOCALE_DATETIME(2026-05-05T00:00:00.000Z)</span>
+                <span>Open</span>
+            </div>
+        </div><div class="curate-detail-voting">
+            <span class="curate-score curate-score--positive">
+                +2
+            </span>
+            <span class="curate-voters">
+                <span class="curate-up">2 (1)</span> /
+                <span class="curate-down">0 (0)</span>
+            </span>
+        <button class="curate-vote-btn curate-vote-up">Upvote</button><button class="curate-vote-btn curate-vote-down">Downvote</button></div><div class="curate-detail-body"><div class="curate-section"><h4>Release</h4><div class="curate-field"><span class="curate-field-label">Name</span><span class="curate-field-value">Abbey Road</span></div><div class="curate-field"><span class="curate-field-label">Date</span><span class="curate-field-value">1969-09-26</span></div><div class="curate-field"><span class="curate-field-label">Format</span><span class="curate-field-value">LP</span></div></div><div class="curate-raw-json">
+                <details>
+                    <summary>Raw Event JSON</summary>
+                    <pre>{
+  "v": 1,
+  "type": "CREATE_RELEASE_BUNDLE"
+}</pre>
+                </details>
+            </div></div>"
+`;
+
+exports[`Stage H · _renderCurateRow finalized vote row with no event_summary (uses hash prefix): finalized-vote-negative 1`] = `
+"<div class="curate-row" data-hash="fedcba9876543210">
+            <div class="curate-row__header">
+                <span class="curate-type-badge curate-type-40">Vote</span>
+                <span class="curate-row__title">fedcba987654...</span>
+                <span class="curate-row__time"></span>
+            </div>
+            <div class="curate-row__author">by bob</div>
+            <div class="curate-row__tally">
+                <span class="curate-score curate-score--negative">
+                    -3
+                </span>
+                <span class="curate-voters">
+                    <span class="curate-up">1 (1)</span>
+                    /
+                    <span class="curate-down">4 (2)</span>
+                </span>
+                <span class="curate-status curate-status--finalized">Finalized</span>
+            </div>
+        </div>"
+`;
+
+exports[`Stage H · _renderCurateRow open release row with positive net score: open-release-positive 1`] = `
+"<div class="curate-row" data-hash="abcdef0123456789">
+            <div class="curate-row__header">
+                <span class="curate-type-badge curate-type-21">Release</span>
+                <span class="curate-row__title">Abbey Road</span>
+                <span class="curate-row__time">LOCALE_DATE(2026-05-05)</span>
+            </div>
+            <div class="curate-row__author">by alice</div>
+            <div class="curate-row__tally">
+                <span class="curate-score curate-score--positive">
+                    +5
+                </span>
+                <span class="curate-voters">
+                    <span class="curate-up">7 (3)</span>
+                    /
+                    <span class="curate-down">2 (1)</span>
+                </span>
+                <span class="curate-status ">Open</span>
+            </div>
+        </div>"
+`;
+
+exports[`Stage H · _renderReleaseBundleDetail full release bundle with two groups, tracks, songs, and sources: release-bundle-full 1`] = `"<div class="curate-section"><h4>Release</h4><div class="curate-field"><span class="curate-field-label">Name</span><span class="curate-field-value">Abbey Road</span></div><div class="curate-field"><span class="curate-field-label">Date</span><span class="curate-field-value">1969-09-26</span></div><div class="curate-field"><span class="curate-field-label">Format</span><span class="curate-field-value">LP</span></div><div class="curate-field"><span class="curate-field-label">Alt Names</span><span class="curate-field-value">Abbey Rd.</span></div><div class="curate-field"><span class="curate-field-label">Master ID</span><span class="curate-field-value">master:abbey</span></div></div><div class="curate-section"><h4>Labels</h4><div class="curate-field-value">Apple Records <span style="color:#666">(label:apple)</span></div></div><div class="curate-section"><h4>Groups</h4><div class="curate-field-value" style="margin-bottom:6px"><strong>The Beatles</strong> <span style="color:#666">(group:beatles)</span></div><div class="curate-person-list"><span class="curate-person-chip">John Lennon <span class="curate-role">rhythm guitar, vocals</span></span><span class="curate-person-chip">Paul McCartney <span class="curate-role">bass, vocals</span></span></div><div class="curate-field-value" style="margin-bottom:6px"><strong>Sessioneers</strong></div></div><div class="curate-section"><h4>Release Personnel</h4><div class="curate-person-list"><span class="curate-person-chip">Billy Preston <span class="curate-role">organ</span></span></div></div><div class="curate-section"><h4>Tracks</h4><div class="curate-track-item"><div class="curate-track-title">1. Come Together <span style="color:#666;font-size:10px">track:abbey-1</span></div><div class="curate-track-credits">Group: The Beatles (John Lennon, Paul McCartney)</div><div class="curate-track-credits">Guests: Billy Preston (organ)</div><div class="curate-track-credits">Producers: George Martin</div><div class="curate-track-credits">Listen: <a href="https://example.com/come-together" target="_blank" style="color:#5c9cef">example.com</a></div></div><div class="curate-track-item"><div class="curate-track-title">2. Something <span style="color:#666;font-size:10px">track:abbey-2</span></div><div class="curate-track-credits">Samples: track:earlier</div></div></div><div class="curate-section"><h4>Songs (Compositions)</h4><div class="curate-field-value" style="margin-bottom:4px">Come Together — John Lennon, Paul McCartney</div><div class="curate-field-value" style="margin-bottom:4px">Something — George Harrison</div></div><div class="curate-section"><h4>Sources</h4><div class="curate-field-value"><a href="https://discogs.com/release/12345" target="_blank" style="color:#5c9cef">https://discogs.com/release/12345</a></div></div>"`;
+
+exports[`Stage H · _renderReleaseBundleDetail minimal release (no labels, no groups, no tracks, no sources): release-bundle-minimal 1`] = `"<div class="curate-section"><h4>Release</h4><div class="curate-field"><span class="curate-field-label">Name</span><span class="curate-field-value">Solo EP</span></div></div>"`;
+
+exports[`Stage H · _renderSongDetails full song with writers, lyrics, and releases: full 1`] = `
+"<p class="info-meta"><strong>Type:</strong> Song (Composition)</p><div class="info-section"><h4>Songwriters</h4><ul class="info-list"><li><a href="#" class="info-nav-link" data-node-id="person:lennon">John Lennon</a></li><li>Anonymous &amp; Co.</li></ul></div><div class="info-section"><h4>Lyrics</h4><pre class="info-lyrics">Here come old flat-top
+He come groovin' up slowly</pre></div><div class="info-section"><h4>Appears On</h4><ul class="info-list"><li><a href="#" class="info-nav-link song-release-link" data-release-id="release:abbey-road">Abbey Road</a> (1969)</li><li><a href="#" class="info-nav-link song-release-link" data-release-id="release:1">1 (compilation)</a> (2000)</li></ul></div>"
+`;
+
+exports[`Stage H · _renderSongDetails minimal song (no writers, no lyrics, no releases): minimal 1`] = `"<p class="info-meta"><strong>Type:</strong> Song (Composition)</p>"`;
