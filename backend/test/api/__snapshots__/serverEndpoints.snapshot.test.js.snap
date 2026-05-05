@@ -1,0 +1,402 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Stage H · GraphQL snapshots query { group } returns members + RGraph participation 1`] = `
+{
+  "data": {
+    "group": {
+      "group_id": "group:beatles",
+      "members": [
+        {
+          "participation_percentage": null,
+          "person": {
+            "name": "John Lennon",
+            "person_id": "person:lennon",
+          },
+          "release_count": null,
+          "role": "rhythm guitar",
+          "track_count": null,
+        },
+      ],
+      "name": "The Beatles",
+      "status": "ACTIVE",
+    },
+  },
+}
+`;
+
+exports[`Stage H · GraphQL snapshots query { person } returns shape under ACTIVE filter 1`] = `
+{
+  "data": {
+    "person": {
+      "groups": [
+        {
+          "from_date": "1960",
+          "group": {
+            "group_id": "group:beatles",
+            "name": "The Beatles",
+          },
+          "instruments": [
+            "guitar",
+            "vocals",
+          ],
+          "role": "rhythm guitar",
+          "to_date": "1970",
+        },
+      ],
+      "name": "John Lennon",
+      "person_id": "person:lennon",
+      "songsWritten": [
+        {
+          "song_id": "song:imagine",
+          "title": "Imagine",
+        },
+      ],
+      "status": "ACTIVE",
+    },
+  },
+}
+`;
+
+exports[`Stage H · GraphQL snapshots query { release } returns shape 1`] = `
+{
+  "data": {
+    "release": {
+      "name": "Abbey Road",
+      "release_id": "release:abbey-road",
+      "status": "ACTIVE",
+      "tracks": [
+        {
+          "disc_number": 1,
+          "is_bonus": false,
+          "side": "A",
+          "track": {
+            "title": "Come Together",
+            "track_id": "track:abbey",
+          },
+          "track_number": 1,
+        },
+      ],
+    },
+  },
+}
+`;
+
+exports[`Stage H · GraphQL snapshots query { song } returns shape 1`] = `
+{
+  "data": {
+    "song": {
+      "recordings": [
+        {
+          "status": "ACTIVE",
+          "title": "Come Together",
+          "track_id": "track:abbey",
+        },
+      ],
+      "song_id": "song:come-together",
+      "title": "Come Together",
+      "writers": [
+        {
+          "name": "John Lennon",
+          "person_id": "person:lennon",
+        },
+      ],
+    },
+  },
+}
+`;
+
+exports[`Stage H · GraphQL snapshots query { track } returns shape 1`] = `
+{
+  "data": {
+    "track": null,
+  },
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 17,
+          "line": 3,
+        },
+      ],
+      "message": "record.get('s') — key not in fixture",
+      "path": [
+        "track",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/group/:groupId → 200 with members + counts 1`] = `
+{
+  "data": {
+    "group_id": "group:beatles",
+    "members": [
+      {
+        "from_date": "1960",
+        "person": "John Lennon",
+        "person_id": "person:lennon",
+        "role": "rhythm guitar",
+        "to_date": "1970",
+      },
+      {
+        "from_date": "1960",
+        "person": "Paul McCartney",
+        "person_id": "person:mccartney",
+        "role": "bass",
+        "to_date": "1970",
+      },
+    ],
+    "name": "The Beatles",
+    "releaseCount": 13,
+    "status": "ACTIVE",
+    "trackCount": 213,
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/group/:groupId → 404 when not found 1`] = `
+{
+  "error": "Group not found",
+  "success": false,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/person/:personId → 200 with groups + counts 1`] = `
+{
+  "data": {
+    "groups": [
+      {
+        "from_date": "1960",
+        "group": "The Beatles",
+        "group_id": "group:beatles",
+        "role": "rhythm guitar",
+        "to_date": "1970",
+      },
+    ],
+    "guestAppearances": 3,
+    "name": "John Lennon",
+    "person_id": "person:lennon",
+    "songsWritten": 180,
+    "status": "ACTIVE",
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/release/:releaseId → 200 envelope shape 1`] = `
+{
+  "data": {
+    "groups": [
+      {
+        "group_id": "group:beatles",
+        "name": "The Beatles",
+      },
+    ],
+    "guests": [
+      {
+        "color": "#abc",
+        "name": "Billy Preston",
+        "person_id": "person:preston",
+        "roles": [
+          "organ",
+        ],
+      },
+    ],
+    "labels": [
+      {
+        "label": "Apple Records",
+        "label_id": "label:apple",
+      },
+    ],
+    "name": "Abbey Road",
+    "release_date": "1969-09-26",
+    "release_id": "release:abbey-road",
+    "tracks": [
+      {
+        "disc_number": 1,
+        "side": "A",
+        "track": "Come Together",
+        "track_id": "track:abbey",
+        "track_number": 1,
+      },
+    ],
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/song/:songId → 200 envelope shape 1`] = `
+{
+  "data": {
+    "recordings": [
+      {
+        "track": "Come Together",
+        "track_id": "track:abbey",
+      },
+    ],
+    "releases": [
+      {
+        "album_art": null,
+        "release": "Abbey Road",
+        "release_date": "1969-09-26",
+        "release_id": "release:abbey-road",
+      },
+    ],
+    "song_id": "song:come-together",
+    "title": "Come Together",
+    "writers": [
+      {
+        "person_id": "person:lennon",
+        "writer": "John Lennon",
+      },
+    ],
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/stats → 200 with database+storage envelope 1`] = `
+{
+  "database": {
+    "nodes": {
+      "Group": 50,
+      "Person": 100,
+      "Release": 25,
+      "Song": 75,
+      "Track": 500,
+    },
+    "relationships": {
+      "MEMBER_OF": 80,
+      "PERFORMED_ON": 600,
+    },
+  },
+  "storage": {
+    "errors": 0,
+    "retrieved": 5,
+    "stored": 10,
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /api/track/:trackId → 200 envelope shape 1`] = `
+{
+  "data": {
+    "guests": [],
+    "performedBy": [
+      {
+        "group": "The Beatles",
+        "group_id": "group:beatles",
+      },
+    ],
+    "releases": [
+      {
+        "release": "Abbey Road",
+        "release_id": "release:abbey-road",
+      },
+    ],
+    "song": {
+      "song_id": "song:come-together",
+      "title": "Come Together",
+    },
+    "status": "ACTIVE",
+    "title": "Come Together",
+    "track_id": "track:abbey",
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots GET /health → 200 with status/uptime envelope 1`] = `
+{
+  "status": "healthy",
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/crypto/resolve-signing-key → 400 on missing fields (RPC set) 1`] = `
+{
+  "error": "Missing required fields: account, permission, canonical_payload, signature",
+  "success": false,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/crypto/resolve-signing-key → 503 when RPC_URL unset 1`] = `
+{
+  "error": "RPC_URL not configured — cannot resolve signing keys",
+  "success": false,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/events/confirm-anchor → 200 with status:anchored 1`] = `
+{
+  "author_account": "alice",
+  "hash": "abc",
+  "status": "anchored",
+  "success": true,
+  "trx_id": "trx",
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/events/confirm-anchor → 400 when required fields missing 1`] = `
+{
+  "error": "hash, trx_id, and author_account are required",
+  "success": false,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/events/create → 201 envelope on storage success 1`] = `
+{
+  "errors": [],
+  "hash": "abc123",
+  "pinning": {
+    "attempted": false,
+    "success": false,
+  },
+  "replication": {
+    "canonical": {
+      "primary": true,
+    },
+    "event": {
+      "primary": true,
+    },
+  },
+  "stored": {
+    "canonical_cid": "bafkreicanon",
+    "event_cid": "bafkreievent",
+    "redis": true,
+    "s3": "s3://bucket/abc",
+  },
+  "success": true,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/events/create → 503 when event_cid is missing 1`] = `
+{
+  "error": "IPFS required: could not produce event_cid for blockchain anchoring",
+  "errors": [
+    "ipfs unavailable",
+  ],
+  "hash": "abc123",
+  "message": "Event stored to fallback storage but cannot be anchored on blockchain without IPFS event_cid. Check IPFS daemon status.",
+  "pinning": {
+    "attempted": false,
+    "success": false,
+  },
+  "replication": {
+    "canonical": {},
+    "event": {},
+  },
+  "success": false,
+}
+`;
+
+exports[`Stage H · REST endpoint snapshots POST /api/events/create → 503 when event_cid is missing: event_cid-missing.stored 1`] = `
+{
+  "canonical_cid": "bafkreicanon",
+  "event_cid": null,
+  "redis": true,
+  "s3": "s3://bucket/abc",
+}
+`;
