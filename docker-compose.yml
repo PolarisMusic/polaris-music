@@ -7,7 +7,7 @@ services:
       - "7474:7474"  # HTTP
       - "7687:7687"  # Bolt
     environment:
-      - NEO4J_AUTH=neo4j/polarisdev
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required (see .env.example)}
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
       - NEO4J_dbms_memory_heap_initial__size=512m
@@ -21,7 +21,7 @@ services:
     networks:
       - polaris-network
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p polarisdev 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"${NEO4J_PASSWORD:?NEO4J_PASSWORD is required (see .env.example)}\" 'RETURN 1' >/dev/null 2>&1 || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -33,13 +33,13 @@ services:
     container_name: polaris-redis
     ports:
       - "6379:6379"
-    command: redis-server --requirepass polarisdev --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required (see .env.example)} --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
     networks:
       - polaris-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "polarisdev", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD is required (see .env.example)}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -99,8 +99,8 @@ services:
       - "9000:9000"     # API
       - "9001:9001"     # Console
     environment:
-      - MINIO_ROOT_USER=polaris
-      - MINIO_ROOT_PASSWORD=polarisdev123
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?MINIO_ROOT_USER is required (see .env.example)}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required (see .env.example)}
       - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
     command: server /data --console-address ":9001"
     volumes:
@@ -132,10 +132,13 @@ services:
     depends_on:
       minio-health:
         condition: service_healthy
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?MINIO_ROOT_USER is required (see .env.example)}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required (see .env.example)}
     entrypoint: >
       /bin/sh -c "
       set -e;
-      /usr/bin/mc alias set polaris http://minio:9000 polaris polarisdev123;
+      /usr/bin/mc alias set polaris http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
       /usr/bin/mc mb -p polaris/polaris-events || true;
       /usr/bin/mc anonymous set download polaris/polaris-events;
       echo 'MinIO init complete';
@@ -180,7 +183,7 @@ services:
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
       - GRAPH_USER=neo4j
-      - GRAPH_PASSWORD=polarisdev
+      - GRAPH_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD is required (see .env.example)}
 
       # Storage (IPFS)
       # Multi-node for redundancy (primary + secondary)
@@ -188,15 +191,15 @@ services:
       - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
       - IPFS_URL=http://ipfs:5001  # Legacy fallback (single-node)
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=polaris
-      - S3_SECRET_KEY=polarisdev123
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:?MINIO_ROOT_USER is required (see .env.example)}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required (see .env.example)}
       - S3_BUCKET=polaris-events
       - S3_REGION=us-east-1
 
       # Redis Cache
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=polarisdev
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required (see .env.example)}
 
       # External Pinning Provider (optional, best-effort)
       - PIN_PROVIDER=${PIN_PROVIDER:-none}
@@ -268,7 +271,7 @@ services:
       # Graph Database
       - GRAPH_URI=bolt://neo4j:7687
       - GRAPH_USER=neo4j
-      - GRAPH_PASSWORD=polarisdev
+      - GRAPH_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD is required (see .env.example)}
 
       # Storage (IPFS)
       # Multi-node for redundancy (primary + secondary)
@@ -276,15 +279,15 @@ services:
       - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
       - IPFS_URL=http://ipfs:5001  # Legacy fallback (single-node)
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=polaris
-      - S3_SECRET_KEY=polarisdev123
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:?MINIO_ROOT_USER is required (see .env.example)}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required (see .env.example)}
       - S3_BUCKET=polaris-events
       - S3_REGION=us-east-1
 
       # Redis Cache
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=polarisdev
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required (see .env.example)}
 
       # External Pinning Provider (optional, best-effort)
       - PIN_PROVIDER=${PIN_PROVIDER:-none}
@@ -382,17 +385,17 @@ services:
       - START_BLOCK=${START_BLOCK:-}
       - GRAPH_URI=bolt://neo4j:7687
       - GRAPH_USER=neo4j
-      - GRAPH_PASSWORD=polarisdev
+      - GRAPH_PASSWORD=${NEO4J_PASSWORD:?NEO4J_PASSWORD is required (see .env.example)}
       - IPFS_URLS=http://ipfs:5001,http://ipfs2:5001
       - IPFS_URL=http://ipfs:5001
       - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY=polaris
-      - S3_SECRET_KEY=polarisdev123
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:?MINIO_ROOT_USER is required (see .env.example)}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required (see .env.example)}
       - S3_BUCKET=polaris-events
       - S3_REGION=us-east-1
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=polarisdev
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required (see .env.example)}
       - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
       - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
       - LOG_LEVEL=debug
