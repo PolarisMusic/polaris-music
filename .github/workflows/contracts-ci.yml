@@ -102,17 +102,27 @@ jobs:
   analyze:
     name: Static Analysis
     runs-on: ubuntu-latest
+    # Hard cap so a hung step (clang-tidy parsing a contract that depends on
+    # EOSIO/CDT headers we don't install here, or a stuck apt mirror) cannot
+    # eat the 6h job-level default. This job is a non-blocking warn-only
+    # check, so 15 minutes is plenty.
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Run clang-tidy
+      timeout-minutes: 10
       run: |
         sudo apt-get update
         sudo apt-get install -y clang-tidy
         cd contracts
-        clang-tidy polaris.music.cpp -- -std=c++17 || echo "::warning::Static analysis warnings found"
+        # Wrap clang-tidy in `timeout` for defence-in-depth: the contract
+        # includes <eosio/eosio.hpp> etc. and clang-tidy without those
+        # headers can hang on certain check passes. 5 min cap; warn-only.
+        timeout 300 clang-tidy polaris.music.cpp -- -std=c++17 \
+          || echo "::warning::Static analysis warnings found (or timed out)"
 
     - name: Check for TODOs
       run: |
