@@ -3,24 +3,25 @@
  *
  * Stage H — Frontend render-method characterization snapshots.
  *
- * Locks the DOM output of the five `_render*` methods on MusicGraph so the
- * upcoming Stage J split (extract InfoPanelRenderer, FavoritesManager,
- * OverlayPositioner, GraphDataLoader from the ~2,562-line MusicGraph.js)
- * cannot silently change rendered HTML.
+ * Locks the DOM output of the five render methods that started life as
+ * `_render*` on MusicGraph (the ~2,562-line god class). Stage J extracted
+ * them into `frontend/src/visualization/InfoPanelRenderer.js`, where they
+ * are now public methods on the InfoPanelRenderer class — these snapshots
+ * are the regression net for that split.
  *
- * Strategy: source-extract + isolated invoke. The class itself is heavy to
- * instantiate (needs $jit, sibling module imports, real DOM containers).
- * Each render method is a leaf that only touches `this._escapeHtml`,
- * `this._detailField`, and a few stub-able navigation handlers. We:
+ * Strategy: source-extract + isolated invoke. The renderer class is light
+ * (no `$jit`, no live DOM container) but the source-extract approach is
+ * preserved so we re-read the live module on every run; any drift in a
+ * method body surfaces as a snapshot diff.
  *
- *   1. Read frontend/src/visualization/MusicGraph.js as text.
- *   2. Slice out each method body by name + brace-balancing.
+ *   1. Read frontend/src/visualization/InfoPanelRenderer.js as text.
+ *   2. Locate each method node via @babel/parser and slice its source.
  *   3. Compile the slice as a standalone function via `new Function(...)`.
  *   4. Invoke with `Function.prototype.call(stubThis, ...)` under jsdom.
  *   5. Snapshot the resulting outerHTML / innerHTML.
  *
- * This re-reads the live source every run, so any drift in the method body
- * surfaces as a snapshot diff (the alarm Stage J needs).
+ * Snapshot file is intentionally unchanged from Stage H — the HTML the
+ * renderer emits must be byte-identical after the move.
  */
 
 import { jest } from '@jest/globals';
@@ -31,8 +32,8 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const MUSIC_GRAPH_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
-const SOURCE = readFileSync(MUSIC_GRAPH_PATH, 'utf8');
+const RENDERER_PATH = resolve(__dirname, '../../../frontend/src/visualization/InfoPanelRenderer.js');
+const SOURCE = readFileSync(RENDERER_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
 // AST-based method extraction. Parses MusicGraph.js once, then locates each
@@ -65,7 +66,7 @@ const METHOD_INDEX = (() => {
 function extractMethod(methodName) {
     const node = METHOD_INDEX.get(methodName);
     if (!node) {
-        throw new Error(`extractMethod: ${methodName} not found in MusicGraph.js`);
+        throw new Error(`extractMethod: ${methodName} not found in InfoPanelRenderer.js`);
     }
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     // Body is everything between the outer braces (exclusive).
@@ -94,17 +95,23 @@ function makeStubThis() {
         return `<div class="curate-field"><span class="curate-field-label">${escapeImpl(label)}</span><span class="curate-field-value">${escapeImpl(String(value))}</span></div>`;
     };
     const stub = {
-        _escapeHtml: escapeImpl,
-        _detailField: detailFieldImpl,
-        _attachNavLinkListeners: jest.fn(),
-        _navigateToRelease: jest.fn(),
-        _selectCurateOperation: jest.fn(),
-        _curateVoteFromDetail: jest.fn(),
+        // Helpers — now public methods on InfoPanelRenderer.
+        escapeHtml: escapeImpl,
+        detailField: detailFieldImpl,
+        // Nav/vote handlers were `this._foo` on MusicGraph; in the renderer
+        // they live behind a `callbacks` indirection so the module has no
+        // implicit coupling to MusicGraph beyond this object.
+        callbacks: {
+            attachNavLinkListeners: jest.fn(),
+            navigateToRelease: jest.fn(),
+            selectCurateOperation: jest.fn(),
+            voteFromDetail: jest.fn(),
+        },
     };
-    // The two delegating methods need real impls so _renderCurateDetail can
+    // The two delegating methods need real impls so renderCurateDetail can
     // invoke them through `this`.
-    stub._renderReleaseBundleDetail = compileMethod('_renderReleaseBundleDetail').bind(stub);
-    stub._renderClaimDetail = compileMethod('_renderClaimDetail').bind(stub);
+    stub.renderReleaseBundleDetail = compileMethod('renderReleaseBundleDetail').bind(stub);
+    stub.renderClaimDetail = compileMethod('renderClaimDetail').bind(stub);
     return stub;
 }
 
@@ -135,15 +142,14 @@ afterAll(() => {
 // If MusicGraph.js renames or removes any of these, the test should scream.
 // ---------------------------------------------------------------------------
 
-describe('Stage H · MusicGraph render methods · drift guard', () => {
+describe('Stage H · InfoPanelRenderer methods · drift guard', () => {
     test.each([
-        ['_renderSongDetails',         '(song, titleElement, contentElement)'],
-        ['_renderCurateRow',           '(op)'],
-        ['_renderCurateDetail',        '(container, resp, op)'],
-        ['_renderReleaseBundleDetail', '(container, detail)'],
-        ['_renderClaimDetail',         '(container, detail)'],
+        ['renderSongDetails',         '(song, titleElement, contentElement)'],
+        ['renderCurateRow',           '(op)'],
+        ['renderCurateDetail',        '(container, resp, op)'],
+        ['renderReleaseBundleDetail', '(container, detail)'],
+        ['renderClaimDetail',         '(container, detail)'],
     ])('method %s exists with signature %s', (name, sig) => {
-        // .replace strips type annotations / default values for simple equality
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
         const actual = params.split(',').map(s => s.trim()).filter(Boolean).join(', ');
@@ -157,7 +163,7 @@ describe('Stage H · MusicGraph render methods · drift guard', () => {
 
 describe('Stage H · _renderSongDetails', () => {
     test('full song with writers, lyrics, and releases', () => {
-        const fn = compileMethod('_renderSongDetails');
+        const fn = compileMethod('renderSongDetails');
         const stub = makeStubThis();
 
         const titleEl = document.createElement('h2');
@@ -179,12 +185,12 @@ describe('Stage H · _renderSongDetails', () => {
 
         expect(titleEl.textContent).toBe('Come Together');
         expect(contentEl.innerHTML).toMatchSnapshot('full');
-        expect(stub._attachNavLinkListeners).toHaveBeenCalledTimes(1);
-        expect(stub._attachNavLinkListeners).toHaveBeenCalledWith(contentEl);
+        expect(stub.callbacks.attachNavLinkListeners).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.attachNavLinkListeners).toHaveBeenCalledWith(contentEl);
     });
 
     test('minimal song (no writers, no lyrics, no releases)', () => {
-        const fn = compileMethod('_renderSongDetails');
+        const fn = compileMethod('renderSongDetails');
         const stub = makeStubThis();
 
         const titleEl = document.createElement('h2');
@@ -202,7 +208,7 @@ describe('Stage H · _renderSongDetails', () => {
 
 describe('Stage H · _renderCurateRow', () => {
     test('open release row with positive net score', () => {
-        const fn = compileMethod('_renderCurateRow');
+        const fn = compileMethod('renderCurateRow');
         const stub = makeStubThis();
         const op = {
             hash: 'abcdef0123456789',
@@ -218,7 +224,7 @@ describe('Stage H · _renderCurateRow', () => {
     });
 
     test('finalized vote row with no event_summary (uses hash prefix)', () => {
-        const fn = compileMethod('_renderCurateRow');
+        const fn = compileMethod('renderCurateRow');
         const stub = makeStubThis();
         const op = {
             hash: 'fedcba9876543210',
@@ -240,7 +246,7 @@ describe('Stage H · _renderCurateRow', () => {
 
 describe('Stage H · _renderCurateDetail', () => {
     test('release_bundle detail (open) with raw event JSON', () => {
-        const fn = compileMethod('_renderCurateDetail');
+        const fn = compileMethod('renderCurateDetail');
         const stub = makeStubThis();
         const container = document.createElement('div');
         const resp = {
@@ -262,7 +268,7 @@ describe('Stage H · _renderCurateDetail', () => {
     });
 
     test('add_claim detail (finalized) suppresses vote buttons', () => {
-        const fn = compileMethod('_renderCurateDetail');
+        const fn = compileMethod('renderCurateDetail');
         const stub = makeStubThis();
         const container = document.createElement('div');
         const resp = {
@@ -287,7 +293,7 @@ function op_for_detail() {
 
 describe('Stage H · _renderReleaseBundleDetail', () => {
     test('full release bundle with two groups, tracks, songs, and sources', () => {
-        const fn = compileMethod('_renderReleaseBundleDetail');
+        const fn = compileMethod('renderReleaseBundleDetail');
         const stub = makeStubThis();
         const container = document.createElement('div');
         const detail = {
@@ -344,7 +350,7 @@ describe('Stage H · _renderReleaseBundleDetail', () => {
     });
 
     test('minimal release (no labels, no groups, no tracks, no sources)', () => {
-        const fn = compileMethod('_renderReleaseBundleDetail');
+        const fn = compileMethod('renderReleaseBundleDetail');
         const stub = makeStubThis();
         const container = document.createElement('div');
         fn.call(stub, container, { release: { name: 'Solo EP' } });
@@ -358,7 +364,7 @@ describe('Stage H · _renderReleaseBundleDetail', () => {
 
 describe('Stage H · _renderClaimDetail', () => {
     test('add_claim with object value and url source', () => {
-        const fn = compileMethod('_renderClaimDetail');
+        const fn = compileMethod('renderClaimDetail');
         const stub = makeStubThis();
         const container = document.createElement('div');
         fn.call(stub, container, {
@@ -373,7 +379,7 @@ describe('Stage H · _renderClaimDetail', () => {
     });
 
     test('edit_claim with primitive value and string source', () => {
-        const fn = compileMethod('_renderClaimDetail');
+        const fn = compileMethod('renderClaimDetail');
         const stub = makeStubThis();
         const container = document.createElement('div');
         fn.call(stub, container, {
