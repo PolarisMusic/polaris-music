@@ -1,0 +1,35 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Stage J.2 · renderFavoritesPanel connected with zero rows → shows "No favorites yet.": zero-rows 1`] = `"<li class="history-empty">No favorites yet.</li>"`;
+
+exports[`Stage J.2 · renderFavoritesPanel fetch failure → shows "Failed to load favorites.": fetch-error 1`] = `"<li class="history-empty">Failed to load favorites.</li>"`;
+
+exports[`Stage J.2 · renderFavoritesPanel rows missing from hashIndex → shows truncated hash + disabled style: without-hashindex 1`] = `
+"<li class="history-item" style="opacity:0.6; cursor:not-allowed;" data-node-id="">
+                    <span class="history-type-badge history-type-unknown">unknown</span>
+                    <span class="history-name">01234567…</span>
+                    <span class="history-time"></span>
+                </li><li class="history-item" style="opacity:0.6; cursor:not-allowed;" data-node-id="">
+                    <span class="history-type-badge history-type-unknown">unknown</span>
+                    <span class="history-name">fedcba98…</span>
+                    <span class="history-time"></span>
+                </li>"
+`;
+
+exports[`Stage J.2 · renderFavoritesPanel rows resolve through hashIndex → renders type badges and names: with-hashindex 1`] = `
+"<li class="history-item" data-node-id="group:beatles">
+                    <span class="history-type-badge history-type-group">group</span>
+                    <span class="history-name">The Beatles</span>
+                    <span class="history-time"></span>
+                </li><li class="history-item" data-node-id="person:lennon">
+                    <span class="history-type-badge history-type-person">person</span>
+                    <span class="history-name">John Lennon</span>
+                    <span class="history-time"></span>
+                </li><li class="history-item" data-node-id="release:abbey">
+                    <span class="history-type-badge history-type-release">release</span>
+                    <span class="history-name">Abbey Road</span>
+                    <span class="history-time"></span>
+                </li>"
+`;
+
+exports[`Stage J.2 · renderFavoritesPanel wallet not connected → shows "Login to see your favorites.": not-connected 1`] = `"<li class="history-empty">Login to see your favorites.</li>"`;
