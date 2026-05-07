@@ -3,12 +3,12 @@
  *
  * Stage J.2 — GraphDataLoader characterization tests.
  *
- * Locks the behavior of the graph-loading cluster on MusicGraph so the
- * upcoming GraphDataLoader extraction (~80 lines, currently lines
- * ~1425–1499 + ~2016–2035 of MusicGraph.js) cannot silently change
- * observable side effects. These methods are the single source of
- * truth for `this.rawGraph`, `this.hashIndex`, and the JIT graph the
- * Hypertree renders.
+ * Stage J.2 extracted the graph-loading cluster from MusicGraph into
+ * `frontend/src/visualization/GraphDataLoader.js`. State (`rawGraph`,
+ * `_initialParticipation`, `hashIndex` Map ref) and the three loader
+ * methods now live on the new class; MusicGraph reaches in via
+ * `this.loader.*` and the loader calls back through a `callbacks`
+ * object for the Hypertree + UI side-effects it doesn't own.
  *
  * Methods covered:
  *   loadGraphData()                — initial fetch + render + hash-index rebuild
@@ -21,7 +21,7 @@
  * focus on mutated state (rawGraph, hashIndex, _initialParticipation)
  * and outgoing call ledgers (api.fetchInitialGraphRaw,
  * api.fetchNeighborhoodRaw, api.transformToJIT, api.mergeRawGraph,
- * ht.loadJSON, ht.refresh, likeManager.nodeIdToChecksum256).
+ * callbacks.loadJSON, callbacks.refresh, likeManager.nodeIdToChecksum256).
  */
 
 import { jest } from '@jest/globals';
@@ -32,8 +32,8 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const MUSIC_GRAPH_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
-const SOURCE = readFileSync(MUSIC_GRAPH_PATH, 'utf8');
+const LOADER_PATH = resolve(__dirname, '../../../frontend/src/visualization/GraphDataLoader.js');
+const SOURCE = readFileSync(LOADER_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
 // AST extraction (same machinery as the Stage H test).
@@ -60,7 +60,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in GraphDataLoader.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -97,20 +97,18 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Stub `this` builder. The loader methods reach into:
-//   - this.api                       (fetchInitialGraphRaw, transformToJIT,
-//                                     fetchNeighborhoodRaw, mergeRawGraph)
-//   - this.ht                        (loadJSON, refresh, graph.eachNode)
-//   - this.rawGraph                  (read+write)
-//   - this._initialParticipation     (write)
-//   - this.hashIndex                 (Map; cleared+repopulated)
-//   - this.likeManager               (nodeIdToChecksum256)
-//   - this.syncZoomSlider()          (sibling — stub)
-//   - this.updateHistoryCount()      (sibling — stub)
-//   - this.rebuildHashIndexFromRawGraph()  (intra-cluster — wire via compileMethod)
-//   - this._prePopulateDonutData()   (sibling, called from loadGraphData — stub
-//                                     to keep ht-graph-eachNode simulation small;
-//                                     its own behavior is not part of this cluster)
+// Stub `this` builder. The methods now reach into:
+//   - this.api               (constructor dep: fetchInitialGraphRaw,
+//                             transformToJIT, fetchNeighborhoodRaw,
+//                             mergeRawGraph)
+//   - this.likeManager       (constructor dep: nodeIdToChecksum256)
+//   - this.hashIndex         (constructor dep: shared Map ref)
+//   - this.callbacks         (constructor dep: loadJSON, refresh,
+//                             syncZoomSlider, updateHistoryCount,
+//                             prePopulateDonutData)
+//   - this.rawGraph          (instance state, read+write)
+//   - this._initialParticipation  (instance state, write)
+//   - this.rebuildHashIndexFromRawGraph()  (intra-class — wired via compileMethod)
 // ---------------------------------------------------------------------------
 
 function makeStub({
@@ -139,21 +137,20 @@ function makeStub({
                 edges: [...(a?.edges || []), ...(b?.edges || [])],
             })),
         },
-        ht: {
-            loadJSON: jest.fn(),
-            refresh: jest.fn(),
-            graph: { eachNode: jest.fn() },
-        },
         likeManager: {
             nodeIdToChecksum256: checksumImpl
                 ? jest.fn(checksumImpl)
                 : jest.fn(async (id) => `h(${id})`),
         },
-        syncZoomSlider: jest.fn(),
-        updateHistoryCount: jest.fn(),
-        _prePopulateDonutData: jest.fn(),
+        callbacks: {
+            loadJSON: jest.fn(),
+            refresh: jest.fn(),
+            syncZoomSlider: jest.fn(),
+            updateHistoryCount: jest.fn(),
+            prePopulateDonutData: jest.fn(),
+        },
     };
-    // Intra-cluster delegation: loadGraphData → rebuildHashIndexFromRawGraph
+    // Intra-class delegation: loadGraphData → rebuildHashIndexFromRawGraph
     // and ensureNodeInGraph → rebuildHashIndexFromRawGraph. Wire the real
     // compiled body so we lock both in one shot.
     stub.rebuildHashIndexFromRawGraph =
@@ -198,11 +195,11 @@ describe('Stage J.2 · loadGraphData', () => {
         });
         expect(stub._initialParticipation).toEqual(initialGraphResponse.participation);
         expect(stub.api.transformToJIT).toHaveBeenCalledWith(stub.rawGraph);
-        expect(stub.ht.loadJSON).toHaveBeenCalledTimes(1);
-        expect(stub.ht.refresh).toHaveBeenCalledTimes(1);
-        expect(stub.syncZoomSlider).toHaveBeenCalledTimes(1);
-        expect(stub.updateHistoryCount).toHaveBeenCalledTimes(1);
-        expect(stub._prePopulateDonutData).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.loadJSON).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.refresh).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.syncZoomSlider).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.updateHistoryCount).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.prePopulateDonutData).toHaveBeenCalledTimes(1);
     });
 
     test('rebuildHashIndexFromRawGraph runs after loadJSON/refresh', async () => {
@@ -232,9 +229,9 @@ describe('Stage J.2 · loadGraphData', () => {
         });
         await expect(compileMethod('loadGraphData').call(stub)).resolves.toBeUndefined();
         // None of the post-fetch side effects should have run.
-        expect(stub.ht.loadJSON).not.toHaveBeenCalled();
-        expect(stub.ht.refresh).not.toHaveBeenCalled();
-        expect(stub._prePopulateDonutData).not.toHaveBeenCalled();
+        expect(stub.callbacks.loadJSON).not.toHaveBeenCalled();
+        expect(stub.callbacks.refresh).not.toHaveBeenCalled();
+        expect(stub.callbacks.prePopulateDonutData).not.toHaveBeenCalled();
         expect(errSpy).toHaveBeenCalled();
     });
 });
@@ -318,8 +315,8 @@ describe('Stage J.2 · ensureNodeInGraph', () => {
         // After merge, rawGraph should contain both the original and the new nodes.
         expect(stub.rawGraph.nodes.map(n => n.id).sort()).toEqual(['g:1', 'p:new']);
         expect(stub.api.transformToJIT).toHaveBeenCalledWith(stub.rawGraph);
-        expect(stub.ht.loadJSON).toHaveBeenCalledTimes(1);
-        expect(stub.ht.refresh).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.loadJSON).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.refresh).toHaveBeenCalledTimes(1);
         // hashIndex was rebuilt for both merged nodes.
         expect(stub.hashIndex.size).toBe(2);
     });
@@ -333,7 +330,7 @@ describe('Stage J.2 · ensureNodeInGraph', () => {
         await compileMethod('ensureNodeInGraph').call(stub, 'missing-id');
 
         expect(stub.api.mergeRawGraph).not.toHaveBeenCalled();
-        expect(stub.ht.loadJSON).not.toHaveBeenCalled();
+        expect(stub.callbacks.loadJSON).not.toHaveBeenCalled();
         expect(warnSpy).toHaveBeenCalled();
     });
 
@@ -344,7 +341,7 @@ describe('Stage J.2 · ensureNodeInGraph', () => {
         });
         await compileMethod('ensureNodeInGraph').call(stub, 'x');
         expect(stub.api.mergeRawGraph).not.toHaveBeenCalled();
-        expect(stub.ht.loadJSON).not.toHaveBeenCalled();
+        expect(stub.callbacks.loadJSON).not.toHaveBeenCalled();
     });
 
     test('graph > 500 nodes after merge → replaces rawGraph with neighborhood only', async () => {

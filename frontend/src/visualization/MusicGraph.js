@@ -18,6 +18,9 @@ import { LikeManager } from './LikeManager.js';
 import { ClaimManager } from './ClaimManager.js';
 import { ReleaseOrbitOverlay } from './ReleaseOrbitOverlay.js';
 import { InfoPanelRenderer } from './InfoPanelRenderer.js';
+import { OverlayPositioner } from './OverlayPositioner.js';
+import { FavoritesManager } from './FavoritesManager.js';
+import { GraphDataLoader } from './GraphDataLoader.js';
 import { api as backendApi } from '../utils/api.js';
 
 export class MusicGraph {
@@ -44,22 +47,34 @@ export class MusicGraph {
             selectCurateOperation: (op) => this._selectCurateOperation(op),
             voteFromDetail: (op, val) => this._curateVoteFromDetail(op, val)
         });
+        this.overlayPositioner = new OverlayPositioner({
+            releaseOverlay: this.releaseOverlay,
+            callbacks: {
+                getNodeScreenPos: (node) => this._getNodeScreenPos(node),
+                getSelectedNode: () => this.selectedNode,
+            },
+        });
+
+        // hashIndex: shared with FavoritesManager (read) and the loader
+        // (clears+repopulates). Map ref stays stable across rebuilds.
+        this.hashIndex = new Map();
+
+        this.favorites = new FavoritesManager({
+            walletManager: this.walletManager,
+            likeManager: this.likeManager,
+            hashIndex: this.hashIndex,
+            callbacks: {
+                escapeHtml: (s) => this.escapeHtml(s),
+                navigate: (nodeId) => this.navigateToNodeId(nodeId),
+            },
+        });
 
         // State tracking
         this.hoveredNode = null;
         this.selectedNode = null;
         this.labelsVisible = true;
         this.historyPanelOpen = false;
-        this.favoritesPanelOpen = false;
         this.curatePanelOpen = false;
-
-        // On-chain favorites state
-        this.chainFavorites = new Set();
-        this.chainFavoritesLoaded = false;
-        this.hashIndex = new Map();
-
-        // Raw graph model for dynamic merging (populated in loadGraphData)
-        this.rawGraph = null;
 
         // Concurrency-limited donut fetch queue (for on-demand loading)
         this._donutQueue = [];
@@ -91,6 +106,21 @@ export class MusicGraph {
 
         // Initialize the visualization
         this.initializeHypertree();
+
+        // GraphDataLoader needs `this.ht` (set by initializeHypertree above)
+        // so it must be constructed AFTER it.
+        this.loader = new GraphDataLoader({
+            api: this.api,
+            likeManager: this.likeManager,
+            hashIndex: this.hashIndex,
+            callbacks: {
+                loadJSON: (jit) => this.ht.loadJSON(jit),
+                refresh: () => this.ht.refresh(),
+                syncZoomSlider: () => this.syncZoomSlider(),
+                updateHistoryCount: () => this.updateHistoryCount(),
+                prePopulateDonutData: () => this._prePopulateDonutData(),
+            },
+        });
     }
 
     /**
@@ -468,7 +498,7 @@ export class MusicGraph {
         }
 
         this.ht.plot();
-        this._updateOverlayPosition();
+        this.overlayPositioner.updateOverlayPosition();
     }
 
     /**
@@ -541,7 +571,7 @@ export class MusicGraph {
         if (!this._pan.raf) {
             this._pan.raf = requestAnimationFrame(() => {
                 this.ht.plot();
-                this._updateOverlayPosition();
+                this.overlayPositioner.updateOverlayPosition();
                 this._pan.raf = null;
             });
         }
@@ -859,7 +889,7 @@ export class MusicGraph {
         this.ht.onClick(node.id, {
             onComplete: () => {
                 this.updateInfoPanel(node);
-                this._syncReleaseOverlay(node);
+                this.overlayPositioner.syncReleaseOverlay(node);
             }
         });
     }
@@ -1116,8 +1146,8 @@ export class MusicGraph {
                         if (this.ht) this.ht.plot();
                     }
                     // Patch rawGraph so merges don't revert the color
-                    if (this.rawGraph && this.rawGraph.nodes) {
-                        const rawNode = this.rawGraph.nodes.find(n => n.id === pickerNodeId);
+                    if (this.loader.rawGraph && this.loader.rawGraph.nodes) {
+                        const rawNode = this.loader.rawGraph.nodes.find(n => n.id === pickerNodeId);
                         if (rawNode) rawNode.color = newColor;
                     }
                 } catch (error) {
@@ -1160,62 +1190,6 @@ export class MusicGraph {
         }
 
         return { x: screenX, y: screenY, dim };
-    }
-
-    /**
-     * Show or hide the release orbit overlay based on node type.
-     * @param {Object} node - Selected JIT graph node
-     */
-    async _syncReleaseOverlay(node) {
-        const nodeType = (node.data.type || '').toLowerCase();
-
-        if (nodeType !== 'group') {
-            this.releaseOverlay.hide();
-            return;
-        }
-
-        const groupId = node.data.group_id || node.id;
-        const { x, y, dim } = this._getNodeScreenPos(node);
-
-        // Account for donut ring outer radius
-        const slices = node.getData('donutSlices');
-        let visualRadius = dim;
-        if (slices && slices.length > 0) {
-            const gap = Math.max(2, dim * 0.20);
-            const thickness = Math.max(3, dim * 0.45);
-            visualRadius = dim + gap + thickness;
-        }
-
-        // Convert to overlay-relative coordinates (overlay is positioned inside viz-container)
-        const vizContainer = document.getElementById('viz-container');
-        const vizRect = vizContainer ? vizContainer.getBoundingClientRect() : { left: 0, top: 0 };
-        const relX = x - vizRect.left;
-        const relY = y - vizRect.top;
-
-        await this.releaseOverlay.show(groupId, { x: relX, y: relY }, visualRadius);
-    }
-
-    /**
-     * Update overlay position (called after graph re-render).
-     */
-    _updateOverlayPosition() {
-        if (!this.releaseOverlay.visible || !this.selectedNode) return;
-        const { x, y, dim } = this._getNodeScreenPos(this.selectedNode);
-
-        const slices = this.selectedNode.getData('donutSlices');
-        let visualRadius = dim;
-        if (slices && slices.length > 0) {
-            const gap = Math.max(2, dim * 0.20);
-            const thickness = Math.max(3, dim * 0.45);
-            visualRadius = dim + gap + thickness;
-        }
-
-        const vizContainer = document.getElementById('viz-container');
-        const vizRect = vizContainer ? vizContainer.getBoundingClientRect() : { left: 0, top: 0 };
-        const relX = x - vizRect.left;
-        const relY = y - vizRect.top;
-
-        this.releaseOverlay.updatePosition({ x: relX, y: relY }, visualRadius);
     }
 
     /**
@@ -1417,46 +1391,12 @@ export class MusicGraph {
     }
 
     /**
-     * Load graph data from API.
-     * Stores raw {nodes, edges} for later dynamic merging, then transforms to JIT.
-     * Pre-populates donut participation data from the initial response to avoid
-     * per-group fetch storms.
-     */
-    async loadGraphData() {
-        try {
-            console.log('Loading graph data...');
-            const raw = await this.api.fetchInitialGraphRaw();
-            this.rawGraph = { nodes: raw.nodes, edges: raw.edges };
-
-            // Store participation map for pre-populating donut data after render
-            this._initialParticipation = raw.participation || {};
-
-            console.log('Graph data loaded:', this.rawGraph);
-
-            const jit = this.api.transformToJIT(this.rawGraph);
-            this.ht.loadJSON(jit);
-            this.ht.refresh();
-            this.syncZoomSlider();
-            this.updateHistoryCount();
-            await this.rebuildHashIndexFromRawGraph();
-
-            // Pre-populate donut slices from participation data bundled in the
-            // initial response, so styleNode does not trigger per-group fetches.
-            this._prePopulateDonutData();
-
-            console.log('Graph rendered');
-        } catch (error) {
-            console.error('Failed to load graph data:', error);
-        }
-    }
-
-    /**
      * Pre-populate donut slice data on group nodes from the initial response's
      * participation map. This avoids firing one HTTP request per group during
      * the first render pass.
      */
     _prePopulateDonutData() {
-        const participation = this._initialParticipation;
+        const participation = this.loader._initialParticipation;
         if (!participation || !this.ht) return;
 
         let prePopulated = 0;
@@ -1482,21 +1422,6 @@ export class MusicGraph {
         }
     }
 
-    /**
-     * Build a local checksum256 → {nodeId, name, type} index from the raw graph.
-     * Used to map on-chain like hashes back to displayable node info.
-     */
-    async rebuildHashIndexFromRawGraph() {
-        if (!this.rawGraph?.nodes || !this.likeManager) return;
-        this.hashIndex.clear();
-
-        const pairs = await Promise.all(this.rawGraph.nodes.map(async (n) => {
-            const h = await this.likeManager.nodeIdToChecksum256(n.id);
-            return [h, { nodeId: n.id, name: n.name, type: n.type }];
-        }));
-
-        for (const [h, meta] of pairs) this.hashIndex.set(h, meta);
-    }
 
     // ========== View controls (wired from visualization.html) ==========
 
@@ -1688,7 +1613,7 @@ export class MusicGraph {
         }
 
         const hash = await this.likeManager.nodeIdToChecksum256(this.selectedNode.id);
-        const liked = this.chainFavorites.has(hash);
+        const liked = this.favorites.chainFavorites.has(hash);
 
         btn.textContent = liked ? '\u2605' : '\u2606';
         btn.classList.toggle('liked', liked);
@@ -1707,9 +1632,9 @@ export class MusicGraph {
 
         // Pre-load favorites if not yet loaded, but don't block the like
         // action if the preload fails (e.g., contract not deployed yet)
-        if (!this.chainFavoritesLoaded) {
+        if (!this.favorites.chainFavoritesLoaded) {
             try {
-                await this.refreshFavoritesFromChain();
+                await this.favorites.refreshFavoritesFromChain();
             } catch (err) {
                 console.warn('Favorites preload failed (continuing with like):', err.message);
             }
@@ -1718,88 +1643,18 @@ export class MusicGraph {
         const node = this.selectedNode;
         const nodeHash = await this.likeManager.nodeIdToChecksum256(node.id);
 
-        if (this.chainFavorites.has(nodeHash)) {
+        if (this.favorites.chainFavorites.has(nodeHash)) {
             return;
         }
 
         await this.likeManager.likeNode(node.id, { name: node.name, type: node.data?.type }, true);
 
-        this.chainFavorites.add(nodeHash);
-        this.chainFavoritesLoaded = true;
-        this.updateFavoritesCount();
+        this.favorites.chainFavorites.add(nodeHash);
+        this.favorites.chainFavoritesLoaded = true;
+        this.favorites.updateFavoritesCount();
         await this.updateFavoriteButton();
 
-        if (this.favoritesPanelOpen) await this.renderFavoritesPanel();
-    }
-
-    updateFavoritesCount() {
-        const el = document.getElementById('favorites-count');
-        if (el) el.textContent = String(this.chainFavorites.size);
-    }
-
-    async refreshFavoritesFromChain() {
-        const rows = await this.likeManager.fetchAccountLikes(200);
-        this.chainFavorites = new Set(rows.map(r => r.node_id));
-        this.chainFavoritesLoaded = true;
-        this.updateFavoritesCount();
-        return rows;
-    }
-
-    toggleFavoritesPanel() {
-        this.favoritesPanelOpen = !this.favoritesPanelOpen;
-        const panel = document.getElementById('favorites-panel');
-        if (!panel) return;
-
-        if (this.favoritesPanelOpen) {
-            panel.style.display = 'flex';
-            this.renderFavoritesPanel();
-        } else {
-            panel.style.display = 'none';
-        }
-    }
-
-    async renderFavoritesPanel() {
-        const list = document.getElementById('favorites-list');
-        if (!list) return;
-
-        if (!this.walletManager?.isConnected()) {
-            list.innerHTML = '<li class="history-empty">Login to see your favorites.</li>';
-            return;
-        }
-
-        list.innerHTML = '<li class="history-empty">Loading favorites...</li>';
-
-        try {
-            const rows = await this.refreshFavoritesFromChain();
-
-            if (!rows.length) {
-                list.innerHTML = '<li class="history-empty">No favorites yet.</li>';
-                return;
-            }
-
-            list.innerHTML = rows.map(r => {
-                const meta = this.hashIndex.get(r.node_id);
-                const name = meta?.name || (r.node_id.slice(0, 8) + '\u2026');
-                const nodeId = meta?.nodeId || '';
-                const type = (meta?.type || 'unknown').toLowerCase();
-
-                const disabled = nodeId ? '' : ' style="opacity:0.6; cursor:not-allowed;" ';
-                return `<li class="history-item" ${disabled} data-node-id="${this.escapeHtml(nodeId)}">
-                    <span class="history-type-badge history-type-${type}">${type}</span>
-                    <span class="history-name">${this.escapeHtml(name)}</span>
-                    <span class="history-time"></span>
-                </li>`;
-            }).join('');
-
-            list.querySelectorAll('.history-item').forEach(li => {
-                const nodeId = li.dataset.nodeId;
-                if (!nodeId) return;
-                li.addEventListener('click', () => this.navigateToNodeId(nodeId));
-            });
-        } catch (error) {
-            console.error('Failed to load favorites:', error);
-            list.innerHTML = '<li class="history-empty">Failed to load favorites.</li>';
-        }
+        if (this.favorites.favoritesPanelOpen) await this.favorites.renderFavoritesPanel();
     }
 
     // ========== Search result navigation ==========
@@ -1903,7 +1758,7 @@ export class MusicGraph {
         // Ensure the group node is in the graph
         let node = this.ht.graph.getNode(groupId);
         if (!node) {
-            await this.ensureNodeInGraph(groupId);
+            await this.loader.ensureNodeInGraph(groupId);
             node = this.ht.graph.getNode(groupId);
         }
         if (!node) {
@@ -1933,7 +1788,7 @@ export class MusicGraph {
         this.ht.onClick(node.id, {
             onComplete: async () => {
                 // Show the release orbit overlay
-                await this._syncReleaseOverlay(node);
+                await this.overlayPositioner.syncReleaseOverlay(node);
 
                 // Auto-select the target release in the overlay
                 this.releaseOverlay.selectRelease(releaseId, releaseDetails);
@@ -1996,7 +1851,7 @@ export class MusicGraph {
         // Node missing — fetch neighborhood, merge, reload
         console.log('Node not in graph, fetching neighborhood:', nodeId);
         try {
-            await this.ensureNodeInGraph(nodeId);
+            await this.loader.ensureNodeInGraph(nodeId);
             node = this.ht.graph.getNode(nodeId);
             if (node) {
                 this.handleNodeClick(node);
@@ -2006,32 +1861,6 @@ export class MusicGraph {
         } catch (error) {
             console.error('Failed to load neighborhood for node:', nodeId, error);
         }
-    }
-
-    /**
-     * Fetch a node's neighborhood subgraph and merge it into the current graph.
-     * Reloads the Hypertree from the merged raw data.
-     * @param {string} nodeId
-     */
-    async ensureNodeInGraph(nodeId) {
-        const sub = await this.api.fetchNeighborhoodRaw(nodeId);
-        if (!sub || !sub.nodes || sub.nodes.length === 0) {
-            console.warn('Neighborhood returned no data for:', nodeId);
-            return;
-        }
-
-        this.rawGraph = this.api.mergeRawGraph(this.rawGraph, sub);
-
-        // Cap graph size to prevent runaway growth
-        if (this.rawGraph.nodes.length > 500) {
-            console.log('Graph exceeds 500 nodes, replacing with neighborhood only');
-            this.rawGraph = sub;
-        }
-
-        const jit = this.api.transformToJIT(this.rawGraph);
-        this.ht.loadJSON(jit);
-        this.ht.refresh();
-        await this.rebuildHashIndexFromRawGraph();
     }
 
     // ========== Mini Player Queue Loading ==========

@@ -3,12 +3,10 @@
  *
  * Stage J.2 — FavoritesManager characterization tests.
  *
- * Locks the behavior of the favorites cluster on MusicGraph so the
- * upcoming FavoritesManager extraction (~150 lines, currently lines
- * ~1735–1803 of MusicGraph.js) cannot silently change observable
- * behavior. These methods cluster cleanly around the
- * `chainFavorites: Set` and `chainFavoritesLoaded: boolean` state plus
- * the `#favorites-count` and `#favorites-panel` DOM elements.
+ * Stage J.2 extracted the favorites cluster from MusicGraph into
+ * `frontend/src/visualization/FavoritesManager.js`. State (`chainFavorites`,
+ * `chainFavoritesLoaded`, `favoritesPanelOpen`) and the four panel methods
+ * now live on the new class; MusicGraph reaches in via `this.favorites.*`.
  *
  * Methods covered:
  *   updateFavoritesCount()            — writes count to #favorites-count
@@ -19,9 +17,9 @@
  *
  * Strategy: source-extract + isolated invoke (same as the Stage H
  * InfoPanelRenderer test). We compile each method body via `new Function`
- * and call it with `Function.prototype.call(stubThis, ...)`. Snapshot
- * the resulting innerHTML / Set contents / call ledger so the upcoming
- * extraction must reproduce them byte-for-byte.
+ * and call it with `Function.prototype.call(stubThis, ...)`. The five
+ * pre-extraction HTML snapshots are unchanged — extraction must reproduce
+ * them byte-for-byte.
  */
 
 import { jest } from '@jest/globals';
@@ -32,8 +30,8 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const MUSIC_GRAPH_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
-const SOURCE = readFileSync(MUSIC_GRAPH_PATH, 'utf8');
+const FAVORITES_PATH = resolve(__dirname, '../../../frontend/src/visualization/FavoritesManager.js');
+const SOURCE = readFileSync(FAVORITES_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
 // AST extraction (same machinery as the Stage H test).
@@ -60,7 +58,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in FavoritesManager.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -97,17 +95,17 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Stub `this` builder. The favorites methods reach into:
-//   - this.chainFavorites          (Set)
-//   - this.chainFavoritesLoaded    (boolean)
-//   - this.favoritesPanelOpen      (boolean)
-//   - this.walletManager           (object with isConnected())
-//   - this.likeManager             (object with fetchAccountLikes())
-//   - this.hashIndex               (Map node_id_hash → {nodeId, name, type})
-//   - this.escapeHtml(str)         (kept on MusicGraph; not part of InfoPanelRenderer)
-//   - this.navigateToNodeId(id)    (callback)
+// Stub `this` builder. The methods now reach into:
+//   - this.chainFavorites          (Set, instance state)
+//   - this.chainFavoritesLoaded    (boolean, instance state)
+//   - this.favoritesPanelOpen      (boolean, instance state)
+//   - this.walletManager           (constructor dep, .isConnected())
+//   - this.likeManager             (constructor dep, .fetchAccountLikes())
+//   - this.hashIndex               (constructor dep, shared Map ref)
+//   - this.callbacks.escapeHtml(s) (constructor callback)
+//   - this.callbacks.navigate(id)  (constructor callback)
 //   - this.refreshFavoritesFromChain() / .updateFavoritesCount() /
-//     .renderFavoritesPanel()      (intra-cluster — wired via compileMethod)
+//     .renderFavoritesPanel()      (intra-class — wired via compileMethod)
 // ---------------------------------------------------------------------------
 
 function makeStub({
@@ -119,6 +117,11 @@ function makeStub({
     hashIndex = new Map(),
     fetchAccountLikesImpl,
 } = {}) {
+    const escapeHtml = (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    };
     const stub = {
         chainFavorites,
         chainFavoritesLoaded,
@@ -132,14 +135,12 @@ function makeStub({
                 ? jest.fn(fetchAccountLikesImpl)
                 : jest.fn(async () => accountLikes),
         },
-        escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
+        callbacks: {
+            escapeHtml,
+            navigate: jest.fn(),
         },
-        navigateToNodeId: jest.fn(),
     };
-    // Intra-cluster delegations. Each method is its own compiled body so
+    // Intra-class delegations. Each method is its own compiled body so
     // mutual calls go through the same source we're locking.
     stub.updateFavoritesCount      = compileMethod('updateFavoritesCount').bind(stub);
     stub.refreshFavoritesFromChain = compileMethod('refreshFavoritesFromChain').bind(stub);
@@ -325,7 +326,7 @@ describe('Stage J.2 · renderFavoritesPanel', () => {
         expect(document.getElementById('favorites-list').innerHTML).toMatchSnapshot('without-hashindex');
     });
 
-    test('clicking a resolved row calls navigateToNodeId(nodeId)', async () => {
+    test('clicking a resolved row calls callbacks.navigate(nodeId)', async () => {
         setupDOM();
         const hashIndex = new Map([
             ['hash:beatles', { nodeId: 'group:beatles', name: 'The Beatles', type: 'Group' }],
@@ -338,7 +339,7 @@ describe('Stage J.2 · renderFavoritesPanel', () => {
 
         const li = document.querySelector('.history-item');
         li.click();
-        expect(stub.navigateToNodeId).toHaveBeenCalledWith('group:beatles');
+        expect(stub.callbacks.navigate).toHaveBeenCalledWith('group:beatles');
     });
 
     test('unresolved rows have no click handler attached', async () => {
@@ -352,7 +353,7 @@ describe('Stage J.2 · renderFavoritesPanel', () => {
         const li = document.querySelector('.history-item');
         expect(li.dataset.nodeId).toBe('');
         li.click();
-        expect(stub.navigateToNodeId).not.toHaveBeenCalled();
+        expect(stub.callbacks.navigate).not.toHaveBeenCalled();
     });
 
     test('fetch failure → shows "Failed to load favorites."', async () => {

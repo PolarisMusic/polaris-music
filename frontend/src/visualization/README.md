@@ -133,7 +133,7 @@ Orchestrates all components and handles user interactions.
 const graph = new MusicGraph('container-id', walletManager);
 
 // Load data
-await graph.loadGraphData();
+await graph.loader.loadGraphData();
 
 // Programmatic navigation
 graph.handleNodeClick(node);
@@ -171,7 +171,7 @@ const walletManager = new WalletManager();
 const graph = new MusicGraph('infovis', walletManager);
 
 // Load graph data
-await graph.loadGraphData();
+await graph.loader.loadGraphData();
 ```
 
 3. **Wallet Connection**:
