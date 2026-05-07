@@ -213,7 +213,7 @@
             }
 
             // Load initial graph data from backend
-            await graph.loadGraphData();
+            await graph.loader.loadGraphData();
 
             // Try to restore wallet session
             try {
@@ -294,25 +294,25 @@
             // Favorites panel toggle
             const favoritesToggle = document.getElementById('favorites-toggle');
             if (favoritesToggle) {
-                favoritesToggle.addEventListener('click', () => graph.toggleFavoritesPanel());
+                favoritesToggle.addEventListener('click', () => graph.favorites.toggleFavoritesPanel());
             }
             const favoritesClose = document.getElementById('favorites-close');
             if (favoritesClose) {
-                favoritesClose.addEventListener('click', () => graph.toggleFavoritesPanel());
+                favoritesClose.addEventListener('click', () => graph.favorites.toggleFavoritesPanel());
             }
 
             // Listen for wallet events
             walletManager.on('onConnect', async (accountInfo) => {
                 console.log('Wallet connected event:', accountInfo);
-                await graph.refreshFavoritesFromChain();
+                await graph.favorites.refreshFavoritesFromChain();
                 await graph.updateFavoriteButton();
             });
 
             walletManager.on('onDisconnect', () => {
                 console.log('Wallet disconnected event');
-                graph.chainFavorites = new Set();
-                graph.chainFavoritesLoaded = false;
-                graph.updateFavoritesCount();
+                graph.favorites.chainFavorites = new Set();
+                graph.favorites.chainFavoritesLoaded = false;
+                graph.favorites.updateFavoritesCount();
                 graph.updateFavoriteButton();
             });
 

@@ -3,23 +3,23 @@
  *
  * Stage J.2 — OverlayPositioner characterization tests.
  *
- * The handoff flagged OverlayPositioner as the smallest of the three
- * deferred Stage-J extractions: ReleaseOrbitOverlay is already its own
- * class, so what's left in MusicGraph is the *positioning glue* that
- * computes screen coords + visual-radius from a JIT node and forwards
- * to overlay.show / .updatePosition. The two methods that own this
- * glue (currently lines ~1169–1219 of MusicGraph.js) duplicate the
- * radius computation — extraction-bait that we must lock first.
+ * Stage J.2 extracted the positioning glue from MusicGraph into
+ * `frontend/src/visualization/OverlayPositioner.js`. ReleaseOrbitOverlay
+ * itself was already its own class; what moved is the JIT-node-to-
+ * screen-coords-to-overlay-args translation, plus the deduplication of
+ * the visual-radius math that both methods used to compute inline.
  *
- * Methods covered:
- *   _syncReleaseOverlay(node)   — show on group nodes, hide otherwise
- *   _updateOverlayPosition()    — re-anchor after re-render
+ * Methods covered (now on OverlayPositioner, no `_` prefix):
+ *   syncReleaseOverlay(node)   — show on group nodes, hide otherwise
+ *   updateOverlayPosition()    — re-anchor after re-render
  *
  * Strategy: same source-extract + isolated-invoke pattern as the
- * Stage H InfoPanelRenderer test. We stub `_getNodeScreenPos` (canvas-
- * dependent and not part of the cluster being extracted) so the tests
- * focus on the radius math and the call structure, which are what the
- * extracted module will own.
+ * Stage H InfoPanelRenderer test. We compile each method body via
+ * `new Function` and call it with `Function.prototype.call(stubThis, ...)`.
+ * The stub provides `this.callbacks.getNodeScreenPos`,
+ * `this.callbacks.getSelectedNode`, plus compiled bindings for
+ * `this.computeVisualRadius` and `this._toOverlayCoords` so intra-class
+ * calls resolve through the same source we're locking.
  */
 
 import { jest } from '@jest/globals';
@@ -30,8 +30,8 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const MUSIC_GRAPH_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
-const SOURCE = readFileSync(MUSIC_GRAPH_PATH, 'utf8');
+const POSITIONER_PATH = resolve(__dirname, '../../../frontend/src/visualization/OverlayPositioner.js');
+const SOURCE = readFileSync(POSITIONER_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
 // AST extraction.
@@ -58,7 +58,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in OverlayPositioner.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -93,11 +93,13 @@ function makeNode({ id = 'node-id', type = 'group', group_id, donutSlices } = {}
 }
 
 // ---------------------------------------------------------------------------
-// Stub `this`. The methods reach into:
-//   - this.releaseOverlay         (.show, .hide, .updatePosition, .visible)
-//   - this.selectedNode           (used by _updateOverlayPosition)
-//   - this._getNodeScreenPos(node) (returns {x, y, dim})
-//   - document.getElementById('viz-container')   (for getBoundingClientRect)
+// Stub `this`. The methods now reach into:
+//   - this.releaseOverlay              (.show, .hide, .updatePosition, .visible)
+//   - this.callbacks.getNodeScreenPos(node)  → {x, y, dim}
+//   - this.callbacks.getSelectedNode()       → node|null
+//   - this.computeVisualRadius(dim, slices)  (intra-class — wired via compileMethod)
+//   - this._toOverlayCoords(x, y)            (intra-class — wired via compileMethod)
+//   - document.getElementById('viz-container') (for getBoundingClientRect)
 // ---------------------------------------------------------------------------
 
 function setupVizContainer({ left = 100, top = 50 } = {}) {
@@ -118,18 +120,26 @@ function makeStub({
     selectedNode = null,
     screenPosImpl,
 } = {}) {
-    return {
-        selectedNode,
+    const stub = {
         releaseOverlay: {
             visible: overlayVisible,
             show: jest.fn(async () => {}),
             hide: jest.fn(),
             updatePosition: jest.fn(),
         },
-        _getNodeScreenPos: screenPosImpl
-            ? jest.fn(screenPosImpl)
-            : jest.fn(() => ({ x: 200, y: 150, dim: 30 })),
+        callbacks: {
+            getNodeScreenPos: screenPosImpl
+                ? jest.fn(screenPosImpl)
+                : jest.fn(() => ({ x: 200, y: 150, dim: 30 })),
+            getSelectedNode: jest.fn(() => selectedNode),
+        },
     };
+    // Intra-class delegations. Compile from the same source we're locking
+    // so any drift inside computeVisualRadius / _toOverlayCoords also
+    // flows through to the snapshot/assertion layer.
+    stub.computeVisualRadius = compileMethod('computeVisualRadius').bind(stub);
+    stub._toOverlayCoords    = compileMethod('_toOverlayCoords').bind(stub);
+    return stub;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,8 +148,11 @@ function makeStub({
 
 describe('Stage J.2 · OverlayPositioner · drift guard', () => {
     test.each([
-        ['_syncReleaseOverlay',   '(node)'],
-        ['_updateOverlayPosition', '()'],
+        ['syncReleaseOverlay',    '(node)'],
+        ['updateOverlayPosition', '()'],
+        // Pin the deduplicated radius helper too — if a future refactor
+        // moves its math somewhere else, this guard fires.
+        ['computeVisualRadius',   '(dim, donutSlices)'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -149,14 +162,14 @@ describe('Stage J.2 · OverlayPositioner · drift guard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// _syncReleaseOverlay
+// syncReleaseOverlay
 // ---------------------------------------------------------------------------
 
-describe('Stage J.2 · _syncReleaseOverlay', () => {
+describe('Stage J.2 · syncReleaseOverlay', () => {
     test('non-group node → hide(), no show()', async () => {
         setupVizContainer();
         const stub = makeStub();
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({ type: 'person' }));
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({ type: 'person' }));
         expect(stub.releaseOverlay.hide).toHaveBeenCalledTimes(1);
         expect(stub.releaseOverlay.show).not.toHaveBeenCalled();
     });
@@ -166,7 +179,7 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
         const stub = makeStub({
             screenPosImpl: () => ({ x: 200, y: 150, dim: 30 }),
         });
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({
             type: 'group', group_id: 'group:beatles', donutSlices: null,
         }));
 
@@ -183,7 +196,7 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
         const stub = makeStub({
             screenPosImpl: () => ({ x: 0, y: 0, dim: 100 }),
         });
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({
             type: 'group', group_id: 'g:1', donutSlices: [{ pct: 1.0 }],
         }));
 
@@ -201,7 +214,7 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
         const stub = makeStub({
             screenPosImpl: () => ({ x: 0, y: 0, dim: 5 }),
         });
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({
             type: 'group', group_id: 'g:tiny', donutSlices: [{ pct: 1.0 }],
         }));
 
@@ -217,7 +230,7 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
     test('group node falls back to node.id when group_id is missing', async () => {
         setupVizContainer();
         const stub = makeStub();
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({
             id: 'fallback:id', type: 'group', group_id: undefined,
         }));
         expect(stub.releaseOverlay.show).toHaveBeenCalledWith(
@@ -232,7 +245,7 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
         const stub = makeStub({
             screenPosImpl: () => ({ x: 333, y: 444, dim: 10 }),
         });
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({
             type: 'group', group_id: 'g',
         }));
         expect(stub.releaseOverlay.show).toHaveBeenCalledWith(
@@ -245,7 +258,7 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
     test('case-insensitive type check: "GROUP" still matches group branch', async () => {
         setupVizContainer();
         const stub = makeStub();
-        await compileMethod('_syncReleaseOverlay').call(stub, makeNode({
+        await compileMethod('syncReleaseOverlay').call(stub, makeNode({
             type: 'GROUP', group_id: 'g',
         }));
         expect(stub.releaseOverlay.hide).not.toHaveBeenCalled();
@@ -254,21 +267,21 @@ describe('Stage J.2 · _syncReleaseOverlay', () => {
 });
 
 // ---------------------------------------------------------------------------
-// _updateOverlayPosition
+// updateOverlayPosition
 // ---------------------------------------------------------------------------
 
-describe('Stage J.2 · _updateOverlayPosition', () => {
+describe('Stage J.2 · updateOverlayPosition', () => {
     test('overlay not visible → early return, no updatePosition()', () => {
         setupVizContainer();
         const stub = makeStub({ overlayVisible: false, selectedNode: makeNode() });
-        compileMethod('_updateOverlayPosition').call(stub);
+        compileMethod('updateOverlayPosition').call(stub);
         expect(stub.releaseOverlay.updatePosition).not.toHaveBeenCalled();
     });
 
     test('selectedNode null → early return, no updatePosition()', () => {
         setupVizContainer();
         const stub = makeStub({ overlayVisible: true, selectedNode: null });
-        compileMethod('_updateOverlayPosition').call(stub);
+        compileMethod('updateOverlayPosition').call(stub);
         expect(stub.releaseOverlay.updatePosition).not.toHaveBeenCalled();
     });
 
@@ -279,7 +292,7 @@ describe('Stage J.2 · _updateOverlayPosition', () => {
             selectedNode: makeNode({ donutSlices: null }),
             screenPosImpl: () => ({ x: 110, y: 120, dim: 40 }),
         });
-        compileMethod('_updateOverlayPosition').call(stub);
+        compileMethod('updateOverlayPosition').call(stub);
         expect(stub.releaseOverlay.updatePosition).toHaveBeenCalledWith(
             { x: 100, y: 100 },
             40
@@ -293,7 +306,7 @@ describe('Stage J.2 · _updateOverlayPosition', () => {
             selectedNode: makeNode({ donutSlices: [{ pct: 1.0 }] }),
             screenPosImpl: () => ({ x: 0, y: 0, dim: 50 }),
         });
-        compileMethod('_updateOverlayPosition').call(stub);
+        compileMethod('updateOverlayPosition').call(stub);
         // gap = max(2, 50*0.20=10) = 10, thickness = max(3, 50*0.45=22.5) = 22.5
         // visualRadius = 50 + 10 + 22.5 = 82.5
         expect(stub.releaseOverlay.updatePosition).toHaveBeenCalledWith(
@@ -302,19 +315,19 @@ describe('Stage J.2 · _updateOverlayPosition', () => {
         );
     });
 
-    test('radius computation matches _syncReleaseOverlay (regression guard for the duplication)', async () => {
+    test('radius computation matches syncReleaseOverlay (regression guard for the dedup)', async () => {
         setupVizContainer({ left: 0, top: 0 });
 
         const node = makeNode({ type: 'group', group_id: 'g', donutSlices: [{ pct: 1.0 }] });
         const screenPos = () => ({ x: 0, y: 0, dim: 75 });
 
         const syncStub = makeStub({ screenPosImpl: screenPos });
-        await compileMethod('_syncReleaseOverlay').call(syncStub, node);
+        await compileMethod('syncReleaseOverlay').call(syncStub, node);
 
         const updateStub = makeStub({
             overlayVisible: true, selectedNode: node, screenPosImpl: screenPos,
         });
-        compileMethod('_updateOverlayPosition').call(updateStub);
+        compileMethod('updateOverlayPosition').call(updateStub);
 
         // Same node + same dim must produce the same visualRadius in both
         // call paths. If a future extraction de-duplicates the math, this
