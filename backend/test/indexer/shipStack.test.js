@@ -566,13 +566,3 @@ describe('ShipEventSource (unit)', () => {
     });
 });
 
-// ─── Legacy wrapper ──────────────────────────────────────────────────
-
-describe('Legacy shipEventSource.js wrapper', () => {
-    test('re-exports ShipEventSource from ship/ module', async () => {
-        const legacy = await import('../../src/indexer/shipEventSource.js');
-        const real = await import('../../src/indexer/ship/shipEventSource.js');
-
-        expect(legacy.ShipEventSource).toBe(real.ShipEventSource);
-    });
-});

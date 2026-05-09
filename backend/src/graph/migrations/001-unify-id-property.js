@@ -15,6 +15,7 @@
  */
 
 import neo4j from 'neo4j-driver';
+import { safeClose } from '../safeTx.js';
 
 /**
  * Run the ID unification migration
@@ -124,7 +125,7 @@ export async function migrateUnifyIdProperty(tx) {
     } finally {
         // Only close session if we created it (CLI runner mode)
         if (session) {
-            await session.close();
+            await safeClose(session);
         }
     }
 }
@@ -182,7 +183,7 @@ export async function verifyIdUnification(driver) {
         return results;
 
     } finally {
-        await session.close();
+        await safeClose(session);
     }
 }
 

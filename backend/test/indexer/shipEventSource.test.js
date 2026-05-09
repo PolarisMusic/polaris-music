@@ -1,10 +1,10 @@
 /**
- * @fileoverview Tests for SHiP Event Source (T6) - Updated for real SHiP stack
+ * @fileoverview Tests for SHiP Event Source (T6) - Canonical path
  *
  * Original T6 tests verified the fail-fast safeguard and AnchoredEvent creation.
  * Now that the real SHiP stack is implemented (backend/src/indexer/ship/),
  * these tests verify:
- * - The legacy wrapper correctly re-exports
+ * - ShipEventSource imports cleanly from the canonical path
  * - AnchoredEvent creation still matches Substreams format
  * - Event hash computation is deterministic
  *
@@ -12,20 +12,20 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
-import { ShipEventSource } from '../../src/indexer/shipEventSource.js';
+import { ShipEventSource } from '../../src/indexer/ship/shipEventSource.js';
 import crypto from 'crypto';
 
 // Mock ws module to prevent actual WebSocket connections in tests
 jest.mock('ws');
 
-describe('SHiP Event Source (T6) - Legacy Compatibility', () => {
-    describe('Legacy wrapper re-export', () => {
-        test('ShipEventSource is exported from legacy path', () => {
+describe('SHiP Event Source (T6)', () => {
+    describe('Canonical export', () => {
+        test('ShipEventSource is exported from canonical path', () => {
             expect(ShipEventSource).toBeDefined();
             expect(typeof ShipEventSource).toBe('function');
         });
 
-        test('can instantiate ShipEventSource from legacy import', () => {
+        test('can instantiate ShipEventSource', () => {
             const ship = new ShipEventSource({
                 shipUrl: 'ws://localhost:8080',
                 rpcUrl: 'http://localhost:8888',

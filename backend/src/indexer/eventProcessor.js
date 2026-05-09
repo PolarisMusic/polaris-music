@@ -24,6 +24,7 @@ import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
 import { mergeBundle } from '../graph/merge.js';
 import { normalizeReleaseBundle, extractRelationships } from '../graph/normalizeReleaseBundle.js';
+import { safeClose } from '../graph/safeTx.js';
 import { createLogger } from '../utils/logger.js';
 
 /**
@@ -884,7 +885,7 @@ class EventProcessor {
             });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -997,7 +998,7 @@ class EventProcessor {
             });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 
@@ -1107,7 +1108,7 @@ class EventProcessor {
             });
             throw error;
         } finally {
-            await session.close();
+            await safeClose(session, this.log);
         }
     }
 

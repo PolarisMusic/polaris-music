@@ -16,6 +16,8 @@
  * See: backend/docs/migrations/002-normalize-status-values.md for detailed runbook
  */
 
+import { safeClose } from '../safeTx.js';
+
 /**
  * Run the status normalization migration
  *
@@ -86,7 +88,7 @@ export async function migrateNormalizeStatusValues(tx) {
     } finally {
         // Only close session if we created it (CLI runner mode)
         if (session) {
-            await session.close();
+            await safeClose(session);
         }
     }
 }
