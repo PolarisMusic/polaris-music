@@ -73,7 +73,15 @@ jobs:
           VCS_REF=${{ github.sha }}
           VERSION=${{ steps.meta.outputs.version }}
 
+    # SBOM generation is an audit artifact, not a build gate. The action
+    # downloads Syft from github.com/anchore/syft/releases on every run,
+    # which is occasionally rate-limited or 502s. A flaky failure here
+    # would otherwise block both the image push (this job) and the Trivy
+    # security scan (needs: build-and-push). Failure surfaces as a yellow
+    # warning in the run; the next successful push regenerates the SBOM.
     - name: Generate SBOM
+      id: sbom
+      continue-on-error: true
       uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
       with:
         # Use the exact tag produced by docker/metadata-action (already lowercased/valid)
@@ -83,6 +91,7 @@ jobs:
 
 
     - name: Upload SBOM
+      if: steps.sbom.outcome == 'success'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: sbom-${{ matrix.component }}
