@@ -90,14 +90,9 @@ function makeStubThis() {
         div.textContent = str;
         return div.innerHTML;
     };
-    const detailFieldImpl = function (label, value) {
-        if (!value) return '';
-        return `<div class="curate-field"><span class="curate-field-label">${escapeImpl(label)}</span><span class="curate-field-value">${escapeImpl(String(value))}</span></div>`;
-    };
     const stub = {
         // Helpers — now public methods on InfoPanelRenderer.
         escapeHtml: escapeImpl,
-        detailField: detailFieldImpl,
         // Nav/vote handlers were `this._foo` on MusicGraph; in the renderer
         // they live behind a `callbacks` indirection so the module has no
         // implicit coupling to MusicGraph beyond this object.
@@ -108,6 +103,12 @@ function makeStubThis() {
             voteFromDetail: jest.fn(),
         },
     };
+    // PR-L: methods now build DOM via the `_el` helper and call
+    // `this.detailField(...)` which returns an Element (was a string).
+    // Compile both from the live source so changes to either flow into
+    // the assertion layer.
+    stub._el = compileMethod('_el').bind(stub);
+    stub.detailField = compileMethod('detailField').bind(stub);
     // The two delegating methods need real impls so renderCurateDetail can
     // invoke them through `this`.
     stub.renderReleaseBundleDetail = compileMethod('renderReleaseBundleDetail').bind(stub);
