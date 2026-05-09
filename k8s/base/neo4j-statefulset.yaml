@@ -34,9 +34,28 @@ spec:
       labels:
         app: neo4j
     spec:
+      # Stage G hardening: dedicated SA, no K8s API access.
+      # neo4j community image runs as uid/gid 7474.
+      serviceAccountName: neo4j-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 7474
+        runAsGroup: 7474
+        fsGroup: 7474
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: neo4j
         image: neo4j:5.15-community
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem intentionally OMITTED: Neo4j writes to /var,
+          # /tmp, and conf-render paths inside the image at startup. Stateful
+          # workload — leave RW root per Stage G scope.
         ports:
         - containerPort: 7474
           name: http

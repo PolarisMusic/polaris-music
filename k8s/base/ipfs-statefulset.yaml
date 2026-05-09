@@ -37,9 +37,28 @@ spec:
       labels:
         app: ipfs
     spec:
+      # Stage G hardening: dedicated SA, no K8s API access.
+      # ipfs/kubo ships an `ipfs` user at uid/gid 1000.
+      serviceAccountName: ipfs-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ipfs
         image: ipfs/kubo:v0.24.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem intentionally OMITTED: kubo entrypoint
+          # writes a swarm key + config under /data/ipfs and also touches
+          # root paths during init. Stateful workload — keep RW per Stage G.
         ports:
         - containerPort: 4001
           name: p2p

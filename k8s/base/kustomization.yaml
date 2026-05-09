@@ -6,7 +6,12 @@ namespace: polaris
 resources:
   - namespace.yaml
   - configmap.yaml
+  # secret.yaml is a SealedSecret stub — the operator must run kubeseal
+  # against the live cluster before `kubectl apply` will succeed. See the
+  # header comment in secret.yaml for the exact command.
   - secret.yaml
+  - rbac.yaml
+  - networkpolicies.yaml
   - neo4j-statefulset.yaml
   - redis-statefulset.yaml
   - ipfs-statefulset.yaml

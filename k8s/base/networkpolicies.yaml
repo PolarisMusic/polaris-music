@@ -1,0 +1,379 @@
+# Stage G hardening — NetworkPolicies (additive / allow-list mode).
+#
+# IMPORTANT: This file deliberately does NOT include a default-deny policy.
+# In Kubernetes, NetworkPolicies are additive — adding allow-list policies
+# without a default-deny is a no-op for traffic that ISN'T matched (it stays
+# allowed). That is the desired Stage G behavior: codify the known-good flows
+# without breaking anything in production.
+#
+# DEFERRED to a later stage (requires runtime verification in kind/minikube):
+#   - default-deny-ingress + default-deny-egress on the polaris namespace
+#   - validation that DNS egress (kube-dns / coredns on udp/53) is whitelisted
+#     for every workload before deny-all is enabled
+#   - validation that pulling images from the registry still works
+#
+# Until that stage lands, treat the policies below as DOCUMENTATION of intent
+# enforced by tooling — they will become effective constraints once the
+# default-deny pair is added. Enabling them now still provides value because
+# any future deny-all rollout will already have the allow-list ready.
+#
+# Flow summary (intended):
+#   ingress-controller -> frontend:80, api:3000, minio:9001
+#   frontend           -> api:3000
+#   api                -> neo4j:7687, redis:6379, ipfs:5001, minio:9000
+#   processor          -> neo4j:7687, redis:6379, ipfs:5001, minio:9000, RPC (egress to internet)
+#   neo4j/redis/ipfs/minio -> intra-namespace only (no internet egress except IPFS swarm)
+#
+# Selectors are based on the `app` label that every workload already carries.
+
+# -----------------------------------------------------------------------------
+# Frontend: receives traffic from the ingress controller only.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    # ingress-nginx default install lives in `ingress-nginx`. Adjust if your
+    # cluster uses a different namespace label.
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+
+---
+# -----------------------------------------------------------------------------
+# API: receives traffic from frontend pods + ingress; egresses to backing stores.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-egress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+  - Egress
+  egress:
+  # Neo4j bolt
+  - to:
+    - podSelector:
+        matchLabels:
+          app: neo4j
+    ports:
+    - protocol: TCP
+      port: 7687
+  # Redis
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # IPFS API
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ipfs
+    ports:
+    - protocol: TCP
+      port: 5001
+  # MinIO S3 API
+  - to:
+    - podSelector:
+        matchLabels:
+          app: minio
+    ports:
+    - protocol: TCP
+      port: 9000
+  # DNS — required so backing-store hostnames resolve.
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# -----------------------------------------------------------------------------
+# Processor: no ingress (it's a worker); egresses to backing stores + RPC.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-processor-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: processor
+  policyTypes:
+  - Ingress
+  # No `ingress:` block == deny all ingress for selected pods (only meaningful
+  # once a default-deny is in place; harmless additive otherwise).
+  ingress: []
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-processor-egress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: processor
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: neo4j
+    ports:
+    - protocol: TCP
+      port: 7687
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ipfs
+    ports:
+    - protocol: TCP
+      port: 5001
+  - to:
+    - podSelector:
+        matchLabels:
+          app: minio
+    ports:
+    - protocol: TCP
+      port: 9000
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # RPC egress to public chain endpoint(s). Without a default-deny in place,
+  # this is documentation; once deny-all lands, narrow this CIDR to the actual
+  # RPC provider IPs.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+# -----------------------------------------------------------------------------
+# Neo4j: receives bolt + http from api/processor (and optional admin).
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-neo4j-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: neo4j
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api
+    - podSelector:
+        matchLabels:
+          app: processor
+    ports:
+    - protocol: TCP
+      port: 7687
+    - protocol: TCP
+      port: 7474
+
+---
+# -----------------------------------------------------------------------------
+# Redis: receives 6379 from api + processor only.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api
+    - podSelector:
+        matchLabels:
+          app: processor
+    ports:
+    - protocol: TCP
+      port: 6379
+
+---
+# -----------------------------------------------------------------------------
+# IPFS: API (5001) from api/processor; swarm port (4001) open to anywhere
+# because IPFS p2p needs to reach external peers. Gateway (8080) intra-cluster.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ipfs-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: ipfs
+  policyTypes:
+  - Ingress
+  ingress:
+  # Internal API + gateway: api / processor only.
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api
+    - podSelector:
+        matchLabels:
+          app: processor
+    ports:
+    - protocol: TCP
+      port: 5001
+    - protocol: TCP
+      port: 8080
+  # Swarm port — peers from anywhere (required for IPFS to function).
+  - ports:
+    - protocol: TCP
+      port: 4001
+    - protocol: UDP
+      port: 4001
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ipfs-egress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: ipfs
+  policyTypes:
+  - Egress
+  egress:
+  # IPFS swarm needs to dial arbitrary peers on the public internet.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# -----------------------------------------------------------------------------
+# MinIO: S3 API (9000) from api/processor; console (9001) from ingress.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio-ingress
+  namespace: polaris
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api
+    - podSelector:
+        matchLabels:
+          app: processor
+    ports:
+    - protocol: TCP
+      port: 9000
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 9001

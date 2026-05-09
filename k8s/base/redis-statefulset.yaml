@@ -31,9 +31,29 @@ spec:
       labels:
         app: redis
     spec:
+      # Stage G hardening: dedicated SA, no K8s API access.
+      # redis:7-alpine ships a `redis` user at uid/gid 999.
+      serviceAccountName: redis-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: redis
         image: redis:7-alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem intentionally OMITTED: redis writes the
+          # appendonly file + dump.rdb under /data (mounted volume) but also
+          # writes pid/log to root paths in some configs. Stateful workload —
+          # keep RW per Stage G scope.
         ports:
         - containerPort: 6379
           name: redis
