@@ -1,31 +1,32 @@
 /**
  * @jest-environment jsdom
  *
- * Long-press pan characterization tests (precursor to PanController extraction).
+ * PanController characterization tests.
  *
- * The long-press pan cluster currently lives on MusicGraph and owns:
- *   - `PAN_HOLD_MS` constant
- *   - `_pan` state object  { isDown, isPanning, suppressNextClick,
- *                            timer, lastPos, latestPos, raf }
- *   - `setupLongPressPan()`             attaches listeners to the JIT canvas
+ * The long-press pan cluster (originally on MusicGraph) was extracted
+ * into `frontend/src/visualization/PanController.js`. The class owns:
+ *   - `holdMs`                          (was PAN_HOLD_MS)
+ *   - `pan` state object  { isDown, isPanning, suppressNextClick,
+ *                           timer, lastPos, latestPos, raf }
+ *   - `attach()`                        (was setupLongPressPan)
  *   - `eventToCanvasPos(e)`             translates a DOM event to canvas coords
- *   - `onPanMouseDown(e)`               start gesture, arm hold timer
- *   - `onPanMouseMove(e)`               translate + redraw while panning
- *   - `onPanMouseUp(e)`                 cancel timer, end gesture
+ *   - `onMouseDown(e)`                  (was onPanMouseDown)
+ *   - `onMouseMove(e)`                  (was onPanMouseMove)
+ *   - `onMouseUp(e)`                    (was onPanMouseUp)
+ *   - `consumeSuppressClick()`          read+reset the suppress flag
  *
- * These tests lock current behavior so the upcoming extraction into
- * `PanController.js` can be verified as a no-op move. The next PR
- * updates the source path and (likely) renames `onPanMouseDown` →
- * `onMouseDown` etc.; assertions stay byte-identical.
+ * These tests were written against the unextracted methods (still on
+ * MusicGraph) and updated in-PR with the move; the behavioral
+ * assertions are byte-identical across the extraction.
  *
  * Strategy mirrors the Stage J.2 / J.3 tests: AST-based source extraction +
  * `new Function(...)` compilation + `Function.prototype.call(stub, ...)`
- * isolated invoke. We re-read MusicGraph.js on every run.
+ * isolated invoke. We re-read PanController.js on every run.
  *
  * Notes on DOM/timers:
  *   - jsdom does not ship `requestAnimationFrame`. Each test that exercises
- *     onPanMouseMove polyfills it as a jest.fn() so we can capture and
- *     manually invoke the rAF callback.
+ *     onMouseMove polyfills it as a jest.fn returning a truthy handle, so
+ *     the debounce guard (`if (!this.pan.raf)`) sees scheduled state.
  *   - jest.useFakeTimers() lets us advance the 900ms hold timer instantly.
  *   - `$jit.util.event.getPos` is a JIT global; we install a stub on
  *     globalThis before each test.
@@ -39,7 +40,7 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
+const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/PanController.js');
 const SOURCE = readFileSync(SOURCE_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in PanController.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -111,18 +112,19 @@ afterEach(() => {
 
 // ---------------------------------------------------------------------------
 // Stub `this` builder. The pan methods reach into:
-//   this.PAN_HOLD_MS                          number
-//   this._pan.isDown / isPanning / suppressNextClick / timer
-//        / lastPos / latestPos / raf
-//   this.ht.canvas.getElement()               → HTMLCanvasElement (jsdom)
-//   this.ht.canvas.translate(dx, dy, animate) JIT canvas translate
-//   this.ht.canvas.getSize() / getPos()       → {width,height} / {x,y}
-//   this.ht.canvas.translateOffsetX / Y       coords
-//   this.ht.canvas.scaleOffsetX / Y           coords
-//   this.ht.plot()                            redraw
-//   this.eventToCanvasPos(e)                  intra-cluster (compiled)
-//   this.onPanMouseDown / Move / Up           intra-cluster (compiled)
-//   this.overlayPositioner.updateOverlayPosition()
+//   this.holdMs                                number
+//   this.pan.isDown / isPanning / suppressNextClick / timer
+//       / lastPos / latestPos / raf
+//   this.getCanvas()                           → JIT canvas object
+//   canvas.getElement()                        → HTMLCanvasElement (jsdom)
+//   canvas.translate(dx, dy, animate)          JIT canvas translate
+//   canvas.getSize() / getPos()                → {width,height} / {x,y}
+//   canvas.translateOffsetX / Y                coords
+//   canvas.scaleOffsetX / Y                    coords
+//   this.callbacks.plot()                      redraw
+//   this.callbacks.updateOverlayPosition()
+//   this.eventToCanvasPos(e)                   intra-cluster (compiled)
+//   this.onMouseDown / Move / Up               intra-cluster (compiled)
 // ---------------------------------------------------------------------------
 
 function makeJitCanvas({
@@ -156,8 +158,10 @@ function makeStub({
     updateOverlayPosition = jest.fn(),
 } = {}) {
     const stub = {
-        PAN_HOLD_MS: holdMs,
-        _pan: {
+        holdMs,
+        getCanvas: jest.fn(() => canvas),
+        callbacks: { plot, updateOverlayPosition },
+        pan: {
             isDown: false,
             isPanning: false,
             suppressNextClick: false,
@@ -167,14 +171,12 @@ function makeStub({
             raf: null,
             ...panState,
         },
-        ht: { canvas, plot },
-        overlayPositioner: { updateOverlayPosition },
     };
     // Intra-cluster bindings — compile from live source.
     stub.eventToCanvasPos = compileMethod('eventToCanvasPos').bind(stub);
-    stub.onPanMouseDown   = compileMethod('onPanMouseDown').bind(stub);
-    stub.onPanMouseMove   = compileMethod('onPanMouseMove').bind(stub);
-    stub.onPanMouseUp     = compileMethod('onPanMouseUp').bind(stub);
+    stub.onMouseDown      = compileMethod('onMouseDown').bind(stub);
+    stub.onMouseMove      = compileMethod('onMouseMove').bind(stub);
+    stub.onMouseUp        = compileMethod('onMouseUp').bind(stub);
     return stub;
 }
 
@@ -192,13 +194,14 @@ function makeMouseEvent(overrides = {}) {
 // Drift guard.
 // ---------------------------------------------------------------------------
 
-describe('Long-press pan · drift guard', () => {
+describe('PanController · drift guard', () => {
     test.each([
-        ['setupLongPressPan', '()'],
-        ['eventToCanvasPos',  '(e)'],
-        ['onPanMouseDown',    '(e)'],
-        ['onPanMouseMove',    '(e)'],
-        ['onPanMouseUp',      '(e)'],
+        ['attach',                '()'],
+        ['eventToCanvasPos',      '(e)'],
+        ['onMouseDown',           '(e)'],
+        ['onMouseMove',           '(e)'],
+        ['onMouseUp',             '(e)'],
+        ['consumeSuppressClick',  '()'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -207,7 +210,7 @@ describe('Long-press pan · drift guard', () => {
     });
 
     test('no method in cluster is async', () => {
-        for (const name of ['setupLongPressPan', 'eventToCanvasPos', 'onPanMouseDown', 'onPanMouseMove', 'onPanMouseUp']) {
+        for (const name of ['attach', 'eventToCanvasPos', 'onMouseDown', 'onMouseMove', 'onMouseUp', 'consumeSuppressClick']) {
             expect(extractMethod(name).isAsync).toBe(false);
         }
     });
@@ -217,19 +220,18 @@ describe('Long-press pan · drift guard', () => {
 // setupLongPressPan
 // ---------------------------------------------------------------------------
 
-describe('setupLongPressPan', () => {
-    test('no ht.canvas → early return, no listeners attached', () => {
+describe('attach', () => {
+    test('no canvas → early return, no listeners attached', () => {
         const stub = makeStub({ canvas: undefined });
-        stub.ht = { canvas: undefined, plot: jest.fn() };
         // Must not throw.
-        expect(() => compileMethod('setupLongPressPan').call(stub)).not.toThrow();
+        expect(() => compileMethod('attach').call(stub)).not.toThrow();
     });
 
     test('canvas.getElement() returns null → early return', () => {
         const canvas = makeJitCanvas();
         canvas.getElement = jest.fn(() => null);
         const stub = makeStub({ canvas });
-        compileMethod('setupLongPressPan').call(stub);
+        compileMethod('attach').call(stub);
         // No way to assert directly that nothing was attached; we rely on
         // the implementation guard (`if (!el) return`) being reached. The
         // smoke test is "did not throw".
@@ -243,7 +245,7 @@ describe('setupLongPressPan', () => {
         const winAdd = jest.spyOn(window, 'addEventListener');
         const stub = makeStub({ canvas });
 
-        compileMethod('setupLongPressPan').call(stub);
+        compileMethod('attach').call(stub);
 
         const elEvents = elAdd.mock.calls.map(c => c[0]).sort();
         expect(elEvents).toEqual(['mousedown', 'mousemove', 'mouseleave'].sort());
@@ -292,16 +294,16 @@ describe('eventToCanvasPos', () => {
 // onPanMouseDown
 // ---------------------------------------------------------------------------
 
-describe('onPanMouseDown', () => {
+describe('onMouseDown', () => {
     test('non-left button → early return, no state change', () => {
         const canvas = makeJitCanvas();
         const stub = makeStub({ canvas });
         const ev = makeMouseEvent({ button: 2 });
 
-        compileMethod('onPanMouseDown').call(stub, ev);
+        compileMethod('onMouseDown').call(stub, ev);
 
-        expect(stub._pan.isDown).toBe(false);
-        expect(stub._pan.timer).toBe(null);
+        expect(stub.pan.isDown).toBe(false);
+        expect(stub.pan.timer).toBe(null);
     });
 
     test('left button → sets isDown, captures position, arms hold timer', () => {
@@ -309,26 +311,26 @@ describe('onPanMouseDown', () => {
         const stub = makeStub({ canvas });
         jitGetPosStub.mockReturnValue({ x: 200, y: 200 });
 
-        compileMethod('onPanMouseDown').call(stub, makeMouseEvent({ button: 0 }));
+        compileMethod('onMouseDown').call(stub, makeMouseEvent({ button: 0 }));
 
-        expect(stub._pan.isDown).toBe(true);
-        expect(stub._pan.isPanning).toBe(false);
-        expect(stub._pan.suppressNextClick).toBe(false);
+        expect(stub.pan.isDown).toBe(true);
+        expect(stub.pan.isPanning).toBe(false);
+        expect(stub.pan.suppressNextClick).toBe(false);
         // latestPos === lastPos === eventToCanvasPos result.
-        expect(stub._pan.latestPos).toEqual(stub._pan.lastPos);
-        expect(stub._pan.timer).not.toBeNull();
+        expect(stub.pan.latestPos).toEqual(stub.pan.lastPos);
+        expect(stub.pan.timer).not.toBeNull();
     });
 
     test('hold timer firing while still down → enters panning, sets suppressNextClick, adds grabbing class', () => {
         const canvas = makeJitCanvas();
         const stub = makeStub({ canvas, holdMs: 900 });
-        compileMethod('onPanMouseDown').call(stub, makeMouseEvent({ button: 0 }));
+        compileMethod('onMouseDown').call(stub, makeMouseEvent({ button: 0 }));
 
         // Advance to the hold timer firing.
         jest.advanceTimersByTime(900);
 
-        expect(stub._pan.isPanning).toBe(true);
-        expect(stub._pan.suppressNextClick).toBe(true);
+        expect(stub.pan.isPanning).toBe(true);
+        expect(stub.pan.suppressNextClick).toBe(true);
         expect(canvas._el.classList.contains('grabbing')).toBe(true);
     });
 
@@ -336,13 +338,13 @@ describe('onPanMouseDown', () => {
         const canvas = makeJitCanvas();
         const stub = makeStub({ canvas, holdMs: 900 });
 
-        compileMethod('onPanMouseDown').call(stub, makeMouseEvent({ button: 0 }));
+        compileMethod('onMouseDown').call(stub, makeMouseEvent({ button: 0 }));
         // Simulate quick mouseup before the hold completes.
-        compileMethod('onPanMouseUp').call(stub, makeMouseEvent({ button: 0 }));
+        compileMethod('onMouseUp').call(stub, makeMouseEvent({ button: 0 }));
         // Advance timers — the hold callback should bail because isDown=false.
         jest.advanceTimersByTime(900);
 
-        expect(stub._pan.isPanning).toBe(false);
+        expect(stub.pan.isPanning).toBe(false);
         expect(canvas._el.classList.contains('grabbing')).toBe(false);
     });
 
@@ -350,11 +352,11 @@ describe('onPanMouseDown', () => {
         const canvas = makeJitCanvas();
         const stub = makeStub({ canvas });
 
-        compileMethod('onPanMouseDown').call(stub, makeMouseEvent({ button: 0 }));
-        const firstTimer = stub._pan.timer;
+        compileMethod('onMouseDown').call(stub, makeMouseEvent({ button: 0 }));
+        const firstTimer = stub.pan.timer;
 
-        compileMethod('onPanMouseDown').call(stub, makeMouseEvent({ button: 0 }));
-        const secondTimer = stub._pan.timer;
+        compileMethod('onMouseDown').call(stub, makeMouseEvent({ button: 0 }));
+        const secondTimer = stub.pan.timer;
 
         expect(secondTimer).not.toBe(firstTimer);
     });
@@ -364,15 +366,15 @@ describe('onPanMouseDown', () => {
 // onPanMouseMove
 // ---------------------------------------------------------------------------
 
-describe('onPanMouseMove', () => {
+describe('onMouseMove', () => {
     test('!isDown → early return (no translate, no plot)', () => {
         const canvas = makeJitCanvas();
         const stub = makeStub({ canvas });
 
-        compileMethod('onPanMouseMove').call(stub, makeMouseEvent());
+        compileMethod('onMouseMove').call(stub, makeMouseEvent());
 
         expect(canvas.translate).not.toHaveBeenCalled();
-        expect(stub.ht.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
     });
 
     test('isDown but !isPanning → updates latestPos but does NOT translate', () => {
@@ -383,9 +385,9 @@ describe('onPanMouseMove', () => {
         });
         jitGetPosStub.mockReturnValue({ x: 50, y: 50 });
 
-        compileMethod('onPanMouseMove').call(stub, makeMouseEvent());
+        compileMethod('onMouseMove').call(stub, makeMouseEvent());
 
-        expect(stub._pan.latestPos).not.toBeNull();
+        expect(stub.pan.latestPos).not.toBeNull();
         expect(canvas.translate).not.toHaveBeenCalled();
         expect(rafStub).not.toHaveBeenCalled();
     });
@@ -415,10 +417,10 @@ describe('onPanMouseMove', () => {
         const preventDefault = jest.spyOn(ev, 'preventDefault');
         const stopPropagation = jest.spyOn(ev, 'stopPropagation');
 
-        compileMethod('onPanMouseMove').call(stub, ev);
+        compileMethod('onMouseMove').call(stub, ev);
 
         expect(canvas.translate).toHaveBeenCalledWith(10, 20, true);
-        expect(stub._pan.lastPos).toEqual({ x: 10, y: 20 });
+        expect(stub.pan.lastPos).toEqual({ x: 10, y: 20 });
         expect(preventDefault).toHaveBeenCalled();
         expect(stopPropagation).toHaveBeenCalled();
         expect(rafStub).toHaveBeenCalledTimes(1);
@@ -426,9 +428,9 @@ describe('onPanMouseMove', () => {
         // Manually fire the rAF callback.
         const rafCb = rafStub.mock.calls[0][0];
         rafCb();
-        expect(stub.ht.plot).toHaveBeenCalledTimes(1);
-        expect(stub.overlayPositioner.updateOverlayPosition).toHaveBeenCalledTimes(1);
-        expect(stub._pan.raf).toBeNull();
+        expect(stub.callbacks.plot).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.updateOverlayPosition).toHaveBeenCalledTimes(1);
+        expect(stub.pan.raf).toBeNull();
     });
 
     test('isPanning + zero delta → no translate, no rAF', () => {
@@ -444,7 +446,7 @@ describe('onPanMouseMove', () => {
         // pos.x - 100 - 400 = 5 → pos.x = 505; pos.y - 50 - 300 = 5 → pos.y = 355
         jitGetPosStub.mockReturnValue({ x: 505, y: 355 });
 
-        compileMethod('onPanMouseMove').call(stub, makeMouseEvent());
+        compileMethod('onMouseMove').call(stub, makeMouseEvent());
 
         expect(canvas.translate).not.toHaveBeenCalled();
         expect(rafStub).not.toHaveBeenCalled();
@@ -461,10 +463,10 @@ describe('onPanMouseMove', () => {
         });
 
         jitGetPosStub.mockReturnValue({ x: 510, y: 370 });
-        compileMethod('onPanMouseMove').call(stub, makeMouseEvent());
+        compileMethod('onMouseMove').call(stub, makeMouseEvent());
         // Second move before the rAF fires.
         jitGetPosStub.mockReturnValue({ x: 520, y: 380 });
-        compileMethod('onPanMouseMove').call(stub, makeMouseEvent());
+        compileMethod('onMouseMove').call(stub, makeMouseEvent());
 
         // Two translates (one per move).
         expect(canvas.translate).toHaveBeenCalledTimes(2);
@@ -477,16 +479,16 @@ describe('onPanMouseMove', () => {
 // onPanMouseUp
 // ---------------------------------------------------------------------------
 
-describe('onPanMouseUp', () => {
+describe('onMouseUp', () => {
     test('!isDown → early return, no state mutation', () => {
         const canvas = makeJitCanvas();
         const stub = makeStub({ canvas });
         // _pan.timer remains null, isPanning remains false; nothing should change.
-        compileMethod('onPanMouseUp').call(stub, makeMouseEvent());
+        compileMethod('onMouseUp').call(stub, makeMouseEvent());
 
-        expect(stub._pan.isDown).toBe(false);
-        expect(stub._pan.isPanning).toBe(false);
-        expect(stub._pan.timer).toBe(null);
+        expect(stub.pan.isDown).toBe(false);
+        expect(stub.pan.isPanning).toBe(false);
+        expect(stub.pan.timer).toBe(null);
     });
 
     test('isDown + isPanning → clears timer, removes grabbing class, resets isPanning', () => {
@@ -496,11 +498,11 @@ describe('onPanMouseUp', () => {
             panState: { isDown: true, isPanning: true, timer: 12345 },
         });
 
-        compileMethod('onPanMouseUp').call(stub, makeMouseEvent());
+        compileMethod('onMouseUp').call(stub, makeMouseEvent());
 
-        expect(stub._pan.timer).toBeNull();
-        expect(stub._pan.isPanning).toBe(false);
-        expect(stub._pan.isDown).toBe(false);
+        expect(stub.pan.timer).toBeNull();
+        expect(stub.pan.isPanning).toBe(false);
+        expect(stub.pan.isDown).toBe(false);
         expect(canvas._el.classList.contains('grabbing')).toBe(false);
     });
 
@@ -513,9 +515,43 @@ describe('onPanMouseUp', () => {
             panState: { isDown: true, isPanning: false, timer: 54321 },
         });
 
-        compileMethod('onPanMouseUp').call(stub, makeMouseEvent());
+        compileMethod('onMouseUp').call(stub, makeMouseEvent());
 
-        expect(stub._pan.isDown).toBe(false);
+        expect(stub.pan.isDown).toBe(false);
         expect(canvas._el.classList.contains('unrelated-class')).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// consumeSuppressClick (new API — replaces external `_pan.suppressNextClick`
+// read+reset in MusicGraph's JIT onClick handler).
+// ---------------------------------------------------------------------------
+
+describe('consumeSuppressClick', () => {
+    test('suppressNextClick=false → returns false, no state change', () => {
+        const stub = makeStub({ canvas: makeJitCanvas() });
+        const result = compileMethod('consumeSuppressClick').call(stub);
+        expect(result).toBe(false);
+        expect(stub.pan.suppressNextClick).toBe(false);
+    });
+
+    test('suppressNextClick=true → returns true and resets the flag', () => {
+        const stub = makeStub({
+            canvas: makeJitCanvas(),
+            panState: { suppressNextClick: true },
+        });
+        const result = compileMethod('consumeSuppressClick').call(stub);
+        expect(result).toBe(true);
+        expect(stub.pan.suppressNextClick).toBe(false);
+    });
+
+    test('second call returns false (consumes once)', () => {
+        const stub = makeStub({
+            canvas: makeJitCanvas(),
+            panState: { suppressNextClick: true },
+        });
+        const compiled = compileMethod('consumeSuppressClick');
+        expect(compiled.call(stub)).toBe(true);
+        expect(compiled.call(stub)).toBe(false);
     });
 });
