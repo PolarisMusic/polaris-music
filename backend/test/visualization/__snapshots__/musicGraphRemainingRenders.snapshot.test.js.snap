@@ -1,0 +1,27 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Stage K · renderGroupDetails full group with photo, dates, members, bio, trivia → snapshot 1`] = `"<div class="info-photo"><img src="https://example.com/beatles.jpg" alt="The Beatles"></div>[edit:group/g:beatles/photo]<p class="info-meta"><strong>Active:</strong> 1960–1970</p>[edit:group/g:beatles/formed_date][edit:group/g:beatles/disbanded_date]<div class="info-section"><h4>Members</h4><ul class="info-list"><li><a href="#" class="info-nav-link" data-node-id="p:lennon"><strong>John Lennon</strong></a> - Vocals, Guitar</li><li><a href="#" class="info-nav-link" data-node-id="p:mccartney"><strong>Paul McCartney</strong></a> - Vocals, Bass</li><li><strong>Anonymous &amp; Co.</strong></li></ul></div><div class="info-section"><h4>Biography</h4><p>English rock band formed in &lt;Liverpool&gt;</p></div>[edit:group/g:beatles/bio]<div class="info-section"><h4>Trivia</h4><p>Best-selling music act of all time</p></div>[edit:group/g:beatles/trivia]"`;
+
+exports[`Stage K · renderGroupDetails minimal group (only name) → snapshot 1`] = `"[edit:group/g:solo/photo][edit:group/g:solo/formed_date][edit:group/g:solo/disbanded_date][edit:group/g:solo/bio][edit:group/g:solo/trivia]"`;
+
+exports[`Stage K · renderPersonDetails full person with photo, color, city, groups, bio, trivia → snapshot 1`] = `
+"<div class="info-photo"><img src="https://example.com/lennon.jpg" alt="John Lennon"></div>[edit:person/p:lennon/photo]<div class="info-color-row">
+            <strong>Color:</strong>
+            <span class="info-color-swatch" style="background:#ff0000"></span>
+            <span class="info-color-hex">#ff0000</span>
+            <input type="color" class="color-picker-input" data-node-id="p:lennon" value="#ff0000" title="Edit color">
+        </div><p class="info-meta"><strong>Location:</strong> Liverpool</p>[edit:person/p:lennon/city]<div class="info-section"><h4>Groups</h4><ul class="info-list"><li><a href="#" class="info-nav-link" data-node-id="g:beatles"><strong>The Beatles</strong></a> - Vocals</li><li><a href="#" class="info-nav-link" data-node-id="g:pob"><strong>Plastic Ono Band</strong></a></li><li><strong>Quarrymen</strong></li></ul></div><div class="info-section"><h4>Biography</h4><p>Singer, songwriter, peace activist</p></div>[edit:person/p:lennon/bio]<div class="info-section"><h4>Trivia</h4><p>Founded the Beatles in 1960</p></div>[edit:person/p:lennon/trivia]"
+`;
+
+exports[`Stage K · renderPersonDetails minimal person (only name) defaults color to #888888 → snapshot 1`] = `
+"[edit:person/p:anon/photo]<div class="info-color-row">
+            <strong>Color:</strong>
+            <span class="info-color-swatch" style="background:#888888"></span>
+            <span class="info-color-hex">#888888</span>
+            <input type="color" class="color-picker-input" data-node-id="p:anon" value="#888888" title="Edit color">
+        </div>[edit:person/p:anon/city][edit:person/p:anon/bio][edit:person/p:anon/trivia]"
+`;
+
+exports[`Stage K · renderReleaseDetails full release with art, date, format, labels, groups, tracks, guests, liner notes → snapshot 1`] = `"<div class="info-photo"><img src="https://example.com/abbey.jpg" alt="Abbey Road"></div><p class="info-meta"><strong>Released:</strong> 1969-09-26</p><p class="info-meta"><strong>Format:</strong> LP</p><p class="info-meta"><strong>Label:</strong> Apple Records, EMI</p><div class="info-section"><h4>Performed by</h4><ul class="info-list"><li><strong>The Beatles</strong></li></ul></div><div class="info-section"><h4>Tracks</h4><ol class="info-list info-tracklist"><li>A-1. Come Together</li><li>A-2. Something</li><li>3. Untitled</li><li>B-1. Octopus's Garden</li></ol></div><div class="info-section"><h4>Guests</h4><ul class="info-list"><li><strong>Billy Preston</strong> - Organ, Electric Piano</li><li><strong>George Martin</strong></li></ul></div><div class="info-section"><h4>Liner Notes</h4><p>Recorded at EMI Studios</p></div>"`;
+
+exports[`Stage K · renderReleaseDetails minimal release (just name) → snapshot 1`] = `""`;
