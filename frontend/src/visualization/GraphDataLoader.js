@@ -10,9 +10,9 @@
  *   rawGraph                {nodes, edges} | null
  *   _initialParticipation   per-group donut data captured from the
  *                           first fetch; FavoritesManager doesn't read
- *                           this, but MusicGraph._prePopulateDonutData
- *                           reaches into `this.loader._initialParticipation`
- *                           to seed the donut slices on first render
+ *                           this, but DonutLoader.prePopulateData is
+ *                           handed `this.loader._initialParticipation`
+ *                           by MusicGraph to seed slices on first render
  *   hashIndex               Map<checksum256, {nodeId, name, type}>
  *                           — passed in by MusicGraph and shared with
  *                           FavoritesManager. We mutate it in place

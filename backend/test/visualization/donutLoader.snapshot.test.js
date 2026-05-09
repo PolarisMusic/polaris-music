@@ -1,24 +1,24 @@
 /**
  * @jest-environment jsdom
  *
- * Donut queue characterization tests (precursor to DonutLoader extraction).
+ * DonutLoader characterization tests.
  *
- * The donut-fetch cluster currently lives on MusicGraph and owns:
- *   - `_donutQueue` / `_activeDonutLoads` / `_maxConcurrentDonutLoads` / `_donutStats`
- *   - `enqueueDonutLoad(node)`
- *   - `_processDonutQueue()`
- *   - `_loadDonutDataSingle(node)`  (async)
- *   - `computeDonutSlices(members)`
- *   - `_prePopulateDonutData()`
+ * The donut-fetch cluster (originally on MusicGraph) was extracted into
+ * `frontend/src/visualization/DonutLoader.js`. The class owns:
+ *   - `queue` / `activeLoads` / `maxConcurrent` / `stats`
+ *   - `enqueue(node)`
+ *   - `processQueue()`
+ *   - `loadSingle(node)`              (async)
+ *   - `computeSlices(members)`
+ *   - `prePopulateData(participation)`
  *
- * These tests lock current behavior so the upcoming extraction into
- * `DonutLoader.js` can be verified as a no-op move. The next PR updates
- * the source path and (if needed) drops the leading underscores; the
- * assertions stay byte-identical.
+ * These tests were written against the unextracted methods (still on
+ * MusicGraph) and updated in-PR with the move; the snapshots and the
+ * behavioral assertions are byte-identical across the extraction.
  *
  * Strategy mirrors the Stage J.2 tests: AST-based source extraction +
  * `new Function(...)` compilation + `Function.prototype.call(stub, ...)`
- * isolated invoke. We re-read the live module on every run so any drift
+ * isolated invoke. We re-read DonutLoader.js on every run so any drift
  * surfaces as a snapshot/assertion diff.
  */
 
@@ -30,7 +30,7 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
+const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/DonutLoader.js');
 const SOURCE = readFileSync(SOURCE_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in DonutLoader.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -107,19 +107,18 @@ function makeNode({ id = 'node-id', type = 'group', group_id, data: extra = {} }
 }
 
 // ---------------------------------------------------------------------------
-// Stub `this` builder for the donut cluster. The methods reach into:
-//   this._donutQueue                    array
-//   this._activeDonutLoads              number
-//   this._maxConcurrentDonutLoads       number
-//   this._donutStats                    {started, succeeded, failed}
+// Stub `this` builder for DonutLoader. The methods reach into:
+//   this.queue                          array
+//   this.activeLoads                    number
+//   this.maxConcurrent                  number
+//   this.stats                          {started, succeeded, failed}
 //   this.api.fetchGroupParticipation    async (groupId) → { members }
 //   this.colorPalette.getColor          (personId) → string
-//   this.ht.plot()                      redraw
-//   this.ht.graph.eachNode(cb)          iterator (prePopulate)
-//   this.loader._initialParticipation   map (prePopulate)
-// Intra-cluster delegations (`this.computeDonutSlices`, `this._processDonutQueue`,
-// `this._loadDonutDataSingle`) compile from the same source so drift inside
-// any of them flows through to the assertion layer.
+//   this.callbacks.plot()               redraw
+//   this.callbacks.eachNode(cb)         iterator (prePopulateData)
+// Intra-cluster delegations (`this.computeSlices`, `this.processQueue`,
+// `this.loadSingle`) compile from the same source so drift inside any
+// of them flows through to the assertion layer.
 // ---------------------------------------------------------------------------
 
 function makeStub({
@@ -130,31 +129,27 @@ function makeStub({
     palette = id => `#palette:${id}`,
     plot = jest.fn(),
     eachNodeImpl,
-    initialParticipation,
 } = {}) {
     const stub = {
-        _donutQueue: queue,
-        _activeDonutLoads: active,
-        _maxConcurrentDonutLoads: maxConcurrent,
-        _donutStats: { started: 0, succeeded: 0, failed: 0 },
+        queue,
+        activeLoads: active,
+        maxConcurrent,
+        stats: { started: 0, succeeded: 0, failed: 0 },
         api: {
             fetchGroupParticipation: fetchImpl
                 ? jest.fn(fetchImpl)
                 : jest.fn(async () => ({ members: [] })),
         },
         colorPalette: { getColor: jest.fn(palette) },
-        ht: {
+        callbacks: {
             plot,
-            graph: eachNodeImpl
-                ? { eachNode: jest.fn(eachNodeImpl) }
-                : { eachNode: jest.fn(() => {}) },
+            eachNode: eachNodeImpl ? jest.fn(eachNodeImpl) : jest.fn(() => {}),
         },
-        loader: { _initialParticipation: initialParticipation },
     };
     // Intra-cluster bindings — compile from live source.
-    stub.computeDonutSlices    = compileMethod('computeDonutSlices').bind(stub);
-    stub._processDonutQueue    = compileMethod('_processDonutQueue').bind(stub);
-    stub._loadDonutDataSingle  = compileMethod('_loadDonutDataSingle').bind(stub);
+    stub.computeSlices = compileMethod('computeSlices').bind(stub);
+    stub.processQueue  = compileMethod('processQueue').bind(stub);
+    stub.loadSingle    = compileMethod('loadSingle').bind(stub);
     return stub;
 }
 
@@ -162,13 +157,13 @@ function makeStub({
 // Drift guard.
 // ---------------------------------------------------------------------------
 
-describe('Donut queue · drift guard', () => {
+describe('DonutLoader · drift guard', () => {
     test.each([
-        ['enqueueDonutLoad',     '(node)'],
-        ['_processDonutQueue',   '()'],
-        ['_loadDonutDataSingle', '(node)'],
-        ['computeDonutSlices',   '(members)'],
-        ['_prePopulateDonutData','()'],
+        ['enqueue',         '(node)'],
+        ['processQueue',    '()'],
+        ['loadSingle',      '(node)'],
+        ['computeSlices',   '(members)'],
+        ['prePopulateData', '(participation)'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -176,26 +171,26 @@ describe('Donut queue · drift guard', () => {
         expect(actual).toBe(expected);
     });
 
-    test('_loadDonutDataSingle is async', () => {
-        expect(extractMethod('_loadDonutDataSingle').isAsync).toBe(true);
+    test('loadSingle is async', () => {
+        expect(extractMethod('loadSingle').isAsync).toBe(true);
     });
 });
 
 // ---------------------------------------------------------------------------
-// enqueueDonutLoad
+// enqueue
 // ---------------------------------------------------------------------------
 
-describe('enqueueDonutLoad', () => {
-    test('pushes node onto _donutQueue and triggers _processDonutQueue', () => {
+describe('enqueue', () => {
+    test('pushes node onto queue and triggers processQueue', () => {
         const stub = makeStub();
-        // Spy on _processDonutQueue without re-running its body.
+        // Spy on processQueue without re-running its body.
         const processSpy = jest.fn();
-        stub._processDonutQueue = processSpy;
+        stub.processQueue = processSpy;
 
         const node = makeNode({ id: 'g:1' });
-        compileMethod('enqueueDonutLoad').call(stub, node);
+        compileMethod('enqueue').call(stub, node);
 
-        expect(stub._donutQueue).toEqual([node]);
+        expect(stub.queue).toEqual([node]);
         expect(processSpy).toHaveBeenCalledTimes(1);
     });
 });
@@ -204,46 +199,46 @@ describe('enqueueDonutLoad', () => {
 // _processDonutQueue
 // ---------------------------------------------------------------------------
 
-describe('_processDonutQueue', () => {
+describe('processQueue', () => {
     test('drains queue up to concurrency limit', () => {
         const nodes = Array.from({ length: 6 }, (_, i) => makeNode({ id: `g:${i}` }));
         const stub = makeStub({ queue: [...nodes], maxConcurrent: 4 });
         // Replace the async loader with a fire-and-forget spy so we can
         // count starts deterministically without awaiting fetches.
         const startSpy = jest.fn();
-        stub._loadDonutDataSingle = startSpy;
+        stub.loadSingle = startSpy;
 
-        compileMethod('_processDonutQueue').call(stub);
+        compileMethod('processQueue').call(stub);
 
         expect(startSpy).toHaveBeenCalledTimes(4);
-        expect(stub._activeDonutLoads).toBe(4);
-        expect(stub._donutStats.started).toBe(4);
+        expect(stub.activeLoads).toBe(4);
+        expect(stub.stats.started).toBe(4);
         // Two left in queue.
-        expect(stub._donutQueue.length).toBe(2);
+        expect(stub.queue.length).toBe(2);
     });
 
     test('respects already-active loads (4 active + 2 queued, limit 4 → no new starts)', () => {
         const nodes = [makeNode({ id: 'g:a' }), makeNode({ id: 'g:b' })];
         const stub = makeStub({ queue: [...nodes], active: 4, maxConcurrent: 4 });
         const startSpy = jest.fn();
-        stub._loadDonutDataSingle = startSpy;
+        stub.loadSingle = startSpy;
 
-        compileMethod('_processDonutQueue').call(stub);
+        compileMethod('processQueue').call(stub);
 
         expect(startSpy).not.toHaveBeenCalled();
-        expect(stub._activeDonutLoads).toBe(4);
-        expect(stub._donutQueue.length).toBe(2);
+        expect(stub.activeLoads).toBe(4);
+        expect(stub.queue.length).toBe(2);
     });
 
     test('empty queue → no-op', () => {
         const stub = makeStub({ queue: [], maxConcurrent: 4 });
         const startSpy = jest.fn();
-        stub._loadDonutDataSingle = startSpy;
+        stub.loadSingle = startSpy;
 
-        compileMethod('_processDonutQueue').call(stub);
+        compileMethod('processQueue').call(stub);
 
         expect(startSpy).not.toHaveBeenCalled();
-        expect(stub._activeDonutLoads).toBe(0);
+        expect(stub.activeLoads).toBe(0);
     });
 });
 
@@ -251,8 +246,8 @@ describe('_processDonutQueue', () => {
 // _loadDonutDataSingle
 // ---------------------------------------------------------------------------
 
-describe('_loadDonutDataSingle', () => {
-    test('success → setData(donutSlices), setData(donutStatus, "ready"), ht.plot, succeeded++', async () => {
+describe('loadSingle', () => {
+    test('success → setData(donutSlices), setData(donutStatus, "ready"), plot, succeeded++', async () => {
         const members = [
             { personId: 'p:1', personName: 'Alice', trackCount: 3, color: '#ff0000' },
             { personId: 'p:2', personName: 'Bob',   trackCount: 1 },
@@ -263,15 +258,15 @@ describe('_loadDonutDataSingle', () => {
         });
         const node = makeNode({ id: 'g:1', group_id: 'g:1' });
 
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
         expect(stub.api.fetchGroupParticipation).toHaveBeenCalledWith('g:1');
         expect(node.setData).toHaveBeenCalledWith('donutSlices', expect.any(Array));
         expect(node.setData).toHaveBeenCalledWith('donutStatus', 'ready');
-        expect(stub.ht.plot).toHaveBeenCalledTimes(1);
-        expect(stub._donutStats.succeeded).toBe(1);
-        expect(stub._donutStats.failed).toBe(0);
-        expect(stub._activeDonutLoads).toBe(0);  // decremented in finally
+        expect(stub.callbacks.plot).toHaveBeenCalledTimes(1);
+        expect(stub.stats.succeeded).toBe(1);
+        expect(stub.stats.failed).toBe(0);
+        expect(stub.activeLoads).toBe(0);  // decremented in finally
     });
 
     test('falls back to node.id when group_id missing', async () => {
@@ -281,7 +276,7 @@ describe('_loadDonutDataSingle', () => {
         });
         const node = makeNode({ id: 'fallback:id', group_id: undefined });
 
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
         expect(stub.api.fetchGroupParticipation).toHaveBeenCalledWith('fallback:id');
     });
@@ -293,16 +288,16 @@ describe('_loadDonutDataSingle', () => {
         });
         const node = makeNode({ id: 'g:err', group_id: 'g:err' });
 
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
         expect(node.setData).toHaveBeenCalledWith('donutStatus', 'error');
         // donutSlices must not be set on failure
         const sliceCalls = node.setData.mock.calls.filter(c => c[0] === 'donutSlices');
         expect(sliceCalls).toHaveLength(0);
-        expect(stub.ht.plot).not.toHaveBeenCalled();
-        expect(stub._donutStats.failed).toBe(1);
-        expect(stub._donutStats.succeeded).toBe(0);
-        expect(stub._activeDonutLoads).toBe(0);
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
+        expect(stub.stats.failed).toBe(1);
+        expect(stub.stats.succeeded).toBe(0);
+        expect(stub.activeLoads).toBe(0);
         expect(errSpy).toHaveBeenCalled();
     });
 
@@ -315,10 +310,10 @@ describe('_loadDonutDataSingle', () => {
             fetchImpl: async () => ({ members: [] }),
         });
         // Watch reprocess. The compiled body calls this.
-        const processSpy = jest.spyOn(stub, '_processDonutQueue');
+        const processSpy = jest.spyOn(stub, 'processQueue');
 
         const node = makeNode({ id: 'g:done', group_id: 'g:done' });
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
         expect(processSpy).toHaveBeenCalled();
     });
@@ -329,7 +324,7 @@ describe('_loadDonutDataSingle', () => {
             fetchImpl: async () => ({ members: [] }),
         });
         const node = makeNode({ id: 'g:last', group_id: 'g:last' });
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
         // Look for the drain-stats log line.
         const matched = logSpy.mock.calls.find(args =>
@@ -343,7 +338,7 @@ describe('_loadDonutDataSingle', () => {
             fetchImpl: async () => ({ members: [] }),
         });
         const node = makeNode({ id: 'g:partial', group_id: 'g:partial' });
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
         const matched = logSpy.mock.calls.find(args =>
             typeof args[0] === 'string' && args[0].includes('Donut load stats'));
@@ -357,34 +352,34 @@ describe('_loadDonutDataSingle', () => {
         });
         const node = makeNode({ id: 'g:nomembers', group_id: 'g:nomembers' });
 
-        await compileMethod('_loadDonutDataSingle').call(stub, node);
+        await compileMethod('loadSingle').call(stub, node);
 
-        // Should still set ready status (computeDonutSlices handles []).
+        // Should still set ready status (computeSlices handles []).
         expect(node.setData).toHaveBeenCalledWith('donutStatus', 'ready');
         expect(node.setData).toHaveBeenCalledWith('donutSlices', []);
-        expect(stub._donutStats.succeeded).toBe(1);
+        expect(stub.stats.succeeded).toBe(1);
     });
 });
 
 // ---------------------------------------------------------------------------
-// computeDonutSlices  (snapshotted — these are the angle/color outputs the
+// computeSlices  (snapshotted — these are the angle/color outputs the
 // canvas renderer reads).
 // ---------------------------------------------------------------------------
 
-describe('computeDonutSlices', () => {
+describe('computeSlices', () => {
     test('null members → []', () => {
         const stub = makeStub();
-        expect(compileMethod('computeDonutSlices').call(stub, null)).toEqual([]);
+        expect(compileMethod('computeSlices').call(stub, null)).toEqual([]);
     });
 
     test('empty array → []', () => {
         const stub = makeStub();
-        expect(compileMethod('computeDonutSlices').call(stub, [])).toEqual([]);
+        expect(compileMethod('computeSlices').call(stub, [])).toEqual([]);
     });
 
     test('single member → one full-circle slice from -π/2', () => {
         const stub = makeStub();
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:1', personName: 'Solo', trackCount: 5, color: '#abc' },
         ]);
         expect(slices).toMatchSnapshot();
@@ -392,7 +387,7 @@ describe('computeDonutSlices', () => {
 
     test('two members sorted descending by trackCount', () => {
         const stub = makeStub();
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:small', personName: 'Small', trackCount: 1 },
             { personId: 'p:big',   personName: 'Big',   trackCount: 9 },
         ]);
@@ -404,7 +399,7 @@ describe('computeDonutSlices', () => {
 
     test('all-zero weights → equal slices fallback (sorted stable by index)', () => {
         const stub = makeStub();
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:a', personName: 'A', trackCount: 0 },
             { personId: 'p:b', personName: 'B', trackCount: 0 },
             { personId: 'p:c', personName: 'C', trackCount: 0 },
@@ -417,7 +412,7 @@ describe('computeDonutSlices', () => {
 
     test('NaN/negative weights coerced to 0', () => {
         const stub = makeStub();
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:nan', trackCount: 'not-a-number' },
             { personId: 'p:neg', trackCount: -3 },
             { personId: 'p:ok',  trackCount: 4 },
@@ -432,7 +427,7 @@ describe('computeDonutSlices', () => {
 
     test('falls back to colorPalette.getColor when member.color absent', () => {
         const stub = makeStub({ palette: id => `#palette:${id}` });
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:1', trackCount: 1 },               // no color → palette
             { personId: 'p:2', trackCount: 1, color: '#fff' },// explicit color
         ]);
@@ -444,7 +439,7 @@ describe('computeDonutSlices', () => {
 
     test('slice angles cover exactly 2π starting at -π/2', () => {
         const stub = makeStub();
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:1', trackCount: 2 },
             { personId: 'p:2', trackCount: 3 },
             { personId: 'p:3', trackCount: 5 },
@@ -460,7 +455,7 @@ describe('computeDonutSlices', () => {
 
     test('stable sort tie-break: equal weights preserve original index order', () => {
         const stub = makeStub();
-        const slices = compileMethod('computeDonutSlices').call(stub, [
+        const slices = compileMethod('computeSlices').call(stub, [
             { personId: 'p:first',  trackCount: 5 },
             { personId: 'p:second', trackCount: 5 },
             { personId: 'p:third',  trackCount: 5 },
@@ -470,96 +465,92 @@ describe('computeDonutSlices', () => {
 });
 
 // ---------------------------------------------------------------------------
-// _prePopulateDonutData
+// prePopulateData(participation)
 // ---------------------------------------------------------------------------
 
-describe('_prePopulateDonutData', () => {
-    test('no participation map → early return, no plot', () => {
-        const stub = makeStub({ initialParticipation: undefined });
-        compileMethod('_prePopulateDonutData').call(stub);
-        expect(stub.ht.plot).not.toHaveBeenCalled();
-        expect(stub.ht.graph.eachNode).not.toHaveBeenCalled();
+describe('prePopulateData', () => {
+    test('no participation map → early return, no plot, no eachNode', () => {
+        const stub = makeStub();
+        compileMethod('prePopulateData').call(stub, undefined);
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.eachNode).not.toHaveBeenCalled();
     });
 
-    test('no ht → early return', () => {
-        const stub = makeStub({ initialParticipation: { 'g:1': { members: [] } } });
-        stub.ht = null;
-        // Must not throw.
-        expect(() => compileMethod('_prePopulateDonutData').call(stub)).not.toThrow();
+    test('null participation → early return', () => {
+        const stub = makeStub();
+        compileMethod('prePopulateData').call(stub, null);
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.eachNode).not.toHaveBeenCalled();
     });
 
     test('skips non-group nodes', () => {
         const personNode = makeNode({ id: 'p:1', type: 'person' });
         const trackNode  = makeNode({ id: 't:1', type: 'track' });
         const stub = makeStub({
-            initialParticipation: { 'p:1': { members: [{ personId: 'x', trackCount: 1 }] } },
             eachNodeImpl: cb => { cb(personNode); cb(trackNode); },
         });
-        compileMethod('_prePopulateDonutData').call(stub);
+        compileMethod('prePopulateData').call(stub, {
+            'p:1': { members: [{ personId: 'x', trackCount: 1 }] },
+        });
         expect(personNode.setData).not.toHaveBeenCalled();
         expect(trackNode.setData).not.toHaveBeenCalled();
-        expect(stub.ht.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
     });
 
     test('group node with participation entry → setData(donutSlices, donutStatus="ready"), plot', () => {
         const groupNode = makeNode({ id: 'g:1', type: 'group', group_id: 'g:1' });
         const stub = makeStub({
-            initialParticipation: {
-                'g:1': { members: [{ personId: 'p:1', trackCount: 1 }] },
-            },
             eachNodeImpl: cb => { cb(groupNode); },
         });
-        compileMethod('_prePopulateDonutData').call(stub);
+        compileMethod('prePopulateData').call(stub, {
+            'g:1': { members: [{ personId: 'p:1', trackCount: 1 }] },
+        });
         expect(groupNode.setData).toHaveBeenCalledWith('donutSlices', expect.any(Array));
         expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
-        expect(stub.ht.plot).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.plot).toHaveBeenCalledTimes(1);
     });
 
     test('group node falls back to node.id when group_id missing', () => {
         const groupNode = makeNode({ id: 'fallback:id', type: 'group', group_id: undefined });
         const stub = makeStub({
-            initialParticipation: {
-                'fallback:id': { members: [{ personId: 'p:1', trackCount: 1 }] },
-            },
             eachNodeImpl: cb => { cb(groupNode); },
         });
-        compileMethod('_prePopulateDonutData').call(stub);
+        compileMethod('prePopulateData').call(stub, {
+            'fallback:id': { members: [{ personId: 'p:1', trackCount: 1 }] },
+        });
         expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
     });
 
     test('group node missing from participation map → skipped (no setData, no plot)', () => {
         const groupNode = makeNode({ id: 'g:absent', type: 'group', group_id: 'g:absent' });
         const stub = makeStub({
-            initialParticipation: { 'g:other': { members: [] } },
             eachNodeImpl: cb => { cb(groupNode); },
         });
-        compileMethod('_prePopulateDonutData').call(stub);
+        compileMethod('prePopulateData').call(stub, { 'g:other': { members: [] } });
         expect(groupNode.setData).not.toHaveBeenCalled();
-        expect(stub.ht.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
     });
 
     test('group node with no members → skipped', () => {
         const groupNode = makeNode({ id: 'g:nomembers', type: 'group', group_id: 'g:nomembers' });
         const stub = makeStub({
-            initialParticipation: { 'g:nomembers': { /* no members */ } },
             eachNodeImpl: cb => { cb(groupNode); },
         });
-        compileMethod('_prePopulateDonutData').call(stub);
+        compileMethod('prePopulateData').call(stub, { 'g:nomembers': { /* no members */ } });
         expect(groupNode.setData).not.toHaveBeenCalled();
-        expect(stub.ht.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
     });
 
     test('plot called once even when multiple groups pre-populated', () => {
         const g1 = makeNode({ id: 'g:1', type: 'group', group_id: 'g:1' });
         const g2 = makeNode({ id: 'g:2', type: 'group', group_id: 'g:2' });
         const stub = makeStub({
-            initialParticipation: {
-                'g:1': { members: [{ personId: 'p', trackCount: 1 }] },
-                'g:2': { members: [{ personId: 'q', trackCount: 1 }] },
-            },
             eachNodeImpl: cb => { cb(g1); cb(g2); },
         });
-        compileMethod('_prePopulateDonutData').call(stub);
-        expect(stub.ht.plot).toHaveBeenCalledTimes(1);
+        compileMethod('prePopulateData').call(stub, {
+            'g:1': { members: [{ personId: 'p', trackCount: 1 }] },
+            'g:2': { members: [{ personId: 'q', trackCount: 1 }] },
+        });
+        expect(stub.callbacks.plot).toHaveBeenCalledTimes(1);
     });
 });

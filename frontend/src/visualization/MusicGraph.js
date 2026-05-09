@@ -21,6 +21,7 @@ import { InfoPanelRenderer } from './InfoPanelRenderer.js';
 import { OverlayPositioner } from './OverlayPositioner.js';
 import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
+import { DonutLoader } from './DonutLoader.js';
 import { api as backendApi } from '../utils/api.js';
 
 export class MusicGraph {
@@ -76,11 +77,17 @@ export class MusicGraph {
         this.historyPanelOpen = false;
         this.curatePanelOpen = false;
 
-        // Concurrency-limited donut fetch queue (for on-demand loading)
-        this._donutQueue = [];
-        this._activeDonutLoads = 0;
-        this._maxConcurrentDonutLoads = 4;
-        this._donutStats = { started: 0, succeeded: 0, failed: 0 };
+        // Concurrency-limited donut fetch queue (for on-demand loading).
+        // `this.ht` is set by initializeHypertree() below; the callbacks
+        // close over `this`, so they read the live reference at call time.
+        this.donut = new DonutLoader({
+            api: this.api,
+            colorPalette: this.colorPalette,
+            callbacks: {
+                plot: () => this.ht?.plot(),
+                eachNode: (cb) => this.ht?.graph?.eachNode(cb),
+            },
+        });
 
         // Image cache for node photos (keyed by URL)
         this._imageCache = new Map();
@@ -118,7 +125,7 @@ export class MusicGraph {
                 refresh: () => this.ht.refresh(),
                 syncZoomSlider: () => this.syncZoomSlider(),
                 updateHistoryCount: () => this.updateHistoryCount(),
-                prePopulateDonutData: () => this._prePopulateDonutData(),
+                prePopulateDonutData: () => this.donut.prePopulateData(this.loader._initialParticipation),
             },
         });
     }
@@ -695,114 +702,12 @@ export class MusicGraph {
             const donutStatus = node.getData('donutStatus');
             if (!donutStatus) {
                 node.setData('donutStatus', 'loading');
-                this.enqueueDonutLoad(node);
+                this.donut.enqueue(node);
             }
         } else {
             // All other nodes use circle-hover
             node.setData('type', 'circle-hover');
         }
-    }
-
-    /**
-     * Enqueue a group node for donut data loading via the concurrency-limited queue.
-     * Prevents thundering-herd when many group nodes need participation data.
-     */
-    enqueueDonutLoad(node) {
-        this._donutQueue.push(node);
-        this._processDonutQueue();
-    }
-
-    /**
-     * Process the donut fetch queue, respecting the concurrency limit.
-     */
-    _processDonutQueue() {
-        while (this._donutQueue.length > 0 && this._activeDonutLoads < this._maxConcurrentDonutLoads) {
-            const node = this._donutQueue.shift();
-            this._activeDonutLoads++;
-            this._donutStats.started++;
-            this._loadDonutDataSingle(node);
-        }
-    }
-
-    /**
-     * Load participation data for a single group node.
-     * Called by the queue processor; decrements active count on completion.
-     */
-    async _loadDonutDataSingle(node) {
-        const groupId = node.data.group_id || node.id;
-        try {
-            const data = await this.api.fetchGroupParticipation(groupId);
-            const slices = this.computeDonutSlices(data.members || []);
-            node.setData('donutSlices', slices);
-            node.setData('donutStatus', 'ready');
-            this._donutStats.succeeded++;
-            // Trigger redraw so the ring appears
-            if (this.ht) {
-                this.ht.plot();
-            }
-        } catch (error) {
-            console.error(`Failed to load donut data for ${groupId}:`, error);
-            node.setData('donutStatus', 'error');
-            this._donutStats.failed++;
-        } finally {
-            this._activeDonutLoads--;
-            this._processDonutQueue();
-            // Log stats when queue drains
-            if (this._activeDonutLoads === 0 && this._donutQueue.length === 0) {
-                console.log('Donut load stats:', { ...this._donutStats });
-            }
-        }
-    }
-
-    /**
-     * Compute donut slice angles from backend member participation data.
-     *
-     * @param {Array} members - Backend members array (personId, personName, trackCount, trackPctOfGroupTracks)
-     * @returns {Array} Slice descriptors with begin/end angles, color, and metadata
-     */
-    computeDonutSlices(members) {
-        if (!members || members.length === 0) return [];
-
-        // Sanitise weights: coerce to finite non-negative numbers
-        const weights = members.map(m => {
-            const v = Number(m.trackCount ?? 0);
-            return Number.isFinite(v) && v > 0 ? v : 0;
-        });
-
-        let totalWeight = weights.reduce((a, b) => a + b, 0);
-
-        // Fallback: if all weights are 0 but members exist, draw equal slices
-        const useEqualSlices = totalWeight <= 0;
-        if (useEqualSlices) {
-            totalWeight = members.length; // each member gets weight = 1
-        }
-
-        // Sort descending by weight (stable by index for equal slices)
-        const indexed = members.map((m, i) => ({ m, w: useEqualSlices ? 1 : weights[i], i }));
-        indexed.sort((a, b) => b.w - a.w || a.i - b.i);
-
-        const slices = [];
-        let angle = -Math.PI / 2; // Start at top
-
-        for (const { m, w } of indexed) {
-            const weightNormalized = w / totalWeight;
-            const sliceAngle = weightNormalized * 2 * Math.PI;
-
-            slices.push({
-                begin: angle,
-                end: angle + sliceAngle,
-                color: m.color || this.colorPalette.getColor(m.personId),
-                personId: m.personId,
-                personName: m.personName,
-                trackCount: m.trackCount,
-                trackPctOfGroupTracks: m.trackPctOfGroupTracks,
-                weightNormalized: weightNormalized
-            });
-
-            angle += sliceAngle;
-        }
-
-        return slices;
     }
 
     /**
@@ -1389,39 +1294,6 @@ export class MusicGraph {
             }
         });
     }
-
-    /**
-     * Pre-populate donut slice data on group nodes from the initial response's
-     * participation map. This avoids firing one HTTP request per group during
-     * the first render pass.
-     */
-    _prePopulateDonutData() {
-        const participation = this.loader._initialParticipation;
-        if (!participation || !this.ht) return;
-
-        let prePopulated = 0;
-        const graph = this.ht.graph;
-        graph.eachNode(node => {
-            const nodeType = (node.data.type || '').toLowerCase();
-            if (nodeType !== 'group') return;
-
-            const groupId = node.data.group_id || node.id;
-            const pData = participation[groupId];
-            if (!pData || !pData.members) return;
-
-            const slices = this.computeDonutSlices(pData.members);
-            node.setData('donutSlices', slices);
-            node.setData('donutStatus', 'ready');
-            prePopulated++;
-        });
-
-        console.log(`Donut data pre-populated for ${prePopulated} groups`);
-
-        if (prePopulated > 0) {
-            this.ht.plot();
-        }
-    }
-
 
     // ========== View controls (wired from visualization.html) ==========
 

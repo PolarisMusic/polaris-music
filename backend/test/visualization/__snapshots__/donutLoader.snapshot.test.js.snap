@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`computeDonutSlices all-zero weights → equal slices fallback (sorted stable by index) 1`] = `
+exports[`computeSlices all-zero weights → equal slices fallback (sorted stable by index) 1`] = `
 [
   {
     "begin": -1.5707963267948966,
@@ -35,7 +35,7 @@ exports[`computeDonutSlices all-zero weights → equal slices fallback (sorted s
 ]
 `;
 
-exports[`computeDonutSlices single member → one full-circle slice from -π/2 1`] = `
+exports[`computeSlices single member → one full-circle slice from -π/2 1`] = `
 [
   {
     "begin": -1.5707963267948966,
@@ -50,7 +50,7 @@ exports[`computeDonutSlices single member → one full-circle slice from -π/2 1
 ]
 `;
 
-exports[`computeDonutSlices two members sorted descending by trackCount 1`] = `
+exports[`computeSlices two members sorted descending by trackCount 1`] = `
 [
   {
     "begin": -1.5707963267948966,
