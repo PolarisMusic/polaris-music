@@ -59,6 +59,72 @@ jobs:
           echo "::warning::Bundle size exceeds 10MB"
         fi
 
+    # CSP regression net for the production HTML. Validates that the strict
+    # CSP at frontend/visualization.html is honored after vite-build:
+    # no inline scripts, no unsafe-eval/unsafe-inline in script-src, all
+    # script srcs same-origin. Lives in the backend Jest suite so we
+    # install backend deps too. Only runs on the most recent node matrix
+    # leg to avoid duplicate work.
+    - name: Install backend deps (for CSP test runner)
+      if: matrix.node-version == '20.x'
+      working-directory: backend
+      run: npm ci
+
+    - name: Static CSP audit on dist/
+      if: matrix.node-version == '20.x'
+      working-directory: backend
+      run: node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js test/frontend/dist-csp.test.js
+
+  e2e:
+    # Runtime CSP regression. Loads dist/visualization.html under headless
+    # Chromium and asserts no securitypolicyviolation events fire. Static
+    # counterpart in `test` job catches inline-script/CSP-shape regressions
+    # without browsers; this layer catches violations at load-time (e.g. a
+    # third-party script suddenly using eval). Skipped on push (run on PRs
+    # only) — and skippable entirely via `FRONTEND_E2E_SKIP=true` for fork
+    # / sandbox environments where the playwright browser download fails.
+    name: E2E (Playwright CSP)
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: 20.x
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend deps
+      working-directory: frontend
+      run: npm ci
+
+    - name: Install Playwright Chromium
+      working-directory: frontend
+      run: npx playwright install --with-deps chromium
+
+    - name: Build production bundle
+      working-directory: frontend
+      run: npm run build
+
+    - name: Run Playwright tests
+      working-directory: frontend
+      run: npx playwright test
+      env:
+        CI: 'true'
+
+    - name: Upload Playwright report on failure
+      if: failure()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: playwright-report
+        path: frontend/playwright-report/
+        retention-days: 7
+
   build:
     name: Build Frontend Docker Image
     runs-on: ubuntu-latest
