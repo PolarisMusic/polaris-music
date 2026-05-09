@@ -8,6 +8,7 @@
  */
 
 import { createLogger } from '../utils/logger.js';
+import { safeClose } from '../graph/safeTx.js';
 
 const logger = createLogger('playerService');
 
@@ -198,7 +199,7 @@ export class PlayerService {
 
             return { context, queue };
         } finally {
-            await session.close();
+            await safeClose(session);
         }
     }
 
@@ -249,7 +250,7 @@ export class PlayerService {
 
             return { context, queue };
         } finally {
-            await session.close();
+            await safeClose(session);
         }
     }
 
@@ -315,7 +316,7 @@ export class PlayerService {
 
             return { context, queue };
         } finally {
-            await session.close();
+            await safeClose(session);
         }
     }
 

@@ -13,6 +13,7 @@
 import express from 'express';
 import { IdentityService, EntityType, IDKind } from '../../identity/idService.js';
 import { MergeOperations } from '../../graph/merge.js';
+import { safeClose } from '../../graph/safeTx.js';
 import { getDevSigner } from '../../crypto/devSigner.js';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
 
@@ -450,7 +451,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 });
 
             } finally {
-                await session.close();
+                await safeClose(session);
             }
 
         } catch (error) {
@@ -499,7 +500,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                         info.resolves_to = canonicalId;
                     }
                 } finally {
-                    await session.close();
+                    await safeClose(session);
                 }
             }
 

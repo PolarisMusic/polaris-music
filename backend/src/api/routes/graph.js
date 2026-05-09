@@ -12,6 +12,7 @@
 import express from 'express';
 import neo4j from 'neo4j-driver';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
+import { safeClose } from '../../graph/safeTx.js';
 
 /**
  * @param {Object} ctx
@@ -120,7 +121,7 @@ export function createGraphRoutes({ db, config }) {
                     participation: participation
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Initial graph failed:', error);
@@ -318,7 +319,7 @@ export function createGraphRoutes({ db, config }) {
                     edges
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Neighborhood fetch failed:', error);

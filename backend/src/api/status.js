@@ -9,6 +9,7 @@
 
 import fetch from 'node-fetch';
 import { createLogger } from '../utils/logger.js';
+import { safeClose } from '../graph/safeTx.js';
 
 const log = createLogger('api.status');
 
@@ -184,7 +185,7 @@ export async function getStatus({ eventStore, neo4jDriver, redisClient, pinningP
                     await session.run('RETURN 1');
                     status.services.neo4j.ok = true;
                 } finally {
-                    await session.close();
+                    await safeClose(session);
                 }
             }
         } catch (error) {

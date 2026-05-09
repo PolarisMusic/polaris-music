@@ -1596,7 +1596,7 @@ constructor(config = {}) {
                     `, {
                         labelId,
                         cityId: label.origin_city.city_id ||
-                               this.generateProvisionalId('city', label.origin_city),
+                               this.generateProvisionalIdNew('city', label.origin_city),
                         cityName: label.origin_city.name,
                         cityLat: label.origin_city.lat,
                         cityLon: label.origin_city.lon

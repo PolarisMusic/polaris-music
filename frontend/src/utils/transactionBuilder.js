@@ -5,7 +5,6 @@
  * for submission via WharfKit
  */
 
-import CryptoJS from 'crypto-js';
 import { CONTRACT_ACCOUNT } from '../config/chain.js';
 
 export class TransactionBuilder {
@@ -43,53 +42,6 @@ export class TransactionBuilder {
         };
 
         return event;
-    }
-
-    /**
-     * @deprecated DO NOT CALL. Unused on the on-chain hash path —
-     * the backend computes the canonical hash via /api/events/prepare
-     * (`EventStore.calculateHash` → `fast-json-stable-stringify`).
-     * This method's `canonicalizeJSON` would produce different bytes
-     * for `undefined`, array holes, and `toJSON`-bearing objects than
-     * the backend would. See docs/canonicalization-divergence.md.
-     * Calling this and submitting the resulting hash via
-     * `expected_hash` would cause `/api/events/create` to reject the
-     * event with "Hash mismatch". Retained pending Stage J cleanup.
-     */
-    calculateEventHash(event) {
-        // Canonicalize the event (deterministic JSON)
-        const canonical = this.canonicalizeJSON(event);
-
-        // Calculate SHA-256 hash
-        const hash = CryptoJS.SHA256(canonical);
-        return hash.toString(CryptoJS.enc.Hex);
-    }
-
-    /**
-     * @deprecated Used only by the deprecated `calculateEventHash`.
-     * See header above and docs/canonicalization-divergence.md.
-     */
-    canonicalizeJSON(obj) {
-        // Sort keys recursively and stringify
-        const sortedObj = this.sortKeysDeep(obj);
-        return JSON.stringify(sortedObj);
-    }
-
-    /**
-     * @deprecated Helper for the deprecated `canonicalizeJSON`.
-     */
-    sortKeysDeep(obj) {
-        if (Array.isArray(obj)) {
-            return obj.map(item => this.sortKeysDeep(item));
-        } else if (obj !== null && typeof obj === 'object') {
-            return Object.keys(obj)
-                .sort()
-                .reduce((result, key) => {
-                    result[key] = this.sortKeysDeep(obj[key]);
-                    return result;
-                }, {});
-        }
-        return obj;
     }
 
     /**

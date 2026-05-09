@@ -11,6 +11,7 @@
  */
 
 import neo4j from 'neo4j-driver';
+import { safeClose } from '../graph/safeTx.js';
 
 // Labels eligible for search
 const SEARCHABLE_LABELS = ['Person', 'Group', 'Release', 'Track', 'Song', 'Label', 'City'];
@@ -150,7 +151,7 @@ export class NodeSearchService {
 
             return this._mergeResults(idResults, textResults, limit);
         } finally {
-            await session.close();
+            await safeClose(session);
         }
     }
 
