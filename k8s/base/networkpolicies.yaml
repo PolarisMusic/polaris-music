@@ -134,6 +134,21 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
+  # External HTTPS — the API makes blockchain RPC calls (RPC_URL),
+  # IPFS gateway lookups (IPFS_GATEWAY), and may call the substreams
+  # endpoint. Mirrors the processor egress block above. Today (additive
+  # mode) this is documentation; once default-deny lands, narrow this
+  # CIDR to the specific RPC / gateway provider IPs.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
 
 ---
 # -----------------------------------------------------------------------------
