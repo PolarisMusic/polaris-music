@@ -2,28 +2,24 @@
  * @jest-environment jsdom
  *
  * Stage K — Characterization snapshots for the three info-panel render
- * methods that stayed on MusicGraph after Stage J.
+ * methods originally on MusicGraph and now extracted into InfoPanelRenderer.
  *
  * Locks the DOM output of `renderGroupDetails`, `renderPersonDetails`,
- * and `renderReleaseDetails` so the upcoming move into InfoPanelRenderer
- * (Stage K.2) can be verified as a no-op move.
+ * and `renderReleaseDetails`. Tests were written against the unextracted
+ * methods on MusicGraph (PR-K1) and updated in PR-K2 to point at
+ * InfoPanelRenderer.js. The methods were also DOM-builder migrated as
+ * part of K2 (consistent with PR-L's InfoPanelRenderer rewrite); the
+ * snapshots updated for whitespace text-node normalization, all tag/
+ * attribute/text content byte-identical.
  *
- * Strategy mirrors the Stage H / J.x tests: AST-based source extraction +
- * `new Function(...)` compilation + isolated invoke. We re-read
- * MusicGraph.js on every run; any drift in a method body surfaces as a
- * snapshot diff.
+ * The group/person renderers call:
+ *   this.inlineEditor.editableRowHtml(...)        → HTML fragment string
+ *                                                   (inserted via insertAdjacentHTML)
+ *   this.inlineEditor.attach(container)
+ *   this.callbacks.attachNavLinkListeners(container)
  *
- * Notable differences from the existing musicGraphRenders snapshots
- * (which target InfoPanelRenderer):
- *   - These render methods use a hand-rolled `esc()` helper that only
- *     escapes &, <, " (NOT >). That asymmetry is a quirk of the current
- *     code and the snapshots lock it byte-for-byte. The K.2 extraction
- *     must preserve that quirk; switching to InfoPanelRenderer's
- *     `escapeHtml` (which uses textContent and escapes >) would diverge.
- *   - The group/person renderers call into `this.inlineEditor` (for
- *     edit-button HTML and listener wiring) and `this._attachNavLinkListeners`.
- *     The release renderer calls neither — it has no editable fields and
- *     no nav links yet.
+ * The release renderer doesn't touch inlineEditor or nav-link listeners
+ * (no editable fields, no nav links).
  */
 
 import { jest } from '@jest/globals';
@@ -34,7 +30,7 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
+const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/InfoPanelRenderer.js');
 const SOURCE = readFileSync(SOURCE_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
@@ -62,7 +58,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in InfoPanelRenderer.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -85,7 +81,11 @@ function compileMethod(name) {
 //   this.inlineEditor.editableRowHtml(type, id, field, value, label, isTextarea?)
 //                                              → HTML string for an edit button
 //   this.inlineEditor.attach(container)        → no-op in tests (spied)
-//   this._attachNavLinkListeners(container)    → no-op in tests (spied)
+//   this.callbacks.attachNavLinkListeners(container) → no-op in tests (spied)
+//   this._el(tag, attrs, ...children)          → DOM-builder helper (compiled
+//                                               from live source)
+//   this._appendEditableRow(parent, ...args)   → insertAdjacentHTML wrapper
+//                                               around editableRowHtml (compiled)
 //
 // editableRowHtml stub returns a deterministic placeholder so snapshots
 // don't churn against InlineEditor's exact HTML format. The placeholder
@@ -103,10 +103,16 @@ function makeStub() {
             }),
             attach: jest.fn(),
         },
-        _attachNavLinkListeners: jest.fn(),
+        callbacks: {
+            attachNavLinkListeners: jest.fn(),
+        },
         // Visible inspection points for tests that don't snapshot.
         _editorCalls: editorCalls,
     };
+    // Intra-cluster bindings — compile from live source so any drift in
+    // _el / _appendEditableRow flows through to the snapshot layer.
+    stub._el = compileMethod('_el').bind(stub);
+    stub._appendEditableRow = compileMethod('_appendEditableRow').bind(stub);
     return stub;
 }
 
@@ -172,7 +178,7 @@ describe('Stage K · renderGroupDetails', () => {
 
         // Sanity: editor + nav-link wiring fired exactly once each.
         expect(stub.inlineEditor.attach).toHaveBeenCalledWith(contentElement);
-        expect(stub._attachNavLinkListeners).toHaveBeenCalledWith(contentElement);
+        expect(stub.callbacks.attachNavLinkListeners).toHaveBeenCalledWith(contentElement);
 
         // editableRowHtml was called for: photo, formed_date, disbanded_date, bio, trivia (5 times)
         expect(stub._editorCalls.map(c => c.field)).toEqual([
@@ -279,7 +285,7 @@ describe('Stage K · renderPersonDetails', () => {
         expect(contentElement.innerHTML).toMatchSnapshot();
 
         expect(stub.inlineEditor.attach).toHaveBeenCalledWith(contentElement);
-        expect(stub._attachNavLinkListeners).toHaveBeenCalledWith(contentElement);
+        expect(stub.callbacks.attachNavLinkListeners).toHaveBeenCalledWith(contentElement);
         expect(stub._editorCalls.map(c => c.field)).toEqual([
             'photo', 'city', 'bio', 'trivia'
         ]);
@@ -350,7 +356,7 @@ describe('Stage K · renderReleaseDetails', () => {
 
         // Release renderer does NOT touch inlineEditor.attach or nav-link listeners.
         expect(stub.inlineEditor.attach).not.toHaveBeenCalled();
-        expect(stub._attachNavLinkListeners).not.toHaveBeenCalled();
+        expect(stub.callbacks.attachNavLinkListeners).not.toHaveBeenCalled();
         expect(stub._editorCalls).toEqual([]);
     });
 
