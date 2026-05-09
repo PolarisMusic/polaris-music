@@ -1,27 +1,29 @@
 /**
  * @jest-environment jsdom
  *
- * Inline editor characterization tests (precursor to InlineEditor extraction).
+ * InlineEditor characterization tests.
  *
- * The inline-editor cluster currently lives on MusicGraph and owns:
- *   - `_editableRow(nodeType, nodeId, field, currentValue, label, isTextarea)`
- *                                         → HTML string with a .edit-btn
- *   - `_attachEditListeners(container)`   → click handlers on .edit-btn
- *   - `_openInlineEditor(btn, nodeType, nodeId, field, currentValue,
- *                        useTextarea)`    → replace button with input/textarea
+ * The inline-editor cluster (originally on MusicGraph) was extracted
+ * into `frontend/src/visualization/InlineEditor.js`. The class owns:
+ *   - `editableRowHtml(nodeType, nodeId, field, currentValue, label,
+ *                      isTextarea)`        → HTML string with a .edit-btn
+ *   - `attach(container)`                  → wires both edit-btn and
+ *                                            color-picker listeners
+ *   - `attachEditListeners(container)`     → click handlers on .edit-btn
+ *   - `openInlineEditor(btn, nodeType, nodeId, field, currentValue,
+ *                       useTextarea)`      → replace button with input/textarea
  *                                            + Save / Cancel
- *   - `_attachColorPickerListeners(container)` → change handlers on
- *                                                .color-picker-input
+ *   - `attachColorPickerListeners(container)` → change handlers on
+ *                                                 .color-picker-input
  *
- * The cluster is the densest of the three remaining MusicGraph clusters
- * because it touches ClaimManager (network), the JIT graph (visual
- * feedback), the raw-graph cache (so merges don't revert color edits),
- * and the info panel (refresh after save).
+ * The cluster is the densest of the J-series because it touches
+ * ClaimManager (network), the JIT graph (visual feedback), the
+ * raw-graph cache (so merges don't revert color edits), and the info
+ * panel (refresh after save).
  *
- * These tests lock current behavior so the upcoming extraction into
- * `InlineEditor.js` can be verified as a no-op move. The next PR
- * updates the source path and (likely) renames `_attachEditListeners` →
- * `attachEditListeners` etc.; assertions stay byte-identical.
+ * These tests were written against the unextracted methods (still on
+ * MusicGraph) and updated in-PR with the move; the snapshot and
+ * behavioral assertions are byte-identical across the extraction.
  *
  * Strategy mirrors Stage J.2 / J.3 / J.4 tests: AST-based source
  * extraction + `new Function(...)` compilation + isolated invoke.
@@ -35,7 +37,7 @@ import { parse } from '@babel/parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/MusicGraph.js');
+const SOURCE_PATH = resolve(__dirname, '../../../frontend/src/visualization/InlineEditor.js');
 const SOURCE = readFileSync(SOURCE_PATH, 'utf8');
 
 // ---------------------------------------------------------------------------
@@ -63,7 +65,7 @@ const METHOD_INDEX = (() => {
 
 function extractMethod(name) {
     const node = METHOD_INDEX.get(name);
-    if (!node) throw new Error(`extractMethod: ${name} not found in MusicGraph.js`);
+    if (!node) throw new Error(`extractMethod: ${name} not found in InlineEditor.js`);
     const params = node.params.map(p => SOURCE.slice(p.start, p.end)).join(', ');
     const body = SOURCE.slice(node.body.start + 1, node.body.end - 1);
     const isAsync = !!node.async;
@@ -103,21 +105,21 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Stub `this` builder. The methods reach into:
 //   this.claimManager.submitEdit(nodeType, nodeId, field, value)  async
-//   this.selectedNode                       JIT node | null
-//   this.updateInfoPanel(node)              async; called after save
-//   this.ht.plot()                          redraw after color change
-//   this.loader.rawGraph                    {nodes:[{id,color,...}]} | null
+//   this.callbacks.getSelectedNode()        → JIT node | null
+//   this.callbacks.refreshInfoPanel(node)   async; called after save
+//   this.callbacks.plot()                   redraw after color change
+//   this.callbacks.patchRawGraphColor(id, color) cache patch
 // Intra-cluster delegations:
-//   this._attachEditListeners(container)    re-attach after replace
-//   this._openInlineEditor(...)             called from edit-btn click
+//   this.attachEditListeners(container)     re-attach after replace
+//   this.openInlineEditor(...)              called from edit-btn click
 // ---------------------------------------------------------------------------
 
 function makeStub({
     submitEdit,
     selectedNode = null,
-    updateInfoPanel = jest.fn(async () => {}),
+    refreshInfoPanel = jest.fn(async () => {}),
     plot = jest.fn(),
-    rawGraph = null,
+    patchRawGraphColor = jest.fn(),
 } = {}) {
     const stub = {
         claimManager: {
@@ -125,22 +127,24 @@ function makeStub({
                 ? jest.fn(submitEdit)
                 : jest.fn(async () => {}),
         },
-        selectedNode,
-        updateInfoPanel: jest.fn(updateInfoPanel),
-        ht: { plot },
-        loader: { rawGraph },
+        callbacks: {
+            getSelectedNode: jest.fn(() => selectedNode),
+            refreshInfoPanel: jest.fn(refreshInfoPanel),
+            plot,
+            patchRawGraphColor: jest.fn(patchRawGraphColor),
+        },
     };
     // Intra-cluster bindings — compile from live source.
-    stub._attachEditListeners        = compileMethod('_attachEditListeners').bind(stub);
-    stub._openInlineEditor           = compileMethod('_openInlineEditor').bind(stub);
-    stub._attachColorPickerListeners = compileMethod('_attachColorPickerListeners').bind(stub);
+    stub.attachEditListeners        = compileMethod('attachEditListeners').bind(stub);
+    stub.openInlineEditor           = compileMethod('openInlineEditor').bind(stub);
+    stub.attachColorPickerListeners = compileMethod('attachColorPickerListeners').bind(stub);
     return stub;
 }
 
 // Render a row + button into a container so tests can poke real DOM.
 function renderRow(stub, { nodeType = 'person', nodeId = 'p:1', field = 'bio', currentValue = 'old text', label = 'Bio', isTextarea = false } = {}) {
     const container = document.createElement('div');
-    container.innerHTML = compileMethod('_editableRow').call(
+    container.innerHTML = compileMethod('editableRowHtml').call(
         stub, nodeType, nodeId, field, currentValue, label, isTextarea
     );
     document.body.appendChild(container);
@@ -156,12 +160,13 @@ function flushMicrotasks() {
 // Drift guard.
 // ---------------------------------------------------------------------------
 
-describe('Inline editor · drift guard', () => {
+describe('InlineEditor · drift guard', () => {
     test.each([
-        ['_editableRow',                '(nodeType, nodeId, field, currentValue, label, isTextarea = false)'],
-        ['_attachEditListeners',        '(container)'],
-        ['_openInlineEditor',           '(btn, nodeType, nodeId, field, currentValue, useTextarea)'],
-        ['_attachColorPickerListeners', '(container)'],
+        ['editableRowHtml',             '(nodeType, nodeId, field, currentValue, label, isTextarea = false)'],
+        ['attach',                      '(container)'],
+        ['attachEditListeners',         '(container)'],
+        ['openInlineEditor',            '(btn, nodeType, nodeId, field, currentValue, useTextarea)'],
+        ['attachColorPickerListeners',  '(container)'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -169,10 +174,8 @@ describe('Inline editor · drift guard', () => {
         expect(actual).toBe(expected);
     });
 
-    test('only _openInlineEditor is non-async at the outer signature; save/cancel handlers are async internally', () => {
-        // None of the four outer methods are declared async — async is in
-        // the click handlers they install.
-        for (const name of ['_editableRow', '_attachEditListeners', '_openInlineEditor', '_attachColorPickerListeners']) {
+    test('outer methods are not declared async; save/cancel handlers are async internally', () => {
+        for (const name of ['editableRowHtml', 'attach', 'attachEditListeners', 'openInlineEditor', 'attachColorPickerListeners']) {
             expect(extractMethod(name).isAsync).toBe(false);
         }
     });
@@ -182,10 +185,10 @@ describe('Inline editor · drift guard', () => {
 // _editableRow — HTML output snapshot
 // ---------------------------------------------------------------------------
 
-describe('_editableRow', () => {
+describe('editableRowHtml', () => {
     test('input variant (isTextarea=false) → snapshot', () => {
         const stub = makeStub();
-        const html = compileMethod('_editableRow').call(
+        const html = compileMethod('editableRowHtml').call(
             stub, 'person', 'p:42', 'bio', 'Hello "world" & co. <em>', 'Biography'
         );
         expect(html).toMatchSnapshot();
@@ -193,7 +196,7 @@ describe('_editableRow', () => {
 
     test('textarea variant (isTextarea=true) → data-textarea="true"', () => {
         const stub = makeStub();
-        const html = compileMethod('_editableRow').call(
+        const html = compileMethod('editableRowHtml').call(
             stub, 'group', 'g:1', 'description', 'desc', 'Description', true
         );
         expect(html).toContain('data-textarea="true"');
@@ -201,7 +204,7 @@ describe('_editableRow', () => {
 
     test('escapes &, <, " in attributes (note: > is intentionally NOT escaped)', () => {
         const stub = makeStub();
-        const html = compileMethod('_editableRow').call(
+        const html = compileMethod('editableRowHtml').call(
             stub, 'person', 'p:&<"', 'name', 'value with "quotes" & <tags>', 'L'
         );
         // The esc helper used by _editableRow only encodes &, <, "
@@ -212,7 +215,7 @@ describe('_editableRow', () => {
 
     test('null/undefined currentValue coerced to empty string', () => {
         const stub = makeStub();
-        const html = compileMethod('_editableRow').call(
+        const html = compileMethod('editableRowHtml').call(
             stub, 'person', 'p:1', 'bio', null, 'Bio'
         );
         expect(html).toContain('data-current-value=""');
@@ -223,23 +226,56 @@ describe('_editableRow', () => {
 // _attachEditListeners
 // ---------------------------------------------------------------------------
 
-describe('_attachEditListeners', () => {
+describe('attach (combined entry point)', () => {
+    test('wires both edit-btn and color-picker listeners in one call', async () => {
+        const selectedNode = { id: 'p:1', setData: jest.fn() };
+        const stub = makeStub({ selectedNode });
+        const openSpy = jest.fn();
+        stub.openInlineEditor = openSpy;
+
+        // Build a container that has both an edit row and a color row.
+        const container = document.createElement('div');
+        container.innerHTML =
+            compileMethod('editableRowHtml').call(stub, 'person', 'p:1', 'bio', 'old', 'Bio') +
+            `<div class="info-color-row">
+                <span class="info-color-swatch"></span>
+                <span class="info-color-hex"></span>
+                <input type="color" class="color-picker-input" data-node-id="p:1" value="#000000" />
+            </div>`;
+        document.body.appendChild(container);
+
+        compileMethod('attach').call(stub, container);
+
+        // Edit listener wired.
+        container.querySelector('.edit-btn').click();
+        expect(openSpy).toHaveBeenCalledTimes(1);
+
+        // Color listener wired.
+        const picker = container.querySelector('.color-picker-input');
+        picker.value = '#ff00ff';
+        picker.dispatchEvent(new Event('change'));
+        await flushMicrotasks();
+        expect(stub.claimManager.submitEdit).toHaveBeenCalledWith('person', 'p:1', 'color', '#ff00ff');
+    });
+});
+
+describe('attachEditListeners', () => {
     test('empty container → no-op', () => {
         const stub = makeStub();
         const container = document.createElement('div');
         document.body.appendChild(container);
         expect(() =>
-            compileMethod('_attachEditListeners').call(stub, container)
+            compileMethod('attachEditListeners').call(stub, container)
         ).not.toThrow();
     });
 
     test('click on .edit-btn → calls _openInlineEditor with row dataset', () => {
         const stub = makeStub();
         const openSpy = jest.fn();
-        stub._openInlineEditor = openSpy;
+        stub.openInlineEditor = openSpy;
 
         const container = renderRow(stub, { nodeType: 'person', nodeId: 'p:1', field: 'bio', currentValue: 'old', label: 'Bio', isTextarea: true });
-        compileMethod('_attachEditListeners').call(stub, container);
+        compileMethod('attachEditListeners').call(stub, container);
 
         const btn = container.querySelector('.edit-btn');
         btn.click();
@@ -257,14 +293,14 @@ describe('_attachEditListeners', () => {
     test('attaches one listener per .edit-btn (multiple buttons)', () => {
         const stub = makeStub();
         const openSpy = jest.fn();
-        stub._openInlineEditor = openSpy;
+        stub.openInlineEditor = openSpy;
 
         const container = document.createElement('div');
         container.innerHTML =
-            compileMethod('_editableRow').call(stub, 'person', 'p:1', 'bio', 'a', 'Bio') +
-            compileMethod('_editableRow').call(stub, 'person', 'p:2', 'bio', 'b', 'Bio');
+            compileMethod('editableRowHtml').call(stub, 'person', 'p:1', 'bio', 'a', 'Bio') +
+            compileMethod('editableRowHtml').call(stub, 'person', 'p:2', 'bio', 'b', 'Bio');
         document.body.appendChild(container);
-        compileMethod('_attachEditListeners').call(stub, container);
+        compileMethod('attachEditListeners').call(stub, container);
 
         const buttons = container.querySelectorAll('.edit-btn');
         expect(buttons.length).toBe(2);
@@ -278,13 +314,13 @@ describe('_attachEditListeners', () => {
 // _openInlineEditor
 // ---------------------------------------------------------------------------
 
-describe('_openInlineEditor', () => {
+describe('openInlineEditor', () => {
     test('input variant → replaces button with wrapper containing input + Save + Cancel', () => {
         const stub = makeStub();
         const container = renderRow(stub, { isTextarea: false });
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
 
         const wrapper = container.querySelector('.inline-edit-wrapper');
         expect(wrapper).toBeTruthy();
@@ -301,7 +337,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub);
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', true);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', true);
 
         expect(container.querySelector('textarea.inline-edit-input')).toBeTruthy();
         expect(container.querySelector('input.inline-edit-input')).toBeNull();
@@ -312,7 +348,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub);
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
 
         const cancel = container.querySelector('.inline-edit-cancel');
         cancel.click();
@@ -332,7 +368,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub, { currentValue: 'same' });
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'same', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'same', false);
         // Don't change the input value.
         const save = container.querySelector('.inline-edit-save');
         save.click();
@@ -352,7 +388,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub, { currentValue: 'old' });
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
         const input = container.querySelector('.inline-edit-input');
         input.value = 'new';
         const save = container.querySelector('.inline-edit-save');
@@ -360,7 +396,7 @@ describe('_openInlineEditor', () => {
         await flushMicrotasks();
 
         expect(stub.claimManager.submitEdit).toHaveBeenCalledWith('person', 'p:1', 'bio', 'new');
-        expect(stub.updateInfoPanel).toHaveBeenCalledWith(selectedNode);
+        expect(stub.callbacks.refreshInfoPanel).toHaveBeenCalledWith(selectedNode);
     });
 
     test('Save: button shows "Saving..." while submitEdit is in flight', async () => {
@@ -372,7 +408,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub, { currentValue: 'old' });
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
         const input = container.querySelector('.inline-edit-input');
         input.value = 'new';
         const save = container.querySelector('.inline-edit-save');
@@ -391,7 +427,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub, { currentValue: 'old' });
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
         const input = container.querySelector('.inline-edit-input');
         input.value = 'new';
         const save = container.querySelector('.inline-edit-save');
@@ -399,7 +435,7 @@ describe('_openInlineEditor', () => {
         await flushMicrotasks();
 
         expect(stub.claimManager.submitEdit).toHaveBeenCalled();
-        expect(stub.updateInfoPanel).not.toHaveBeenCalled();
+        expect(stub.callbacks.refreshInfoPanel).not.toHaveBeenCalled();
     });
 
     test('Save error → restores button, re-attaches listeners, alert + console.error', async () => {
@@ -410,7 +446,7 @@ describe('_openInlineEditor', () => {
         const container = renderRow(stub, { currentValue: 'old' });
         const btn = container.querySelector('.edit-btn');
 
-        compileMethod('_openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
+        compileMethod('openInlineEditor').call(stub, btn, 'person', 'p:1', 'bio', 'old', false);
         const input = container.querySelector('.inline-edit-input');
         input.value = 'new';
         const save = container.querySelector('.inline-edit-save');
@@ -445,20 +481,20 @@ function makeColorRow(stub, { nodeId = 'p:1', initialColor = '#888888' } = {}) {
     return container;
 }
 
-describe('_attachColorPickerListeners', () => {
+describe('attachColorPickerListeners', () => {
     test('empty container → no-op', () => {
         const stub = makeStub();
         const container = document.createElement('div');
         document.body.appendChild(container);
         expect(() =>
-            compileMethod('_attachColorPickerListeners').call(stub, container)
+            compileMethod('attachColorPickerListeners').call(stub, container)
         ).not.toThrow();
     });
 
     test('change → submits via claimManager with correct args', async () => {
         const stub = makeStub();
         const container = makeColorRow(stub, { nodeId: 'p:abc' });
-        compileMethod('_attachColorPickerListeners').call(stub, container);
+        compileMethod('attachColorPickerListeners').call(stub, container);
 
         const picker = container.querySelector('.color-picker-input');
         picker.value = '#ff00ff';
@@ -468,17 +504,14 @@ describe('_attachColorPickerListeners', () => {
         expect(stub.claimManager.submitEdit).toHaveBeenCalledWith('person', 'p:abc', 'color', '#ff00ff');
     });
 
-    test('change updates swatch + hex display, sets node color, plots, patches rawGraph', async () => {
+    test('change updates swatch + hex display, sets node color, plots, calls patchRawGraphColor callback', async () => {
         const selectedNode = {
             id: 'p:abc',
             setData: jest.fn(),
         };
-        const rawGraph = {
-            nodes: [{ id: 'p:abc', color: '#888888' }, { id: 'p:other', color: '#000' }],
-        };
-        const stub = makeStub({ selectedNode, rawGraph });
+        const stub = makeStub({ selectedNode });
         const container = makeColorRow(stub, { nodeId: 'p:abc' });
-        compileMethod('_attachColorPickerListeners').call(stub, container);
+        compileMethod('attachColorPickerListeners').call(stub, container);
 
         const picker = container.querySelector('.color-picker-input');
         picker.value = '#ff00ff';
@@ -493,18 +526,16 @@ describe('_attachColorPickerListeners', () => {
 
         // JIT node color update + redraw.
         expect(selectedNode.setData).toHaveBeenCalledWith('color', '#ff00ff');
-        expect(stub.ht.plot).toHaveBeenCalledTimes(1);
+        expect(stub.callbacks.plot).toHaveBeenCalledTimes(1);
 
-        // rawGraph patched in place — only the matching node mutates.
-        expect(rawGraph.nodes[0].color).toBe('#ff00ff');
-        expect(rawGraph.nodes[1].color).toBe('#000');
+        // rawGraph patch deferred to host (MusicGraph) via callback.
+        expect(stub.callbacks.patchRawGraphColor).toHaveBeenCalledWith('p:abc', '#ff00ff');
     });
 
-    test('change with NO selectedNode → still submits + updates DOM, no setData/plot', async () => {
-        const rawGraph = { nodes: [{ id: 'p:abc', color: '#888' }] };
-        const stub = makeStub({ selectedNode: null, rawGraph });
+    test('change with NO selectedNode → still submits + updates DOM + patches, no setData/plot', async () => {
+        const stub = makeStub({ selectedNode: null });
         const container = makeColorRow(stub, { nodeId: 'p:abc' });
-        compileMethod('_attachColorPickerListeners').call(stub, container);
+        compileMethod('attachColorPickerListeners').call(stub, container);
 
         const picker = container.querySelector('.color-picker-input');
         picker.value = '#abcdef';
@@ -512,36 +543,8 @@ describe('_attachColorPickerListeners', () => {
         await flushMicrotasks();
 
         expect(stub.claimManager.submitEdit).toHaveBeenCalled();
-        expect(stub.ht.plot).not.toHaveBeenCalled();
-        expect(rawGraph.nodes[0].color).toBe('#abcdef');
-    });
-
-    test('change with rawGraph=null → does not throw, no patch', async () => {
-        const stub = makeStub({ rawGraph: null });
-        const container = makeColorRow(stub);
-        compileMethod('_attachColorPickerListeners').call(stub, container);
-
-        const picker = container.querySelector('.color-picker-input');
-        picker.value = '#aaaaaa';
-        picker.dispatchEvent(new Event('change'));
-        await flushMicrotasks();
-
-        expect(stub.claimManager.submitEdit).toHaveBeenCalled();
-    });
-
-    test('change with rawGraph that lacks the node → does not throw, no patch', async () => {
-        const rawGraph = { nodes: [{ id: 'p:other', color: '#000' }] };
-        const stub = makeStub({ rawGraph });
-        const container = makeColorRow(stub, { nodeId: 'p:abc' });
-        compileMethod('_attachColorPickerListeners').call(stub, container);
-
-        const picker = container.querySelector('.color-picker-input');
-        picker.value = '#aaaaaa';
-        picker.dispatchEvent(new Event('change'));
-        await flushMicrotasks();
-
-        expect(stub.claimManager.submitEdit).toHaveBeenCalled();
-        expect(rawGraph.nodes[0].color).toBe('#000'); // unchanged
+        expect(stub.callbacks.plot).not.toHaveBeenCalled();
+        expect(stub.callbacks.patchRawGraphColor).toHaveBeenCalledWith('p:abc', '#abcdef');
     });
 
     test('submitEdit error → console.error + alert, no DOM mutation propagates', async () => {
@@ -549,7 +552,7 @@ describe('_attachColorPickerListeners', () => {
             submitEdit: async () => { throw new Error('boom'); },
         });
         const container = makeColorRow(stub);
-        compileMethod('_attachColorPickerListeners').call(stub, container);
+        compileMethod('attachColorPickerListeners').call(stub, container);
 
         const picker = container.querySelector('.color-picker-input');
         picker.value = '#deadbe';
