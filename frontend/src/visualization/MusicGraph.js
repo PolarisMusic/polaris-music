@@ -44,11 +44,33 @@ export class MusicGraph {
             onReleaseSelect: (details) => this._onOverlayReleaseSelect(details),
             onGuestClick: (personId) => this.navigateToNodeId(personId)
         });
+        // InlineEditor must be constructed BEFORE InfoPanelRenderer because
+        // renderGroupDetails / renderPersonDetails (now on InfoPanelRenderer)
+        // call this.inlineEditor.editableRowHtml + .attach. All InlineEditor
+        // callbacks resolve lazily (this.ht / this.loader / this.selectedNode
+        // are set later in this same ctor).
+        this.inlineEditor = new InlineEditor({
+            claimManager: this.claimManager,
+            callbacks: {
+                getSelectedNode: () => this.selectedNode,
+                refreshInfoPanel: (node) => this.updateInfoPanel(node),
+                plot: () => this.ht?.plot(),
+                patchRawGraphColor: (nodeId, color) => {
+                    const raw = this.loader?.rawGraph;
+                    if (!raw || !raw.nodes) return;
+                    const rawNode = raw.nodes.find(n => n.id === nodeId);
+                    if (rawNode) rawNode.color = color;
+                },
+            },
+        });
         this.infoPanel = new InfoPanelRenderer({
-            attachNavLinkListeners: (container) => this._attachNavLinkListeners(container),
-            navigateToRelease: (releaseId) => this._navigateToRelease(releaseId),
-            selectCurateOperation: (op) => this._selectCurateOperation(op),
-            voteFromDetail: (op, val) => this._curateVoteFromDetail(op, val)
+            inlineEditor: this.inlineEditor,
+            callbacks: {
+                attachNavLinkListeners: (container) => this._attachNavLinkListeners(container),
+                navigateToRelease: (releaseId) => this._navigateToRelease(releaseId),
+                selectCurateOperation: (op) => this._selectCurateOperation(op),
+                voteFromDetail: (op, val) => this._curateVoteFromDetail(op, val),
+            },
         });
         this.overlayPositioner = new OverlayPositioner({
             releaseOverlay: this.releaseOverlay,
@@ -108,23 +130,6 @@ export class MusicGraph {
             callbacks: {
                 plot: () => this.ht?.plot(),
                 updateOverlayPosition: () => this.overlayPositioner.updateOverlayPosition(),
-            },
-        });
-
-        // Inline editor (edit-button + color-picker flows). All callbacks
-        // resolve lazily — `this.ht` and `this.loader` are set later.
-        this.inlineEditor = new InlineEditor({
-            claimManager: this.claimManager,
-            callbacks: {
-                getSelectedNode: () => this.selectedNode,
-                refreshInfoPanel: (node) => this.updateInfoPanel(node),
-                plot: () => this.ht?.plot(),
-                patchRawGraphColor: (nodeId, color) => {
-                    const raw = this.loader?.rawGraph;
-                    if (!raw || !raw.nodes) return;
-                    const rawNode = raw.nodes.find(n => n.id === nodeId);
-                    if (rawNode) rawNode.color = color;
-                },
             },
         });
 
@@ -819,9 +824,9 @@ export class MusicGraph {
 
             const typeLower = type.toLowerCase();
             if (typeLower === 'group') {
-                this.renderGroupDetails(details, infoTitle, infoContent, nodeId);
+                this.infoPanel.renderGroupDetails(details, infoTitle, infoContent, nodeId);
             } else if (typeLower === 'person') {
-                this.renderPersonDetails(details, infoTitle, infoContent, nodeId);
+                this.infoPanel.renderPersonDetails(details, infoTitle, infoContent, nodeId);
             } else {
                 infoContent.innerHTML = `<p><strong>Type:</strong> ${type}</p>`;
             }
@@ -829,123 +834,6 @@ export class MusicGraph {
             console.error('Error fetching node details:', error);
             infoContent.innerHTML = '<p>Error loading details</p>';
         }
-    }
-
-    /**
-     * Render Group details in info panel
-     */
-    renderGroupDetails(group, titleElement, contentElement, nodeId) {
-        titleElement.textContent = group.name || group.group_name || 'Unknown Group';
-
-        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        let html = '';
-
-        if (group.photo) {
-            html += `<div class="info-photo"><img src="${esc(group.photo)}" alt="${esc(group.name)}" /></div>`;
-        }
-        html += this.inlineEditor.editableRowHtml('group', nodeId, 'photo', group.photo || '', 'Photo URL');
-
-        const formed = group.formed_date || '';
-        const disbanded = group.disbanded_date || 'present';
-        if (formed) {
-            html += `<p class="info-meta"><strong>Active:</strong> ${esc(formed)}\u2013${esc(disbanded)}</p>`;
-        }
-
-        // Show inferred active range from release dates when claimed dates are missing
-        const inferFirst = group.inferred_first_release_date;
-        const inferLast = group.inferred_last_release_date;
-        if (inferFirst && !formed) {
-            const inferRange = inferLast && inferLast !== inferFirst
-                ? `${esc(inferFirst)}\u2013${esc(inferLast)}`
-                : esc(inferFirst);
-            html += `<p class="info-meta info-inferred"><strong>Active (from releases):</strong> ${inferRange}</p>`;
-        }
-        html += this.inlineEditor.editableRowHtml('group', nodeId, 'formed_date', formed, 'Formed');
-        html += this.inlineEditor.editableRowHtml('group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
-
-        if (group.members && group.members.length > 0) {
-            html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
-            group.members.forEach(member => {
-                const role = member.role || '';
-                const personId = member.person_id || '';
-                if (personId) {
-                    html += `<li><a href="#" class="info-nav-link" data-node-id="${esc(personId)}"><strong>${esc(member.person)}</strong></a>${role ? ` - ${esc(role)}` : ''}</li>`;
-                } else {
-                    html += `<li><strong>${esc(member.person)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
-                }
-            });
-            html += `</ul></div>`;
-        }
-
-        if (group.bio || group.description) {
-            html += `<div class="info-section"><h4>Biography</h4><p>${esc(group.bio || group.description)}</p></div>`;
-        }
-        html += this.inlineEditor.editableRowHtml('group', nodeId, 'bio', group.bio || group.description || '', 'Biography', true);
-
-        if (group.trivia) {
-            html += `<div class="info-section"><h4>Trivia</h4><p>${esc(group.trivia)}</p></div>`;
-        }
-        html += this.inlineEditor.editableRowHtml('group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
-
-        contentElement.innerHTML = html;
-        this.inlineEditor.attach(contentElement);
-        this._attachNavLinkListeners(contentElement);
-    }
-
-    /**
-     * Render Person details in info panel
-     */
-    renderPersonDetails(person, titleElement, contentElement, nodeId) {
-        titleElement.textContent = person.name || person.person_name || 'Unknown Person';
-
-        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        let html = '';
-
-        if (person.photo) {
-            html += `<div class="info-photo"><img src="${esc(person.photo)}" alt="${esc(person.name)}" /></div>`;
-        }
-        html += this.inlineEditor.editableRowHtml('person', nodeId, 'photo', person.photo || '', 'Photo URL');
-
-        const currentColor = person.color || '#888888';
-        html += `<div class="info-color-row">
-            <strong>Color:</strong>
-            <span class="info-color-swatch" style="background:${esc(currentColor)}"></span>
-            <span class="info-color-hex">${esc(currentColor)}</span>
-            <input type="color" class="color-picker-input" data-node-id="${esc(nodeId)}" value="${esc(currentColor)}" title="Edit color" />
-        </div>`;
-
-        if (person.city) {
-            html += `<p class="info-meta"><strong>Location:</strong> ${esc(person.city)}</p>`;
-        }
-        html += this.inlineEditor.editableRowHtml('person', nodeId, 'city', person.city || '', 'City');
-
-        if (person.groups && person.groups.length > 0) {
-            html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
-            person.groups.forEach(group => {
-                const role = group.role || '';
-                const groupId = group.group_id || '';
-                if (groupId) {
-                    html += `<li><a href="#" class="info-nav-link" data-node-id="${esc(groupId)}"><strong>${esc(group.group)}</strong></a>${role ? ` - ${esc(role)}` : ''}</li>`;
-                } else {
-                    html += `<li><strong>${esc(group.group)}</strong>${role ? ` - ${esc(role)}` : ''}</li>`;
-                }
-            });
-            html += `</ul></div>`;
-        }
-
-        if (person.bio) {
-            html += `<div class="info-section"><h4>Biography</h4><p>${esc(person.bio)}</p></div>`;
-        }
-        html += this.inlineEditor.editableRowHtml('person', nodeId, 'bio', person.bio || '', 'Biography', true);
-
-        if (person.trivia) {
-            html += `<div class="info-section"><h4>Trivia</h4><p>${esc(person.trivia)}</p></div>`;
-        }
-        html += this.inlineEditor.editableRowHtml('person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
-
-        contentElement.innerHTML = html;
-        this.inlineEditor.attach(contentElement);
-        this._attachNavLinkListeners(contentElement);
     }
 
     // ========== Release orbit overlay integration ==========
@@ -995,88 +883,7 @@ export class MusicGraph {
             return;
         }
 
-        this.showReleaseDetailsInInfoPanel(releaseDetails);
-    }
-
-    /**
-     * Display release details in the info viewer (called from overlay).
-     * @param {Object} release - Release details from API
-     */
-    showReleaseDetailsInInfoPanel(release) {
-        const infoTitle = document.getElementById('info-title');
-        const infoContent = document.getElementById('info-content');
-        if (!infoTitle || !infoContent) return;
-
-        this.renderReleaseDetails(release, infoTitle, infoContent);
-    }
-
-    /**
-     * Render Release details in info panel
-     */
-    renderReleaseDetails(release, titleElement, contentElement) {
-        titleElement.textContent = release.name || 'Unknown Release';
-
-        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        let html = '';
-
-        if (release.album_art) {
-            html += `<div class="info-photo"><img src="${esc(release.album_art)}" alt="${esc(release.name)}" /></div>`;
-        }
-
-        if (release.release_date) {
-            html += `<p class="info-meta"><strong>Released:</strong> ${esc(release.release_date)}</p>`;
-        }
-
-        if (release.format) {
-            html += `<p class="info-meta"><strong>Format:</strong> ${esc(release.format)}</p>`;
-        }
-
-        // Labels
-        if (release.labels && release.labels.length > 0) {
-            html += `<p class="info-meta"><strong>Label:</strong> ${release.labels.map(l => esc(l.label || l.name)).join(', ')}</p>`;
-        }
-
-        // Groups
-        if (release.groups && release.groups.length > 0) {
-            html += `<div class="info-section"><h4>Performed by</h4><ul class="info-list">`;
-            release.groups.forEach(g => {
-                html += `<li><strong>${esc(g.name)}</strong></li>`;
-            });
-            html += `</ul></div>`;
-        }
-
-        // Tracks
-        if (release.tracks && release.tracks.length > 0) {
-            html += `<div class="info-section"><h4>Tracks</h4><ol class="info-list info-tracklist">`;
-            const sorted = [...release.tracks].sort((a, b) => {
-                const da = (a.disc_number || 1);
-                const db = (b.disc_number || 1);
-                if (da !== db) return da - db;
-                return (a.track_number || 0) - (b.track_number || 0);
-            });
-            sorted.forEach(t => {
-                const side = t.side ? `${esc(t.side)}-` : '';
-                const num = t.track_number ? `${side}${t.track_number}. ` : '';
-                html += `<li>${num}${esc(t.track || t.title || 'Untitled')}</li>`;
-            });
-            html += `</ol></div>`;
-        }
-
-        // Guests
-        if (release.guests && release.guests.length > 0) {
-            html += `<div class="info-section"><h4>Guests</h4><ul class="info-list">`;
-            release.guests.forEach(g => {
-                const roles = g.roles && g.roles.length > 0 ? ` - ${g.roles.map(r => esc(r)).join(', ')}` : '';
-                html += `<li><strong>${esc(g.name)}</strong>${roles}</li>`;
-            });
-            html += `</ul></div>`;
-        }
-
-        if (release.liner_notes) {
-            html += `<div class="info-section"><h4>Liner Notes</h4><p>${esc(release.liner_notes)}</p></div>`;
-        }
-
-        contentElement.innerHTML = html;
+        this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
     }
 
     /**
@@ -1381,7 +1188,7 @@ export class MusicGraph {
             if (groups.length === 0) {
                 console.warn('No groups found for release:', releaseId);
                 // Fall back to showing release details in info panel
-                this.showReleaseDetailsInInfoPanel(release);
+                this.infoPanel.showReleaseDetailsInInfoPanel(release);
                 return;
             }
 
@@ -1467,7 +1274,7 @@ export class MusicGraph {
                 this.releaseOverlay.selectRelease(releaseId, releaseDetails);
 
                 // Show release details in info panel
-                this.showReleaseDetailsInInfoPanel(releaseDetails);
+                this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
             }
         });
     }

@@ -21,6 +21,10 @@
  *
  * Public API:
  *   renderSongDetails(song, titleElement, contentElement)
+ *   renderGroupDetails(group, titleElement, contentElement, nodeId)
+ *   renderPersonDetails(person, titleElement, contentElement, nodeId)
+ *   renderReleaseDetails(release, titleElement, contentElement)
+ *   showReleaseDetailsInInfoPanel(release)              entry from overlay
  *   renderCurateRow(op)                             → HTMLElement
  *   renderCurateDetail(container, resp, op)
  *   renderReleaseBundleDetail(container, detail)
@@ -35,16 +39,21 @@
 
 export class InfoPanelRenderer {
     /**
-     * @param {Object} callbacks
-     * @param {(container: Element) => void} callbacks.attachNavLinkListeners
-     *   Wire `.info-nav-link` clicks to graph navigation. Lives on MusicGraph
-     *   because it's also used by render methods that haven't been moved here
-     *   (renderGroupDetails, renderPersonDetails).
-     * @param {(releaseId: string) => void} callbacks.navigateToRelease
-     * @param {(op: Object) => void} callbacks.selectCurateOperation
-     * @param {(op: Object, val: number) => void} callbacks.voteFromDetail
+     * @param {Object} deps
+     * @param {Object} deps.inlineEditor
+     *   InlineEditor instance — used by renderGroupDetails / renderPersonDetails
+     *   for the per-field edit buttons + the post-render listener wiring.
+     * @param {Object} deps.callbacks
+     * @param {(container: Element) => void} deps.callbacks.attachNavLinkListeners
+     *   Wire `.info-nav-link` clicks to graph navigation. Stays as a callback
+     *   because the implementation lives on MusicGraph (it calls into JIT
+     *   navigation which the renderer doesn't own).
+     * @param {(releaseId: string) => void} deps.callbacks.navigateToRelease
+     * @param {(op: Object) => void} deps.callbacks.selectCurateOperation
+     * @param {(op: Object, val: number) => void} deps.callbacks.voteFromDetail
      */
-    constructor(callbacks) {
+    constructor({ inlineEditor, callbacks }) {
+        this.inlineEditor = inlineEditor;
         this.callbacks = callbacks;
     }
 
@@ -167,6 +176,242 @@ export class InfoPanelRenderer {
                 if (releaseId) this.callbacks.navigateToRelease(releaseId);
             });
         });
+    }
+
+    /**
+     * Append the InlineEditor's edit-button HTML to a parent element.
+     * editableRowHtml returns a trusted, internally-escaped fragment;
+     * insertAdjacentHTML is the right pass-through (it's not user data).
+     */
+    _appendEditableRow(parent, ...args) {
+        parent.insertAdjacentHTML('beforeend', this.inlineEditor.editableRowHtml(...args));
+    }
+
+    /**
+     * Render Group details in info panel.
+     */
+    renderGroupDetails(group, titleElement, contentElement, nodeId) {
+        titleElement.textContent = group.name || group.group_name || 'Unknown Group';
+        contentElement.replaceChildren();
+
+        if (group.photo) {
+            contentElement.appendChild(this._el('div', { className: 'info-photo' },
+                this._el('img', { src: group.photo, alt: group.name })));
+        }
+        this._appendEditableRow(contentElement, 'group', nodeId, 'photo', group.photo || '', 'Photo URL');
+
+        const formed = group.formed_date || '';
+        const disbanded = group.disbanded_date || 'present';
+        if (formed) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Active:'), ` ${formed}–${disbanded}`));
+        }
+
+        // Show inferred active range from release dates when claimed dates are missing
+        const inferFirst = group.inferred_first_release_date;
+        const inferLast = group.inferred_last_release_date;
+        if (inferFirst && !formed) {
+            const inferRange = inferLast && inferLast !== inferFirst
+                ? `${inferFirst}–${inferLast}`
+                : inferFirst;
+            contentElement.appendChild(this._el('p', { className: 'info-meta info-inferred' },
+                this._el('strong', null, 'Active (from releases):'), ' ', inferRange));
+        }
+        this._appendEditableRow(contentElement, 'group', nodeId, 'formed_date', formed, 'Formed');
+        this._appendEditableRow(contentElement, 'group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
+
+        if (group.members && group.members.length > 0) {
+            const list = this._el('ul', { className: 'info-list' });
+            for (const member of group.members) {
+                const role = member.role || '';
+                const personId = member.person_id || '';
+                const name = personId
+                    ? this._el('a', {
+                        href: '#', className: 'info-nav-link', 'data-node-id': personId,
+                    }, this._el('strong', null, member.person))
+                    : this._el('strong', null, member.person);
+                const roleSuffix = role ? ` - ${role}` : null;
+                list.appendChild(this._el('li', null, name, roleSuffix));
+            }
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Members'), list));
+        }
+
+        if (group.bio || group.description) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Biography'),
+                this._el('p', null, group.bio || group.description)));
+        }
+        this._appendEditableRow(contentElement, 'group', nodeId, 'bio', group.bio || group.description || '', 'Biography', true);
+
+        if (group.trivia) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Trivia'),
+                this._el('p', null, group.trivia)));
+        }
+        this._appendEditableRow(contentElement, 'group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
+
+        this.inlineEditor.attach(contentElement);
+        this.callbacks.attachNavLinkListeners(contentElement);
+    }
+
+    /**
+     * Render Person details in info panel.
+     */
+    renderPersonDetails(person, titleElement, contentElement, nodeId) {
+        titleElement.textContent = person.name || person.person_name || 'Unknown Person';
+        contentElement.replaceChildren();
+
+        if (person.photo) {
+            contentElement.appendChild(this._el('div', { className: 'info-photo' },
+                this._el('img', { src: person.photo, alt: person.name })));
+        }
+        this._appendEditableRow(contentElement, 'person', nodeId, 'photo', person.photo || '', 'Photo URL');
+
+        const currentColor = person.color || '#888888';
+        contentElement.appendChild(this._el('div', { className: 'info-color-row' },
+            this._el('strong', null, 'Color:'),
+            this._el('span', {
+                className: 'info-color-swatch',
+                style: `background:${currentColor}`,
+            }),
+            this._el('span', { className: 'info-color-hex' }, currentColor),
+            this._el('input', {
+                type: 'color',
+                className: 'color-picker-input',
+                'data-node-id': nodeId,
+                value: currentColor,
+                title: 'Edit color',
+            })));
+
+        if (person.city) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Location:'), ' ', person.city));
+        }
+        this._appendEditableRow(contentElement, 'person', nodeId, 'city', person.city || '', 'City');
+
+        if (person.groups && person.groups.length > 0) {
+            const list = this._el('ul', { className: 'info-list' });
+            for (const grp of person.groups) {
+                const role = grp.role || '';
+                const groupId = grp.group_id || '';
+                const name = groupId
+                    ? this._el('a', {
+                        href: '#', className: 'info-nav-link', 'data-node-id': groupId,
+                    }, this._el('strong', null, grp.group))
+                    : this._el('strong', null, grp.group);
+                const roleSuffix = role ? ` - ${role}` : null;
+                list.appendChild(this._el('li', null, name, roleSuffix));
+            }
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Groups'), list));
+        }
+
+        if (person.bio) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Biography'),
+                this._el('p', null, person.bio)));
+        }
+        this._appendEditableRow(contentElement, 'person', nodeId, 'bio', person.bio || '', 'Biography', true);
+
+        if (person.trivia) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Trivia'),
+                this._el('p', null, person.trivia)));
+        }
+        this._appendEditableRow(contentElement, 'person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
+
+        this.inlineEditor.attach(contentElement);
+        this.callbacks.attachNavLinkListeners(contentElement);
+    }
+
+    /**
+     * Display release details in the info viewer (called from overlay).
+     * Reads the `#info-title` and `#info-content` elements directly.
+     */
+    showReleaseDetailsInInfoPanel(release) {
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+        if (!infoTitle || !infoContent) return;
+        this.renderReleaseDetails(release, infoTitle, infoContent);
+    }
+
+    /**
+     * Render Release details in info panel.
+     */
+    renderReleaseDetails(release, titleElement, contentElement) {
+        titleElement.textContent = release.name || 'Unknown Release';
+        contentElement.replaceChildren();
+
+        if (release.album_art) {
+            contentElement.appendChild(this._el('div', { className: 'info-photo' },
+                this._el('img', { src: release.album_art, alt: release.name })));
+        }
+
+        if (release.release_date) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Released:'), ' ', release.release_date));
+        }
+
+        if (release.format) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Format:'), ' ', release.format));
+        }
+
+        // Labels
+        if (release.labels && release.labels.length > 0) {
+            const labelText = release.labels.map(l => l.label || l.name).join(', ');
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Label:'), ' ', labelText));
+        }
+
+        // Groups
+        if (release.groups && release.groups.length > 0) {
+            const list = this._el('ul', { className: 'info-list' });
+            for (const g of release.groups) {
+                list.appendChild(this._el('li', null, this._el('strong', null, g.name)));
+            }
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Performed by'), list));
+        }
+
+        // Tracks
+        if (release.tracks && release.tracks.length > 0) {
+            const list = this._el('ol', { className: 'info-list info-tracklist' });
+            const sorted = [...release.tracks].sort((a, b) => {
+                const da = (a.disc_number || 1);
+                const db = (b.disc_number || 1);
+                if (da !== db) return da - db;
+                return (a.track_number || 0) - (b.track_number || 0);
+            });
+            for (const t of sorted) {
+                const side = t.side ? `${t.side}-` : '';
+                const num = t.track_number ? `${side}${t.track_number}. ` : '';
+                list.appendChild(this._el('li', null, `${num}${t.track || t.title || 'Untitled'}`));
+            }
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Tracks'), list));
+        }
+
+        // Guests
+        if (release.guests && release.guests.length > 0) {
+            const list = this._el('ul', { className: 'info-list' });
+            for (const g of release.guests) {
+                const roles = g.roles && g.roles.length > 0
+                    ? ` - ${g.roles.join(', ')}`
+                    : null;
+                list.appendChild(this._el('li', null,
+                    this._el('strong', null, g.name), roles));
+            }
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Guests'), list));
+        }
+
+        if (release.liner_notes) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Liner Notes'),
+                this._el('p', null, release.liner_notes)));
+        }
     }
 
     renderCurateRow(op) {
