@@ -15,11 +15,30 @@ spec:
       labels:
         app: processor
     spec:
+      # Stage G hardening: dedicated SA, no K8s API access required.
+      # Same backend image as api -> uid/gid 1000 (`node`).
+      serviceAccountName: processor-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: processor
         image: polaris/backend:latest
         imagePullPolicy: Always
         command: ["npm", "run", "processor"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem intentionally OMITTED: same reason as api
+          # (npm runtime writes to /tmp + cache). Re-enable after writable
+          # emptyDir mounts are in place and verified in kind.
         env:
         # From ConfigMap
         - name: NODE_ENV

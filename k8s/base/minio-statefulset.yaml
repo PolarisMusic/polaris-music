@@ -34,9 +34,26 @@ spec:
       labels:
         app: minio
     spec:
+      # Stage G hardening: dedicated SA, no K8s API access.
+      # minio/minio + minio/mc both run as uid/gid 1000.
+      serviceAccountName: minio-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
       - name: create-bucket
         image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem omitted: mc writes config to ~/.mc.
         command:
         - /bin/sh
         - -c
@@ -59,6 +76,14 @@ spec:
       containers:
       - name: minio
         image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem intentionally OMITTED: MinIO writes a config
+          # cache under ~/.minio in addition to the /data PVC. Stateful workload
+          # — keep RW per Stage G scope.
         args:
         - server
         - /data

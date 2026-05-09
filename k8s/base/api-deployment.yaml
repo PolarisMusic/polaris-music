@@ -33,10 +33,30 @@ spec:
       labels:
         app: api
     spec:
+      # Stage G hardening: per-workload SA (no K8s API perms) + non-root pod context.
+      # node:20-alpine ships a `node` user at uid/gid 1000.
+      serviceAccountName: api-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: api
         image: polaris/backend:latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem intentionally OMITTED: backend image runs `npm`
+          # which writes to /tmp and may write to /app/node_modules cache paths.
+          # Re-enable after adding writable emptyDir mounts for /tmp + npm cache
+          # and verifying in kind. Tracked for follow-up PR.
         ports:
         - containerPort: 3000
           name: http

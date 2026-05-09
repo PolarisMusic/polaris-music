@@ -1,0 +1,83 @@
+# Stage G hardening — per-workload ServiceAccounts.
+#
+# Every workload gets its own SA so that (a) audit logs attribute API calls
+# correctly and (b) blast radius is bounded if one pod is compromised.
+#
+# None of the Polaris workloads currently need to talk to the Kubernetes API
+# (no leader election, no CRD watches, no secret reads via the API). So we
+# create SAs WITHOUT any associated Role/RoleBinding — they default to "system
+# anonymous" privileges (i.e. nothing). The Deployments/StatefulSets also set
+# `automountServiceAccountToken: false` to ensure the token isn't mounted.
+#
+# If a workload later needs API access, add a Role + RoleBinding scoped to the
+# `polaris` namespace with the minimum verbs needed, and re-enable token
+# automount on that workload only.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-sa
+  namespace: polaris
+  labels:
+    app: api
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: processor-sa
+  namespace: polaris
+  labels:
+    app: processor
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend-sa
+  namespace: polaris
+  labels:
+    app: frontend
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: neo4j-sa
+  namespace: polaris
+  labels:
+    app: neo4j
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-sa
+  namespace: polaris
+  labels:
+    app: redis
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ipfs-sa
+  namespace: polaris
+  labels:
+    app: ipfs
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-sa
+  namespace: polaris
+  labels:
+    app: minio
+automountServiceAccountToken: false
