@@ -5,7 +5,6 @@
 
 import { FormBuilder } from './components/FormBuilder.js';
 import { FormLookupManager } from './components/FormLookupManager.js';
-import { HashGenerator } from './utils/hashGenerator.js';
 import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
 import { TransactionBuilder } from './utils/transactionBuilder.js';

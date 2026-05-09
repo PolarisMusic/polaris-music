@@ -16,6 +16,7 @@ import rateLimit from 'express-rate-limit';
 import { graphqlHTTP } from 'express-graphql';
 import { timingSafeEqual } from 'crypto';
 import { createLogger, generateRequestId } from '../../utils/logger.js';
+import { sanitizeError } from '../../utils/errorSanitizer.js';
 
 /**
  * Install helmet, cors, JSON body parser, and the request-id / structured
@@ -206,10 +207,17 @@ export function installErrorHandling(app) {
     app.use((err, req, res, next) => {
         console.error('Unhandled error:', err);
 
-        res.status(err.status || 500).json({
+        const status = err.status || 500;
+        if (status >= 500) {
+            // Server errors: sanitize so we don't leak internals to clients
+            // even in prod. sanitizeError adds dev-only detail/stack.
+            return res.status(status).json(sanitizeError(err, req.requestId, { success: false }));
+        }
+
+        // Client errors (4xx): err.message is user-facing by design.
+        res.status(status).json({
             success: false,
-            error: err.message || 'Internal server error',
-            ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+            error: err.message || 'Bad request'
         });
     });
 }
