@@ -21,6 +21,9 @@ import { InfoPanelRenderer } from './InfoPanelRenderer.js';
 import { OverlayPositioner } from './OverlayPositioner.js';
 import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
+import { DonutLoader } from './DonutLoader.js';
+import { PanController } from './PanController.js';
+import { InlineEditor } from './InlineEditor.js';
 import { api as backendApi } from '../utils/api.js';
 
 export class MusicGraph {
@@ -76,11 +79,17 @@ export class MusicGraph {
         this.historyPanelOpen = false;
         this.curatePanelOpen = false;
 
-        // Concurrency-limited donut fetch queue (for on-demand loading)
-        this._donutQueue = [];
-        this._activeDonutLoads = 0;
-        this._maxConcurrentDonutLoads = 4;
-        this._donutStats = { started: 0, succeeded: 0, failed: 0 };
+        // Concurrency-limited donut fetch queue (for on-demand loading).
+        // `this.ht` is set by initializeHypertree() below; the callbacks
+        // close over `this`, so they read the live reference at call time.
+        this.donut = new DonutLoader({
+            api: this.api,
+            colorPalette: this.colorPalette,
+            callbacks: {
+                plot: () => this.ht?.plot(),
+                eachNode: (cb) => this.ht?.graph?.eachNode(cb),
+            },
+        });
 
         // Image cache for node photos (keyed by URL)
         this._imageCache = new Map();
@@ -92,17 +101,32 @@ export class MusicGraph {
         this._hoverTooltipTimer = null;
 
         // Long-press pan state (replaces JIT's built-in panning to prevent
-        // micro-drags from swallowing node clicks)
-        this.PAN_HOLD_MS = 900;
-        this._pan = {
-            isDown: false,
-            isPanning: false,
-            suppressNextClick: false,
-            timer: null,
-            lastPos: null,
-            latestPos: null,
-            raf: null
-        };
+        // micro-drags from swallowing node clicks). The getCanvas callback
+        // resolves lazily — `this.ht` isn't set until initializeHypertree().
+        this.panController = new PanController({
+            getCanvas: () => this.ht?.canvas,
+            callbacks: {
+                plot: () => this.ht?.plot(),
+                updateOverlayPosition: () => this.overlayPositioner.updateOverlayPosition(),
+            },
+        });
+
+        // Inline editor (edit-button + color-picker flows). All callbacks
+        // resolve lazily — `this.ht` and `this.loader` are set later.
+        this.inlineEditor = new InlineEditor({
+            claimManager: this.claimManager,
+            callbacks: {
+                getSelectedNode: () => this.selectedNode,
+                refreshInfoPanel: (node) => this.updateInfoPanel(node),
+                plot: () => this.ht?.plot(),
+                patchRawGraphColor: (nodeId, color) => {
+                    const raw = this.loader?.rawGraph;
+                    if (!raw || !raw.nodes) return;
+                    const rawNode = raw.nodes.find(n => n.id === nodeId);
+                    if (rawNode) rawNode.color = color;
+                },
+            },
+        });
 
         // Initialize the visualization
         this.initializeHypertree();
@@ -118,7 +142,7 @@ export class MusicGraph {
                 refresh: () => this.ht.refresh(),
                 syncZoomSlider: () => this.syncZoomSlider(),
                 updateHistoryCount: () => this.updateHistoryCount(),
-                prePopulateDonutData: () => this._prePopulateDonutData(),
+                prePopulateDonutData: () => this.donut.prePopulateData(this.loader._initialParticipation),
             },
         });
     }
@@ -377,8 +401,7 @@ export class MusicGraph {
                 type: 'Native',
 
                 onClick: (node, eventInfo, e) => {
-                    if (this._pan && this._pan.suppressNextClick) {
-                        this._pan.suppressNextClick = false;
+                    if (this.panController.consumeSuppressClick()) {
                         return;
                     }
                     if (node) {
@@ -446,27 +469,12 @@ export class MusicGraph {
             }
         });
 
-        this.setupLongPressPan();
+        this.panController.attach();
         this._isolateInfoPanelScroll();
         this._setupResizeObserver();
         window.addEventListener('resize', () => this._handleCanvasResize());
         requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
-    }
-
-    /**
-     * Wire up long-press panning on the canvas element.
-     * Hold ~900ms then drag to pan; quick clicks pass through to node selection.
-     */
-    setupLongPressPan() {
-        if (!this.ht || !this.ht.canvas) return;
-        const el = this.ht.canvas.getElement();
-        if (!el) return;
-
-        el.addEventListener('mousedown', (e) => this.onPanMouseDown(e));
-        el.addEventListener('mousemove', (e) => this.onPanMouseMove(e));
-        window.addEventListener('mouseup', (e) => this.onPanMouseUp(e));
-        el.addEventListener('mouseleave', (e) => this.onPanMouseUp(e));
     }
 
     /**
@@ -512,83 +520,6 @@ export class MusicGraph {
         });
 
         this._resizeObserver.observe(this.container);
-    }
-
-    eventToCanvasPos(e) {
-        const canvas = this.ht.canvas;
-        const s = canvas.getSize();
-        const p = canvas.getPos();
-        const ox = canvas.translateOffsetX;
-        const oy = canvas.translateOffsetY;
-        const sx = canvas.scaleOffsetX;
-        const sy = canvas.scaleOffsetY;
-
-        const pos = $jit.util.event.getPos(e, window);
-        return {
-            x: (pos.x - p.x - s.width / 2 - ox) * (1 / sx),
-            y: (pos.y - p.y - s.height / 2 - oy) * (1 / sy)
-        };
-    }
-
-    onPanMouseDown(e) {
-        if (e.button !== 0) return;
-        this._pan.isDown = true;
-        this._pan.isPanning = false;
-        this._pan.suppressNextClick = false;
-
-        const pos = this.eventToCanvasPos(e);
-        this._pan.latestPos = pos;
-        this._pan.lastPos = pos;
-
-        clearTimeout(this._pan.timer);
-        this._pan.timer = setTimeout(() => {
-            if (!this._pan.isDown) return;
-            this._pan.isPanning = true;
-            this._pan.suppressNextClick = true;
-            this.ht.canvas.getElement().classList.add('grabbing');
-        }, this.PAN_HOLD_MS);
-    }
-
-    onPanMouseMove(e) {
-        if (!this._pan.isDown) return;
-        this._pan.latestPos = this.eventToCanvasPos(e);
-
-        if (!this._pan.isPanning) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        const pos = this._pan.latestPos;
-        const last = this._pan.lastPos;
-        const dx = pos.x - last.x;
-        const dy = pos.y - last.y;
-
-        if (dx === 0 && dy === 0) return;
-
-        this.ht.canvas.translate(dx, dy, true);
-        this._pan.lastPos = pos;
-
-        if (!this._pan.raf) {
-            this._pan.raf = requestAnimationFrame(() => {
-                this.ht.plot();
-                this.overlayPositioner.updateOverlayPosition();
-                this._pan.raf = null;
-            });
-        }
-    }
-
-    onPanMouseUp(e) {
-        if (!this._pan.isDown) return;
-
-        clearTimeout(this._pan.timer);
-        this._pan.timer = null;
-
-        if (this._pan.isPanning) {
-            this.ht.canvas.getElement().classList.remove('grabbing');
-            this._pan.isPanning = false;
-        }
-
-        this._pan.isDown = false;
     }
 
     /**
@@ -695,114 +626,12 @@ export class MusicGraph {
             const donutStatus = node.getData('donutStatus');
             if (!donutStatus) {
                 node.setData('donutStatus', 'loading');
-                this.enqueueDonutLoad(node);
+                this.donut.enqueue(node);
             }
         } else {
             // All other nodes use circle-hover
             node.setData('type', 'circle-hover');
         }
-    }
-
-    /**
-     * Enqueue a group node for donut data loading via the concurrency-limited queue.
-     * Prevents thundering-herd when many group nodes need participation data.
-     */
-    enqueueDonutLoad(node) {
-        this._donutQueue.push(node);
-        this._processDonutQueue();
-    }
-
-    /**
-     * Process the donut fetch queue, respecting the concurrency limit.
-     */
-    _processDonutQueue() {
-        while (this._donutQueue.length > 0 && this._activeDonutLoads < this._maxConcurrentDonutLoads) {
-            const node = this._donutQueue.shift();
-            this._activeDonutLoads++;
-            this._donutStats.started++;
-            this._loadDonutDataSingle(node);
-        }
-    }
-
-    /**
-     * Load participation data for a single group node.
-     * Called by the queue processor; decrements active count on completion.
-     */
-    async _loadDonutDataSingle(node) {
-        const groupId = node.data.group_id || node.id;
-        try {
-            const data = await this.api.fetchGroupParticipation(groupId);
-            const slices = this.computeDonutSlices(data.members || []);
-            node.setData('donutSlices', slices);
-            node.setData('donutStatus', 'ready');
-            this._donutStats.succeeded++;
-            // Trigger redraw so the ring appears
-            if (this.ht) {
-                this.ht.plot();
-            }
-        } catch (error) {
-            console.error(`Failed to load donut data for ${groupId}:`, error);
-            node.setData('donutStatus', 'error');
-            this._donutStats.failed++;
-        } finally {
-            this._activeDonutLoads--;
-            this._processDonutQueue();
-            // Log stats when queue drains
-            if (this._activeDonutLoads === 0 && this._donutQueue.length === 0) {
-                console.log('Donut load stats:', { ...this._donutStats });
-            }
-        }
-    }
-
-    /**
-     * Compute donut slice angles from backend member participation data.
-     *
-     * @param {Array} members - Backend members array (personId, personName, trackCount, trackPctOfGroupTracks)
-     * @returns {Array} Slice descriptors with begin/end angles, color, and metadata
-     */
-    computeDonutSlices(members) {
-        if (!members || members.length === 0) return [];
-
-        // Sanitise weights: coerce to finite non-negative numbers
-        const weights = members.map(m => {
-            const v = Number(m.trackCount ?? 0);
-            return Number.isFinite(v) && v > 0 ? v : 0;
-        });
-
-        let totalWeight = weights.reduce((a, b) => a + b, 0);
-
-        // Fallback: if all weights are 0 but members exist, draw equal slices
-        const useEqualSlices = totalWeight <= 0;
-        if (useEqualSlices) {
-            totalWeight = members.length; // each member gets weight = 1
-        }
-
-        // Sort descending by weight (stable by index for equal slices)
-        const indexed = members.map((m, i) => ({ m, w: useEqualSlices ? 1 : weights[i], i }));
-        indexed.sort((a, b) => b.w - a.w || a.i - b.i);
-
-        const slices = [];
-        let angle = -Math.PI / 2; // Start at top
-
-        for (const { m, w } of indexed) {
-            const weightNormalized = w / totalWeight;
-            const sliceAngle = weightNormalized * 2 * Math.PI;
-
-            slices.push({
-                begin: angle,
-                end: angle + sliceAngle,
-                color: m.color || this.colorPalette.getColor(m.personId),
-                personId: m.personId,
-                personName: m.personName,
-                trackCount: m.trackCount,
-                trackPctOfGroupTracks: m.trackPctOfGroupTracks,
-                weightNormalized: weightNormalized
-            });
-
-            angle += sliceAngle;
-        }
-
-        return slices;
     }
 
     /**
@@ -1014,7 +843,7 @@ export class MusicGraph {
         if (group.photo) {
             html += `<div class="info-photo"><img src="${esc(group.photo)}" alt="${esc(group.name)}" /></div>`;
         }
-        html += this._editableRow('group', nodeId, 'photo', group.photo || '', 'Photo URL');
+        html += this.inlineEditor.editableRowHtml('group', nodeId, 'photo', group.photo || '', 'Photo URL');
 
         const formed = group.formed_date || '';
         const disbanded = group.disbanded_date || 'present';
@@ -1031,8 +860,8 @@ export class MusicGraph {
                 : esc(inferFirst);
             html += `<p class="info-meta info-inferred"><strong>Active (from releases):</strong> ${inferRange}</p>`;
         }
-        html += this._editableRow('group', nodeId, 'formed_date', formed, 'Formed');
-        html += this._editableRow('group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
+        html += this.inlineEditor.editableRowHtml('group', nodeId, 'formed_date', formed, 'Formed');
+        html += this.inlineEditor.editableRowHtml('group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
 
         if (group.members && group.members.length > 0) {
             html += `<div class="info-section"><h4>Members</h4><ul class="info-list">`;
@@ -1051,15 +880,15 @@ export class MusicGraph {
         if (group.bio || group.description) {
             html += `<div class="info-section"><h4>Biography</h4><p>${esc(group.bio || group.description)}</p></div>`;
         }
-        html += this._editableRow('group', nodeId, 'bio', group.bio || group.description || '', 'Biography', true);
+        html += this.inlineEditor.editableRowHtml('group', nodeId, 'bio', group.bio || group.description || '', 'Biography', true);
 
         if (group.trivia) {
             html += `<div class="info-section"><h4>Trivia</h4><p>${esc(group.trivia)}</p></div>`;
         }
-        html += this._editableRow('group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
+        html += this.inlineEditor.editableRowHtml('group', nodeId, 'trivia', group.trivia || '', 'Trivia', true);
 
         contentElement.innerHTML = html;
-        this._attachEditListeners(contentElement);
+        this.inlineEditor.attach(contentElement);
         this._attachNavLinkListeners(contentElement);
     }
 
@@ -1075,7 +904,7 @@ export class MusicGraph {
         if (person.photo) {
             html += `<div class="info-photo"><img src="${esc(person.photo)}" alt="${esc(person.name)}" /></div>`;
         }
-        html += this._editableRow('person', nodeId, 'photo', person.photo || '', 'Photo URL');
+        html += this.inlineEditor.editableRowHtml('person', nodeId, 'photo', person.photo || '', 'Photo URL');
 
         const currentColor = person.color || '#888888';
         html += `<div class="info-color-row">
@@ -1088,7 +917,7 @@ export class MusicGraph {
         if (person.city) {
             html += `<p class="info-meta"><strong>Location:</strong> ${esc(person.city)}</p>`;
         }
-        html += this._editableRow('person', nodeId, 'city', person.city || '', 'City');
+        html += this.inlineEditor.editableRowHtml('person', nodeId, 'city', person.city || '', 'City');
 
         if (person.groups && person.groups.length > 0) {
             html += `<div class="info-section"><h4>Groups</h4><ul class="info-list">`;
@@ -1107,55 +936,16 @@ export class MusicGraph {
         if (person.bio) {
             html += `<div class="info-section"><h4>Biography</h4><p>${esc(person.bio)}</p></div>`;
         }
-        html += this._editableRow('person', nodeId, 'bio', person.bio || '', 'Biography', true);
+        html += this.inlineEditor.editableRowHtml('person', nodeId, 'bio', person.bio || '', 'Biography', true);
 
         if (person.trivia) {
             html += `<div class="info-section"><h4>Trivia</h4><p>${esc(person.trivia)}</p></div>`;
         }
-        html += this._editableRow('person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
+        html += this.inlineEditor.editableRowHtml('person', nodeId, 'trivia', person.trivia || '', 'Trivia', true);
 
         contentElement.innerHTML = html;
-        this._attachEditListeners(contentElement);
-        this._attachColorPickerListeners(contentElement);
+        this.inlineEditor.attach(contentElement);
         this._attachNavLinkListeners(contentElement);
-    }
-
-    /**
-     * Attach change listeners to color picker inputs.
-     * On change, submits the new color via ClaimManager.
-     * @private
-     */
-    _attachColorPickerListeners(container) {
-        container.querySelectorAll('.color-picker-input').forEach(picker => {
-            picker.addEventListener('change', async (e) => {
-                const newColor = e.target.value;
-                const pickerNodeId = picker.dataset.nodeId;
-                try {
-                    await this.claimManager.submitEdit('person', pickerNodeId, 'color', newColor);
-                    // Update swatch and hex display immediately
-                    const row = picker.closest('.info-color-row');
-                    if (row) {
-                        const swatch = row.querySelector('.info-color-swatch');
-                        const hex = row.querySelector('.info-color-hex');
-                        if (swatch) swatch.style.background = newColor;
-                        if (hex) hex.textContent = newColor;
-                    }
-                    // Update the graph node color via JIT API for immediate visual feedback
-                    if (this.selectedNode) {
-                        this.selectedNode.setData('color', newColor);
-                        if (this.ht) this.ht.plot();
-                    }
-                    // Patch rawGraph so merges don't revert the color
-                    if (this.loader.rawGraph && this.loader.rawGraph.nodes) {
-                        const rawNode = this.loader.rawGraph.nodes.find(n => n.id === pickerNodeId);
-                        if (rawNode) rawNode.color = newColor;
-                    }
-                } catch (error) {
-                    console.error('Color edit failed:', error);
-                    alert('Color edit failed: ' + error.message);
-                }
-            });
-        });
     }
 
     // ========== Release orbit overlay integration ==========
@@ -1290,15 +1080,6 @@ export class MusicGraph {
     }
 
     /**
-     * Build HTML for an editable property row with an edit button.
-     * @private
-     */
-    _editableRow(nodeType, nodeId, field, currentValue, label, isTextarea = false) {
-        const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        return `<button class="edit-btn" data-node-type="${esc(nodeType)}" data-node-id="${esc(nodeId)}" data-field="${esc(field)}" data-current-value="${esc(currentValue)}" data-textarea="${isTextarea}" title="Edit ${esc(label)}">&#9998; ${esc(label)}</button> `;
-    }
-
-    /**
      * Attach click listeners to .info-nav-link elements inside a container.
      * Navigates the graph to the linked node when clicked.
      * @private
@@ -1314,114 +1095,6 @@ export class MusicGraph {
             });
         });
     }
-
-    /**
-     * Attach click listeners to .edit-btn buttons inside a container.
-     * Opens an inline editor; on save, submits via ClaimManager.
-     * @private
-     */
-    _attachEditListeners(container) {
-        container.querySelectorAll('.edit-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                const { nodeType, nodeId, field, currentValue, textarea } = btn.dataset;
-                this._openInlineEditor(btn, nodeType, nodeId, field, currentValue, textarea === 'true');
-            });
-        });
-    }
-
-    /**
-     * Replace an edit button with an inline editor (input or textarea).
-     * @private
-     */
-    _openInlineEditor(btn, nodeType, nodeId, field, currentValue, useTextarea) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'inline-edit-wrapper';
-
-        const input = document.createElement(useTextarea ? 'textarea' : 'input');
-        input.className = 'inline-edit-input';
-        input.value = currentValue;
-        if (!useTextarea) input.type = 'text';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'inline-edit-save';
-        saveBtn.textContent = 'Save';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'inline-edit-cancel';
-        cancelBtn.textContent = 'Cancel';
-
-        wrapper.appendChild(input);
-        wrapper.appendChild(saveBtn);
-        wrapper.appendChild(cancelBtn);
-
-        btn.replaceWith(wrapper);
-        input.focus();
-
-        cancelBtn.addEventListener('click', () => {
-            wrapper.replaceWith(btn);
-            this._attachEditListeners(btn.parentElement);
-        });
-
-        saveBtn.addEventListener('click', async () => {
-            const newValue = input.value;
-            if (newValue === currentValue) {
-                wrapper.replaceWith(btn);
-                this._attachEditListeners(btn.parentElement);
-                return;
-            }
-
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
-
-            try {
-                await this.claimManager.submitEdit(nodeType, nodeId, field, newValue);
-
-                // Re-fetch and re-render the panel
-                if (this.selectedNode) {
-                    await this.updateInfoPanel(this.selectedNode);
-                }
-            } catch (error) {
-                console.error('Edit submission failed:', error);
-                alert('Edit failed: ' + error.message);
-                wrapper.replaceWith(btn);
-                this._attachEditListeners(btn.parentElement);
-            }
-        });
-    }
-
-    /**
-     * Pre-populate donut slice data on group nodes from the initial response's
-     * participation map. This avoids firing one HTTP request per group during
-     * the first render pass.
-     */
-    _prePopulateDonutData() {
-        const participation = this.loader._initialParticipation;
-        if (!participation || !this.ht) return;
-
-        let prePopulated = 0;
-        const graph = this.ht.graph;
-        graph.eachNode(node => {
-            const nodeType = (node.data.type || '').toLowerCase();
-            if (nodeType !== 'group') return;
-
-            const groupId = node.data.group_id || node.id;
-            const pData = participation[groupId];
-            if (!pData || !pData.members) return;
-
-            const slices = this.computeDonutSlices(pData.members);
-            node.setData('donutSlices', slices);
-            node.setData('donutStatus', 'ready');
-            prePopulated++;
-        });
-
-        console.log(`Donut data pre-populated for ${prePopulated} groups`);
-
-        if (prePopulated > 0) {
-            this.ht.plot();
-        }
-    }
-
 
     // ========== View controls (wired from visualization.html) ==========
 

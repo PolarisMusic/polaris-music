@@ -1,0 +1,76 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`computeSlices all-zero weights → equal slices fallback (sorted stable by index) 1`] = `
+[
+  {
+    "begin": -1.5707963267948966,
+    "color": "#palette:p:a",
+    "end": 0.5235987755982987,
+    "personId": "p:a",
+    "personName": "A",
+    "trackCount": 0,
+    "trackPctOfGroupTracks": undefined,
+    "weightNormalized": 0.3333333333333333,
+  },
+  {
+    "begin": 0.5235987755982987,
+    "color": "#palette:p:b",
+    "end": 2.617993877991494,
+    "personId": "p:b",
+    "personName": "B",
+    "trackCount": 0,
+    "trackPctOfGroupTracks": undefined,
+    "weightNormalized": 0.3333333333333333,
+  },
+  {
+    "begin": 2.617993877991494,
+    "color": "#palette:p:c",
+    "end": 4.71238898038469,
+    "personId": "p:c",
+    "personName": "C",
+    "trackCount": 0,
+    "trackPctOfGroupTracks": undefined,
+    "weightNormalized": 0.3333333333333333,
+  },
+]
+`;
+
+exports[`computeSlices single member → one full-circle slice from -π/2 1`] = `
+[
+  {
+    "begin": -1.5707963267948966,
+    "color": "#abc",
+    "end": 4.71238898038469,
+    "personId": "p:1",
+    "personName": "Solo",
+    "trackCount": 5,
+    "trackPctOfGroupTracks": undefined,
+    "weightNormalized": 1,
+  },
+]
+`;
+
+exports[`computeSlices two members sorted descending by trackCount 1`] = `
+[
+  {
+    "begin": -1.5707963267948966,
+    "color": "#palette:p:big",
+    "end": 4.084070449666731,
+    "personId": "p:big",
+    "personName": "Big",
+    "trackCount": 9,
+    "trackPctOfGroupTracks": undefined,
+    "weightNormalized": 0.9,
+  },
+  {
+    "begin": 4.084070449666731,
+    "color": "#palette:p:small",
+    "end": 4.71238898038469,
+    "personId": "p:small",
+    "personName": "Small",
+    "trackCount": 1,
+    "trackPctOfGroupTracks": undefined,
+    "weightNormalized": 0.1,
+  },
+]
+`;

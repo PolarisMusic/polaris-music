@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`editableRowHtml input variant (isTextarea=false) → snapshot 1`] = `"<button class="edit-btn" data-node-type="person" data-node-id="p:42" data-field="bio" data-current-value="Hello &quot;world&quot; &amp; co. &lt;em>" data-textarea="false" title="Edit Biography">&#9998; Biography</button> "`;
