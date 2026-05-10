@@ -7,13 +7,20 @@
  * (see docs/canonicalization-divergence.md) that:
  *   - All on-chain event hashes are produced by the backend
  *     (`EventStore.calculateHash` → `fast-json-stable-stringify`).
- *   - HashGenerator is imported in two files but never called.
+ *   - HashGenerator is no longer imported anywhere at runtime
+ *     (the dead imports in FormBuilder.js / index.js were removed).
  * `HashGenerator.canonicalize` diverges from `fast-json-stable-stringify`
  * on three edge cases (undefined-as-value, undefined-in-array, toJSON-
- * bearing objects). If new code needs entity IDs, generate them
- * server-side via `backend/src/graph/normalizeReleaseBundle.js` and
- * its helpers. The class is retained only so the deprecation can be
- * cleaned up in a later session without coupling it to Stage C.
+ * bearing objects).
+ *
+ * THIS FILE IS INTENTIONALLY KEPT despite having zero callers. It is
+ * the source of truth that Stage C's drift-guard test mirrors:
+ *   - backend/test/crypto/__fixtures__/frontendCanonicalize.js (mirror)
+ *   - backend/test/crypto/hashDeterminism.test.js (compares mirror to
+ *     this file's source byte-for-byte to detect drift)
+ * Deleting this file would silently disable that gate. If you ever
+ * need entity-ID generation in the frontend, generate IDs server-side
+ * via `backend/src/graph/normalizeReleaseBundle.js`.
  */
 import CryptoJS from 'crypto-js';
 

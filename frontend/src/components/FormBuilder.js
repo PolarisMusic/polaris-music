@@ -3,8 +3,6 @@
  * Handles creating and managing complex nested forms for tracks, labels, members, etc.
  */
 
-import { HashGenerator } from '../utils/hashGenerator.js';
-
 export class FormBuilder {
     constructor() {
         this.counters = {

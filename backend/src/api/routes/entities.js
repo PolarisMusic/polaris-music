@@ -18,6 +18,7 @@
 
 import express from 'express';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
+import { safeClose } from '../../graph/safeTx.js';
 
 /**
  * @param {Object} ctx
@@ -110,7 +111,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Person details failed:', error);
@@ -164,7 +165,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Group details failed:', error);
@@ -217,7 +218,7 @@ export function createEntityRoutes({ db, config }) {
                     releases
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Group releases failed:', error);
@@ -307,7 +308,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Release details failed:', error);
@@ -368,7 +369,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Track details failed:', error);
@@ -427,7 +428,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Song details failed:', error);
@@ -475,7 +476,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Label details failed:', error);
@@ -528,7 +529,7 @@ export function createEntityRoutes({ db, config }) {
                     }
                 });
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         } catch (error) {
             console.error('Group details failed:', error);

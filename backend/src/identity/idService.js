@@ -16,6 +16,7 @@
 
 import { randomUUID } from 'crypto';
 import { createHash } from 'crypto';
+import stringify from 'fast-json-stable-stringify';
 
 /**
  * Entity types supported by the identity system
@@ -74,8 +75,15 @@ export class IdentityService {
             throw new Error(`Invalid entity type: ${entityType}`);
         }
 
-        // Create deterministic hash from fingerprint
-        const canonical = JSON.stringify(fingerprint, Object.keys(fingerprint).sort());
+        // Create deterministic hash from fingerprint. Uses the same
+        // canonicalization library as the event-store hash path so two
+        // equivalent fingerprints (regardless of nested key ordering)
+        // produce the same provisional ID. The previous implementation
+        // used JSON.stringify with a top-level-keys replacer-array, which
+        // does NOT recurse — equivalent fingerprints with nested objects
+        // would silently produce different IDs (and nested keys would be
+        // dropped entirely).
+        const canonical = stringify(fingerprint);
         const hash = createHash('sha256')
             .update(canonical)
             .digest('hex')

@@ -13,7 +13,9 @@
 import express from 'express';
 import { IdentityService, EntityType, IDKind } from '../../identity/idService.js';
 import { MergeOperations } from '../../graph/merge.js';
+import { safeClose } from '../../graph/safeTx.js';
 import { getDevSigner } from '../../crypto/devSigner.js';
+import { sanitizeError } from '../../utils/errorSanitizer.js';
 
 /**
  * Initialize identity routes with database and event store
@@ -131,10 +133,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
         } catch (error) {
             console.error('Mint entity failed:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json(sanitizeError(error, req.requestId, { success: false }));
         }
     });
 
@@ -270,10 +269,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
         } catch (error) {
             console.error('Resolve ID failed:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json(sanitizeError(error, req.requestId, { success: false }));
         }
     });
 
@@ -392,10 +388,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
         } catch (error) {
             console.error('Merge entities failed:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json(sanitizeError(error, req.requestId, { success: false }));
         }
     });
 
@@ -458,15 +451,12 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                 });
 
             } finally {
-                await session.close();
+                await safeClose(session);
             }
 
         } catch (error) {
             console.error('Lookup failed:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json(sanitizeError(error, req.requestId, { success: false }));
         }
     });
 
@@ -510,7 +500,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
                         info.resolves_to = canonicalId;
                     }
                 } finally {
-                    await session.close();
+                    await safeClose(session);
                 }
             }
 
@@ -521,10 +511,7 @@ export function createIdentityRoutes(db, store, eventProcessor) {
 
         } catch (error) {
             console.error('ID info failed:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json(sanitizeError(error, req.requestId, { success: false }));
         }
     });
 

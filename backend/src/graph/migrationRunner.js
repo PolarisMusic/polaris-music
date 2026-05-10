@@ -15,7 +15,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { safeClose } from './safeTx.js';
+import { safeClose, safeRollback } from './safeTx.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -136,12 +136,8 @@ async function runMigration(driver, migration) {
         return { id: migration.id, status: 'success', stats };
     } catch (error) {
         // Rollback transaction on failure to maintain consistency
-        try {
-            await tx.rollback();
-            console.error(`  Transaction rolled back for migration ${migration.id}`);
-        } catch (rollbackError) {
-            console.error(`  Failed to rollback transaction:`, rollbackError.message);
-        }
+        await safeRollback(tx, closeLog);
+        console.error(`  Transaction rolled back for migration ${migration.id}`);
 
         console.error(`  Migration ${migration.id} failed:`, error.message);
         return { id: migration.id, status: 'failed', error: error.message };

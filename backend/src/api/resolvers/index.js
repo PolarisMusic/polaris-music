@@ -9,6 +9,7 @@
  */
 
 import { NodeSearchService } from '../nodeSearchService.js';
+import { safeClose } from '../../graph/safeTx.js';
 
 /**
  * Build the GraphQL root resolver object.
@@ -81,7 +82,7 @@ export function createResolvers({ db, store }) {
                     guestAppearances
                 };
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         },
 
@@ -152,7 +153,7 @@ export function createResolvers({ db, store }) {
                     releases
                 };
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         },
 
@@ -219,7 +220,7 @@ export function createResolvers({ db, store }) {
                     master: master ? master.properties : null
                 };
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         },
 
@@ -270,7 +271,7 @@ export function createResolvers({ db, store }) {
                     releases
                 };
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         },
 
@@ -309,7 +310,7 @@ export function createResolvers({ db, store }) {
                     recordings
                 };
             } finally {
-                await session.close();
+                await safeClose(session);
             }
         },
 

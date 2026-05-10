@@ -15,8 +15,9 @@
  * The Stage C audit (see docs/canonicalization-divergence.md) confirmed
  * that the frontend canonicalizer was never on the hash path —
  * HashGenerator is imported in two files but never called, and
- * TransactionBuilder.calculateEventHash is defined but uncalled. Every
- * on-chain hash has always been produced by the backend.
+ * TransactionBuilder.calculateEventHash was defined but uncalled (and
+ * has since been removed). Every on-chain hash has always been
+ * produced by the backend.
  *
  * If this test fails, you are about to change every event hash. STOP.
  * The fix must be a versioned canonicalizer (write a new code path
