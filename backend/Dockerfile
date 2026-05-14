@@ -1,5 +1,5 @@
 # Backend Dockerfile for Polaris Music Registry
-FROM node:20-alpine
+FROM node:25-alpine
 
 # Install build dependencies for native modules
 RUN apk add --no-cache python3 make g++
