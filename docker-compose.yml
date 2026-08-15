@@ -353,7 +353,10 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
-      - ./shared:/app/shared
+      # Mount shared/ at container root so `../../../shared/...` resolves the
+      # same way in the container as it does on the host (frontend/ + shared/
+      # both sitting at the repo root).
+      - ./shared:/shared
     networks:
       - polaris-network
     command: npm run dev -- --host
