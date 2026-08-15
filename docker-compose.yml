@@ -241,7 +241,9 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/test:/app/test
-      - ./shared:/app/shared
+      # Mount shared/ at container root so `../../../shared/...` imports from
+      # backend/src/**/* resolve consistently between host and container.
+      - ./shared:/shared
     networks:
       - polaris-network
     command: npm run dev:docker
@@ -415,7 +417,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./backend/src:/app/src
-      - ./shared:/app/shared
+      - ./shared:/shared
       - ./substreams/abi:/app/substreams/abi
     networks:
       - polaris-network
