@@ -35,7 +35,7 @@ using namespace eosio;
  * All actual music data is stored off-chain (IPFS/S3), with only hashes and
  * metadata stored on-chain for efficiency and immutability.
  */
-CONTRACT polaris : public contract {
+class [[eosio::contract("polaris.music")]] polaris : public contract {
 public:
     using contract::contract;
 
