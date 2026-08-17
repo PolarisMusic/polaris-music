@@ -1235,7 +1235,7 @@ public:
             likeagg_itr = likeagg.erase(likeagg_itr);
         }
 
-        nodeagg_table nodeagg(get_self(), get_self().value);
+        // Reuse nodeagg table from safety check above
         auto nodeagg_itr = nodeagg.begin();
         while(nodeagg_itr != nodeagg.end()) {
             nodeagg_itr = nodeagg.erase(nodeagg_itr);
