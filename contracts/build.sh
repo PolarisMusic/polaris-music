@@ -15,12 +15,35 @@ fi
 
 echo "Building Polaris Music Registry Contract..."
 
+# Locate the CDT CMake toolchain file. In CDT 4.x, add_contract() alone is
+# not enough — CMake needs the toolchain up front, or it falls back to the
+# system C++ compiler and hands CDT-specific flags (-abigen, -contract) to
+# GCC, which errors out with "unrecognized command-line option".
+#
+# Priority: honour a user-supplied CDT_TOOLCHAIN_FILE env var, then ask dpkg
+# where CDT installed its files, then fall back to a filesystem search.
+if [ -n "$CDT_TOOLCHAIN_FILE" ]; then
+    TOOLCHAIN="$CDT_TOOLCHAIN_FILE"
+elif command -v dpkg >/dev/null 2>&1 && dpkg -L cdt 2>/dev/null | grep -q "toolchain.cmake"; then
+    TOOLCHAIN=$(dpkg -L cdt 2>/dev/null | grep -i "toolchain.cmake" | head -1)
+else
+    TOOLCHAIN=$(find / -name "*Toolchain*.cmake" -path "*cdt*" 2>/dev/null | head -1)
+fi
+
+if [ -z "$TOOLCHAIN" ] || [ ! -f "$TOOLCHAIN" ]; then
+    echo "ERROR: Could not find CDT CMake toolchain file." >&2
+    echo "Install Antelope CDT 4.x, or set CDT_TOOLCHAIN_FILE to its path." >&2
+    exit 1
+fi
+
+echo "Using CDT toolchain: $TOOLCHAIN"
+
 # Create build directory
 mkdir -p build
 cd build
 
 # Configure with CMake
-cmake -DCMAKE_BUILD_TYPE=Release $TESTNET_FLAG ..
+cmake -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" -DCMAKE_BUILD_TYPE=Release $TESTNET_FLAG ..
 
 # Build the contract
 make
