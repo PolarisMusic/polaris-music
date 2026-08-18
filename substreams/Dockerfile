@@ -5,7 +5,9 @@
 # ============================================================================
 # Stage 1: Build Rust WASM module
 # ============================================================================
-FROM rust:1.75-bookworm AS rust-builder
+# edition2024 was stabilized in Rust 1.85; transitive dep getrandom now
+# requires it, so 1.75 no longer builds.
+FROM rust:1.85-bookworm AS rust-builder
 
 # Install WASM target
 RUN rustup target add wasm32-unknown-unknown
