@@ -26,7 +26,7 @@ RUN cargo build --target wasm32-unknown-unknown --release && \
 # ============================================================================
 # Stage 2: Generate protobuf bindings and pack .spkg
 # ============================================================================
-FROM ghcr.io/streamingfast/substreams:v1.10.8 AS substreams-builder
+FROM ghcr.io/streamingfast/substreams:v1.21.0 AS substreams-builder
 
 WORKDIR /build
 
