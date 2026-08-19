@@ -41,13 +41,23 @@ COPY abi/ ./abi/
 COPY --from=rust-builder /build/target/wasm32-unknown-unknown/release/polaris_substreams.wasm \
     ./target/wasm32-unknown-unknown/release/polaris_substreams.wasm
 
-# Generate protobuf bindings (required for packaging).
+# Pack the Substreams package.
+#
 # Note: /app/substreams is the binary path in the base image; it's the
 # ENTRYPOINT, not on PATH, so invoke by absolute path.
-RUN /app/substreams protogen ./substreams.yaml --exclude-paths="sf/substreams,google" && \
-    echo "✓ Protobuf bindings generated"
-
-# Pack the Substreams package
+#
+# There is deliberately no `substreams protogen` step here. protogen
+# generates *Rust* bindings into src/pb/ for local development, and it
+# shells out to the `buf` CLI (absent from this image) to do it. In this
+# build it would accomplish nothing: this stage never copies src/, never
+# compiles Rust, and discards anything protogen writes. The WASM module
+# was already compiled in the rust-builder stage against the bindings
+# checked into src/pb/. All this stage does is bundle manifest +
+# descriptors + wasm into the .spkg, which `pack` handles on its own.
+#
+# If you change proto/polaris.proto, regenerate bindings on your host
+# (`substreams protogen`, with buf installed) and commit the updated
+# src/pb/ — same as any other generated-code-in-tree workflow.
 RUN /app/substreams pack ./substreams.yaml && \
     echo "✓ Substreams package created" && \
     ls -lh *.spkg
