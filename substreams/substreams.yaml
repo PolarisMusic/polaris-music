@@ -16,7 +16,10 @@ package:
     - Respect updates (UPDATE_RESPECT)
 
 imports:
-  antelope: https://github.com/pinax-network/substreams-antelope/releases/download/v0.6.0/antelope-v0.6.0.spkg
+  # Pinax distributes .spkg builds via spkg.io — their GitHub Releases page
+  # only ships source archives (v0.4+). This URL matches the fallback
+  # documented in docker-compose.yml.
+  antelope: https://spkg.io/pinax-network/antelope-common-v0.4.0.spkg
 
 protobuf:
   files:
