@@ -48,14 +48,27 @@ COPY src/ ./src/
 COPY proto/ ./proto/
 COPY abi/ ./abi/
 
-# Build, then normalize the .spkg into /out regardless of where it lands
-# relative to the working directory.
+# Build, then normalize the artifact to a fixed name in /out.
+#
+# `build` names the file from package.name + package.version in
+# substreams.yaml, so hardcoding that name downstream means a version bump
+# silently breaks the runtime path. Copy to a stable, version-less name
+# instead. It keeps the substring "polaris_music_substreams", which
+# http-sink.mjs uses to report local-package mode.
+#
+# The *.tmp.spkg exclusion skips the intermediate file that the protobuf
+# codegen step leaves behind.
 RUN substreams build && \
     mkdir -p /out && \
-    find /build -name '*.spkg' -exec cp {} /out/ \; && \
-    test -n "$(ls -A /out)" && \
-    echo "✓ Substreams package created" && \
-    ls -lh /out/*.spkg
+    spkg="$(find /build -name '*.spkg' ! -name '*.tmp.spkg' | head -n 1)" && \
+    if [ -z "$spkg" ]; then \
+        echo "ERROR: substreams build produced no .spkg" >&2; \
+        find /build -name '*.spkg' >&2; \
+        exit 1; \
+    fi && \
+    cp "$spkg" /out/polaris_music_substreams.spkg && \
+    echo "✓ Substreams package built from $spkg" && \
+    ls -lh /out/polaris_music_substreams.spkg
 
 # ============================================================================
 # Stage 2: Node.js runtime with Substreams CLI and the built package
@@ -75,7 +88,7 @@ RUN substreams --version && \
 WORKDIR /app
 
 RUN mkdir -p /app/substreams
-COPY --from=builder /out/*.spkg /app/substreams/
+COPY --from=builder /out/polaris_music_substreams.spkg /app/substreams/
 
 COPY sink/ /app/sink/
 
