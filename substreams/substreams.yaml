@@ -16,7 +16,7 @@ package:
     - Respect updates (UPDATE_RESPECT)
 
 imports:
-  antelope: https://github.com/pinax-network/substreams-antelope/releases/download/v0.3.0/antelope-v0.3.0.spkg
+  antelope: https://github.com/pinax-network/substreams-antelope/releases/download/v0.6.0/antelope-v0.6.0.spkg
 
 protobuf:
   files:
