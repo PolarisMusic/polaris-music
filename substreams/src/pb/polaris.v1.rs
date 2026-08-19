@@ -64,7 +64,7 @@ pub mod v1 {
             #[prost(message, tag = "8")]
             Unlike(super::UnlikeEvent),
             #[prost(message, tag = "9")]
-            Updrespect(super::UpdateRespectEvent),
+            UpdateRespect(super::UpdateRespectEvent),
         }
     }
 
@@ -75,7 +75,7 @@ pub mod v1 {
         #[prost(string, tag = "1")]
         pub author: ::prost::alloc::string::String,
         #[prost(uint32, tag = "2")]
-        pub type_: u32,
+        pub r#type: u32,
         /// SHA256 hash as hex string
         #[prost(string, tag = "3")]
         pub hash: ::prost::alloc::string::String,
