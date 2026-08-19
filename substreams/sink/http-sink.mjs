@@ -412,9 +412,11 @@ async function processLine(line) {
     try {
         const data = JSON.parse(line);
 
-        // Support two output formats to prevent silent ingestion failure:
+        // Support two output formats to prevent silent ingestion failure.
+        // `substreams run -o jsonl` has emitted both shapes across CLI
+        // versions, so accept either rather than pinning to one:
         // 1. Wrapped: { "@module": "...", "@type": "...", "@data": { ... } }
-        // 2. Plain: { "events": [...] } or { "actionTraces": [...] } (from --plain-output)
+        // 2. Plain:   { "events": [...] } or { "actionTraces": [...] }
 
         let dataPayload;
         let moduleName;
@@ -427,7 +429,6 @@ async function processLine(line) {
             typeName = data['@type'];
         } else if (data.events || data.actionTraces) {
             // Plain format - treat object itself as payload
-            // This happens when --plain-output strips wrapper keys
             dataPayload = data;
             // Infer module/type from payload structure
             if (data.events) {
@@ -700,7 +701,6 @@ async function main() {
         '0', // Continuous streaming
         '--output',
         'jsonl',
-        '--plain-output',
     ];
 
     // Log the normalized params for debugging
