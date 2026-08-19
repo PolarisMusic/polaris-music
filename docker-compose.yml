@@ -455,7 +455,28 @@ services:
       - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN:-}
       - SUBSTREAMS_API_KEY=${SUBSTREAMS_API_KEY:-}
       - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.substreams.pinax.network:443}
-      - START_BLOCK=${START_BLOCK:-0}
+      # START_BLOCK: where to begin streaming. Negative values are relative to
+      # chain head, so the default starts 10,000 blocks back and follows head
+      # from there.
+      #
+      # Why not 0: providers cap how many blocks one request may process
+      # (Pinax free tier allows 10,000). Starting at genesis asks for ~282M
+      # blocks on Jungle4 and the request is rejected before any data flows:
+      #
+      #   FailedPrecondition: request needs to process a total of N blocks
+      #   but only 10000 are allowed ('limit-processed-blocks')
+      #
+      # A relative default stays under that cap whenever it runs, where an
+      # absolute block number would silently go stale.
+      #
+      # To index your own history instead, set this to the block where your
+      # contract was deployed. If you ever hit the cap anyway, nudge the value
+      # down (e.g. -9000) — -10000 sits exactly at the limit, and head can
+      # advance while the request is being set up.
+      #
+      # Note there is no cursor persistence yet: the sink restarts from
+      # START_BLOCK every time, rather than resuming where it left off.
+      - START_BLOCK=${START_BLOCK:--10000}
 
       # Substreams package configuration
       # DEFAULT: Local package with embedded contract ABI (no Pinax dependency)
