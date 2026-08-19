@@ -1,95 +1,82 @@
 # Dockerfile for Polaris Substreams HTTP Sink
-# Multi-stage build: Rust WASM compilation → Substreams packaging → Node.js runtime
+# Two stages: `substreams build` (protos → wasm → .spkg) → Node.js runtime
 # Builds local custom module with embedded contract ABI to avoid Pinax ABI dependency
 
 # ============================================================================
-# Stage 1: Build Rust WASM module
+# Stage 0: source of the substreams CLI binary
 # ============================================================================
-# edition2024 was stabilized in Rust 1.85; transitive dep getrandom now
-# requires it, so 1.75 no longer builds.
-FROM rust:1.85-bookworm AS rust-builder
+# The official image is a minimal Ubuntu carrying the binary at /app/substreams
+# as its ENTRYPOINT — it has no cargo and no buf, so we lift the binary out
+# rather than building inside it.
+FROM ghcr.io/streamingfast/substreams:v1.21.0 AS substreams-cli
 
-# Install WASM target
+# ============================================================================
+# Stage 1: Generate protobufs, compile WASM, and pack the .spkg
+# ============================================================================
+# `substreams build` does all three in one pass (proto codegen via buf, cargo
+# build, then package). That is the supported workflow — `substreams pack` is
+# deprecated — and it also keeps the image self-consistent: bindings are
+# regenerated from proto/polaris.proto here rather than trusting whatever is
+# committed under src/pb/ to still match.
+#
+# edition2024 was stabilized in Rust 1.85; transitive dep getrandom requires
+# it, so 1.75 no longer builds.
+FROM rust:1.85-bookworm AS builder
+
+# WASM target for the compiled module
 RUN rustup target add wasm32-unknown-unknown
+
+# buf CLI — `substreams build` shells out to it for protobuf codegen.
+# uname-based asset name so this works on both amd64 and arm64 hosts.
+ARG BUF_VERSION=1.47.2
+RUN curl -fsSL \
+      "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(uname -s)-$(uname -m)" \
+      -o /usr/local/bin/buf && \
+    chmod +x /usr/local/bin/buf && \
+    buf --version
+
+# substreams CLI
+COPY --from=substreams-cli /app/substreams /usr/local/bin/substreams
+RUN substreams --version
 
 WORKDIR /build
 
-# Copy Rust project files
-COPY Cargo.toml build.rs ./
+# Full project — `build` needs the manifest, protos, ABI, and Rust sources
+# together, since it regenerates bindings and then compiles against them.
+COPY Cargo.toml build.rs substreams.yaml ./
 COPY src/ ./src/
 COPY proto/ ./proto/
 COPY abi/ ./abi/
 
-# Build WASM module
-RUN cargo build --target wasm32-unknown-unknown --release && \
-    echo "✓ WASM module compiled" && \
-    ls -lh target/wasm32-unknown-unknown/release/*.wasm
-
-# ============================================================================
-# Stage 2: Generate protobuf bindings and pack .spkg
-# ============================================================================
-FROM ghcr.io/streamingfast/substreams:v1.21.0 AS substreams-builder
-
-WORKDIR /build
-
-# Copy files needed for packaging
-COPY substreams.yaml ./
-COPY proto/ ./proto/
-COPY abi/ ./abi/
-
-# Copy compiled WASM from Rust builder
-COPY --from=rust-builder /build/target/wasm32-unknown-unknown/release/polaris_substreams.wasm \
-    ./target/wasm32-unknown-unknown/release/polaris_substreams.wasm
-
-# Pack the Substreams package.
-#
-# Note: /app/substreams is the binary path in the base image; it's the
-# ENTRYPOINT, not on PATH, so invoke by absolute path.
-#
-# There is deliberately no `substreams protogen` step here. protogen
-# generates *Rust* bindings into src/pb/ for local development, and it
-# shells out to the `buf` CLI (absent from this image) to do it. In this
-# build it would accomplish nothing: this stage never copies src/, never
-# compiles Rust, and discards anything protogen writes. The WASM module
-# was already compiled in the rust-builder stage against the bindings
-# checked into src/pb/. All this stage does is bundle manifest +
-# descriptors + wasm into the .spkg, which `pack` handles on its own.
-#
-# If you change proto/polaris.proto, regenerate bindings on your host
-# (`substreams protogen`, with buf installed) and commit the updated
-# src/pb/ — same as any other generated-code-in-tree workflow.
-RUN /app/substreams pack ./substreams.yaml && \
+# Build, then normalize the .spkg into /out regardless of where it lands
+# relative to the working directory.
+RUN substreams build && \
+    mkdir -p /out && \
+    find /build -name '*.spkg' -exec cp {} /out/ \; && \
+    test -n "$(ls -A /out)" && \
     echo "✓ Substreams package created" && \
-    ls -lh *.spkg
+    ls -lh /out/*.spkg
 
 # ============================================================================
-# Stage 3: Build Node.js runtime with Substreams CLI and local package
+# Stage 2: Node.js runtime with Substreams CLI and the built package
 # ============================================================================
 FROM node:20-bookworm-slim
 
-# Install ca-certificates for HTTPS connections
+# ca-certificates for HTTPS connections to the Substreams endpoint
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Substreams CLI binary from official image
-# The binary is located at /app/substreams in the official image
-COPY --from=substreams-builder /app/substreams /usr/local/bin/substreams
-
-# Verify Substreams CLI installation
+# The sink spawns `substreams run`, so the CLI must be on PATH here
+COPY --from=substreams-cli /app/substreams /usr/local/bin/substreams
 RUN substreams --version && \
     echo "✓ Substreams CLI ready"
 
-# Set working directory
 WORKDIR /app
 
-# Create substreams directory for package
 RUN mkdir -p /app/substreams
+COPY --from=builder /out/*.spkg /app/substreams/
 
-# Copy local Substreams package from builder
-COPY --from=substreams-builder /build/*.spkg /app/substreams/
-
-# Copy sink code
 COPY sink/ /app/sink/
 
 # Verify structure
@@ -98,5 +85,5 @@ RUN test -f /app/sink/http-sink.mjs && \
     echo "✓ Local Substreams package and sink code ready"
 
 # Default command runs the HTTP sink
-# Now uses local map_anchored_events module with embedded ABI
+# Uses local map_anchored_events module with embedded ABI
 CMD ["node", "sink/http-sink.mjs"]
