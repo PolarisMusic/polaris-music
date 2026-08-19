@@ -12,9 +12,21 @@ import APIServer from './server.js';
 import { resolveChainConfig } from '../../../shared/config/chainProfiles.js';
 import { verifyChainId } from '../utils/verifyChainId.js';
 
+// Chain settings come from CHAIN_PROFILE (see shared/config/chainProfiles.js),
+// with per-field env overrides. Resolve once and use for both the startup
+// chain-id check and the server's own config: the server needs rpcUrl to
+// verify account signing keys, and reading it from process.env alone misses
+// the profile-derived value.
+const chainConfig = resolveChainConfig();
+
 // Load configuration from environment variables
 const config = {
     port: parseInt(process.env.PORT || '3000'),
+
+    // Chain settings (profile-derived; individual env vars override)
+    chainId: chainConfig.chainId,
+    rpcUrl: chainConfig.rpcUrl,
+    contractAccount: chainConfig.contractAccount,
 
     database: {
         uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
@@ -57,7 +69,7 @@ const config = {
 const server = new APIServer(config);
 
 (async () => {
-    await verifyChainId(resolveChainConfig());
+    await verifyChainId(chainConfig);
     await server.start();
 })().catch((error) => {
     console.error('Failed to start server:', error);
