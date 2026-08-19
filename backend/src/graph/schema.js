@@ -2076,7 +2076,7 @@ constructor(config = {}) {
                     MATCH (p:Person) WHERE p.color IS NULL
                     RETURN p.person_id AS personId
                     LIMIT $limit
-                `, { limit: BATCH_SIZE });
+                `, { limit: neo4j.int(BATCH_SIZE) });
 
                 const rows = fetchResult.records.map(r => {
                     const personId = r.get('personId');
