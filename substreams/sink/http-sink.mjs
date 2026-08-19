@@ -531,88 +531,81 @@ async function processActionTracesOutput(data) {
     const actionTraces = data.actionTraces || [];
 
     for (const actionTrace of actionTraces) {
-                stats.eventsReceived++;
+        stats.eventsReceived++;
 
-                // Extract action data from ActionTrace format
-                // filtered_actions returns sf.antelope.type.v1.ActionTrace
-                const action = actionTrace.action;
-                if (!action) {
-                    console.warn('  Skipping action trace without action data');
-                    continue;
-                }
+        // Extract action data from ActionTrace format
+        // filtered_actions returns sf.antelope.type.v1.ActionTrace
+        const action = actionTrace.action;
+        if (!action) {
+            console.warn('  Skipping action trace without action data');
+            continue;
+        }
 
-                // Extract the 'put' action data (our contract's anchoring action)
-                // jsonData field from proto is json_data → jsonData in JSON
-                // CRITICAL: jsonData is only populated if Pinax has the contract ABI for decoding
-                // Handle three cases: string (needs parsing), object (already parsed), or undefined
-                let actionData;
-                const actionName = action.name || 'unknown';
-                const actionAccount = action.account || 'unknown';
+        // Extract the 'put' action data (our contract's anchoring action)
+        // jsonData field from proto is json_data → jsonData in JSON
+        // CRITICAL: jsonData is only populated if Pinax has the contract ABI for decoding
+        // Handle three cases: string (needs parsing), object (already parsed), or undefined
+        let actionData;
+        const actionName = action.name || 'unknown';
+        const actionAccount = action.account || 'unknown';
 
-                if (typeof action.jsonData === 'string') {
-                    try {
-                        actionData = JSON.parse(action.jsonData);
-                    } catch (error) {
-                        console.error(`✗ Failed to parse jsonData for ${actionAccount}::${actionName}:`, error.message);
-                        console.error(`  This may indicate corrupted Substreams output or encoding issues`);
-                        continue;
-                    }
-                } else if (typeof action.jsonData === 'object' && action.jsonData !== null) {
-                    actionData = action.jsonData;
-                } else if (action.data) {
-                    // Fallback to raw data if jsonData is not available
-                    // NOTE: This likely means the contract ABI is not available to Pinax
-                    console.warn(`⚠ No jsonData for ${actionAccount}::${actionName}, using raw action.data`);
-                    console.warn(`  Raw data cannot be reliably decoded without ABI - will likely fail hash extraction`);
-                    actionData = action.data;
-                } else {
-                    console.error(`✗ No parseable data for ${actionAccount}::${actionName}`);
-                    console.error(`  Neither action.jsonData nor action.data are available`);
-                    continue;
-                }
-
-                // Ensure we have a content hash (required field for backend ingestion)
-                // This field comes from the decoded 'put' action payload
-                if (!actionData.hash) {
-                    console.error(`✗ Missing required 'hash' field in action data`);
-                    console.error(`  Action: ${actionAccount}::${actionName}`);
-                    console.error(`  Block: ${actionTrace.blockNum}, Tx: ${actionTrace.transactionId || 'unknown'}`);
-                    console.error(`  Data keys available: ${Object.keys(actionData).join(', ') || 'none'}`);
-                    console.error(`  `);
-                    console.error(`  LIKELY CAUSE: Contract ABI not available to Pinax for action decoding`);
-                    console.error(`  SOLUTION: Ensure '${actionAccount}' contract ABI is published or available to Pinax`);
-                    console.error(`  Alternatively, consider using a Pinax package with ABI resolution support`);
-                    stats.eventsFailed++;
-                    continue;
-                }
-
-                // Build AnchoredEvent structure expected by backend
-                // Maps from Antelope ActionTrace to our ingestion format
-                // CRITICAL: Use correct proto JSON field names:
-                //   - transaction_id → transactionId (NOT trxId)
-                //   - producer_block_id → producerBlockId (NOT blockId)
-                const postableEvent = {
-                    content_hash: actionData.hash,  // The content hash from put action
-                    event_hash: actionData.hash,    // Use same for now (can derive from action data if needed)
-                    payload: JSON.stringify(actionData), // The full action data
-                    block_num: actionTrace.blockNum,
-                    block_id: actionTrace.producerBlockId,
-                    trx_id: actionTrace.transactionId,
-                    action_ordinal: actionTrace.actionOrdinal || actionTrace.executionIndex,
-                    timestamp: actionTrace.blockTime,
-                    source: 'substreams',
-                    contract_account: action.account,
-                    action_name: action.name,
-                };
-
-                await postAnchoredEvent(postableEvent);
+        if (typeof action.jsonData === 'string') {
+            try {
+                actionData = JSON.parse(action.jsonData);
+            } catch (error) {
+                console.error(`✗ Failed to parse jsonData for ${actionAccount}::${actionName}:`, error.message);
+                console.error(`  This may indicate corrupted Substreams output or encoding issues`);
+                continue;
             }
+        } else if (typeof action.jsonData === 'object' && action.jsonData !== null) {
+            actionData = action.jsonData;
+        } else if (action.data) {
+            // Fallback to raw data if jsonData is not available
+            // NOTE: This likely means the contract ABI is not available to Pinax
+            console.warn(`⚠ No jsonData for ${actionAccount}::${actionName}, using raw action.data`);
+            console.warn(`  Raw data cannot be reliably decoded without ABI - will likely fail hash extraction`);
+            actionData = action.data;
+        } else {
+            console.error(`✗ No parseable data for ${actionAccount}::${actionName}`);
+            console.error(`  Neither action.jsonData nor action.data are available`);
+            continue;
         }
-    } catch (error) {
-        // Ignore parse errors for progress messages and other non-JSON lines
-        if (!line.startsWith('Progress:') && !line.startsWith('Block:')) {
-            console.error('Error processing line:', error.message);
+
+        // Ensure we have a content hash (required field for backend ingestion)
+        // This field comes from the decoded 'put' action payload
+        if (!actionData.hash) {
+            console.error(`✗ Missing required 'hash' field in action data`);
+            console.error(`  Action: ${actionAccount}::${actionName}`);
+            console.error(`  Block: ${actionTrace.blockNum}, Tx: ${actionTrace.transactionId || 'unknown'}`);
+            console.error(`  Data keys available: ${Object.keys(actionData).join(', ') || 'none'}`);
+            console.error(`  `);
+            console.error(`  LIKELY CAUSE: Contract ABI not available to Pinax for action decoding`);
+            console.error(`  SOLUTION: Ensure '${actionAccount}' contract ABI is published or available to Pinax`);
+            console.error(`  Alternatively, consider using a Pinax package with ABI resolution support`);
+            stats.eventsFailed++;
+            continue;
         }
+
+        // Build AnchoredEvent structure expected by backend
+        // Maps from Antelope ActionTrace to our ingestion format
+        // CRITICAL: Use correct proto JSON field names:
+        //   - transaction_id → transactionId (NOT trxId)
+        //   - producer_block_id → producerBlockId (NOT blockId)
+        const postableEvent = {
+            content_hash: actionData.hash,  // The content hash from put action
+            event_hash: actionData.hash,    // Use same for now (can derive from action data if needed)
+            payload: JSON.stringify(actionData), // The full action data
+            block_num: actionTrace.blockNum,
+            block_id: actionTrace.producerBlockId,
+            trx_id: actionTrace.transactionId,
+            action_ordinal: actionTrace.actionOrdinal || actionTrace.executionIndex,
+            timestamp: actionTrace.blockTime,
+            source: 'substreams',
+            contract_account: action.account,
+            action_name: action.name,
+        };
+
+        await postAnchoredEvent(postableEvent);
     }
 }
 
