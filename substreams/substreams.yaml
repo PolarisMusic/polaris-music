@@ -131,8 +131,15 @@ params:
 # Override with CLI: substreams run -e jungle4.substreams.pinax.network:443 ...
 network: jungle4-testnet
 
-sink:
-  module: map_events
-  type: sf.substreams.sink.files.v1.Files
-  config:
-    output_path: "./output"
+# NOTE: no `sink:` block here on purpose.
+#
+# Ingestion is done by sink/http-sink.mjs, which spawns
+# `substreams run <package> <module> --output jsonl` and posts each
+# decoded line to the backend itself. It never reads a manifest sink
+# config, so declaring one bought us nothing.
+#
+# The old block declared type sf.substreams.sink.files.v1.Files (the
+# substreams-sink-files config). Older CLIs ignored it; substreams
+# v1.21 resolves sink types against the package's bundled protobuf
+# descriptors at manifest-load time and hard-fails, because we never
+# import the sink-files package that defines that message.
