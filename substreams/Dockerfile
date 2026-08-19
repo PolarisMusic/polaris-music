@@ -41,12 +41,14 @@ COPY abi/ ./abi/
 COPY --from=rust-builder /build/target/wasm32-unknown-unknown/release/polaris_substreams.wasm \
     ./target/wasm32-unknown-unknown/release/polaris_substreams.wasm
 
-# Generate protobuf bindings (required for packaging)
-RUN substreams protogen ./substreams.yaml --exclude-paths="sf/substreams,google" && \
+# Generate protobuf bindings (required for packaging).
+# Note: /app/substreams is the binary path in the base image; it's the
+# ENTRYPOINT, not on PATH, so invoke by absolute path.
+RUN /app/substreams protogen ./substreams.yaml --exclude-paths="sf/substreams,google" && \
     echo "✓ Protobuf bindings generated"
 
 # Pack the Substreams package
-RUN substreams pack ./substreams.yaml && \
+RUN /app/substreams pack ./substreams.yaml && \
     echo "✓ Substreams package created" && \
     ls -lh *.spkg
 
