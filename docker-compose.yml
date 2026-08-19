@@ -455,6 +455,25 @@ services:
       - SUBSTREAMS_API_TOKEN=${SUBSTREAMS_API_TOKEN:-}
       - SUBSTREAMS_API_KEY=${SUBSTREAMS_API_KEY:-}
       - SUBSTREAMS_ENDPOINT=${SUBSTREAMS_ENDPOINT:-jungle4.substreams.pinax.network:443}
+      # START_BLOCK: where to begin streaming. SET THIS in .env — the value
+      # matters more than it looks.
+      #
+      # Providers cap how many blocks one request may process (Pinax free tier
+      # allows 10,000). Starting at 0 asks to replay the chain from genesis —
+      # ~282M blocks on Jungle4 — and the request is rejected outright:
+      #
+      #   FailedPrecondition: request needs to process a total of N blocks
+      #   but only 10000 are allowed ('limit-processed-blocks')
+      #
+      # Set it to the block where your contract was deployed (so you index
+      # your own history and nothing earlier), or to just behind current head
+      # for a smoke test. Find head with:
+      #
+      #   curl -s https://jungle4.cryptolions.io/v1/chain/get_info \
+      #     | grep -o '"head_block_num":[0-9]*'
+      #
+      # Note there is no cursor persistence yet: the sink restarts from
+      # START_BLOCK every time, rather than resuming where it left off.
       - START_BLOCK=${START_BLOCK:-0}
 
       # Substreams package configuration
