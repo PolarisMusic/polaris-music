@@ -327,7 +327,9 @@ fn extract_put_event(
         data: Some(EventData {
             event: Some(pb::polaris::v1::event_data::Event::Put(PutEvent {
                 author: put.author,
-                type_: put.type_ as u32,
+                // pb field is `r#type` (proto `type` is a Rust keyword);
+                // `put` is the abigen struct, which spells it `type_`.
+                r#type: put.type_ as u32,
                 hash: put.hash,
                 parent: put.parent,
                 ts: put.ts as u64,
@@ -547,7 +549,7 @@ fn extract_update_respect_event(
         timestamp,
         event_type: "UPDATE_RESPECT".to_string(),
         data: Some(EventData {
-            event: Some(pb::polaris::v1::event_data::Event::Updrespect(
+            event: Some(pb::polaris::v1::event_data::Event::UpdateRespect(
                 UpdateRespectEvent {
                     updates,
                     election_round: update.election_round,
