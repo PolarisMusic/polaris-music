@@ -412,12 +412,11 @@ async function processLine(line) {
     try {
         const data = JSON.parse(line);
 
-        // Support two output formats to prevent silent ingestion failure:
+        // Support two output formats to prevent silent ingestion failure.
+        // `substreams run -o jsonl` has emitted both shapes across CLI
+        // versions, so accept either rather than pinning to one:
         // 1. Wrapped: { "@module": "...", "@type": "...", "@data": { ... } }
-        //    This is what `substreams run -o jsonl` emits.
-        // 2. Plain: { "events": [...] } or { "actionTraces": [...] }
-        //    Kept as a fallback in case a future CLI version emits
-        //    unwrapped payloads again.
+        // 2. Plain:   { "events": [...] } or { "actionTraces": [...] }
 
         let dataPayload;
         let moduleName;
