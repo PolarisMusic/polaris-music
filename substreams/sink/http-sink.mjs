@@ -337,6 +337,25 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1, requestId = null) {
 
         if (response.ok) {
             const result = await response.json();
+
+            // A 2xx does not mean the event was ingested. The endpoint returns
+            // 201 with an application-level status, so an event the backend
+            // could not process arrives here as status:'error' — report it as a
+            // failure and surface result.error, which is the only place the
+            // reason appears on this side.
+            //
+            // Not retried: an event that fails to process (unparseable payload,
+            // unretrievable CID) fails the same way every time.
+            if (result.status === 'error') {
+                console.error(
+                    `✗ Rejected ${hashPreview} block=${anchoredEvent.block_num} ` +
+                    `action=${anchoredEvent.action_name} error=${result.error} ` +
+                    `duration_ms=${durationMs} request_id=${requestId}`
+                );
+                stats.eventsFailed++;
+                return false;
+            }
+
             console.log(
                 `✓ Posted ${hashPreview} block=${anchoredEvent.block_num} ` +
                 `action=${anchoredEvent.action_name} status=${result.status} ` +
