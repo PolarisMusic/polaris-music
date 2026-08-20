@@ -484,6 +484,67 @@ async function processLine(line) {
 }
 
 /**
+ * Decode an AnchoredEvent.payload into its JSON string.
+ *
+ * The Rust module always writes the UTF-8 bytes of a JSON object here
+ * (lib.rs: `payload: json_data.into_bytes()`), but how a protobuf `bytes`
+ * field is rendered on the way out depends on the CLI's encoder, and has
+ * differed across substreams versions: base64 (canonical protobuf-JSON),
+ * hex, a plain already-decoded string, or a byte array.
+ *
+ * Guessing a single encoding is what made this fail twice: decoding with the
+ * wrong scheme does not throw. Buffer.from() ignores characters outside the
+ * target alphabet, so a mismatched guess yields binary garbage that only
+ * fails later, far from the cause.
+ *
+ * So decode by verification rather than by assumption: try each candidate
+ * and accept the first that actually looks like JSON.
+ *
+ * @param {string|number[]} payload - Raw payload from the Substreams output
+ * @returns {string|null} JSON string, or null if no encoding produced one
+ */
+function decodeEventPayload(payload) {
+    const looksLikeJson = (s) =>
+        typeof s === 'string' && (s.trim().startsWith('{') || s.trim().startsWith('['));
+
+    // Byte array — already the raw bytes, no decoding step to get wrong.
+    if (Array.isArray(payload)) {
+        const decoded = Buffer.from(payload).toString('utf-8');
+        return looksLikeJson(decoded) ? decoded.trim() : null;
+    }
+
+    if (typeof payload !== 'string') {
+        return null;
+    }
+
+    const trimmed = payload.trim();
+
+    // Already decoded.
+    if (looksLikeJson(trimmed)) {
+        return trimmed;
+    }
+
+    const candidates = [];
+
+    // Hex, if it could be hex at all. Checked before base64 because a hex
+    // string is also valid base64 input, and base64 would happily "decode" it
+    // into noise.
+    if (trimmed.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(trimmed)) {
+        candidates.push(Buffer.from(trimmed, 'hex').toString('utf-8'));
+    }
+
+    candidates.push(Buffer.from(trimmed, 'base64').toString('utf-8'));
+
+    for (const candidate of candidates) {
+        if (looksLikeJson(candidate)) {
+            return candidate.trim();
+        }
+    }
+
+    return null;
+}
+
+/**
  * Process AnchoredEvents output from map_anchored_events module
  * This is the preferred format with embedded ABI and clean event structure
  *
@@ -495,56 +556,22 @@ async function processAnchoredEventsOutput(data) {
     for (const event of events) {
         stats.eventsReceived++;
 
-        // Normalize payload to a JSON string.
-        //
-        // The Rust module sets payload to the UTF-8 bytes of a JSON object
-        // (lib.rs: `payload: json_data.into_bytes()`). How that reaches us
-        // depends on the CLI's encoder: protobuf bytes fields are base64 under
-        // canonical protobuf-JSON, but the value can also arrive already
-        // decoded.
-        //
-        // Assuming base64 unconditionally is not safe, because base64-decoding
-        // an already-decoded JSON string does not fail — Buffer.from() skips
-        // characters outside the base64 alphabet ('{', '"', ':') instead of
-        // throwing, and quietly produces binary garbage. That then travels to
-        // the backend and surfaces there as an opaque
-        // "Unexpected token ... is not valid JSON".
-        //
-        // So sniff rather than assume: a JSON payload always starts with '{'
-        // or '[', and neither can begin base64-encoded input here.
-        let payloadStr;
-        if (typeof event.payload === 'string') {
-            const trimmed = event.payload.trim();
-            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                payloadStr = trimmed;
-            } else {
-                try {
-                    payloadStr = Buffer.from(event.payload, 'base64').toString('utf-8');
-                } catch (error) {
-                    console.error(`✗ Failed to decode base64 payload:`, error.message);
-                    stats.eventsFailed++;
-                    continue;
-                }
-            }
-        } else if (Array.isArray(event.payload)) {
-            // Byte array
-            payloadStr = Buffer.from(event.payload).toString('utf-8');
-        } else {
-            console.error(`✗ Invalid payload format:`, typeof event.payload);
-            stats.eventsFailed++;
-            continue;
-        }
+        const hashPreview = safeHashPreview(event.content_hash || event.contentHash, 12);
 
-        // Validate before sending. Shipping unparseable bytes to the backend
-        // gets them rejected there, where the log line lacks the context to
-        // tell which decode path produced them.
-        try {
-            JSON.parse(payloadStr);
-        } catch (error) {
+        // Decode by verification — see decodeEventPayload for why guessing a
+        // single encoding is unsafe here.
+        const payloadStr = decodeEventPayload(event.payload);
+
+        if (payloadStr === null) {
+            // Log enough to identify the actual encoding without another
+            // round trip: type, length, and a short raw prefix.
+            const raw = typeof event.payload === 'string'
+                ? event.payload.slice(0, 48)
+                : JSON.stringify(event.payload)?.slice(0, 48);
             console.error(
-                `✗ Payload is not valid JSON for ` +
-                `${safeHashPreview(event.content_hash || event.contentHash, 12)}: ` +
-                `${error.message}`
+                `✗ Could not decode payload for ${hashPreview} ` +
+                `type=${Array.isArray(event.payload) ? 'array' : typeof event.payload} ` +
+                `length=${event.payload?.length} raw_prefix=${JSON.stringify(raw)}`
             );
             stats.eventsFailed++;
             continue;
