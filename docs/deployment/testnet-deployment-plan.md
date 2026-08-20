@@ -15,8 +15,12 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
   - MUS token issued: 1M to polarismusic
   - `eosio.code` permission granted
   - `init` called successfully; globals populated
-- ⏳ **Phase 3** — Pinax + Substreams local smoke test *(you are here)*
-- ⏳ Phase 4 — VPS provisioning + DNS
+- ✅ **Phase 3** — Pinax + Substreams local smoke test
+  - Pinax token working against `jungle4.substreams.pinax.network:443`
+  - Custom Substreams module builds and decodes `put` actions
+  - Full loop verified: store off-chain → anchor on-chain → Substreams →
+    sink → backend retrieval → graph (`status=processed`)
+- ⏳ **Phase 4** — VPS provisioning + DNS *(you are here)*
 - ⏳ Phase 5 — Production secrets
 - ⏳ Phase 6 — Stack bring-up behind Caddy
 - ⏳ Phase 7 — End-to-end on-chain test
@@ -33,6 +37,27 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 | `build.sh` CDT toolchain | `ebd503e` | CMake was falling back to system GCC and handing CDT-only flags to it |
 | Duplicate `nodeagg` in `clear()` | `8843b0b` | Redefined variable in same scope; only surfaced in `--testnet` builds |
 | Contract class annotation | `e1f6e8a` | `CONTRACT polaris` derived name `polaris` but build passed `-contract polaris.music`; abigen dropped everything as a result |
+
+## Bugs found and fixed during Phase 3
+
+| Fix | Commit | What was wrong |
+|---|---|---|
+| Substreams builder image | `df936b0` | Pinned `v1.10.8` no longer resolves on ghcr.io |
+| Rust toolchain | `54beda2` | Transitive dep needs edition2024 (Rust ≥1.85); pin was 1.75 |
+| CLI invocation | `dd0cd8f` | `substreams` is the image ENTRYPOINT, not on PATH |
+| antelope `.spkg` import | `55c6049` | Pinax stopped publishing `.spkg` assets to GitHub Releases; now on spkg.io |
+| Manifest `sink:` block | `3a6e944` | v1.21 validates sink types against bundled descriptors; the block was unused |
+| `protogen` step | `7bd5394` | Needs `buf`, and did nothing — that stage never compiles Rust |
+| Deprecated `pack` | `7dbd8ec` | Switched to `substreams build`; also stopped trusting possibly-stale committed bindings |
+| pb type names | `a5fa4c8` | Committed bindings predated current prost: `type_`/`Updrespect` vs `r#type`/`UpdateRespect` |
+| `.spkg` filename | `7b1862e` | Runtime path hardcoded the versioned name that `build` no longer produces |
+| `START_BLOCK` default | `eff21b1` | `0` replays from genesis and always exceeds the provider block cap |
+| API chain config | `22234fd` | `resolveChainConfig()` result was discarded, so `RPC_URL` never reached the server |
+| Neo4j LIMIT float | `22234fd` | JS numbers serialize as float64; Cypher `LIMIT` requires an integer |
+| IPFS canonical CID | `3b65980` | Read `result.cid` from `block.put()`, which returns the CID itself |
+| Payload decoding | `dae3e8b`, `9918fd9` | Assumed base64; v1.21 emits 0x-prefixed hex, and wrong-scheme decodes fail silently |
+| Sink error reporting | `c22324c` | Logged application-level ingest errors as successes |
+| Anchor-auth ingestion | `37c287e`, `a0322a1` | Frontend stores unsigned events by design, but ingestion required a signature — no UI submission could be ingested |
 
 ---
 
