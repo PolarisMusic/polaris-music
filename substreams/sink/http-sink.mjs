@@ -221,8 +221,14 @@ function normalizeHashString(value) {
         return null;
     }
 
+    // Normalize the same way the backend's normalizeHash does — strip an 0x
+    // prefix and lowercase — so a hash preview logged here is greppable
+    // against the backend's log line for the same event.
+    const normalizeHex = (s) =>
+        (/^0x/i.test(s) ? s.slice(2) : s).toLowerCase();
+
     if (typeof value === 'string') {
-        return value;
+        return normalizeHex(value);
     }
 
     if (Array.isArray(value)) {
@@ -235,7 +241,7 @@ function normalizeHashString(value) {
     }
 
     if (typeof value === 'object' && value.hex) {
-        return typeof value.hex === 'string' ? value.hex : null;
+        return typeof value.hex === 'string' ? normalizeHex(value.hex) : null;
     }
 
     return null;
