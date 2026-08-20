@@ -89,7 +89,7 @@ describe('SHiP and Substreams Output Parity', () => {
             // Verify success
             expect(result.status).toBe('processed');
             expect(result.contentHash).toBe(testContentHash);
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: false });
         });
 
         it('should process anchored event from SHiP', async () => {
@@ -120,7 +120,7 @@ describe('SHiP and Substreams Output Parity', () => {
             // Verify success
             expect(result.status).toBe('processed');
             expect(result.contentHash).toBe(testContentHash);
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: false });
         });
 
         it('should produce identical content_hash from both sources', () => {
@@ -370,7 +370,7 @@ describe('SHiP and Substreams Output Parity', () => {
             // CID was attempted first
             expect(mockEventStore.retrieveByEventCid).toHaveBeenCalledWith(testCid);
             // Fell back to hash retrieval
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: false });
         });
 
         it('should use hash retrieval when no event_cid in payload', async () => {
@@ -399,7 +399,7 @@ describe('SHiP and Substreams Output Parity', () => {
 
             expect(result.status).toBe('processed');
             // Should use hash-based retrieval (legacy path)
-            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: true });
+            expect(mockEventStore.retrieveEvent).toHaveBeenCalledWith(testContentHash, { requireSig: false });
         });
     });
 

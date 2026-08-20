@@ -781,6 +781,16 @@ class EventStore {
 
         // Verify signature requirement is met
         if (requireSig && !event.sig) {
+            // Falling back to the canonical copy with no S3 configured is a
+            // diagnosable deployment issue, not corrupt storage: there is
+            // nowhere for a signed copy to live. Say what to do about it.
+            if (source === 'ipfs_canonical' && this.ipfsEnabled && !this.s3Enabled) {
+                throw new Error(
+                    `Full event with signature required but only canonical exists in IPFS. ` +
+                    `Enable S3 storage or set requireSig=false. Hash: ${normalizedHash}`
+                );
+            }
+
             throw new Error(
                 `Event signature required but event at ${normalizedHash} has no signature. ` +
                 `This should not happen - please check storage integrity.`
