@@ -592,8 +592,15 @@ class EventStore {
      * CRITICAL: IPFS stores canonical event WITHOUT signature (for CID derivability).
      * S3/Redis store full event WITH signature (for auditability and verification).
      *
+     * A signed copy is always preferred, independent of requireSig: if IPFS
+     * returns the canonical (unsigned) copy, it is held aside while S3 is
+     * tried, and used only if no signed copy exists anywhere. Preferring the
+     * signed copy unconditionally matters because otherwise a signed event
+     * could be served in unsigned form and skip signature verification
+     * downstream. requireSig then controls only whether an unsigned result is
+     * acceptable to the caller.
+     *
      * To prevent Redis cache poisoning with signature-less events:
-     * - If requireSig=true and IPFS returns canonical (no sig), fallback to S3
      * - Only cache full events (with sig) to Redis under event:${hash}
      * - This ensures signature verification can be enabled reliably
      *
@@ -621,6 +628,9 @@ class EventStore {
         let event = null;
         let source = null;
         const attempted = [];
+        // Unsigned canonical copy from IPFS, held aside while we look for a
+        // signed one. See the IPFS section below.
+        let canonicalFallback = null;
 
         // 1. Try Redis cache first (fastest)
         if (this.redisEnabled) {
@@ -653,12 +663,20 @@ class EventStore {
                 if (data) {
                     const ipfsEvent = JSON.parse(data.toString('utf-8'));
 
-                    // CRITICAL: IPFS stores canonical (no sig) for CID derivability
-                    // If requireSig=true and IPFS event lacks sig, fallback to S3
-                    if (requireSig && !ipfsEvent.sig) {
+                    // CRITICAL: IPFS stores canonical (no sig) for CID derivability.
+                    //
+                    // Always prefer a signed copy when one exists, regardless of
+                    // requireSig — otherwise a signed event could be served in its
+                    // unsigned canonical form and skip signature verification
+                    // downstream. Hold the canonical copy aside instead of
+                    // discarding it: anchor-auth events are stored unsigned
+                    // everywhere, and IPFS-only deployments have no S3 to fall
+                    // through to. It is used below only if nothing better turns up.
+                    if (!ipfsEvent.sig) {
+                        canonicalFallback = ipfsEvent;
                         ipfsTimer.endWarn('retrieve_ipfs_canonical_only', {
                             event_hash: normalizedHash,
-                            message: 'no signature, falling back to S3'
+                            message: 'no signature, preferring signed copy from S3'
                         });
                         // Don't set event yet, let S3 section handle it
                     } else {
@@ -733,6 +751,13 @@ class EventStore {
             if (event) {
                 source = 'test-memory';
             }
+        }
+
+        // No signed copy anywhere — fall back to the unsigned canonical copy
+        // from IPFS. Whether that is acceptable is decided by requireSig below.
+        if (!event && canonicalFallback) {
+            event = canonicalFallback;
+            source = 'ipfs_canonical';
         }
 
         if (!event) {

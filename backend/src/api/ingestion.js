@@ -515,12 +515,12 @@ export class IngestionHandler {
                         event_cid,
                         error: ipfsError.message
                     });
-                    event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+                    event = await this.store.retrieveEvent(content_hash, { requireSig: false });
                     source = 'hash_fallback';
                 }
             } else {
                 // Legacy path: derive CID from hash or use S3 fallback
-                event = await this.store.retrieveEvent(content_hash, { requireSig: true });
+                event = await this.store.retrieveEvent(content_hash, { requireSig: false });
                 source = 'hash_legacy';
             }
 
@@ -550,8 +550,34 @@ export class IngestionHandler {
             // Step 4.1: CRITICAL - Verify cryptographic signature
             // This ensures the event was actually signed by the claimed author_pubkey
             // Only bypass with explicit ALLOW_UNSIGNED_EVENTS=true (testing only!)
-            const sigTimer = this.log.startTimer();
-            const sigResult = verifyEventSignature(event, {
+            //
+            // Anchor-auth events carry no signature by design: the frontend
+            // stores via /api/events/store-for-anchor and authorship is proven
+            // by the on-chain put() instead. For those, the chain supplies the
+            // same two guarantees a signature would:
+            //
+            //   - Content integrity: Step 4 above already rejected the event
+            //     unless it hashes to the hash recorded on-chain.
+            //   - Authorship: put() calls require_auth(author), so only that
+            //     account could have anchored this hash.
+            //
+            // So skip the signature checks when there is no signature, but keep
+            // them strict whenever one is present — an event that ships a
+            // signature must still have a valid one.
+            const isAnchorAuth = !event.sig;
+
+            if (isAnchorAuth) {
+                this.log.info('sig_verify_skip_anchor_auth', {
+                    event_hash: content_hash,
+                    author,
+                    block_num: blockchainMetadata.block_num,
+                    trx_id: blockchainMetadata.trx_id,
+                    reason: 'unsigned event; authorship established by on-chain put()'
+                });
+            }
+
+            const sigTimer = isAnchorAuth ? null : this.log.startTimer();
+            const sigResult = isAnchorAuth ? { valid: true } : verifyEventSignature(event, {
                 requireSignature: true,
                 allowUnsigned: process.env.ALLOW_UNSIGNED_EVENTS === 'true'
             });
@@ -571,15 +597,21 @@ export class IngestionHandler {
                 };
             }
 
-            sigTimer.end('sig_verify_pass', { event_hash: content_hash });
+            if (sigTimer) {
+                sigTimer.end('sig_verify_pass', { event_hash: content_hash });
+            }
 
             // Step 4.2: Verify signing key is authorized for chain author
             // This binds the event signer to the account that anchored it
             // Provides universal verifiability: "this key was authorized for that account"
             //
+            // Skipped for anchor-auth events: there is no signing key to bind,
+            // and the binding this check provides — that `author` stands behind
+            // this content — already comes from require_auth(author) in put().
+            //
             // Can be disabled for smoke testing / development by setting REQUIRE_ACCOUNT_AUTH=false
             // WARNING: Default is true (secure). Only disable for smoke tests.
-            if (process.env.REQUIRE_ACCOUNT_AUTH !== 'false') {
+            if (!isAnchorAuth && process.env.REQUIRE_ACCOUNT_AUTH !== 'false') {
                 const permission = 'active'; // Assume active permission (can be passed in metadata)
                 const isAuthorized = await this.isKeyAuthorizedForAccount(
                     author,
@@ -606,6 +638,11 @@ export class IngestionHandler {
                 }
 
                 this.log.info('auth_key_verified', { event_hash: content_hash, account: author, permission });
+            } else if (isAnchorAuth) {
+                this.log.info('auth_check_skipped', {
+                    event_hash: content_hash,
+                    reason: 'anchor-auth: no signing key to bind; authorship from on-chain put()'
+                });
             } else {
                 this.log.warn('auth_check_skipped', { event_hash: content_hash, reason: 'REQUIRE_ACCOUNT_AUTH=false' });
             }
