@@ -221,8 +221,14 @@ function normalizeHashString(value) {
         return null;
     }
 
+    // Normalize the same way the backend's normalizeHash does — strip an 0x
+    // prefix and lowercase — so a hash preview logged here is greppable
+    // against the backend's log line for the same event.
+    const normalizeHex = (s) =>
+        (/^0x/i.test(s) ? s.slice(2) : s).toLowerCase();
+
     if (typeof value === 'string') {
-        return value;
+        return normalizeHex(value);
     }
 
     if (Array.isArray(value)) {
@@ -235,7 +241,7 @@ function normalizeHashString(value) {
     }
 
     if (typeof value === 'object' && value.hex) {
-        return typeof value.hex === 'string' ? value.hex : null;
+        return typeof value.hex === 'string' ? normalizeHex(value.hex) : null;
     }
 
     return null;
@@ -490,7 +496,8 @@ async function processLine(line) {
  * (lib.rs: `payload: json_data.into_bytes()`), but how a protobuf `bytes`
  * field is rendered on the way out depends on the CLI's encoder, and has
  * differed across substreams versions: base64 (canonical protobuf-JSON),
- * hex, a plain already-decoded string, or a byte array.
+ * hex, a plain already-decoded string, or a byte array. substreams v1.21
+ * emits 0x-prefixed hex.
  *
  * Guessing a single encoding is what made this fail twice: decoding with the
  * wrong scheme does not throw. Buffer.from() ignores characters outside the
@@ -526,11 +533,13 @@ function decodeEventPayload(payload) {
 
     const candidates = [];
 
-    // Hex, if it could be hex at all. Checked before base64 because a hex
-    // string is also valid base64 input, and base64 would happily "decode" it
-    // into noise.
-    if (trimmed.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(trimmed)) {
-        candidates.push(Buffer.from(trimmed, 'hex').toString('utf-8'));
+    // Hex, with or without an 0x prefix — substreams v1.21 emits bytes
+    // fields as 0x-prefixed hex. Checked before base64 because a hex string
+    // is also valid base64 input, and base64 would happily "decode" it into
+    // noise.
+    const hexBody = /^0x/i.test(trimmed) ? trimmed.slice(2) : trimmed;
+    if (hexBody.length > 0 && hexBody.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(hexBody)) {
+        candidates.push(Buffer.from(hexBody, 'hex').toString('utf-8'));
     }
 
     candidates.push(Buffer.from(trimmed, 'base64').toString('utf-8'));
