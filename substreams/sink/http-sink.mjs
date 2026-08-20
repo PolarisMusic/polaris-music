@@ -337,6 +337,25 @@ async function postAnchoredEvent(anchoredEvent, attempt = 1, requestId = null) {
 
         if (response.ok) {
             const result = await response.json();
+
+            // A 2xx does not mean the event was ingested. The endpoint returns
+            // 201 with an application-level status, so an event the backend
+            // could not process arrives here as status:'error' — report it as a
+            // failure and surface result.error, which is the only place the
+            // reason appears on this side.
+            //
+            // Not retried: an event that fails to process (unparseable payload,
+            // unretrievable CID) fails the same way every time.
+            if (result.status === 'error') {
+                console.error(
+                    `✗ Rejected ${hashPreview} block=${anchoredEvent.block_num} ` +
+                    `action=${anchoredEvent.action_name} error=${result.error} ` +
+                    `duration_ms=${durationMs} request_id=${requestId}`
+                );
+                stats.eventsFailed++;
+                return false;
+            }
+
             console.log(
                 `✓ Posted ${hashPreview} block=${anchoredEvent.block_num} ` +
                 `action=${anchoredEvent.action_name} status=${result.status} ` +
@@ -476,22 +495,57 @@ async function processAnchoredEventsOutput(data) {
     for (const event of events) {
         stats.eventsReceived++;
 
-        // Decode payload from base64 bytes to UTF-8 JSON string
+        // Normalize payload to a JSON string.
+        //
+        // The Rust module sets payload to the UTF-8 bytes of a JSON object
+        // (lib.rs: `payload: json_data.into_bytes()`). How that reaches us
+        // depends on the CLI's encoder: protobuf bytes fields are base64 under
+        // canonical protobuf-JSON, but the value can also arrive already
+        // decoded.
+        //
+        // Assuming base64 unconditionally is not safe, because base64-decoding
+        // an already-decoded JSON string does not fail — Buffer.from() skips
+        // characters outside the base64 alphabet ('{', '"', ':') instead of
+        // throwing, and quietly produces binary garbage. That then travels to
+        // the backend and surfaces there as an opaque
+        // "Unexpected token ... is not valid JSON".
+        //
+        // So sniff rather than assume: a JSON payload always starts with '{'
+        // or '[', and neither can begin base64-encoded input here.
         let payloadStr;
         if (typeof event.payload === 'string') {
-            // Already a string (base64)
-            try {
-                payloadStr = Buffer.from(event.payload, 'base64').toString('utf-8');
-            } catch (error) {
-                console.error(`✗ Failed to decode base64 payload:`, error.message);
-                stats.eventsFailed++;
-                continue;
+            const trimmed = event.payload.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                payloadStr = trimmed;
+            } else {
+                try {
+                    payloadStr = Buffer.from(event.payload, 'base64').toString('utf-8');
+                } catch (error) {
+                    console.error(`✗ Failed to decode base64 payload:`, error.message);
+                    stats.eventsFailed++;
+                    continue;
+                }
             }
         } else if (Array.isArray(event.payload)) {
             // Byte array
             payloadStr = Buffer.from(event.payload).toString('utf-8');
         } else {
             console.error(`✗ Invalid payload format:`, typeof event.payload);
+            stats.eventsFailed++;
+            continue;
+        }
+
+        // Validate before sending. Shipping unparseable bytes to the backend
+        // gets them rejected there, where the log line lacks the context to
+        // tell which decode path produced them.
+        try {
+            JSON.parse(payloadStr);
+        } catch (error) {
+            console.error(
+                `✗ Payload is not valid JSON for ` +
+                `${safeHashPreview(event.content_hash || event.contentHash, 12)}: ` +
+                `${error.message}`
+            );
             stats.eventsFailed++;
             continue;
         }
