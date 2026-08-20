@@ -942,7 +942,10 @@ class EventStore {
             pin: true
         });
 
-        const cid = result.cid;
+        // block.put() resolves to the CID itself, unlike add() — used by
+        // storeFullEventToIPFS — which resolves to { cid, ... }. Older
+        // ipfs-http-client wrapped it here too, so accept either shape.
+        const cid = result?.cid ?? result;
         const cidString = cid.toString();
         replication.primary = true;
 
@@ -978,7 +981,7 @@ class EventStore {
                 });
 
                 // Verify CID matches (should always be identical for same data)
-                const secondaryCid = secondaryResult.cid.toString();
+                const secondaryCid = (secondaryResult?.cid ?? secondaryResult).toString();
                 if (secondaryCid !== cidString) {
                     console.warn(`⚠️  Secondary IPFS node ${url} produced different CID: ${secondaryCid} vs ${cidString}`);
                     replication.secondary.push(false);
