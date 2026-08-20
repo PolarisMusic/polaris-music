@@ -19,7 +19,23 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
   - Pinax token working against `jungle4.substreams.pinax.network:443`
   - Custom Substreams module builds and decodes `put` actions
   - Full loop verified: store off-chain → anchor on-chain → Substreams →
-    sink → backend retrieval → graph (`status=processed`)
+    sink → backend retrieval → graph
+  - Confirmed in Neo4j, not just by the sink's success line: the anchored
+    MINT_ENTITY produced `polaris:person:ead2720e-…`, a random UUID that
+    could only have come from that event
+
+    ```bash
+    # Verifying ingestion: check for the entity the event mints.
+    # There is no :Event node type — querying one always returns 0
+    # whether or not ingestion worked.
+    docker-compose exec neo4j cypher-shell \
+      -u neo4j -p "$(grep '^NEO4J_PASSWORD=' .env | cut -d= -f2-)" \
+      "MATCH (n) RETURN labels(n)[0] AS type, count(*) AS count ORDER BY count DESC"
+    ```
+
+    Note the graph may already hold data from `scripts/smoke_payloads/`,
+    whose IDs are sequential (`polaris:person:00000000-…-000000000101`).
+    Filter those out to see only what you just ingested.
 - ⏳ **Phase 4** — VPS provisioning + DNS *(you are here)*
 - ⏳ Phase 5 — Production secrets
 - ⏳ Phase 6 — Stack bring-up behind Caddy
