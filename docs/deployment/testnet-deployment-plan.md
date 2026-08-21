@@ -183,9 +183,13 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 5. Note the server's IPv4 address.
 
 6. Configure DNS at your registrar (wherever you bought polaris.mu):
-   - A-record: `polaris.mu` → `<server IPv4>`, TTL 300
-   - A-record: `api.polaris.mu` → `<server IPv4>`, TTL 300
+   - A-record: `polaris.mu` → `<server IPv4>`
+   - A-record: `api.polaris.mu` → `<server IPv4>`
    - Optional: AAAA-records for IPv6
+
+   A low TTL (300) makes later corrections propagate faster, but nothing
+   here depends on it — many registrars enforce a 600s minimum, and that
+   is fine. Don't fight it.
 
 7. Wait for DNS to propagate. From your Mac:
    ```bash
