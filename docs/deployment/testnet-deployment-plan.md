@@ -281,12 +281,19 @@ reset it: Hetzner panel → server → **Rescue** → **Reset root password**
 (this reboots), then log in via **Console** as root and run
 `passwd polaris`.
 
-Optionally, while you are root, make sudo passwordless:
+Optionally, make sudo passwordless. Pipe through `sudo tee` rather than
+using `>`: the redirect is performed by your shell, not by sudo, so
+`sudo echo ... > /etc/sudoers.d/polaris` fails with permission denied.
 
 ```bash
-echo "polaris ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/polaris
-chmod 440 /etc/sudoers.d/polaris
+echo "polaris ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/polaris
+sudo chmod 440 /etc/sudoers.d/polaris
+sudo visudo -c        # must print "parsed OK" — see below
 ```
+
+Always run `visudo -c` after touching sudoers. A syntax error there breaks
+`sudo` outright, and validating it while you still hold a working session
+is the difference between a typo and a trip to the rescue console.
 
 The tradeoff: it drops a second factor if your SSH key is stolen. But
 password auth is already disabled on this image, so anyone holding the key
