@@ -204,7 +204,10 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
    ```
    Then on the server:
    ```bash
-   # Non-root user
+   # Non-root user.
+   # adduser prompts for a password — SAVE IT to your password manager now.
+   # You will not use it to log in (SSH is key-only), so it is easy to
+   # assume it does not matter, but every sudo command asks for it.
    adduser polaris
    usermod -aG sudo polaris
    mkdir /home/polaris/.ssh
@@ -260,16 +263,37 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
     Confirm the `polaris` session still works after the restart before
     closing the root one.
 
-**If you do get locked out:** you are not stuck, and you do not need to
+**If SSH stops working:** you are not stuck, and you do not need to
 rebuild. Hetzner's web console reaches the machine without SSH — server →
-**Console** (`>_`) in the cloud panel — and accepts the password you set at
-`adduser`. From there:
+**Console** (`>_`) in the cloud panel. From there:
 
 ```bash
 sudo fail2ban-client status sshd            # is your IP banned?
 sudo fail2ban-client set sshd unbanip <IP>
 sudo tail -30 /var/log/auth.log             # why SSH actually refused
 ```
+
+**If sudo rejects your password** — note this is a different problem from
+being locked out; if you reached a `polaris@...$` prompt then SSH is fine
+and only the account password is wrong. Password entry displays nothing as
+you type, so check Caps Lock and try again before assuming it is lost. To
+reset it: Hetzner panel → server → **Rescue** → **Reset root password**
+(this reboots), then log in via **Console** as root and run
+`passwd polaris`.
+
+Optionally, while you are root, make sudo passwordless:
+
+```bash
+echo "polaris ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/polaris
+chmod 440 /etc/sudoers.d/polaris
+```
+
+The tradeoff: it drops a second factor if your SSH key is stolen. But
+password auth is already disabled on this image, so anyone holding the key
+can read `.env` and the Docker volumes anyway — the sudo password buys
+less than it looks like. Reasonable for a single-operator testnet box;
+skip it if this server ever holds anything you would not want in a
+key-compromise scenario.
 
 11. Log in as `polaris` from now on:
     ```bash
