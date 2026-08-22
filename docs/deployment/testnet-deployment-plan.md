@@ -223,19 +223,64 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
    ufw allow 443
    ufw enable
 
-   # fail2ban
+   # fail2ban — whitelist your own IP so a few fat-fingered logins
+   # can't lock you out of your own server
    apt install -y fail2ban
+   MY_IP=$(who am i | awk '{print $NF}' | tr -d '()')
+   cat >/etc/fail2ban/jail.local <<EOF
+   [DEFAULT]
+   ignoreip = 127.0.0.1/8 ::1 ${MY_IP}
+   EOF
    systemctl enable --now fail2ban
-
-   # Disable root SSH
-   sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-   systemctl restart ssh
    ```
 
-9. Log in as `polaris` from now on:
+   **Do not disable root SSH yet.** The next step proves the replacement
+   login works while root is still available as a fallback.
+
+9. **Verify `polaris` login before removing your fallback.** Keep the root
+   session open, and in a *second terminal* on your Mac:
+
    ```bash
    ssh -i ~/.ssh/polaris_vps polaris@polaris.mu
+   sudo whoami        # should print: root
    ```
+
+   If you are prompted for a password, key auth is NOT working — do not
+   proceed. Fix it from the still-open root session (usually
+   `/home/polaris/.ssh/authorized_keys` is missing, empty, or wrongly
+   owned) until this login succeeds on the key alone.
+
+10. **Only once step 9 succeeds**, disable root SSH from the root session:
+
+    ```bash
+    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+    systemctl restart ssh
+    ```
+
+    Confirm the `polaris` session still works after the restart before
+    closing the root one.
+
+**If you do get locked out:** you are not stuck, and you do not need to
+rebuild. Hetzner's web console reaches the machine without SSH — server →
+**Console** (`>_`) in the cloud panel — and accepts the password you set at
+`adduser`. From there:
+
+```bash
+sudo fail2ban-client status sshd            # is your IP banned?
+sudo fail2ban-client set sshd unbanip <IP>
+sudo tail -30 /var/log/auth.log             # why SSH actually refused
+```
+
+11. Log in as `polaris` from now on:
+    ```bash
+    ssh -i ~/.ssh/polaris_vps polaris@polaris.mu
+    ```
+
+    If sessions drop while you work, add to `~/.ssh/config` on your Mac:
+    ```
+    Host polaris.mu
+      ServerAliveInterval 60
+    ```
 
 **Verification:** SSH as `polaris` works; `dig polaris.mu` resolves; UFW shows 22/80/443 only.
 
