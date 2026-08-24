@@ -1,0 +1,24 @@
+# Reverse proxy + automatic TLS for the Polaris testnet deployment.
+#
+# To rehearse certificate issuance without spending a production quota,
+# uncomment the block below. Let's Encrypt allows 5 duplicate certs per
+# domain per week; staging is unlimited but issues untrusted certs.
+#
+# IMPORTANT: this file is bind-mounted, so editing it does NOT change the
+# container spec — `docker compose up -d` will report caddy as "Running"
+# and leave the old config loaded. Always follow an edit with:
+#     docker compose restart caddy
+#
+# {
+#     acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+# }
+
+polaris.mu {
+    encode gzip
+    reverse_proxy frontend:80
+}
+
+api.polaris.mu {
+    encode gzip
+    reverse_proxy api:3000
+}

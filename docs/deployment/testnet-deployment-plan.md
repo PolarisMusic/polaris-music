@@ -36,9 +36,18 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
     Note the graph may already hold data from `scripts/smoke_payloads/`,
     whose IDs are sequential (`polaris:person:00000000-…-000000000101`).
     Filter those out to see only what you just ingested.
-- ⏳ **Phase 4** — VPS provisioning + DNS *(you are here)*
-- ⏳ Phase 5 — Production secrets
-- ⏳ Phase 6 — Stack bring-up behind Caddy
+- ✅ **Phase 4** — VPS provisioning + DNS
+  - Hetzner CX32 `polaris-testnet` at 5.78.113.240, Ubuntu 24.04
+  - `polaris.mu` and `api.polaris.mu` both resolve
+  - UFW 22/80/443, fail2ban active (banning scanners as intended)
+- ✅ **Phase 5** — Production secrets
+  - Real passwords, `STORAGE_ENCRYPTION_KEY` 64-hex, `INGEST_API_KEY` set
+  - `NODE_ENV=production`, `INGEST_MODE=chain`, `CORS_ORIGIN=https://polaris.mu`
+  - `frontend/.env` created (baked at build time)
+- 🔄 **Phase 6** — Stack bring-up behind Caddy *(you are here)*
+  - All containers built and running, Caddy included
+  - ACME verified end to end against the staging endpoint
+  - Remaining: swap staging cert for production (see Appendix A)
 - ⏳ Phase 7 — End-to-end on-chain test
 - ⏳ Phase 8 — Backups + restart-on-reboot
 
@@ -138,14 +147,22 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 
 8. Watch the sink logs — the event should arrive and be forwarded to the api container within a few seconds.
 
-9. Verify Neo4j got the anchor row:
+9. Verify the graph actually changed. There is **no `:Event` node type** —
+   counting one returns 0 whether or not ingestion worked. Take a label
+   census instead, and note the graph may already hold smoke-payload data
+   with sequential IDs (`polaris:person:00000000-…`):
    ```bash
-   docker-compose exec neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" \
-     "MATCH (e:Event) RETURN count(e) as count"
+   docker-compose exec neo4j cypher-shell \
+     -u neo4j -p "$(grep '^NEO4J_PASSWORD=' .env | cut -d= -f2-)" \
+     "MATCH (n) RETURN labels(n)[0] AS type, count(*) AS count ORDER BY count DESC"
    ```
-   Should return at least 1.
 
-**Verification:** sink logs show your `put` action processed; Neo4j has a new Event node.
+   `$NEO4J_PASSWORD` is not exported to your shell — it lives in `.env`,
+   which only Docker reads. Hence reading it from the file.
+
+**Verification:** sink logs show `status=processed`, **and** the entity your
+event mints is present in the graph. The sink's success line alone only means
+the backend returned 2xx; it cannot see whether the graph write happened.
 
 **Troubleshooting:**
 - `Authentication failed` → check the token at app.pinax.network; make sure it's enabled for Jungle4
@@ -564,76 +581,60 @@ key-compromise scenario.
 
 ---
 
-## Appendix A — `Caddyfile`
+## Appendix A — `Caddyfile` and `docker-compose.prod.yml`
 
-Save at `~/polaris-music/Caddyfile` on the VPS:
+Both files are committed at the repo root — use them as-is rather than
+retyping. Two things about them are easy to get wrong:
 
-```caddyfile
-# Uncomment for first attempt to avoid Let's Encrypt rate limits.
-# Comment out once Caddy successfully completes the ACME dance.
-# {
-#   acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-# }
+**The frontend build context must be the repo root.**
+`frontend/Dockerfile` does `COPY frontend/…` and `COPY shared/`, so
+`context: ./frontend` cannot resolve those paths. The overlay sets
+`context: .` with `dockerfile: frontend/Dockerfile`. It also sets `command`
+explicitly — compose would otherwise inherit `npm run dev -- --host` from the
+base file and run it against an nginx image.
 
-polaris.mu {
-    encode gzip
-    reverse_proxy frontend:80
-}
+**The Caddyfile is bind-mounted, so editing it does not restart Caddy.**
+`docker compose up -d` sees an unchanged container spec, reports the service
+as `Running`, and leaves the old config loaded with its cached certificate.
+After any Caddyfile edit:
 
-api.polaris.mu {
-    encode gzip
-    reverse_proxy api:3000
-}
+```bash
+docker compose restart caddy
+```
+
+This bites hardest when switching off the ACME staging endpoint: the config
+looks correct, but Caddy keeps serving the staging cert. Confirm which
+issuer is actually in use:
+
+```bash
+docker compose logs caddy | grep -iE "issuer|obtain" | tail -10
+```
+
+Production reads `acme-v02.api.letsencrypt.org-directory`; staging reads
+`acme-staging-v02…`. If a staging cert is stuck, clear Caddy's data volume
+and let it re-issue — it holds only certificates and ACME account keys:
+
+```bash
+docker compose stop caddy && docker compose rm -f caddy
+docker volume rm polaris-music_caddy_data
+docker compose up -d caddy
 ```
 
 ---
 
-## Appendix B — `docker-compose.prod.yml`
+## Appendix B — skip the `-f` flags
 
-Save at `~/polaris-music/docker-compose.prod.yml` on the VPS:
+`caddy` is defined only in the overlay, so every compose command needs both
+`-f` flags or it fails with `no such service: caddy` — including `logs`,
+`restart`, and `ps`, not just `up`. Set these once in `.env` on the VPS and
+bare `docker compose …` commands work everywhere:
 
-```yaml
-services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - polaris-network
-
-  # Build production frontend (multi-stage, not Dockerfile.dev)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    expose:
-      - "80"
-
-  api:
-    restart: unless-stopped
-    expose:
-      - "3000"
-
-  neo4j:
-    restart: unless-stopped
-  redis:
-    restart: unless-stopped
-  ipfs:
-    restart: unless-stopped
-  minio:
-    restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+COMPOSE_PROFILES=chain
 ```
+
+Verify with `docker compose config --services` — `caddy` should be listed.
 
 ---
 
