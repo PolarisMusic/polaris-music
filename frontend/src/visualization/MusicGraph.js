@@ -903,7 +903,7 @@ export class MusicGraph {
         });
     }
 
-    // ========== View controls (wired from visualization.html) ==========
+    // ========== View controls (wired from index.html) ==========
 
     /**
      * Center the view back to the root node

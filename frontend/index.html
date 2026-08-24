@@ -3,215 +3,326 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polaris Music Registry - Submit Release</title>
-    <link rel="stylesheet" href="/styles.css">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://api.polaris.mu https://eos.greymass.com https://jungle4.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; media-src 'self' https: blob:; frame-src https://*.anchor.link;">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <title>Polaris Music Registry - Graph Visualization</title>
+
+    <!-- JIT Library (local copy) -->
+    <!-- Vite copies the CONTENTS of public/ to the dist root, so the built
+     path is /lib/jit.js. The ./public/ prefix resolved only under the
+     dev server, which also serves the project directory. -->
+    <script src="./lib/jit.js"></script>
+
+    <!-- Visualization Styles -->
+    <link rel="stylesheet" href="./src/visualization/visualization.css">
 </head>
 <body>
-    <div id="app">
-        <header>
-            <h1>Polaris Music Registry</h1>
-            <p>Decentralized Music Credits & Attribution</p>
-        </header>
-
-        <nav class="tabs">
-            <button class="tab active" data-tab="submit">Submit Release</button>
-            <button class="tab" data-tab="browse">Browse Registry</button>
-        </nav>
-
-        <main>
-            <!-- Submit Release Tab -->
-            <div id="submit-tab" class="tab-content active">
-                <div class="container">
-                    <h2>Submit New Release</h2>
-                    <p class="intro">
-                        Enter detailed information about a music release. All data will be anchored
-                        on-chain and stored in a decentralized manner. Please be as accurate as possible.
-                    </p>
-
-                    <!-- Discogs Import Section -->
-                    <div class="discogs-import">
-                        <details>
-                            <summary>
-                                <span class="icon">📀</span>
-                                <strong>Import from Discogs</strong>
-                                <span class="hint">Auto-fill form from Discogs database</span>
-                            </summary>
-                            <div class="import-content">
-                                <p>Enter a Discogs release URL or ID to automatically populate the form:</p>
-                                <div class="import-input-group">
-                                    <input type="text" id="discogs-input"
-                                           placeholder="https://www.discogs.com/release/249504 or just 249504"
-                                           autocomplete="off">
-                                    <button type="button" id="fetch-discogs-btn" class="btn-secondary">
-                                        Fetch Data
-                                    </button>
-                                </div>
-                                <div id="discogs-status" class="import-status"></div>
-                                <small class="note">
-                                    <strong>Note:</strong> This will auto-populate the form with data from Discogs.
-                                    You can review and edit all fields before submitting.
-                                </small>
-                            </div>
-                        </details>
-                    </div>
-
-                    <form id="release-form">
-                        <!-- Release Information Section -->
-                        <section class="form-section">
-                            <h3>Release Information</h3>
-
-                            <div class="form-group">
-                                <label for="release-name">Release Name *</label>
-                                <input type="text" id="release-name" name="release_name" required
-                                       placeholder="Release title (e.g. The White Album)">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="release-altnames">Alternative Names</label>
-                                <input type="text" id="release-altnames" name="release_altnames"
-                                       placeholder="Alternative names, comma-separated">
-                                <small>Separate multiple names with commas</small>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="release-date">Release Date *</label>
-                                    <input type="text" id="release-date" name="release_date" required placeholder="YYYY/MM/DD or YYYY/MM or YYYY">
-                                    <small>Format: YYYY/MM/DD (e.g., 2002/08/27) or YYYY/MM (e.g., 2002/08) or just YYYY (e.g., 2002)</small>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="release-format">Format *</label>
-                                    <select id="release-format" name="release_format" required>
-                                        <option value="">Select format...</option>
-                                        <option value="LP">LP (Album)</option>
-                                        <option value="EP">EP</option>
-                                        <option value="Single">Single</option>
-                                        <option value="CD">CD</option>
-                                        <option value="Digital">Digital</option>
-                                        <option value="Cassette">Cassette</option>
-                                        <option value="Other">Other</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="liner-notes">Liner Notes</label>
-                                <textarea id="liner-notes" name="liner_notes" rows="4"
-                                          placeholder="Additional notes, credits, or information about the release..."></textarea>
-                            </div>
-
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="is-master" name="is_master" checked>
-                                    This is the master/original release
-                                </label>
-                                <small>Uncheck if this is a reissue</small>
-                            </div>
-
-                            <div class="form-group" id="master-release-group" style="display: none;">
-                                <label for="master-release-id">Master Release ID</label>
-                                <input type="text" id="master-release-id" name="master_release_id"
-                                       placeholder="Hash of the master release">
-                                <!-- UNIMPLEMENTED: Database search for master releases -->
-                                <!-- TODO: Add autocomplete search that queries /api/search?type=release&q={query} -->
-                                <!-- Should display matching releases and allow selection -->
-                            </div>
-                        </section>
-
-                        <!-- Source Attribution Section -->
-                        <section class="form-section">
-                            <h3>Source Attribution</h3>
-                            <div class="form-group">
-                                <label for="source-links">Source Links</label>
-                                <input type="text" id="source-links" name="source_links"
-                                       placeholder="https://discogs.com/..., https://musicbrainz.org/... (comma-separated)">
-                                <small>Provide source links for verification (Discogs, MusicBrainz, official websites, etc.)</small>
-                            </div>
-                        </section>
-
-                        <!-- Labels Section -->
-                        <section class="form-section">
-                            <h3>Labels</h3>
-                            <div id="labels-container"></div>
-                            <button type="button" class="btn-add" id="add-label">+ Add Label</button>
-                        </section>
-
-                        <!-- Release-Level Groups Section -->
-                        <section class="form-section">
-                            <h3>Release-Level Performing Groups</h3>
-                            <p class="section-note">
-                                Add groups that performed on this release. These will be automatically added to all tracks
-                                (you can remove them from individual tracks if needed).
-                            </p>
-                            <div id="release-groups-container"></div>
-                            <button type="button" class="btn-add" id="add-release-group">+ Add Release Group</button>
-                        </section>
-
-                        <!-- Release-Level Guests Section -->
-                        <section class="form-section">
-                            <h3>Release-Level Credits</h3>
-                            <p class="section-note">
-                                Add personnel who contributed to the overall release (mastering engineers,
-                                album designers, release-level production, etc.) rather than specific tracks.
-                            </p>
-                            <div id="release-guests-container"></div>
-                            <button type="button" class="btn-add" id="add-release-guest">+ Add Release Guest</button>
-                        </section>
-
-                        <!-- Tracks Section -->
-                        <section class="form-section">
-                            <h3>Tracks</h3>
-                            <p class="section-note">
-                                Add all tracks on this release. Each track should include complete credits.
-                            </p>
-                            <div id="tracks-container"></div>
-                            <button type="button" class="btn-add" id="add-track">+ Add Track</button>
-                        </section>
-
-                        <!-- Submit Section -->
-                        <section class="form-section">
-                            <div class="form-actions">
-                                <button type="button" class="btn-secondary" id="preview-json">Preview JSON</button>
-                                <button type="submit" class="btn-primary">Submit Release</button>
-                            </div>
-                        </section>
-                    </form>
-                </div>
+    <!-- Top Bar -->
+    <div id="top-bar">
+        <div class="top-bar-left">
+            <div class="logo">Polaris Music Registry</div>
+        </div>
+        <div class="top-bar-center">
+            <div id="graph-search-container"></div>
+        </div>
+        <div class="top-bar-right">
+            <div class="user-info">
+                <span id="user-account">Not connected</span>
+                <button id="connect-wallet" class="btn-wallet">Connect Wallet</button>
             </div>
-
-            <!-- Browse Tab (placeholder) -->
-            <div id="browse-tab" class="tab-content">
-                <div class="container">
-                    <h2>Browse Registry</h2>
-                    <p>Graph visualization coming soon...</p>
-                </div>
-            </div>
-        </main>
-
-        <!-- JSON Preview Modal -->
-        <div id="json-modal" class="modal">
-            <div class="modal-content">
-                <span class="close">&times;</span>
-                <h2>Release Bundle Preview</h2>
-                <pre id="json-preview"></pre>
-                <div class="modal-actions">
-                    <button type="button" class="btn-secondary" id="copy-json">Copy JSON</button>
-                    <button type="button" class="btn-primary" id="confirm-submit">Confirm & Submit</button>
-                </div>
+            <div class="stats">
+                <span class="stat-item stat-clickable" id="favorites-toggle">
+                    <span class="icon">⭐</span>
+                    <span id="favorites-count">0</span> Favorites
+                </span>
+                <span class="stat-item stat-clickable" id="curate-toggle">
+                    <span class="icon">🗳</span>
+                    Curate
+                </span>
+                <span class="stat-item stat-clickable" id="history-toggle">
+                    <span class="icon">❄️</span>
+                    <span id="history-count">0</span> History
+                </span>
             </div>
         </div>
-
-        <!-- Loading Overlay -->
-        <div id="loading-overlay" class="overlay" style="display: none;">
-            <div class="spinner"></div>
-            <p>Submitting release...</p>
-        </div>
-
-        <!-- Success/Error Messages -->
-        <div id="toast-container"></div>
     </div>
 
-    <script type="module" src="/src/index.js"></script>
+    <!-- History Panel (hidden by default) -->
+    <div id="history-panel" style="display: none;">
+        <div class="history-header">
+            <h3>History</h3>
+            <div class="history-actions">
+                <button id="history-clear" class="btn-history">Clear</button>
+                <button id="history-close" class="btn-close">&times;</button>
+            </div>
+        </div>
+        <ul id="history-list"></ul>
+    </div>
+
+    <!-- Favorites Panel (hidden by default) -->
+    <div id="favorites-panel" style="display: none;">
+        <div class="history-header">
+            <h3>Favorites</h3>
+            <div class="history-actions">
+                <button id="favorites-close" class="btn-close">&times;</button>
+            </div>
+        </div>
+        <ul id="favorites-list"></ul>
+    </div>
+
+    <!-- Curate Panel (hidden by default) - split list/detail layout -->
+    <div id="curate-panel" style="display: none;">
+        <div class="curate-feed-column">
+            <div class="history-header">
+                <h3>Curate</h3>
+                <div class="history-actions">
+                    <button id="curate-close" class="btn-close">&times;</button>
+                </div>
+            </div>
+            <div id="curate-list" class="curate-list"></div>
+        </div>
+        <div class="curate-detail-column" id="curate-detail">
+            <div class="curate-detail-empty">
+                <p>Select an operation to inspect</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="main-container">
+        <!-- Visualization Canvas -->
+        <div id="viz-container">
+            <div id="infovis"></div>
+
+            <!-- Release orbit overlay (positioned above canvas) -->
+            <div id="release-orbit-overlay"></div>
+        </div>
+
+        <!-- Info Viewer Panel -->
+        <div id="info-viewer">
+            <div class="info-header">
+                <h2 id="info-title">Select a node</h2>
+                <button id="node-favorite" class="btn-favorite" title="Like">☆</button>
+            </div>
+
+            <div id="info-scroll" class="info-scroll">
+                <div id="info-content" class="info-content">
+                    <p class="placeholder">Click on a Group or Person to see details</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mini Player (persistent bottom bar) -->
+    <div id="mini-player-container"></div>
+
+    <!-- Bottom Bar -->
+    <div id="bottom-bar">
+        <button class="btn-action" id="submit-project">Submit a Project</button>
+        <a href="https://ursapolarisrecords.com/polaris" class="btn-action" target="_blank">Info / Contact</a>
+        <a href="https://ursapolarisrecords.com/album-artwork-1" class="btn-action" target="_blank">Merch / Albums</a>
+        <button class="btn-action" id="help">Help</button>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <p>Loading graph data...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="./src/visualization/colorPalette.js"></script>
+    <script type="module" src="./src/visualization/graphApi.js"></script>
+    <script type="module" src="./src/visualization/PathTracker.js"></script>
+    <script type="module" src="./src/visualization/LikeManager.js"></script>
+    <script type="module" src="./src/visualization/MiniPlayer.js"></script>
+    <script type="module" src="./src/visualization/MusicGraph.js"></script>
+    <script type="module" src="./src/wallet/WalletManager.js"></script>
+    <script type="module">
+        import { MusicGraph } from './src/visualization/MusicGraph.js';
+        import { WalletManager } from './src/wallet/WalletManager.js';
+        import { NodeSearchBox } from './src/components/NodeSearchBox.js';
+        import { MiniPlayer } from './src/visualization/MiniPlayer.js';
+
+        // Initialize wallet manager
+        const walletManager = new WalletManager();
+        window.walletManager = walletManager; // For debugging
+
+        // UI elements
+        const userAccountEl = document.getElementById('user-account');
+        const connectWalletBtn = document.getElementById('connect-wallet');
+
+        /**
+         * Update UI based on wallet connection status
+         */
+        function updateWalletUI(accountInfo) {
+            if (accountInfo) {
+                userAccountEl.textContent = accountInfo.accountName;
+                userAccountEl.style.color = '#4CAF50';
+                connectWalletBtn.textContent = 'Disconnect';
+            } else {
+                userAccountEl.textContent = 'Not connected';
+                userAccountEl.style.color = '';
+                connectWalletBtn.textContent = 'Connect Wallet';
+            }
+        }
+
+        /**
+         * Handle wallet connection/disconnection
+         */
+        async function handleWalletButtonClick() {
+            if (walletManager.isConnected()) {
+                // Disconnect wallet
+                await walletManager.disconnect();
+                updateWalletUI(null);
+            } else {
+                // Connect wallet
+                try {
+                    const accountInfo = await walletManager.connect();
+                    updateWalletUI(accountInfo);
+                } catch (error) {
+                    console.error('Failed to connect wallet:', error);
+                    alert('Failed to connect wallet. Please try again.');
+                }
+            }
+        }
+
+        // Initialize visualization when DOM is ready
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Pass walletManager to enable like functionality
+            const graph = new MusicGraph('infovis', walletManager);
+            window.musicGraph = graph; // For debugging
+
+            // Initialize mini-player
+            const playerContainer = document.getElementById('mini-player-container');
+            if (playerContainer) {
+                const miniPlayer = new MiniPlayer({
+                    container: playerContainer,
+                    api: graph.api
+                });
+                graph.miniPlayer = miniPlayer;
+            }
+
+            // Search bar in top bar
+            const searchContainer = document.getElementById('graph-search-container');
+            if (searchContainer) {
+                new NodeSearchBox({
+                    container: searchContainer,
+                    placeholder: 'Search nodes...',
+                    onSelect: (result) => {
+                        graph.navigateToSearchResult(result);
+                    }
+                });
+            }
+
+            // Load initial graph data from backend
+            await graph.loader.loadGraphData();
+
+            // Try to restore wallet session
+            try {
+                const accountInfo = await walletManager.restore();
+                if (accountInfo) {
+                    updateWalletUI(accountInfo);
+                }
+            } catch (error) {
+                console.error('Failed to restore wallet session:', error);
+            }
+
+            // Connect Wallet button
+            if (connectWalletBtn) {
+                connectWalletBtn.addEventListener('click', handleWalletButtonClick);
+            }
+
+            // Submit a Project button
+            const submitBtn = document.getElementById('submit-project');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', () => {
+                    if (!walletManager.isConnected()) {
+                        alert('Please connect your wallet first before submitting a project.');
+                        return;
+                    }
+                    // Navigate to submission form
+                    window.location.href = '/submit';
+                });
+            }
+
+            // Help button - link to Reddit community
+            const helpBtn = document.getElementById('help');
+            if (helpBtn) {
+                helpBtn.addEventListener('click', () => {
+                    window.open('https://www.reddit.com/r/polarismusic/', '_blank');
+                });
+            }
+
+            // History panel toggle
+            const historyToggle = document.getElementById('history-toggle');
+            if (historyToggle) {
+                historyToggle.addEventListener('click', () => {
+                    graph.toggleHistoryPanel();
+                });
+            }
+
+            // History panel close button
+            const historyClose = document.getElementById('history-close');
+            if (historyClose) {
+                historyClose.addEventListener('click', () => {
+                    graph.toggleHistoryPanel();
+                });
+            }
+
+            // History panel clear button
+            const historyClear = document.getElementById('history-clear');
+            if (historyClear) {
+                historyClear.addEventListener('click', () => {
+                    graph.clearHistory();
+                });
+            }
+
+            // Star favorite button in info panel
+            const nodeFavBtn = document.getElementById('node-favorite');
+            if (nodeFavBtn) {
+                nodeFavBtn.addEventListener('click', () => graph.likeSelectedNode());
+            }
+
+            // Curate panel toggle
+            const curateToggle = document.getElementById('curate-toggle');
+            if (curateToggle) {
+                curateToggle.addEventListener('click', () => graph.toggleCuratePanel());
+            }
+            const curateClose = document.getElementById('curate-close');
+            if (curateClose) {
+                curateClose.addEventListener('click', () => graph.toggleCuratePanel());
+            }
+
+            // Favorites panel toggle
+            const favoritesToggle = document.getElementById('favorites-toggle');
+            if (favoritesToggle) {
+                favoritesToggle.addEventListener('click', () => graph.favorites.toggleFavoritesPanel());
+            }
+            const favoritesClose = document.getElementById('favorites-close');
+            if (favoritesClose) {
+                favoritesClose.addEventListener('click', () => graph.favorites.toggleFavoritesPanel());
+            }
+
+            // Listen for wallet events
+            walletManager.on('onConnect', async (accountInfo) => {
+                console.log('Wallet connected event:', accountInfo);
+                await graph.favorites.refreshFavoritesFromChain();
+                await graph.updateFavoriteButton();
+            });
+
+            walletManager.on('onDisconnect', () => {
+                console.log('Wallet disconnected event');
+                graph.favorites.chainFavorites = new Set();
+                graph.favorites.chainFavoritesLoaded = false;
+                graph.favorites.updateFavoritesCount();
+                graph.updateFavoriteButton();
+            });
+
+            walletManager.on('onError', (error) => {
+                console.error('Wallet error event:', error);
+            });
+        });
+    </script>
 </body>
 </html>

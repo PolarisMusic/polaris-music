@@ -34,7 +34,7 @@ The different pieces of the project include:
 - Start frontend with `npm run dev`
 - open a new terminal tab (this one will no longer accept inputs)
 - You can double check the Neo4j browser at `http://localhost:7474/browser/`. It should currently be empty, but you should still be able to connect.
-- You can double check the Front-end at `http://localhost:5173/visualization.html`. This should load but will also be blank.
+- You can double check the Front-end at `http://localhost:5173/`. This should load but will also be blank.
 - `cd ..`
 - `cd backend`
 - `npm ci`

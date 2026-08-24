@@ -60,7 +60,7 @@ jobs:
         fi
 
     # CSP regression net for the production HTML. Validates that the strict
-    # CSP at frontend/visualization.html is honored after vite-build:
+    # CSP at frontend/index.html is honored after vite-build:
     # no inline scripts, no unsafe-eval/unsafe-inline in script-src, all
     # script srcs same-origin. Lives in the backend Jest suite so we
     # install backend deps too. Only runs on the most recent node matrix
@@ -76,7 +76,7 @@ jobs:
       run: node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js test/frontend/dist-csp.test.js
 
   e2e:
-    # Runtime CSP regression. Loads dist/visualization.html under headless
+    # Runtime CSP regression. Loads dist/index.html under headless
     # Chromium and asserts no securitypolicyviolation events fire. Static
     # counterpart in `test` job catches inline-script/CSP-shape regressions
     # without browsers; this layer catches violations at load-time (e.g. a

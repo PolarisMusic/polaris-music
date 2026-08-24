@@ -224,8 +224,8 @@ services:
       - INGEST_API_KEY=${INGEST_API_KEY:-}
 
       # API Configuration
-      - CORS_ORIGIN=http://localhost:5173
-      - LOG_LEVEL=debug
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
     depends_on:
       neo4j:
         condition: service_healthy
@@ -310,7 +310,7 @@ services:
       - START_BLOCK=0
       - BATCH_SIZE=100
       - POLL_INTERVAL=5000
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
     depends_on:
       neo4j:
         condition: service_healthy
@@ -403,7 +403,7 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required (see .env.example)}
       - REQUIRE_ACCOUNT_AUTH=${REQUIRE_ACCOUNT_AUTH:-true}
       - DEV_SIGNER_PRIVATE_KEY=${DEV_SIGNER_PRIVATE_KEY:-5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3}
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
     depends_on:
       neo4j:
         condition: service_healthy

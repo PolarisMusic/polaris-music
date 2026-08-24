@@ -477,7 +477,7 @@ key-compromise scenario.
 
 8. Wait ~30 seconds for Substreams pickup.
 
-9. Visit `https://polaris.mu/visualization.html`, search "Test Band" — should appear in the graph.
+9. Visit `https://polaris.mu/`, search "Test Band" — should appear in the graph.
 
 10. Verify Neo4j on the VPS:
     ```bash
@@ -684,7 +684,7 @@ After all phases:
 1. `https://polaris.mu` loads with a valid TLS padlock (any browser)
 2. `https://api.polaris.mu/health` returns `{"status":"ok"}`
 3. Wallet connect → submit release → sign → tx confirms on https://jungle4.bloks.io
-4. Within 30 seconds: release appears at `https://polaris.mu/visualization.html`
+4. Within 30 seconds: release appears at `https://polaris.mu/`
 5. VPS: `docker compose ps` — all services `(healthy)`
 6. `dig polaris.mu` from anywhere resolves to VPS IP
 7. `c get table polarismusic polarismusic anchors --limit 5` shows your test events
