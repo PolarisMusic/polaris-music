@@ -34,7 +34,7 @@ class PolarisApp {
                 if (tabName === 'browse') {
                     const confirmed = confirm('Are you sure you want to navigate away from this page? Any unsaved changes will be lost.');
                     if (confirmed) {
-                        window.location.href = '/visualization.html';
+                        window.location.href = '/';
                     }
                     return;
                 }

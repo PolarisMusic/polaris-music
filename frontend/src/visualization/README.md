@@ -330,7 +330,7 @@ else if (fromType === 'NodeA' && toType === 'NodeB') {
 npm run dev
 
 # Open browser
-http://localhost:5173/visualization.html
+http://localhost:5173/
 
 # Check console for logs
 ```

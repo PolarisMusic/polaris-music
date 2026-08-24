@@ -37,7 +37,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_DIR = resolve(__dirname, '../../../frontend/dist');
 
-const HAS_DIST = existsSync(resolve(DIST_DIR, 'visualization.html'));
+const HAS_DIST = existsSync(resolve(DIST_DIR, 'index.html'));
 
 // Use describe.skip with a loud message when dist is missing so CI
 // failure is informative rather than silent.
@@ -46,7 +46,7 @@ const describeOrSkip = HAS_DIST ? describe : describe.skip;
 if (!HAS_DIST) {
     // eslint-disable-next-line no-console
     console.warn(
-        '[dist-csp.test.js] SKIPPING: frontend/dist/visualization.html not found. ' +
+        '[dist-csp.test.js] SKIPPING: frontend/dist/index.html not found. ' +
         'Run `cd frontend && npm install && npm run build` before this test.'
     );
 }
@@ -104,20 +104,20 @@ function findScriptTags(html) {
 // CSP shape
 // ---------------------------------------------------------------------------
 
-describeOrSkip('dist/visualization.html · CSP shape', () => {
+describeOrSkip('dist/index.html · CSP shape', () => {
     test('CSP meta tag exists', () => {
-        const csp = extractCsp(readHtml('visualization.html'));
+        const csp = extractCsp(readHtml('index.html'));
         expect(csp).not.toBeNull();
     });
 
     test('script-src does NOT contain unsafe-eval', () => {
-        const csp = extractCsp(readHtml('visualization.html'));
+        const csp = extractCsp(readHtml('index.html'));
         const directives = parseDirectives(csp);
         expect(directives['script-src'] || []).not.toContain("'unsafe-eval'");
     });
 
     test('script-src does NOT contain unsafe-inline', () => {
-        const csp = extractCsp(readHtml('visualization.html'));
+        const csp = extractCsp(readHtml('index.html'));
         const directives = parseDirectives(csp);
         // Note: style-src 'unsafe-inline' is intentionally allowed (inline
         // styles in template strings); only script-src is locked down.
@@ -125,13 +125,13 @@ describeOrSkip('dist/visualization.html · CSP shape', () => {
     });
 
     test('script-src does NOT widen to *', () => {
-        const csp = extractCsp(readHtml('visualization.html'));
+        const csp = extractCsp(readHtml('index.html'));
         const directives = parseDirectives(csp);
         expect(directives['script-src'] || []).not.toContain('*');
     });
 
     test('default-src is set (defense in depth — fallback for unset directives)', () => {
-        const csp = extractCsp(readHtml('visualization.html'));
+        const csp = extractCsp(readHtml('index.html'));
         const directives = parseDirectives(csp);
         expect(directives['default-src']).toBeDefined();
     });
@@ -141,15 +141,15 @@ describeOrSkip('dist/visualization.html · CSP shape', () => {
 // Inline-script regression net (the actual Stage E bug surface)
 // ---------------------------------------------------------------------------
 
-describeOrSkip('dist/visualization.html · no inline scripts', () => {
+describeOrSkip('dist/index.html · no inline scripts', () => {
     test('every <script> tag has a src= attribute (no inline bodies)', () => {
-        const tags = findScriptTags(readHtml('visualization.html'));
+        const tags = findScriptTags(readHtml('index.html'));
         const inline = tags.filter(t => !t.src && t.body.trim().length > 0);
         if (inline.length > 0) {
             // Make the failure self-explanatory.
             const excerpt = inline[0].body.trim().slice(0, 120) + '…';
             throw new Error(
-                `Found ${inline.length} inline <script> block(s) in dist/visualization.html. ` +
+                `Found ${inline.length} inline <script> block(s) in dist/index.html. ` +
                 `Strict CSP (script-src 'self', no nonce/hash) blocks these. ` +
                 `Source HTML must reference an external module file, OR vite.config.js ` +
                 `must extract the inline block into the build. First inline body: ${excerpt}`
@@ -158,7 +158,7 @@ describeOrSkip('dist/visualization.html · no inline scripts', () => {
     });
 
     test('no <script> body uses eval() / new Function() (defense beyond CSP)', () => {
-        const tags = findScriptTags(readHtml('visualization.html'));
+        const tags = findScriptTags(readHtml('index.html'));
         for (const tag of tags) {
             if (!tag.body) continue;
             // Strip comments before grepping so legit comments don't trip us.
@@ -175,9 +175,9 @@ describeOrSkip('dist/visualization.html · no inline scripts', () => {
 // Same-origin script sources
 // ---------------------------------------------------------------------------
 
-describeOrSkip('dist/visualization.html · all script sources are same-origin', () => {
+describeOrSkip('dist/index.html · all script sources are same-origin', () => {
     test('no script src points at an http(s):// origin', () => {
-        const tags = findScriptTags(readHtml('visualization.html'));
+        const tags = findScriptTags(readHtml('index.html'));
         const externalSchemes = tags
             .map(t => t.src)
             .filter(src => src && /^https?:\/\//i.test(src));
@@ -190,7 +190,7 @@ describeOrSkip('dist/visualization.html · all script sources are same-origin', 
     });
 
     test('no script src uses data: / blob: / javascript: schemes', () => {
-        const tags = findScriptTags(readHtml('visualization.html'));
+        const tags = findScriptTags(readHtml('index.html'));
         const bad = tags
             .map(t => t.src)
             .filter(src => src && /^(data|blob|javascript):/i.test(src));
@@ -199,21 +199,24 @@ describeOrSkip('dist/visualization.html · all script sources are same-origin', 
 });
 
 // ---------------------------------------------------------------------------
-// Multi-page build sanity (added in Step 3 — `visualization.html` must
-// actually be in the production bundle, not just dev-mode-served).
+// Multi-page build sanity: BOTH entry points must reach the production
+// bundle, not just be served in dev mode. index.html is the graph (home);
+// submit.html is the release form served at /submit.
 // ---------------------------------------------------------------------------
 
 describeOrSkip('dist/ multi-page build', () => {
-    test('dist/visualization.html is present', () => {
-        expect(existsSync(resolve(DIST_DIR, 'visualization.html'))).toBe(true);
-    });
-
     test('dist/index.html is present', () => {
         expect(existsSync(resolve(DIST_DIR, 'index.html'))).toBe(true);
     });
 
-    test('visualization.html references at least one extracted-module chunk under /assets', () => {
-        const tags = findScriptTags(readHtml('visualization.html'));
+    // The one that actually proves the multi-page config works — a broken
+    // rollupOptions.input drops this while still emitting index.html.
+    test('dist/submit.html is present', () => {
+        expect(existsSync(resolve(DIST_DIR, 'submit.html'))).toBe(true);
+    });
+
+    test('index.html references at least one extracted-module chunk under /assets', () => {
+        const tags = findScriptTags(readHtml('index.html'));
         const moduleChunks = tags
             .map(t => t.src)
             .filter(src => src && /^\/?assets\/.+\.js$/.test(src));
