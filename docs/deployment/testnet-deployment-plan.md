@@ -44,11 +44,14 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
   - Real passwords, `STORAGE_ENCRYPTION_KEY` 64-hex, `INGEST_API_KEY` set
   - `NODE_ENV=production`, `INGEST_MODE=chain`, `CORS_ORIGIN=https://polaris.mu`
   - `frontend/.env` created (baked at build time)
-- 🔄 **Phase 6** — Stack bring-up behind Caddy *(you are here)*
-  - All containers built and running, Caddy included
-  - ACME verified end to end against the staging endpoint
-  - Remaining: swap staging cert for production (see Appendix A)
-- ⏳ Phase 7 — End-to-end on-chain test
+- ✅ **Phase 6** — Stack bring-up behind Caddy
+  - Production Let's Encrypt certs for `polaris.mu` and `api.polaris.mu`
+    (`issuer: acme-v02.api.letsencrypt.org-directory`)
+  - `https://polaris.mu` serves the built frontend through Caddy → nginx
+  - API reachable at `https://api.polaris.mu` — note health is `/health`,
+    **not** `/api/health`; the latter returns "Endpoint not found" from the
+    API itself, which looks like a failure but proves routing works
+- 🔄 **Phase 7** — End-to-end on-chain test *(you are here)*
 - ⏳ Phase 8 — Backups + restart-on-reboot
 
 ---
@@ -433,7 +436,7 @@ key-compromise scenario.
 5. From your Mac, verify:
    ```bash
    curl -I https://polaris.mu
-   curl -I https://api.polaris.mu/api/health
+   curl -I https://api.polaris.mu/health
    ```
    Both should return `HTTP/2 200` with valid cert (no `-k` needed).
 
@@ -533,7 +536,7 @@ key-compromise scenario.
 
 **Monitoring**
 - `docker compose logs -f --tail 50` is your first stop
-- Set `healthchecks.io` pinging `https://api.polaris.mu/api/health` every 10 min from your Mac's cron
+- Set `healthchecks.io` pinging `https://api.polaris.mu/health` every 10 min from your Mac's cron
 - Defer Prometheus/Grafana until you have traffic worth watching
 
 **Secret rotation**
@@ -573,7 +576,7 @@ key-compromise scenario.
 
 | Risk | Mitigation |
 |---|---|
-| Frontend baked with wrong `VITE_API_URL` | Phase 5 checklist; verify with `curl https://api.polaris.mu/api/health` from frontend container |
+| Frontend baked with wrong `VITE_API_URL` | Phase 5 checklist; verify with `curl https://api.polaris.mu/health` from frontend container |
 | Let's Encrypt rate limit on early TLS failures | Phase 6 staging first; gate on DNS resolution |
 | Pinax token rejected (wrong chain) | Phase 3 standalone smoke test before VPS |
 | Neo4j data loss on volume corruption | Phase 8 nightly dumps + Hetzner snapshots |
@@ -679,7 +682,7 @@ docker compose logs substreams-sink | tail -50
 After all phases:
 
 1. `https://polaris.mu` loads with a valid TLS padlock (any browser)
-2. `https://api.polaris.mu/api/health` returns `{"status":"ok"}`
+2. `https://api.polaris.mu/health` returns `{"status":"ok"}`
 3. Wallet connect → submit release → sign → tx confirms on https://jungle4.bloks.io
 4. Within 30 seconds: release appears at `https://polaris.mu/visualization.html`
 5. VPS: `docker compose ps` — all services `(healthy)`
