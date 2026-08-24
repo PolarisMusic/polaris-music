@@ -324,7 +324,13 @@ class APIClient {
      */
     async healthCheck() {
         try {
-            const response = await fetch(`${API_BASE_URL.replace('/api', '')}/health`);
+            // Strip only a TRAILING /api. A bare .replace('/api','') removes the
+            // first match anywhere in the string, which corrupts any URL whose
+            // host starts with "api." — https://api.polaris.mu/api became
+            // https:/.polaris.mu/api, which the browser then resolved against
+            // the page origin. Worked locally only because localhost:3000/api
+            // happens to have its first match at the end.
+            const response = await fetch(`${API_BASE_URL.replace(/\/api\/?$/, '')}/health`);
             return response.ok;
         } catch (error) {
             return false;
