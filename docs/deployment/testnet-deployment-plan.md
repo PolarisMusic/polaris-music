@@ -15,11 +15,43 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
   - MUS token issued: 1M to polarismusic
   - `eosio.code` permission granted
   - `init` called successfully; globals populated
-- ⏳ **Phase 3** — Pinax + Substreams local smoke test *(you are here)*
-- ⏳ Phase 4 — VPS provisioning + DNS
-- ⏳ Phase 5 — Production secrets
-- ⏳ Phase 6 — Stack bring-up behind Caddy
-- ⏳ Phase 7 — End-to-end on-chain test
+- ✅ **Phase 3** — Pinax + Substreams local smoke test
+  - Pinax token working against `jungle4.substreams.pinax.network:443`
+  - Custom Substreams module builds and decodes `put` actions
+  - Full loop verified: store off-chain → anchor on-chain → Substreams →
+    sink → backend retrieval → graph
+  - Confirmed in Neo4j, not just by the sink's success line: the anchored
+    MINT_ENTITY produced `polaris:person:ead2720e-…`, a random UUID that
+    could only have come from that event
+
+    ```bash
+    # Verifying ingestion: check for the entity the event mints.
+    # There is no :Event node type — querying one always returns 0
+    # whether or not ingestion worked.
+    docker-compose exec neo4j cypher-shell \
+      -u neo4j -p "$(grep '^NEO4J_PASSWORD=' .env | cut -d= -f2-)" \
+      "MATCH (n) RETURN labels(n)[0] AS type, count(*) AS count ORDER BY count DESC"
+    ```
+
+    Note the graph may already hold data from `scripts/smoke_payloads/`,
+    whose IDs are sequential (`polaris:person:00000000-…-000000000101`).
+    Filter those out to see only what you just ingested.
+- ✅ **Phase 4** — VPS provisioning + DNS
+  - Hetzner CX32 `polaris-testnet` at 5.78.113.240, Ubuntu 24.04
+  - `polaris.mu` and `api.polaris.mu` both resolve
+  - UFW 22/80/443, fail2ban active (banning scanners as intended)
+- ✅ **Phase 5** — Production secrets
+  - Real passwords, `STORAGE_ENCRYPTION_KEY` 64-hex, `INGEST_API_KEY` set
+  - `NODE_ENV=production`, `INGEST_MODE=chain`, `CORS_ORIGIN=https://polaris.mu`
+  - `frontend/.env` created (baked at build time)
+- ✅ **Phase 6** — Stack bring-up behind Caddy
+  - Production Let's Encrypt certs for `polaris.mu` and `api.polaris.mu`
+    (`issuer: acme-v02.api.letsencrypt.org-directory`)
+  - `https://polaris.mu` serves the built frontend through Caddy → nginx
+  - API reachable at `https://api.polaris.mu` — note health is `/health`,
+    **not** `/api/health`; the latter returns "Endpoint not found" from the
+    API itself, which looks like a failure but proves routing works
+- 🔄 **Phase 7** — End-to-end on-chain test *(you are here)*
 - ⏳ Phase 8 — Backups + restart-on-reboot
 
 ---
@@ -33,6 +65,27 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 | `build.sh` CDT toolchain | `ebd503e` | CMake was falling back to system GCC and handing CDT-only flags to it |
 | Duplicate `nodeagg` in `clear()` | `8843b0b` | Redefined variable in same scope; only surfaced in `--testnet` builds |
 | Contract class annotation | `e1f6e8a` | `CONTRACT polaris` derived name `polaris` but build passed `-contract polaris.music`; abigen dropped everything as a result |
+
+## Bugs found and fixed during Phase 3
+
+| Fix | Commit | What was wrong |
+|---|---|---|
+| Substreams builder image | `df936b0` | Pinned `v1.10.8` no longer resolves on ghcr.io |
+| Rust toolchain | `54beda2` | Transitive dep needs edition2024 (Rust ≥1.85); pin was 1.75 |
+| CLI invocation | `dd0cd8f` | `substreams` is the image ENTRYPOINT, not on PATH |
+| antelope `.spkg` import | `55c6049` | Pinax stopped publishing `.spkg` assets to GitHub Releases; now on spkg.io |
+| Manifest `sink:` block | `3a6e944` | v1.21 validates sink types against bundled descriptors; the block was unused |
+| `protogen` step | `7bd5394` | Needs `buf`, and did nothing — that stage never compiles Rust |
+| Deprecated `pack` | `7dbd8ec` | Switched to `substreams build`; also stopped trusting possibly-stale committed bindings |
+| pb type names | `a5fa4c8` | Committed bindings predated current prost: `type_`/`Updrespect` vs `r#type`/`UpdateRespect` |
+| `.spkg` filename | `7b1862e` | Runtime path hardcoded the versioned name that `build` no longer produces |
+| `START_BLOCK` default | `eff21b1` | `0` replays from genesis and always exceeds the provider block cap |
+| API chain config | `22234fd` | `resolveChainConfig()` result was discarded, so `RPC_URL` never reached the server |
+| Neo4j LIMIT float | `22234fd` | JS numbers serialize as float64; Cypher `LIMIT` requires an integer |
+| IPFS canonical CID | `3b65980` | Read `result.cid` from `block.put()`, which returns the CID itself |
+| Payload decoding | `dae3e8b`, `9918fd9` | Assumed base64; v1.21 emits 0x-prefixed hex, and wrong-scheme decodes fail silently |
+| Sink error reporting | `c22324c` | Logged application-level ingest errors as successes |
+| Anchor-auth ingestion | `37c287e`, `a0322a1` | Frontend stores unsigned events by design, but ingestion required a signature — no UI submission could be ingested |
 
 ---
 
@@ -97,14 +150,22 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 
 8. Watch the sink logs — the event should arrive and be forwarded to the api container within a few seconds.
 
-9. Verify Neo4j got the anchor row:
+9. Verify the graph actually changed. There is **no `:Event` node type** —
+   counting one returns 0 whether or not ingestion worked. Take a label
+   census instead, and note the graph may already hold smoke-payload data
+   with sequential IDs (`polaris:person:00000000-…`):
    ```bash
-   docker-compose exec neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" \
-     "MATCH (e:Event) RETURN count(e) as count"
+   docker-compose exec neo4j cypher-shell \
+     -u neo4j -p "$(grep '^NEO4J_PASSWORD=' .env | cut -d= -f2-)" \
+     "MATCH (n) RETURN labels(n)[0] AS type, count(*) AS count ORDER BY count DESC"
    ```
-   Should return at least 1.
 
-**Verification:** sink logs show your `put` action processed; Neo4j has a new Event node.
+   `$NEO4J_PASSWORD` is not exported to your shell — it lives in `.env`,
+   which only Docker reads. Hence reading it from the file.
+
+**Verification:** sink logs show `status=processed`, **and** the entity your
+event mints is present in the graph. The sink's success line alone only means
+the backend returned 2xx; it cannot see whether the graph write happened.
 
 **Troubleshooting:**
 - `Authentication failed` → check the token at app.pinax.network; make sure it's enabled for Jungle4
@@ -142,9 +203,13 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 5. Note the server's IPv4 address.
 
 6. Configure DNS at your registrar (wherever you bought polaris.mu):
-   - A-record: `polaris.mu` → `<server IPv4>`, TTL 300
-   - A-record: `api.polaris.mu` → `<server IPv4>`, TTL 300
+   - A-record: `polaris.mu` → `<server IPv4>`
+   - A-record: `api.polaris.mu` → `<server IPv4>`
    - Optional: AAAA-records for IPv6
+
+   A low TTL (300) makes later corrections propagate faster, but nothing
+   here depends on it — many registrars enforce a 600s minimum, and that
+   is fine. Don't fight it.
 
 7. Wait for DNS to propagate. From your Mac:
    ```bash
@@ -159,7 +224,10 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
    ```
    Then on the server:
    ```bash
-   # Non-root user
+   # Non-root user.
+   # adduser prompts for a password — SAVE IT to your password manager now.
+   # You will not use it to log in (SSH is key-only), so it is easy to
+   # assume it does not matter, but every sudo command asks for it.
    adduser polaris
    usermod -aG sudo polaris
    mkdir /home/polaris/.ssh
@@ -178,19 +246,92 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
    ufw allow 443
    ufw enable
 
-   # fail2ban
+   # fail2ban — whitelist your own IP so a few fat-fingered logins
+   # can't lock you out of your own server
    apt install -y fail2ban
+   MY_IP=$(who am i | awk '{print $NF}' | tr -d '()')
+   cat >/etc/fail2ban/jail.local <<EOF
+   [DEFAULT]
+   ignoreip = 127.0.0.1/8 ::1 ${MY_IP}
+   EOF
    systemctl enable --now fail2ban
-
-   # Disable root SSH
-   sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-   systemctl restart ssh
    ```
 
-9. Log in as `polaris` from now on:
+   **Do not disable root SSH yet.** The next step proves the replacement
+   login works while root is still available as a fallback.
+
+9. **Verify `polaris` login before removing your fallback.** Keep the root
+   session open, and in a *second terminal* on your Mac:
+
    ```bash
    ssh -i ~/.ssh/polaris_vps polaris@polaris.mu
+   sudo whoami        # should print: root
    ```
+
+   If you are prompted for a password, key auth is NOT working — do not
+   proceed. Fix it from the still-open root session (usually
+   `/home/polaris/.ssh/authorized_keys` is missing, empty, or wrongly
+   owned) until this login succeeds on the key alone.
+
+10. **Only once step 9 succeeds**, disable root SSH from the root session:
+
+    ```bash
+    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+    systemctl restart ssh
+    ```
+
+    Confirm the `polaris` session still works after the restart before
+    closing the root one.
+
+**If SSH stops working:** you are not stuck, and you do not need to
+rebuild. Hetzner's web console reaches the machine without SSH — server →
+**Console** (`>_`) in the cloud panel. From there:
+
+```bash
+sudo fail2ban-client status sshd            # is your IP banned?
+sudo fail2ban-client set sshd unbanip <IP>
+sudo tail -30 /var/log/auth.log             # why SSH actually refused
+```
+
+**If sudo rejects your password** — note this is a different problem from
+being locked out; if you reached a `polaris@...$` prompt then SSH is fine
+and only the account password is wrong. Password entry displays nothing as
+you type, so check Caps Lock and try again before assuming it is lost. To
+reset it: Hetzner panel → server → **Rescue** → **Reset root password**
+(this reboots), then log in via **Console** as root and run
+`passwd polaris`.
+
+Optionally, make sudo passwordless. Pipe through `sudo tee` rather than
+using `>`: the redirect is performed by your shell, not by sudo, so
+`sudo echo ... > /etc/sudoers.d/polaris` fails with permission denied.
+
+```bash
+echo "polaris ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/polaris
+sudo chmod 440 /etc/sudoers.d/polaris
+sudo visudo -c        # must print "parsed OK" — see below
+```
+
+Always run `visudo -c` after touching sudoers. A syntax error there breaks
+`sudo` outright, and validating it while you still hold a working session
+is the difference between a typo and a trip to the rescue console.
+
+The tradeoff: it drops a second factor if your SSH key is stolen. But
+password auth is already disabled on this image, so anyone holding the key
+can read `.env` and the Docker volumes anyway — the sudo password buys
+less than it looks like. Reasonable for a single-operator testnet box;
+skip it if this server ever holds anything you would not want in a
+key-compromise scenario.
+
+11. Log in as `polaris` from now on:
+    ```bash
+    ssh -i ~/.ssh/polaris_vps polaris@polaris.mu
+    ```
+
+    If sessions drop while you work, add to `~/.ssh/config` on your Mac:
+    ```
+    Host polaris.mu
+      ServerAliveInterval 60
+    ```
 
 **Verification:** SSH as `polaris` works; `dig polaris.mu` resolves; UFW shows 22/80/443 only.
 
@@ -295,7 +436,7 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 5. From your Mac, verify:
    ```bash
    curl -I https://polaris.mu
-   curl -I https://api.polaris.mu/api/health
+   curl -I https://api.polaris.mu/health
    ```
    Both should return `HTTP/2 200` with valid cert (no `-k` needed).
 
@@ -395,7 +536,7 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 
 **Monitoring**
 - `docker compose logs -f --tail 50` is your first stop
-- Set `healthchecks.io` pinging `https://api.polaris.mu/api/health` every 10 min from your Mac's cron
+- Set `healthchecks.io` pinging `https://api.polaris.mu/health` every 10 min from your Mac's cron
 - Defer Prometheus/Grafana until you have traffic worth watching
 
 **Secret rotation**
@@ -435,7 +576,7 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 
 | Risk | Mitigation |
 |---|---|
-| Frontend baked with wrong `VITE_API_URL` | Phase 5 checklist; verify with `curl https://api.polaris.mu/api/health` from frontend container |
+| Frontend baked with wrong `VITE_API_URL` | Phase 5 checklist; verify with `curl https://api.polaris.mu/health` from frontend container |
 | Let's Encrypt rate limit on early TLS failures | Phase 6 staging first; gate on DNS resolution |
 | Pinax token rejected (wrong chain) | Phase 3 standalone smoke test before VPS |
 | Neo4j data loss on volume corruption | Phase 8 nightly dumps + Hetzner snapshots |
@@ -443,76 +584,60 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 
 ---
 
-## Appendix A — `Caddyfile`
+## Appendix A — `Caddyfile` and `docker-compose.prod.yml`
 
-Save at `~/polaris-music/Caddyfile` on the VPS:
+Both files are committed at the repo root — use them as-is rather than
+retyping. Two things about them are easy to get wrong:
 
-```caddyfile
-# Uncomment for first attempt to avoid Let's Encrypt rate limits.
-# Comment out once Caddy successfully completes the ACME dance.
-# {
-#   acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-# }
+**The frontend build context must be the repo root.**
+`frontend/Dockerfile` does `COPY frontend/…` and `COPY shared/`, so
+`context: ./frontend` cannot resolve those paths. The overlay sets
+`context: .` with `dockerfile: frontend/Dockerfile`. It also sets `command`
+explicitly — compose would otherwise inherit `npm run dev -- --host` from the
+base file and run it against an nginx image.
 
-polaris.mu {
-    encode gzip
-    reverse_proxy frontend:80
-}
+**The Caddyfile is bind-mounted, so editing it does not restart Caddy.**
+`docker compose up -d` sees an unchanged container spec, reports the service
+as `Running`, and leaves the old config loaded with its cached certificate.
+After any Caddyfile edit:
 
-api.polaris.mu {
-    encode gzip
-    reverse_proxy api:3000
-}
+```bash
+docker compose restart caddy
+```
+
+This bites hardest when switching off the ACME staging endpoint: the config
+looks correct, but Caddy keeps serving the staging cert. Confirm which
+issuer is actually in use:
+
+```bash
+docker compose logs caddy | grep -iE "issuer|obtain" | tail -10
+```
+
+Production reads `acme-v02.api.letsencrypt.org-directory`; staging reads
+`acme-staging-v02…`. If a staging cert is stuck, clear Caddy's data volume
+and let it re-issue — it holds only certificates and ACME account keys:
+
+```bash
+docker compose stop caddy && docker compose rm -f caddy
+docker volume rm polaris-music_caddy_data
+docker compose up -d caddy
 ```
 
 ---
 
-## Appendix B — `docker-compose.prod.yml`
+## Appendix B — skip the `-f` flags
 
-Save at `~/polaris-music/docker-compose.prod.yml` on the VPS:
+`caddy` is defined only in the overlay, so every compose command needs both
+`-f` flags or it fails with `no such service: caddy` — including `logs`,
+`restart`, and `ps`, not just `up`. Set these once in `.env` on the VPS and
+bare `docker compose …` commands work everywhere:
 
-```yaml
-services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - polaris-network
-
-  # Build production frontend (multi-stage, not Dockerfile.dev)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    expose:
-      - "80"
-
-  api:
-    restart: unless-stopped
-    expose:
-      - "3000"
-
-  neo4j:
-    restart: unless-stopped
-  redis:
-    restart: unless-stopped
-  ipfs:
-    restart: unless-stopped
-  minio:
-    restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+COMPOSE_PROFILES=chain
 ```
+
+Verify with `docker compose config --services` — `caddy` should be listed.
 
 ---
 
@@ -557,7 +682,7 @@ docker compose logs substreams-sink | tail -50
 After all phases:
 
 1. `https://polaris.mu` loads with a valid TLS padlock (any browser)
-2. `https://api.polaris.mu/api/health` returns `{"status":"ok"}`
+2. `https://api.polaris.mu/health` returns `{"status":"ok"}`
 3. Wallet connect → submit release → sign → tx confirms on https://jungle4.bloks.io
 4. Within 30 seconds: release appears at `https://polaris.mu/visualization.html`
 5. VPS: `docker compose ps` — all services `(healthy)`

@@ -1,0 +1,61 @@
+# Production overlay for the single-VPS deployment.
+#
+# Usage (or set COMPOSE_FILE in .env so bare commands pick this up):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile chain up -d --build
+#
+# Note the base file publishes ports on 127.0.0.1 only; Caddy is the sole
+# service bound to a public interface.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: polaris-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - polaris-network
+    depends_on:
+      - api
+      - frontend
+
+  # Production frontend: nginx serving the built bundle, not the Vite dev server.
+  #
+  # context MUST be the repo root. frontend/Dockerfile does `COPY frontend/…`
+  # and `COPY shared/`, neither of which resolves from a ./frontend context.
+  #
+  # command MUST be set explicitly. Compose replaces scalars but the base file
+  # sets `npm run dev -- --host`, which would otherwise be inherited and run
+  # against an nginx image.
+  #
+  # The base file's dev bind-mounts still merge in (compose appends list
+  # entries and cannot remove them without `!reset`, Compose >= 2.24). They are
+  # inert here: nginx serves from /usr/share/nginx/html, not /app.
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    command: ["nginx", "-g", "daemon off;"]
+    restart: unless-stopped
+
+  api:
+    restart: unless-stopped
+  neo4j:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
+  ipfs:
+    restart: unless-stopped
+  ipfs2:
+    restart: unless-stopped
+  minio:
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
