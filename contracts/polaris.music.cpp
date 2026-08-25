@@ -736,7 +736,20 @@ public:
         // Determine payout distribution based on approval threshold
         // Use integer basis points to avoid floating point comparison issues
         // Default: 9000 basis points = 90.00% approval required (configurable via setparams)
-        bool accepted = (total_votes > 0) && (up_votes * 10000 >= total_votes * g.approval_threshold_bp);
+        //
+        // Quorum is counted in distinct VOTERS, not vote weight: weight is
+        // Respect-derived and one high-Respect account could otherwise satisfy
+        // any weight-based threshold alone, which is the case this guards.
+        //
+        // Falling short of quorum takes the rejected path, so the author is not
+        // paid. On a quiet network that is the common outcome — worth tuning
+        // MIN_QUORUM_VOTERS to the size of the active curator pool.
+        uint32_t voter_count = tally_itr->up_voter_count + tally_itr->down_voter_count;
+        bool quorum_met = voter_count >= MIN_QUORUM_VOTERS;
+
+        bool accepted = quorum_met
+                        && (total_votes > 0)
+                        && (up_votes * 10000 >= total_votes * g.approval_threshold_bp);
 
         // Distribute escrowed tokens based on outcome
         if(escrowed_amount > 0) {
@@ -1330,6 +1343,12 @@ private:
 
     // Timestamp validation (2023-01-01 00:00:00 UTC)
     static constexpr uint32_t MIN_VALID_TIMESTAMP = 1672531200;
+
+    // Minimum distinct voters for a result to count. Without this, approval
+    // needed only that *someone* voted, and voter_respect defaults to 1 for
+    // accounts with no Respect record — so an author could pass their own
+    // submission at 100% with a single unopposed self-vote.
+    static constexpr uint32_t MIN_QUORUM_VOTERS = 3;
 
     // Upper bound on vote rows erased per reclaim() call. Keeps a single
     // transaction inside the CPU limit regardless of how many people voted;
