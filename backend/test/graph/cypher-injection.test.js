@@ -11,6 +11,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 import { randomUUID } from 'crypto';
 import GraphDatabaseService from '../../src/graph/schema.js';
+import { assertDisposableGraph } from '../graphGuard.js';
 
 // Skip these tests if no database is configured
 const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
@@ -31,6 +32,9 @@ describeOrSkip('Cypher Injection Prevention', () => {
         driver = graphDb.driver;
 
         await driver.verifyConnectivity();
+
+        // This suite deletes every node. Refuse unless explicitly opted in.
+        await assertDisposableGraph(driver, 'Cypher Injection Prevention');
         // Clear DB to prevent pollution from prior test files
         const cleanSession = driver.session();
         try { await cleanSession.run('MATCH (n) DETACH DELETE n'); } finally { await cleanSession.close(); }

@@ -604,6 +604,42 @@ key-compromise scenario.
 
 ---
 
+## Inspecting Neo4j — and the tunnel hazard
+
+The datastore ports are bound to `127.0.0.1` on the VPS, deliberately: Docker's
+iptables rules bypass UFW, so an unbound port is publicly reachable no matter
+what the firewall says. To browse the graph, tunnel in rather than reopening
+them:
+
+```bash
+ssh -i ~/.ssh/polaris_vps -L 7474:localhost:7474 -L 7687:localhost:7687 \
+  polaris@polaris.mu
+```
+
+Then open `http://localhost:7474` and connect to `bolt://localhost:7687` with
+`NEO4J_PASSWORD` from the server's `.env`.
+
+**This tunnel is for read-only inspection through Neo4j Browser. Never point a
+test suite at it.**
+
+`ssh -L` binds the forward on `::1`, while local Docker publishes on
+`127.0.0.1`. Since Node 17, `dns.lookup` no longer reorders results to
+IPv4-first, and on macOS `localhost` resolves `::1` ahead of `127.0.0.1` — so
+with this tunnel open, `bolt://localhost:7687` reaches **production**, not your
+local stack, with nothing in the output to say so. Three test suites run
+`MATCH (n) DETACH DELETE n` in `beforeAll` and `beforeEach`.
+
+This nearly happened during Phase 7. The run was stopped only by an unrelated
+authentication failure, one correct password short of wiping the testnet graph.
+`backend/test/graphGuard.js` now refuses those suites unless
+`ALLOW_DESTRUCTIVE_GRAPH_TESTS=true` is set explicitly, and CI opts in on its
+own throwaway service container.
+
+Close the tunnel when you are done — `lsof -nP -iTCP:7687 -sTCP:LISTEN` shows
+what is holding the port, and an `ssh` row there is the tunnel.
+
+---
+
 ## Day-2 operations
 
 **Backups**

@@ -11,6 +11,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import neo4j from 'neo4j-driver';
 import { migrateUnifyIdProperty, verifyIdUnification } from '../../src/graph/migrations/001-unify-id-property.js';
+import { assertDisposableGraph } from '../graphGuard.js';
 
 // Skip these integration tests if no database is configured
 const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
@@ -29,6 +30,9 @@ describeOrSkip('ID Unification Migration (001-unify-id-property)', () => {
         );
 
         await driver.verifyConnectivity();
+
+        // This suite deletes every node. Refuse unless explicitly opted in.
+        await assertDisposableGraph(driver, 'ID Unification Migration (001-unify-id-property)');
         // Clear DB to prevent pollution from prior test files
         const cleanSession = driver.session();
         try { await cleanSession.run('MATCH (n) DETACH DELETE n'); } finally { await cleanSession.close(); }
