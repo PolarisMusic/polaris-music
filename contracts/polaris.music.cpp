@@ -736,7 +736,20 @@ public:
         // Determine payout distribution based on approval threshold
         // Use integer basis points to avoid floating point comparison issues
         // Default: 9000 basis points = 90.00% approval required (configurable via setparams)
-        bool accepted = (total_votes > 0) && (up_votes * 10000 >= total_votes * g.approval_threshold_bp);
+        //
+        // Quorum is counted in distinct VOTERS, not vote weight: weight is
+        // Respect-derived and one high-Respect account could otherwise satisfy
+        // any weight-based threshold alone, which is the case this guards.
+        //
+        // Falling short of quorum takes the rejected path, so the author is not
+        // paid. On a quiet network that is the common outcome — worth tuning
+        // MIN_QUORUM_VOTERS to the size of the active curator pool.
+        uint32_t voter_count = tally_itr->up_voter_count + tally_itr->down_voter_count;
+        bool quorum_met = voter_count >= MIN_QUORUM_VOTERS;
+
+        bool accepted = quorum_met
+                        && (total_votes > 0)
+                        && (up_votes * 10000 >= total_votes * g.approval_threshold_bp);
 
         // Distribute escrowed tokens based on outcome
         if(escrowed_amount > 0) {
@@ -752,6 +765,74 @@ public:
             a.finalized = true;
             a.escrowed_amount = 0;
         });
+    }
+
+    /**
+     * @brief Release the RAM held by a finalized submission
+     *
+     * Once voting has closed and rewards are distributed, the votes, tally and
+     * anchor rows serve no further on-chain purpose: the permanent record lives
+     * off-chain in the graph and event store. Without this the chain accumulates
+     * roughly 800 bytes per submission billed to its author, plus ~400 bytes per
+     * vote billed to each voter, none of it ever released.
+     *
+     * Bounded, and separate from finalize(), because distribute_to_voters()
+     * already makes three passes over the votes for a hash; erasing them in the
+     * same transaction would risk exceeding the CPU limit on a well-voted
+     * submission and make finalization impossible. Call repeatedly until the
+     * anchor is gone.
+     *
+     * Permissionless by design. It only deletes rows belonging to an already
+     * finalized anchor, and EOSIO refunds each row's RAM to whoever paid for it,
+     * so a voter, the author, or a backend job can all drive cleanup and none of
+     * them can take anything from anyone else.
+     *
+     * @param tx_hash  - Hash of the finalized event to clean up
+     * @param max_rows - Maximum vote rows to erase in this call (1..MAX_RECLAIM_ROWS)
+     */
+    ACTION reclaim(checksum256 tx_hash, uint32_t max_rows) {
+        check(max_rows > 0, "max_rows must be greater than zero");
+        if (max_rows > MAX_RECLAIM_ROWS) max_rows = MAX_RECLAIM_ROWS;
+
+        anchors_table anchors(get_self(), get_self().value);
+        auto hash_idx = anchors.get_index<"byhash"_n>();
+        auto anchor_itr = hash_idx.find(tx_hash);
+        check(anchor_itr != hash_idx.end(), "Anchor not found");
+
+        // The gate that makes this safe: while a vote is open its rows still
+        // determine who gets paid, so nothing may be erased until finalize()
+        // has run and the escrow is settled.
+        check(anchor_itr->finalized, "Cannot reclaim before finalization");
+
+        uint64_t anchor_id = anchor_itr->id;
+
+        // Erase up to max_rows votes for this hash. erase() on a secondary
+        // index returns an iterator to the next row, so the scan stays valid.
+        votes_table votes(get_self(), get_self().value);
+        auto vote_hash_idx = votes.get_index<"byhash"_n>();
+        auto vote_itr = vote_hash_idx.lower_bound(tx_hash);
+
+        uint32_t erased = 0;
+        while (vote_itr != vote_hash_idx.end() &&
+               vote_itr->tx_hash == tx_hash &&
+               erased < max_rows) {
+            vote_itr = vote_hash_idx.erase(vote_itr);
+            ++erased;
+        }
+
+        bool votes_remain = (vote_itr != vote_hash_idx.end() && vote_itr->tx_hash == tx_hash);
+
+        // Only drop the tally and anchor once every vote is gone — the anchor is
+        // how a subsequent call finds this submission at all, so erasing it with
+        // votes outstanding would strand them permanently.
+        if (!votes_remain) {
+            votetally_table tallies(get_self(), get_self().value);
+            auto tally_itr = tallies.find(anchor_id);
+            if (tally_itr != tallies.end()) {
+                tallies.erase(tally_itr);
+            }
+            hash_idx.erase(anchor_itr);
+        }
     }
 
     // ============ STAKING ON GRAPH NODES ============
@@ -1262,6 +1343,17 @@ private:
 
     // Timestamp validation (2023-01-01 00:00:00 UTC)
     static constexpr uint32_t MIN_VALID_TIMESTAMP = 1672531200;
+
+    // Minimum distinct voters for a result to count. Without this, approval
+    // needed only that *someone* voted, and voter_respect defaults to 1 for
+    // accounts with no Respect record — so an author could pass their own
+    // submission at 100% with a single unopposed self-vote.
+    static constexpr uint32_t MIN_QUORUM_VOTERS = 3;
+
+    // Upper bound on vote rows erased per reclaim() call. Keeps a single
+    // transaction inside the CPU limit regardless of how many people voted;
+    // callers repeat until the anchor is gone.
+    static constexpr uint32_t MAX_RECLAIM_ROWS = 100;
 
     // ============ DATA STRUCTURES ============
 

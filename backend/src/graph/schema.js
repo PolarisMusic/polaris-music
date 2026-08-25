@@ -1005,9 +1005,19 @@ constructor(config = {}) {
 
             const processedTracks = [];
 
+            // Maps the bundle's own track_id to the id the Track node was
+            // actually created with. resolveEntityId mints a provisional id
+            // (prov:track:...) for anything non-canonical, so the two differ for
+            // every new release — and the tracklist below references bundle ids.
+            const resolvedTrackIds = new Map();
+
             for (const track of normalizedBundle.tracks || []) {
                 const trackOpId = opId();
                 const trackId = await this.resolveEntityId(tx, 'track', track);
+
+                if (track.track_id) {
+                    resolvedTrackIds.set(track.track_id, trackId);
+                }
 
                 this.log.debug('track_create', { track_id: trackId, title: track.title });
 
@@ -1516,7 +1526,17 @@ constructor(config = {}) {
                 const side = (item.side ?? derived.side) ?? null;
                 const isBonus = Boolean(item.is_bonus);
 
-                await tx.run(`
+                // Translate the bundle's track_id to the id the Track node was
+                // created under. Falls back to the raw value for canonical ids,
+                // which resolveEntityId returns unchanged.
+                const linkTrackId = resolvedTrackIds.get(item.track_id) || item.track_id;
+
+                // RETURN so an unmatched track is detectable. Cypher MATCH that
+                // finds nothing yields no rows, so the MERGE was previously
+                // skipped in silence — producing a Release with no IN_RELEASE
+                // edges at all, and an empty release orbit, with no error
+                // anywhere to show for it.
+                const linkResult = await tx.run(`
                     MATCH (t:Track {track_id: $trackId})
                     MATCH (r:Release {release_id: $releaseId})
                     MERGE (t)-[i:IN_RELEASE]->(r)
@@ -1525,8 +1545,9 @@ constructor(config = {}) {
                         i.track_number = $trackNo,
                         i.side = $side,
                         i.is_bonus = $isBonus
+                    RETURN t.track_id AS linked
                 `, {
-                    trackId: item.track_id,
+                    trackId: linkTrackId,
                     releaseId,
                     position: derived.position,
                     disc,
@@ -1534,6 +1555,15 @@ constructor(config = {}) {
                     side,
                     isBonus
                 });
+
+                if (linkResult.records.length === 0) {
+                    throw new Error(
+                        `Tracklist item could not be linked to a Track node ` +
+                        `(index=${idx}, position=${item.position}, title=${item.track_title}): ` +
+                        `no Track with track_id=${linkTrackId}. ` +
+                        `Bundle referenced ${item.track_id}.`
+                    );
+                }
             }
 
             // ========== 6. LINK MASTER AND LABELS ==========
