@@ -13,6 +13,57 @@
 import express from 'express';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
 
+// Bounds for the operations listing. Without these the endpoint can hang
+// indefinitely: Node's fetch has no default timeout, and eventStore performs
+// an unbounded Redis -> IPFS -> S3 walk. An IPFS lookup for content this host
+// cannot reach waits on a DHT search that may never resolve.
+const RPC_TIMEOUT_MS = 5000;
+const EVENT_LOOKUP_TIMEOUT_MS = 2000;
+
+/**
+ * fetch() with an enforced timeout.
+ * Mirrors the AbortController pattern in utils/verifyChainId.js and
+ * storage/pinningProvider.js.
+ *
+ * @param {string} url
+ * @param {Object} [options] - fetch options
+ * @param {number} [timeoutMs]
+ * @returns {Promise<Response>}
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = RPC_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Resolve a promise, or give up after timeoutMs and return `fallback`.
+ * Used for best-effort lookups that must not stall the caller.
+ *
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} timeoutMs
+ * @param {T} fallback
+ * @returns {Promise<T>}
+ */
+async function withTimeout(promise, timeoutMs, fallback) {
+    let timer;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise((resolve) => {
+                timer = setTimeout(() => resolve(fallback), timeoutMs);
+            })
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /**
  * Parse type-specific detail from a stored event payload for rendering.
  * Pure function: returns a structured object the frontend can render
@@ -171,7 +222,7 @@ export function createCurateRoutes({ store, config }) {
             };
             if (lower_bound !== undefined) anchorsBody.lower_bound = lower_bound;
 
-            const anchorsResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+            const anchorsResp = await fetchWithTimeout(`${rpcUrl}/v1/chain/get_table_rows`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(anchorsBody)
@@ -186,9 +237,13 @@ export function createCurateRoutes({ store, config }) {
                 rows = rows.filter(r => r.type === filterType);
             }
 
-            // Fetch tallies for each anchor
-            const operations = [];
-            for (const anchor of rows) {
+            // Enrich each anchor with its tally and event summary.
+            //
+            // Concurrent, not sequential: this previously awaited two network
+            // round-trips per anchor in a loop, so a 50-row page meant up to
+            // 100 serial waits and a single slow lookup stalled the whole
+            // response. Promise.all preserves input order in its result.
+            const operations = await Promise.all(rows.map(async (anchor) => {
                 const tallyBody = {
                     json: true,
                     code: contractAccount,
@@ -201,7 +256,7 @@ export function createCurateRoutes({ store, config }) {
 
                 let tally = null;
                 try {
-                    const tallyResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                    const tallyResp = await fetchWithTimeout(`${rpcUrl}/v1/chain/get_table_rows`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(tallyBody)
@@ -211,13 +266,23 @@ export function createCurateRoutes({ store, config }) {
                         tally = tallyData.rows && tallyData.rows[0] || null;
                     }
                 } catch (e) {
-                    // Tally fetch failure is non-fatal
+                    // Tally fetch failure (including timeout) is non-fatal
                 }
 
-                // Try to get stored event summary from our event store
+                // Try to get stored event summary from our event store.
+                //
+                // Timeboxed: retrieveEvent walks Redis -> IPFS -> S3 with no
+                // internal bound, and an event this host has never stored
+                // sends it into an IPFS DHT search that may never return.
+                // Listing an operation without its summary is the honest
+                // representation of "anchored on chain, body not held here".
                 let eventSummary = null;
                 try {
-                    const stored = await store.retrieveEvent(anchor.hash);
+                    const stored = await withTimeout(
+                        store.retrieveEvent(anchor.hash),
+                        EVENT_LOOKUP_TIMEOUT_MS,
+                        null
+                    );
                     if (stored && stored.body) {
                         eventSummary = {
                             type_name: stored.type || null,
@@ -229,7 +294,7 @@ export function createCurateRoutes({ store, config }) {
                     // Event retrieval is best-effort
                 }
 
-                operations.push({
+                return {
                     anchor_id: anchor.id,
                     author: anchor.author,
                     type: anchor.type,
@@ -245,8 +310,8 @@ export function createCurateRoutes({ store, config }) {
                         down_voter_count: parseInt(tally.down_voter_count) || 0
                     } : { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
                     event_summary: eventSummary
-                });
-            }
+                };
+            }));
 
             res.json({
                 success: true,
@@ -276,7 +341,7 @@ export function createCurateRoutes({ store, config }) {
             const hash = req.params.hash;
 
             // Fetch anchor by hash (secondary index)
-            const anchorsResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+            const anchorsResp = await fetchWithTimeout(`${rpcUrl}/v1/chain/get_table_rows`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -303,7 +368,7 @@ export function createCurateRoutes({ store, config }) {
             // Fetch tally
             let tally = null;
             try {
-                const tallyResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                const tallyResp = await fetchWithTimeout(`${rpcUrl}/v1/chain/get_table_rows`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -325,7 +390,7 @@ export function createCurateRoutes({ store, config }) {
             // Fetch individual votes for this hash
             let votes = [];
             try {
-                const votesResp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+                const votesResp = await fetchWithTimeout(`${rpcUrl}/v1/chain/get_table_rows`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -347,9 +412,15 @@ export function createCurateRoutes({ store, config }) {
             } catch (e) { /* non-fatal */ }
 
             // Fetch stored event payload
+            // Timeboxed for the same reason as the listing: an event this host
+            // never stored sends retrieveEvent into an unbounded IPFS lookup.
             let eventPayload = null;
             try {
-                eventPayload = await store.retrieveEvent(anchor.hash);
+                eventPayload = await withTimeout(
+                    store.retrieveEvent(anchor.hash),
+                    EVENT_LOOKUP_TIMEOUT_MS,
+                    null
+                );
             } catch (e) { /* non-fatal */ }
 
             // Parse type-specific detail for rendering

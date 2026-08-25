@@ -621,7 +621,10 @@ export class GraphAPI {
 
             const qs = params.toString();
             const url = `${this.baseUrl}/curate/operations${qs ? '?' + qs : ''}`;
-            const response = await fetch(url);
+            // Timeout so a stalled backend surfaces as "Failed to load
+            // operations." rather than leaving the panel on "Loading…"
+            // forever — fetch() has no default timeout.
+            const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return await response.json();
         } catch (error) {
@@ -642,7 +645,7 @@ export class GraphAPI {
             if (viewer) params.set('viewer', viewer);
             const qs = params.toString();
             const url = `${this.baseUrl}/curate/operations/${encodeURIComponent(hash)}${qs ? '?' + qs : ''}`;
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return await response.json();
         } catch (error) {
