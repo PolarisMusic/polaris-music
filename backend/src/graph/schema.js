@@ -1678,7 +1678,7 @@ constructor(config = {}) {
             // Rollback on any error. Use safeRollback so a rollback failure
             // does not mask the original error.
             await safeRollback(tx, this.log);
-            timer.endError('release_bundle_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
+            timer.endError('release_bundle_fail', { event_hash: eventHash?.substring(0, 16) ?? null, error: error.message });
             throw error;
         } finally {
             await safeClose(session, this.log);

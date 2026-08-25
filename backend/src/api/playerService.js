@@ -53,6 +53,58 @@ function classifyLinkType(url) {
 }
 
 /**
+ * Spotify content types that can be rendered in an embed player.
+ */
+const SPOTIFY_EMBED_TYPES = new Set(['track', 'album', 'playlist', 'episode', 'show', 'artist']);
+
+/**
+ * Extract a Spotify URI (spotify:track:ID) from a stored listen link.
+ *
+ * Accepts the open.spotify.com web URLs users actually paste, including the
+ * locale-prefixed form Spotify hands out in some regions
+ * (https://open.spotify.com/intl-de/track/ID), as well as bare spotify: URIs.
+ * Returns null for anything that is not an embeddable Spotify resource.
+ *
+ * @param {string} url
+ * @returns {string|null} A spotify:{type}:{id} URI, or null
+ */
+function extractSpotifyUri(url) {
+    if (typeof url !== 'string') return null;
+
+    // Bare URI form: spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+    const uriMatch = /^spotify:([a-z]+):([A-Za-z0-9]+)$/.exec(url.trim());
+    if (uriMatch && SPOTIFY_EMBED_TYPES.has(uriMatch[1])) {
+        return `spotify:${uriMatch[1]}:${uriMatch[2]}`;
+    }
+
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./, '');
+        if (host !== 'open.spotify.com' && host !== 'play.spotify.com') return null;
+
+        // Drop a leading locale segment (intl-de, intl-pt-br, ...) if present,
+        // then expect {type}/{id}.
+        const segments = parsed.pathname.split('/').filter(Boolean);
+        if (segments.length > 0 && /^intl(-[a-z-]+)?$/i.test(segments[0])) {
+            segments.shift();
+        }
+        // An /embed/ URL is already an embed target; unwrap it to the same URI.
+        if (segments.length > 0 && segments[0] === 'embed') {
+            segments.shift();
+        }
+
+        const [type, id] = segments;
+        if (!type || !id) return null;
+        if (!SPOTIFY_EMBED_TYPES.has(type)) return null;
+        if (!/^[A-Za-z0-9]+$/.test(id)) return null;
+
+        return `spotify:${type}:${id}`;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Determine if a URL points to a directly playable audio resource.
  */
 function isInlinePlayable(url) {
@@ -88,13 +140,16 @@ function normalizeListenLinks(listenLinks) {
             playable_url: null,
             preferred_link: null,
             all_links: [],
-            can_inline_play: false
+            can_inline_play: false,
+            embed_uri: null,
+            embed_service: null
         };
     }
 
     const allLinks = [];
     let playableUrl = null;
     let preferredLink = null;
+    let embedUri = null;
 
     // Priority order for preferred external link
     const priorityOrder = ['spotify', 'apple_music', 'bandcamp', 'youtube', 'soundcloud', 'tidal', 'deezer', 'amazon_music', 'other'];
@@ -109,6 +164,10 @@ function normalizeListenLinks(listenLinks) {
 
         if (playable && !playableUrl) {
             playableUrl = url;
+        }
+
+        if (!embedUri && type === 'spotify') {
+            embedUri = extractSpotifyUri(url);
         }
     }
 
@@ -130,9 +189,16 @@ function normalizeListenLinks(listenLinks) {
         playable_url: playableUrl,
         preferred_link: preferredLink,
         all_links: allLinks,
-        can_inline_play: !!playableUrl
+        can_inline_play: !!playableUrl,
+        // Embed playback is a separate mode from <audio>: a Spotify URL is a
+        // web page, not an audio stream, so it can never satisfy
+        // can_inline_play — but it can be handed to Spotify's embed player.
+        embed_uri: embedUri,
+        embed_service: embedUri ? 'spotify' : null
     };
 }
+
+export { extractSpotifyUri, normalizeListenLinks };
 
 export class PlayerService {
     /**

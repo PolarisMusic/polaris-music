@@ -1,5 +1,5 @@
 /**
- * Playwright e2e — runtime CSP regression for visualization.html
+ * Playwright e2e — runtime CSP regression for the visualizer entry page
  *
  * Loads the production-built page under a real Chromium instance and:
  *   1. Asserts no `securitypolicyviolation` events fire during load and
@@ -16,7 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 
-test('visualization.html loads with zero CSP violations', async ({ page }) => {
+test('index.html (visualizer) loads with zero CSP violations', async ({ page }) => {
     const violations = [];
     const requestFailures = [];
 
@@ -54,7 +54,7 @@ test('visualization.html loads with zero CSP violations', async ({ page }) => {
         requestFailures.push({ url: req.url(), failure: req.failure()?.errorText });
     });
 
-    await page.goto('/visualization.html', { waitUntil: 'load' });
+    await page.goto('/', { waitUntil: 'load' });
 
     // Give the inline-extracted module a tick to evaluate.
     await page.waitForTimeout(500);
@@ -80,7 +80,7 @@ test('visualization.html loads with zero CSP violations', async ({ page }) => {
 });
 
 test('CSP meta tag matches build expectations', async ({ page }) => {
-    await page.goto('/visualization.html', { waitUntil: 'domcontentloaded' });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]')
         .getAttribute('content');
     expect(csp).toBeTruthy();

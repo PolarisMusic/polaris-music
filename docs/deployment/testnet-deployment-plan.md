@@ -86,6 +86,36 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 | Payload decoding | `dae3e8b`, `9918fd9` | Assumed base64; v1.21 emits 0x-prefixed hex, and wrong-scheme decodes fail silently |
 | Sink error reporting | `c22324c` | Logged application-level ingest errors as successes |
 | Anchor-auth ingestion | `37c287e`, `a0322a1` | Frontend stores unsigned events by design, but ingestion required a signature — no UI submission could be ingested |
+| Tracklist id mismatch | `67ff27d` | Bundle track ids were used verbatim in the `IN_RELEASE` MATCH; provisional ids resolve to fresh ids, so every release ended up with zero tracks and an empty orbit — silently, because a MATCH that finds nothing yields no rows |
+| MiniPlayer audio clear | this branch | `audio.src = ''` resolves against the page URL, so the browser tried to load the page as audio and fired a spurious `error` on every track change |
+| Runtime CSP e2e test | this branch | Both the spec and the Playwright config navigated to `/visualization.html`, which this repo does not build — the runtime CSP check had never been able to pass |
+
+---
+
+## Spotify embed playback (added after Phase 7)
+
+Tracks carrying a Spotify link now play through **Spotify's embed iframe**,
+driven by their iFrame API (`https://open.spotify.com/embed/iframe-api/v1`).
+This needs no Spotify developer app, no client secret, and no OAuth flow of
+our own.
+
+Two limits are Spotify's, not ours:
+
+- Anonymous and free listeners hear **30-second previews**. Full-length
+  playback requires the visitor to be logged into Spotify **Premium** in that
+  browser. Nothing on our side changes this.
+- The embed is cross-origin, so a click on our play button does not carry a
+  user gesture into the frame. The first play may need a second click, or a
+  click on the embed itself.
+
+The CSP meta tag in `frontend/index.html` gained `https://open.spotify.com`
+under `script-src`, `frame-src`, and `connect-src`. If that ever has to be
+reverted, the fallback is a plain `<iframe src=".../embed/track/{id}">`, which
+needs only `frame-src` — it loses programmatic play and auto-advance.
+
+**Known gap, not yet addressed:** `frontend/submit.html` ships with no CSP at
+all, in source or in the build, while the read-only visualizer page is locked
+down. It is the page that talks to wallets and the API.
 
 ---
 

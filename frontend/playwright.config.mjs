@@ -1,7 +1,7 @@
 /**
  * Playwright configuration for the Polaris frontend end-to-end suite.
  *
- * Currently scoped to a single concern: verify that `dist/visualization.html`
+ * Currently scoped to a single concern: verify that `dist/index.html`
  * loads under its strict CSP without firing a `securitypolicyviolation`
  * event. The Stage E refactor removed `'unsafe-eval'` and the multi-page
  * Vite build extracts the previously-inline `<script type="module">` block
@@ -48,7 +48,7 @@ export default defineConfig({
     // (vite preview serves dist/ and respects the multi-page output.)
     webServer: {
         command: 'npx vite preview --host 127.0.0.1 --port 4173',
-        url: 'http://127.0.0.1:4173/visualization.html',
+        url: 'http://127.0.0.1:4173/',
         timeout: 30_000,
         reuseExistingServer: !process.env.CI,
         cwd: resolve(__dirname),

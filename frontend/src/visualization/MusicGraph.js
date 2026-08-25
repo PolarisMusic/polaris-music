@@ -478,6 +478,12 @@ export class MusicGraph {
         this._isolateInfoPanelScroll();
         this._setupResizeObserver();
         window.addEventListener('resize', () => this._handleCanvasResize());
+        // The mini-player changes #main-container's height when it shows,
+        // hides, or opens the Spotify embed row. rAF so the CSS variable has
+        // been applied before we measure.
+        window.addEventListener('miniplayer:resize', () => {
+            requestAnimationFrame(() => this._handleCanvasResize());
+        });
         requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
     }
