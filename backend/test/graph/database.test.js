@@ -11,25 +11,31 @@
 
 import { jest } from '@jest/globals';
 import MusicGraphDatabase from '../../src/graph/schema.js';
-import neo4j from 'neo4j-driver';
 
-// Mock Neo4j driver for unit testing
-// In integration tests, use real Neo4j instance
-jest.mock('neo4j-driver');
-
-// TODO: These tests need to be restructured for Jest ESM module mocking
-// The current approach of setting neo4j.auth and using mockImplementation
-// doesn't work in ESM mode. See: https://jestjs.io/docs/ecmascript-modules
-describe.skip('MusicGraphDatabase', () => {
+// No module mocking. jest.mock() does not intercept ESM imports, which is why
+// this suite used to be skipped. It is also unnecessary: neo4j.driver() is
+// lazy — it opens no socket until a query runs — so the constructor succeeds
+// against the real module and we simply swap db.driver for a fake afterwards.
+// Everything under test goes through this.driver, so the fake is sufficient.
+describe('MusicGraphDatabase', () => {
     let db;
     let mockDriver;
     let mockSession;
     let mockTx;
+    let realDriver;
 
     beforeEach(() => {
         // Setup mocks
         mockTx = {
-            run: jest.fn().mockResolvedValue({ records: [] }),
+            // Most queries are writes whose rows nothing reads. IN_RELEASE is
+            // the exception: processReleaseBundle RETURNs the linked track and
+            // throws when no row comes back, so the fake has to answer it.
+            run: jest.fn().mockImplementation((query) => {
+                if (typeof query === 'string' && query.includes('IN_RELEASE')) {
+                    return Promise.resolve({ records: [{ get: () => 'linked' }] });
+                }
+                return Promise.resolve({ records: [] });
+            }),
             commit: jest.fn().mockResolvedValue(undefined),
             rollback: jest.fn().mockResolvedValue(undefined)
         };
@@ -45,12 +51,6 @@ describe.skip('MusicGraphDatabase', () => {
             close: jest.fn().mockResolvedValue(undefined)
         };
 
-        // Mock the neo4j module functions
-        neo4j.driver = jest.fn().mockReturnValue(mockDriver);
-        neo4j.auth = {
-            basic: jest.fn().mockReturnValue({})
-        };
-
         // Create database instance
         db = new MusicGraphDatabase({
             uri: 'bolt://localhost:7687',
@@ -58,20 +58,101 @@ describe.skip('MusicGraphDatabase', () => {
             password: 'test'
         });
 
-        // Replace driver with our mock
+        // Close the real (never-connected) driver, then swap in the fake.
+        realDriver = db.driver;
         db.driver = mockDriver;
     });
 
     afterEach(async () => {
         await db.close();
+        await realDriver.close();
         jest.clearAllMocks();
     });
 
     describe('Constructor', () => {
-        test('should require configuration', () => {
-            expect(() => {
-                new MusicGraphDatabase({});
-            }).toThrow('Database configuration requires uri, user, and password');
+        // Every variable the constructor consults, in the order schema.js
+        // reads them. The constructor resolves each field from config OR the
+        // environment, so a test that asserts on config validation has to say
+        // what the environment holds — otherwise it passes on a dev machine
+        // with nothing set and fails in CI, which exports GRAPH_*.
+        const CONFIG_ENV_KEYS = [
+            'GRAPH_URI', 'NEO4J_URI', 'NEO4J_URL',
+            'GRAPH_USER', 'NEO4J_USER',
+            'GRAPH_PASSWORD', 'NEO4J_PASSWORD'
+        ];
+
+        /**
+         * Run fn with CONFIG_ENV_KEYS forced to the given values.
+         * A key mapped to undefined is deleted. Everything is restored
+         * afterwards, including on failure, so one test cannot leak
+         * environment state into the next.
+         */
+        const withEnv = async (vars, fn) => {
+            const saved = {};
+            for (const key of CONFIG_ENV_KEYS) {
+                saved[key] = process.env[key];
+                if (vars[key] === undefined) {
+                    delete process.env[key];
+                } else {
+                    process.env[key] = vars[key];
+                }
+            }
+            try {
+                return await fn();
+            } finally {
+                for (const key of CONFIG_ENV_KEYS) {
+                    if (saved[key] === undefined) {
+                        delete process.env[key];
+                    } else {
+                        process.env[key] = saved[key];
+                    }
+                }
+            }
+        };
+
+        test('should require configuration when the environment supplies none', async () => {
+            await withEnv({}, () => {
+                expect(() => {
+                    new MusicGraphDatabase({});
+                }).toThrow('Database configuration requires uri, user, and password');
+            });
+        });
+
+        test('falls back to the environment when config omits the fields', async () => {
+            // Deliberate behavior that CI depends on: the Backend CI job
+            // exports GRAPH_* and constructs with no explicit config.
+            await withEnv({
+                GRAPH_URI: 'bolt://env-host:7687',
+                GRAPH_USER: 'env-user',
+                GRAPH_PASSWORD: 'env-password'
+            }, async () => {
+                const database = new MusicGraphDatabase({});
+
+                expect(database.resolved.uri).toBe('bolt://env-host:7687');
+                expect(database.resolved.user).toBe('env-user');
+                expect(database.resolved.password).toBe('env-password');
+
+                await database.close();
+            });
+        });
+
+        test('explicit config wins over the environment', async () => {
+            await withEnv({
+                GRAPH_URI: 'bolt://env-host:7687',
+                GRAPH_USER: 'env-user',
+                GRAPH_PASSWORD: 'env-password'
+            }, async () => {
+                const database = new MusicGraphDatabase({
+                    uri: 'bolt://explicit:7687',
+                    user: 'explicit-user',
+                    password: 'explicit-password'
+                });
+
+                expect(database.resolved.uri).toBe('bolt://explicit:7687');
+                expect(database.resolved.user).toBe('explicit-user');
+
+                await database.close();
+            });
         });
 
         test('should accept valid configuration', () => {
@@ -81,8 +162,10 @@ describe.skip('MusicGraphDatabase', () => {
                 password: 'password'
             });
 
-            expect(database.config).toBeDefined();
-            expect(database.config.uri).toBe('bolt://localhost:7687');
+            expect(database.resolved).toBeDefined();
+            expect(database.resolved.uri).toBe('bolt://localhost:7687');
+
+            return database.close();
         });
     });
 
@@ -105,10 +188,13 @@ describe.skip('MusicGraphDatabase', () => {
             expect(queries.some(q => q.includes('track_id'))).toBe(true);
         });
 
-        test('should handle errors gracefully', async () => {
+        test('tolerates individual constraint failures and still closes', async () => {
+            // Schema init is deliberately idempotent: each CREATE CONSTRAINT
+            // failure is warned about and skipped so a re-run against an
+            // already-provisioned database is a no-op. It does not reject.
             mockSession.run.mockRejectedValue(new Error('Connection failed'));
 
-            await expect(db.initializeSchema()).rejects.toThrow('Connection failed');
+            await expect(db.initializeSchema()).resolves.not.toThrow();
             expect(mockSession.close).toHaveBeenCalled();
         });
     });
@@ -124,11 +210,13 @@ describe.skip('MusicGraphDatabase', () => {
                     release_date: '2024-01-01'
                 },
                 groups: [],
-                tracks: [],
-                tracklist: []
+                tracks: [
+                    { track_id: 'prov:track:only', title: 'Only Track' }
+                ],
+                tracklist: [
+                    { track_id: 'prov:track:only', track_number: 1, disc_number: 1 }
+                ]
             };
-
-            mockTx.run.mockResolvedValue({ records: [{ get: () => 'test-id' }] });
 
             const result = await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
 
@@ -144,7 +232,7 @@ describe.skip('MusicGraphDatabase', () => {
                     name: 'The Beatles',
                     alt_names: ['The White Album'],
                     release_date: '1968-11-22',
-                    format: ['LP'],
+                    format: 'LP',
                     labels: [{
                         name: 'Apple Records'
                     }]
@@ -160,11 +248,13 @@ describe.skip('MusicGraphDatabase', () => {
                 }],
                 tracks: [
                     {
+                        track_id: 'prov:track:ussr',
                         title: 'Back in the U.S.S.R.',
                         duration: 163,
                         performed_by_groups: [{ group_id: 'prov:group:beatles' }]
                     },
                     {
+                        track_id: 'prov:track:prudence',
                         title: 'Dear Prudence',
                         duration: 234,
                         performed_by_groups: [{ group_id: 'prov:group:beatles' }]
@@ -179,8 +269,6 @@ describe.skip('MusicGraphDatabase', () => {
                 ]
             };
 
-            mockTx.run.mockResolvedValue({ records: [] });
-
             const result = await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
 
             expect(result.success).toBe(true);
@@ -193,8 +281,8 @@ describe.skip('MusicGraphDatabase', () => {
             const bundle = {
                 release: { name: 'Test' },
                 groups: [],
-                tracks: [],
-                tracklist: []
+                tracks: [{ track_id: 'prov:track:one', title: 'One' }],
+                tracklist: [{ track_id: 'prov:track:one', track_number: 1 }]
             };
 
             mockTx.run.mockRejectedValue(new Error('Database error'));
@@ -210,7 +298,76 @@ describe.skip('MusicGraphDatabase', () => {
         test('should validate required fields', async () => {
             await expect(
                 db.processReleaseBundle(null, {}, mockSubmitter)
-            ).rejects.toThrow('Invalid release bundle');
+            ).rejects.toThrow('Invalid release bundle: missing required fields');
+        });
+
+        test('surfaces the validation error even when the event hash is null', async () => {
+            // Regression: the failure path logged eventHash.substring(0, 16)
+            // unconditionally, so a null hash replaced the real validation
+            // message with "Cannot read properties of null".
+            await expect(
+                db.processReleaseBundle(null, {}, mockSubmitter)
+            ).rejects.not.toThrow(/Cannot read properties of null/);
+        });
+
+        test('links IN_RELEASE using the resolved track id, not the bundle id', async () => {
+            // Regression for the tracklist id mismatch that silently emptied
+            // every release orbit. Provisional ids in a bundle are placeholders:
+            // resolveEntityId mints a fresh fingerprint id for the Track node,
+            // so the tracklist's raw reference matches nothing. The Cypher is a
+            // MATCH, and a MATCH that finds nothing yields no rows — the MERGE
+            // was skipped without an error, leaving a Release with no tracks.
+            const bundle = {
+                release: { name: 'Orbit Test', release_date: '2024-01-01' },
+                groups: [],
+                tracks: [
+                    { track_id: 'prov:track:placeholder', title: 'First' }
+                ],
+                tracklist: [
+                    { track_id: 'prov:track:placeholder', track_number: 1, disc_number: 1 }
+                ]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const calls = mockTx.run.mock.calls;
+
+            const trackMerge = calls.find(([q]) => q.includes('MERGE (t:Track {track_id: $trackId})'));
+            expect(trackMerge).toBeDefined();
+            const createdTrackId = trackMerge[1].trackId;
+
+            const linkCall = calls.find(([q]) => q.includes('IN_RELEASE'));
+            expect(linkCall).toBeDefined();
+
+            // The link must target the id the node was actually created under.
+            expect(linkCall[1].trackId).toBe(createdTrackId);
+
+            // And that id must differ from the bundle's placeholder — otherwise
+            // this test would still pass with the translation removed.
+            expect(createdTrackId).not.toBe('prov:track:placeholder');
+        });
+
+        test('throws when a tracklist item matches no Track node', async () => {
+            // The MATCH returning no rows must be an error, not a silent skip.
+            mockTx.run.mockImplementation((query) => {
+                if (typeof query === 'string' && query.includes('IN_RELEASE')) {
+                    return Promise.resolve({ records: [] });
+                }
+                return Promise.resolve({ records: [] });
+            });
+
+            const bundle = {
+                release: { name: 'Orphan Test' },
+                groups: [],
+                tracks: [{ track_id: 'prov:track:orphan', title: 'Orphan' }],
+                tracklist: [{ track_id: 'prov:track:orphan', track_number: 1 }]
+            };
+
+            await expect(
+                db.processReleaseBundle(mockEventHash, bundle, mockSubmitter)
+            ).rejects.toThrow(/could not be linked to a Track node/);
+
+            expect(mockTx.rollback).toHaveBeenCalled();
         });
 
         test('should handle groups with guests', async () => {
@@ -223,16 +380,15 @@ describe.skip('MusicGraphDatabase', () => {
                     members: [{ name: 'Member One' }]
                 }],
                 tracks: [{
+                    track_id: 'prov:track:test',
                     title: 'Test Track',
                     performed_by_groups: [{ group_id: 'group:test' }],
                     guests: [
                         { name: 'Guest Musician', instruments: ['saxophone'] }
                     ]
                 }],
-                tracklist: [{ track_id: 'track:test', track_number: 1 }]
+                tracklist: [{ track_id: 'prov:track:test', track_number: 1 }]
             };
-
-            mockTx.run.mockResolvedValue({ records: [] });
 
             const result = await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
 
@@ -359,7 +515,7 @@ describe.skip('MusicGraphDatabase', () => {
                 source: { url: 'https://source.com' }
             };
 
-            mockTx.run.mockResolvedValue({ records: [] });
+            mockTx.run.mockResolvedValue({ records: [{ get: () => 'person:123' }] });
 
             const result = await db.processAddClaim('event123', claimData, 'user1');
 

@@ -686,9 +686,30 @@ constructor(config = {}) {
             const groupMembersById = new Map();    // resolved groupId -> members[]
             const groupMembersByName = new Map();  // lower(group.name) -> members[]
 
+            // Maps each bundle-supplied id to the id the node was actually
+            // created under, per entity type. resolveEntityId mints a fresh
+            // provisional id for anything non-canonical, so the two differ for
+            // every new entity. Both the tracklist below and the relationship
+            // descriptors handed to mergeBundle reference the bundle's ids, so
+            // they need translating before they can find the real nodes.
+            const resolvedIds = {
+                person: new Map(),
+                group: new Map(),
+                track: new Map(),
+                song: new Map(),
+                release: new Map(),
+                label: new Map()
+            };
+            const recordResolved = (type, sourceId, nodeId) => {
+                if (sourceId && resolvedIds[type]) {
+                    resolvedIds[type].set(sourceId, nodeId);
+                }
+            };
+
             for (const group of normalizedBundle.groups || []) {
                 const groupOpId = opId();
                 const groupId = await this.resolveEntityId(tx, 'group', group);
+                recordResolved('group', group.group_id, groupId);
 
                 const idKind = IdentityService.parseId(groupId).kind;
                 this.log.debug('group_upsert', { group_id: groupId, name: group.name, id_kind: idKind });
@@ -753,6 +774,7 @@ constructor(config = {}) {
                 // Process Group members with their roles and periods
                 for (const member of group.members || []) {
                     const personId = await this.resolveEntityId(tx, 'person', member);
+                    recordResolved('person', member.person_id, personId);
                     const personIdKind = IdentityService.parseId(personId).kind;
 
                     this.log.debug('member_add', { person_id: personId, group_id: groupId, name: member.name });
@@ -838,6 +860,7 @@ constructor(config = {}) {
 
             const releaseOpId = opId();
             const releaseId = await this.resolveEntityId(tx, 'release', normalizedBundle.release);
+            recordResolved('release', normalizedBundle.release.release_id, releaseId);
 
             this.log.debug('release_create', { release_id: releaseId, name: normalizedBundle.release.name });
 
@@ -887,6 +910,7 @@ constructor(config = {}) {
             // Process release-level guests (engineers, producers, etc.)
             for (const guest of normalizedBundle.release.guests || []) {
                 const personId = await this.resolveEntityId(tx, 'person', guest);
+                recordResolved('person', guest.person_id, personId);
 
                 await tx.run(`
                     MERGE (p:Person {person_id: $personId})
@@ -931,6 +955,7 @@ constructor(config = {}) {
             for (const song of normalizedBundle.songs || []) {
                 const songOpId = opId();
                 const songId = await this.resolveEntityId(tx, 'song', song);
+                recordResolved('song', song.song_id, songId);
 
                 this.log.debug('song_create', { song_id: songId, title: song.title });
 
@@ -960,6 +985,7 @@ constructor(config = {}) {
                 // Link songwriters (Persons who WROTE this Song)
                 for (const writer of song.writers || []) {
                     const writerId = await this.resolveEntityId(tx, 'person', writer);
+                    recordResolved('person', writer.person_id, writerId);
 
                     // Normalize writing roles (handles comma-separated, synonyms)
                     const writerRoles = normalizeRoleInput(writer.roles || writer.role || []);
@@ -1005,19 +1031,11 @@ constructor(config = {}) {
 
             const processedTracks = [];
 
-            // Maps the bundle's own track_id to the id the Track node was
-            // actually created with. resolveEntityId mints a provisional id
-            // (prov:track:...) for anything non-canonical, so the two differ for
-            // every new release — and the tracklist below references bundle ids.
-            const resolvedTrackIds = new Map();
 
             for (const track of normalizedBundle.tracks || []) {
                 const trackOpId = opId();
                 const trackId = await this.resolveEntityId(tx, 'track', track);
-
-                if (track.track_id) {
-                    resolvedTrackIds.set(track.track_id, trackId);
-                }
+                recordResolved('track', track.track_id, trackId);
 
                 this.log.debug('track_create', { track_id: trackId, title: track.title });
 
@@ -1305,6 +1323,7 @@ constructor(config = {}) {
                 // Link GUEST performers (individuals not in the main group)
                 for (const guest of track.guests || []) {
                     const guestId = await this.resolveEntityId(tx, 'person', guest);
+                    recordResolved('person', guest.person_id, guestId);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -1345,6 +1364,7 @@ constructor(config = {}) {
                 // Link producers
                 for (const producer of track.producers || []) {
                     const producerId = await this.resolveEntityId(tx, 'person', producer);
+                    recordResolved('person', producer.person_id, producerId);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -1371,6 +1391,7 @@ constructor(config = {}) {
                 // Link arrangers
                 for (const arranger of track.arrangers || []) {
                     const arrangerId = await this.resolveEntityId(tx, 'person', arranger);
+                    recordResolved('person', arranger.person_id, arrangerId);
 
                     await tx.run(`
                         MERGE (p:Person {person_id: $personId})
@@ -1529,7 +1550,7 @@ constructor(config = {}) {
                 // Translate the bundle's track_id to the id the Track node was
                 // created under. Falls back to the raw value for canonical ids,
                 // which resolveEntityId returns unchanged.
-                const linkTrackId = resolvedTrackIds.get(item.track_id) || item.track_id;
+                const linkTrackId = resolvedIds.track.get(item.track_id) || item.track_id;
 
                 // RETURN so an unmatched track is detectable. Cypher MATCH that
                 // finds nothing yields no rows, so the MERGE was previously
@@ -1588,6 +1609,7 @@ constructor(config = {}) {
             // Link labels
             for (const label of normalizedBundle.release.labels || []) {
                 const labelId = await this.resolveEntityId(tx, 'label', label);
+                recordResolved('label', label.label_id, labelId);
 
                 await tx.run(`
                     MERGE (l:Label {label_id: $labelId})
@@ -1671,14 +1693,18 @@ constructor(config = {}) {
             return {
                 success: true,
                 releaseId,
-                stats
+                stats,
+                // Bundle id → created node id, per entity type. The caller's
+                // post-merge step needs this to translate the relationship
+                // descriptors, which carry the normalizer's ids.
+                resolvedIds
             };
 
         } catch (error) {
             // Rollback on any error. Use safeRollback so a rollback failure
             // does not mask the original error.
             await safeRollback(tx, this.log);
-            timer.endError('release_bundle_fail', { event_hash: eventHash.substring(0, 16), error: error.message });
+            timer.endError('release_bundle_fail', { event_hash: eventHash?.substring(0, 16) ?? null, error: error.message });
             throw error;
         } finally {
             await safeClose(session, this.log);

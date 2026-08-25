@@ -809,6 +809,73 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             expect(dupeCheck.records[0].get('count').toInt()).toBe(1);
         });
 
+        test('mergeBundle never creates an entity when an endpoint is missing', async () => {
+            // Regression: mergeBundle used to MERGE its endpoints, so an id it
+            // could not find was minted as a bare twin holding only
+            // {id, name, status, <idProp>} — no title, no listen_links. A later
+            // replay of the same event then made the tracklist MATCH bind to
+            // the twin, pointing the release's IN_RELEASE edges at empty nodes.
+            const { mergeBundle } = await import('../../src/graph/merge.js');
+
+            await session.run(`
+                CREATE (g:Group {id: 'grp_real', group_id: 'grp_real', name: 'Real Band'})
+            `);
+
+            const relationships = [
+                {
+                    type: 'PERFORMED_ON',
+                    from: { label: 'Group', idProp: 'group_id', id: 'grp_real', name: 'Real Band' },
+                    to: { label: 'Track', idProp: 'track_id', id: 'prov:track:absent', name: 'Ghost' },
+                    props: { role: 'performer' }
+                }
+            ];
+
+            const stats = await mergeBundle(driver, relationships, { eventHash: 'ghost_hash' });
+
+            expect(stats.relationshipsMerged).toBe(0);
+            expect(stats.skippedMissingEndpoint).toBe(1);
+
+            const ghost = await session.run(
+                `MATCH (t:Track {track_id: 'prov:track:absent'}) RETURN count(t) AS count`
+            );
+            expect(ghost.records[0].get('count').toInt()).toBe(0);
+
+            const rel = await session.run(
+                `MATCH (:Group {group_id: 'grp_real'})-[r:PERFORMED_ON]->() RETURN count(r) AS count`
+            );
+            expect(rel.records[0].get('count').toInt()).toBe(0);
+        });
+
+        test('mergeBundle links existing nodes and sets relationship properties', async () => {
+            const { mergeBundle } = await import('../../src/graph/merge.js');
+
+            await session.run(`
+                CREATE (g:Group {id: 'grp_x', group_id: 'grp_x', name: 'X'})
+                CREATE (t:Track {id: 'trk_x', track_id: 'trk_x', title: 'Track X'})
+            `);
+
+            const stats = await mergeBundle(driver, [
+                {
+                    type: 'PERFORMED_ON',
+                    from: { label: 'Group', idProp: 'group_id', id: 'grp_x', name: 'X' },
+                    to: { label: 'Track', idProp: 'track_id', id: 'trk_x', name: 'Track X' },
+                    props: { role: 'performer' }
+                }
+            ], { eventHash: 'link_hash' });
+
+            expect(stats.relationshipsMerged).toBe(1);
+            expect(stats.skippedMissingEndpoint).toBe(0);
+
+            const result = await session.run(`
+                MATCH (:Group {group_id: 'grp_x'})-[r:PERFORMED_ON]->(t:Track {track_id: 'trk_x'})
+                RETURN r.role AS role, t.title AS title
+            `);
+            expect(result.records).toHaveLength(1);
+            expect(result.records[0].get('role')).toBe('performer');
+            // The real node kept its data — nothing overwrote it.
+            expect(result.records[0].get('title')).toBe('Track X');
+        });
+
         test('mergeBundle skips invalid relationship types', async () => {
             const { mergeBundle } = await import('../../src/graph/merge.js');
 

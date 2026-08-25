@@ -781,8 +781,9 @@ const SAFE_LABELS = {
 /**
  * Merge all explicit relationships into the graph.
  *
- * Uses MERGE for both endpoints and the relationship itself, ensuring:
- * - Nodes are created if missing (with name fallback)
+ * MATCHes both endpoints and MERGEs only the relationship, ensuring:
+ * - Existing nodes are linked, and a missing endpoint is warned about and
+ *   skipped — this function never creates an entity
  * - Relationships are created without duplicates
  * - Cross-bundle relationships (e.g., Person MEMBER_OF multiple Groups) are
  *   correctly created regardless of bundle processing order
@@ -795,16 +796,16 @@ const SAFE_LABELS = {
  * @param {Object} [options]
  * @param {string} [options.eventHash] - Event hash for audit trail
  * @param {import('neo4j-driver').Transaction} [options.tx] - Existing transaction to use (skips session management)
- * @returns {Promise<Object>} Statistics { relationshipsMerged, nodesEnsured, skipped }
+ * @returns {Promise<Object>} Statistics { relationshipsMerged, skipped, skippedMissingEndpoint }
  */
 async function mergeBundle(driver, relationships, options = {}) {
     const { eventHash = null, tx: existingTx = null } = options;
 
     if (relationships.length === 0) {
-        return { relationshipsMerged: 0, nodesEnsured: 0, skipped: 0 };
+        return { relationshipsMerged: 0, skipped: 0, skippedMissingEndpoint: 0 };
     }
 
-    const stats = { relationshipsMerged: 0, nodesEnsured: 0, skipped: 0 };
+    const stats = { relationshipsMerged: 0, skipped: 0, skippedMissingEndpoint: 0 };
     let session = null;
     let tx = existingTx;
 
@@ -871,32 +872,51 @@ async function mergeBundle(driver, relationships, options = {}) {
 
             // SECURITY: fromLabel, toLabel, rel.type are validated against whitelists above
             // fromMergeField, toMergeField are derived from the whitelisted SAFE_LABELS
+            // MATCH, never MERGE, the endpoints.
+            //
+            // This step runs after processReleaseBundle, which has already
+            // created every entity in the bundle under ids minted by
+            // resolveEntityId. The relationship descriptors, by contrast,
+            // carry the normalizer's ids. When the two disagree a MERGE here
+            // does not find the real node — it mints a bare twin holding only
+            // {id, name, status, <idProp>}, with no title and no listen_links.
+            //
+            // Those twins were not merely useless: a later replay of the same
+            // event made the tracklist MATCH bind to the twin instead of the
+            // real Track, so the release's IN_RELEASE edges pointed at empty
+            // nodes and the populated ones were orphaned. Linking is this
+            // function's job; creating entities is not.
             const cypher = `
-                MERGE (from:\`${fromLabel}\` {\`${fromMergeField}\`: $fromId})
-                ON CREATE SET from.id = $fromIdVal,
-                              from.name = $fromName,
-                              from.status = 'PROVISIONAL'
-                MERGE (to:\`${toLabel}\` {\`${toMergeField}\`: $toId})
-                ON CREATE SET to.id = $toIdVal,
-                              to.name = $toName,
-                              to.status = 'PROVISIONAL'
+                MATCH (from:\`${fromLabel}\` {\`${fromMergeField}\`: $fromId})
+                MATCH (to:\`${toLabel}\` {\`${toMergeField}\`: $toId})
                 MERGE (from)-[r:\`${rel.type}\`]->(to)
                 SET r += $relProps
+                RETURN id(r) AS relId
             `;
 
             const params = {
                 fromId: fromMergeValue,
-                fromIdVal: rel.from.id || fromMergeValue,
-                fromName: rel.from.name || null,
                 toId: toMergeValue,
-                toIdVal: rel.to.id || toMergeValue,
-                toName: rel.to.name || null,
                 relProps
             };
 
-            await tx.run(cypher, params);
+            const result = await tx.run(cypher, params);
+
+            if (result.records.length === 0) {
+                // One or both endpoints are absent. Name them so the gap is
+                // diagnosable rather than silent.
+                log.warn('merge_bundle_skip_missing_endpoint', {
+                    type: rel.type,
+                    from: `${fromLabel}.${fromMergeField}=${fromMergeValue}`,
+                    to: `${toLabel}.${toMergeField}=${toMergeValue}`,
+                    event_hash: eventHash
+                });
+                stats.skipped++;
+                stats.skippedMissingEndpoint++;
+                continue;
+            }
+
             stats.relationshipsMerged++;
-            stats.nodesEnsured += 2;
         }
 
         // Only commit if we created our own transaction

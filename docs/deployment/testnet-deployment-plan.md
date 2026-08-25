@@ -86,6 +86,84 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 | Payload decoding | `dae3e8b`, `9918fd9` | Assumed base64; v1.21 emits 0x-prefixed hex, and wrong-scheme decodes fail silently |
 | Sink error reporting | `c22324c` | Logged application-level ingest errors as successes |
 | Anchor-auth ingestion | `37c287e`, `a0322a1` | Frontend stores unsigned events by design, but ingestion required a signature — no UI submission could be ingested |
+| Tracklist id mismatch | `67ff27d` | Bundle track ids were used verbatim in the `IN_RELEASE` MATCH; provisional ids resolve to fresh ids, so every release ended up with zero tracks and an empty orbit — silently, because a MATCH that finds nothing yields no rows |
+| MiniPlayer audio clear | this branch | `audio.src = ''` resolves against the page URL, so the browser tried to load the page as audio and fired a spurious `error` on every track change |
+| Runtime CSP e2e test | this branch | Both the spec and the Playwright config navigated to `/visualization.html`, which this repo does not build — the runtime CSP check had never been able to pass |
+
+---
+
+## Ghost Track nodes — the second graph writer
+
+Symptom: 14 `:Track` nodes carrying only `["id","status","name","track_id"]`
+— `name` instead of `title`, no `listen_links`, `status: PROVISIONAL`,
+`id_kind: null` — sitting alongside the 14 real, populated tracks.
+
+Cause: `eventProcessor.handleReleaseBundle` runs a post-merge step
+(`eventProcessor.js:594`) that calls `extractRelationships` on the *normalized*
+bundle and hands the result to `mergeBundle`. Two id schemes were in play:
+
+- `normalizeReleaseBundle.generateTrackId` → `prov:track:<sha256 of title+duration>`
+- `schema.resolveEntityId` → `generateProvisionalIdNew` fingerprints
+
+`mergeBundle` MERGEd its endpoints, so an id it could not find was created as
+a bare twin rather than reported as missing.
+
+The twins were not inert. On a replay of the same event, the tracklist's
+`MATCH (t:Track {track_id: ...})` — which at the time used the raw bundle id —
+bound to the twin that the *previous* run's `mergeBundle` had planted. The
+release's `IN_RELEASE` edges therefore pointed at empty nodes while the
+populated tracks sat orphaned. A cross-run contamination loop.
+
+Fixes, both on this branch:
+
+1. `mergeBundle` now MATCHes its endpoints and only MERGEs the relationship.
+   A missing endpoint is warned (`merge_bundle_skip_missing_endpoint`, naming
+   both endpoints) and counted in `stats.skippedMissingEndpoint`. It can no
+   longer create an entity.
+2. `processReleaseBundle` returns `resolvedIds` — bundle id → node id, per
+   entity type — and `eventProcessor` rewrites the relationship endpoints
+   through it before merging, so the two id schemes meet.
+
+**Diagnostic worth keeping.** `IN_RELEASE` edges written by
+`schema.js` always carry `is_bonus` (a real boolean, never null). So:
+
+```cypher
+MATCH ()-[ir:IN_RELEASE]->()
+RETURN count(*) AS edges, count(ir.is_bonus) AS with_is_bonus,
+       count(ir.track_number) AS with_track_number
+```
+
+`with_is_bonus < edges` means edges exist that our writer did not create.
+`with_track_number = 0` means the tracklist carried no ordering, which leaves
+the player queue and release orbit unsorted (`playerService.js` sorts on
+`ir.disc_number, ir.track_number`).
+
+---
+
+## Spotify embed playback (added after Phase 7)
+
+Tracks carrying a Spotify link now play through **Spotify's embed iframe**,
+driven by their iFrame API (`https://open.spotify.com/embed/iframe-api/v1`).
+This needs no Spotify developer app, no client secret, and no OAuth flow of
+our own.
+
+Two limits are Spotify's, not ours:
+
+- Anonymous and free listeners hear **30-second previews**. Full-length
+  playback requires the visitor to be logged into Spotify **Premium** in that
+  browser. Nothing on our side changes this.
+- The embed is cross-origin, so a click on our play button does not carry a
+  user gesture into the frame. The first play may need a second click, or a
+  click on the embed itself.
+
+The CSP meta tag in `frontend/index.html` gained `https://open.spotify.com`
+under `script-src`, `frame-src`, and `connect-src`. If that ever has to be
+reverted, the fallback is a plain `<iframe src=".../embed/track/{id}">`, which
+needs only `frame-src` — it loses programmatic play and auto-advance.
+
+**Known gap, not yet addressed:** `frontend/submit.html` ships with no CSP at
+all, in source or in the build, while the read-only visualizer page is locked
+down. It is the page that talks to wallets and the API.
 
 ---
 

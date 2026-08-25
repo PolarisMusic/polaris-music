@@ -21,6 +21,12 @@ body.mini-player-visible {
     --mini-player-height: 54px;
 }
 
+/* The Spotify embed row sits above the bar and grows the player upward,
+   so #main-container has to give back the extra height. 54 bar + 84 embed. */
+body.mini-player-visible.mini-player-embed {
+    --mini-player-height: 138px;
+}
+
 /* Top Bar */
 #top-bar {
     position: fixed;
@@ -1475,6 +1481,24 @@ body.mini-player-visible {
 }
 
 /* Queue drawer */
+/* Spotify embed row. The API replaces the host div with its own iframe,
+   so size the iframe rather than the placeholder. */
+.mp-embed {
+    height: 84px;
+    box-sizing: border-box;
+    padding: 2px 12px;
+    background: #1a1a1a;
+    border-top: 1px solid #333;
+}
+
+.mp-embed iframe {
+    display: block;
+    width: 100%;
+    height: 80px;
+    border: 0;
+    border-radius: 12px;
+}
+
 .mp-drawer {
     max-height: 260px;
     overflow-y: auto;
