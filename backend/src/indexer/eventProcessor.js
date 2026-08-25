@@ -24,6 +24,35 @@ import MusicGraphDatabase from '../graph/schema.js';
 import EventStore from '../storage/eventStore.js';
 import { mergeBundle } from '../graph/merge.js';
 import { normalizeReleaseBundle, extractRelationships } from '../graph/normalizeReleaseBundle.js';
+
+/**
+ * Rewrite a relationship descriptor's endpoint ids to the ids the nodes were
+ * actually created under.
+ *
+ * extractRelationships works from the normalized bundle, so its endpoints carry
+ * normalizer ids (prov:track:<sha of title+duration>). processReleaseBundle
+ * creates the nodes under resolveEntityId fingerprints instead. Left
+ * untranslated the two never meet, and mergeBundle's endpoint MATCH finds
+ * nothing — every relationship in the bundle is silently skipped.
+ *
+ * Endpoints with no id match by name instead and are left alone.
+ *
+ * @param {Object} rel - Relationship descriptor from extractRelationships
+ * @param {Object} [resolvedIds] - Per-type Map of bundle id → node id
+ * @returns {Object} The descriptor, with endpoint ids translated where known
+ */
+export function translateEndpoints(rel, resolvedIds) {
+    if (!resolvedIds) return rel;
+
+    const translate = (endpoint) => {
+        if (!endpoint?.id) return endpoint;
+        const map = resolvedIds[endpoint.label?.toLowerCase()];
+        const resolved = map?.get(endpoint.id);
+        return resolved ? { ...endpoint, id: resolved } : endpoint;
+    };
+
+    return { ...rel, from: translate(rel.from), to: translate(rel.to) };
+}
 import { safeClose } from '../graph/safeTx.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -596,14 +625,15 @@ class EventProcessor {
                 normalized.groups,
                 normalized.tracks,
                 normalized.songs || []
-            );
+            ).map(rel => translateEndpoints(rel, result.resolvedIds));
             if (relationships.length > 0) {
                 const mergeStats = await mergeBundle(this.db.driver, relationships, {
                     eventHash: actionData.hash
                 });
                 this.log.info('handleReleaseBundle relationships merged', {
                     event_hash: actionData.hash,
-                    relationships_merged: mergeStats.relationshipsMerged
+                    relationships_merged: mergeStats.relationshipsMerged,
+                    skipped_missing_endpoint: mergeStats.skippedMissingEndpoint
                 });
             }
         } catch (relErr) {

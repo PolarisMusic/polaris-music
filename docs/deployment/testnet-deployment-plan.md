@@ -92,6 +92,54 @@ Ongoing cost: ~€10/month (Hetzner CX32 + backups).
 
 ---
 
+## Ghost Track nodes — the second graph writer
+
+Symptom: 14 `:Track` nodes carrying only `["id","status","name","track_id"]`
+— `name` instead of `title`, no `listen_links`, `status: PROVISIONAL`,
+`id_kind: null` — sitting alongside the 14 real, populated tracks.
+
+Cause: `eventProcessor.handleReleaseBundle` runs a post-merge step
+(`eventProcessor.js:594`) that calls `extractRelationships` on the *normalized*
+bundle and hands the result to `mergeBundle`. Two id schemes were in play:
+
+- `normalizeReleaseBundle.generateTrackId` → `prov:track:<sha256 of title+duration>`
+- `schema.resolveEntityId` → `generateProvisionalIdNew` fingerprints
+
+`mergeBundle` MERGEd its endpoints, so an id it could not find was created as
+a bare twin rather than reported as missing.
+
+The twins were not inert. On a replay of the same event, the tracklist's
+`MATCH (t:Track {track_id: ...})` — which at the time used the raw bundle id —
+bound to the twin that the *previous* run's `mergeBundle` had planted. The
+release's `IN_RELEASE` edges therefore pointed at empty nodes while the
+populated tracks sat orphaned. A cross-run contamination loop.
+
+Fixes, both on this branch:
+
+1. `mergeBundle` now MATCHes its endpoints and only MERGEs the relationship.
+   A missing endpoint is warned (`merge_bundle_skip_missing_endpoint`, naming
+   both endpoints) and counted in `stats.skippedMissingEndpoint`. It can no
+   longer create an entity.
+2. `processReleaseBundle` returns `resolvedIds` — bundle id → node id, per
+   entity type — and `eventProcessor` rewrites the relationship endpoints
+   through it before merging, so the two id schemes meet.
+
+**Diagnostic worth keeping.** `IN_RELEASE` edges written by
+`schema.js` always carry `is_bonus` (a real boolean, never null). So:
+
+```cypher
+MATCH ()-[ir:IN_RELEASE]->()
+RETURN count(*) AS edges, count(ir.is_bonus) AS with_is_bonus,
+       count(ir.track_number) AS with_track_number
+```
+
+`with_is_bonus < edges` means edges exist that our writer did not create.
+`with_track_number = 0` means the tracklist carried no ordering, which leaves
+the player queue and release orbit unsorted (`playerService.js` sorts on
+`ir.disc_number, ir.track_number`).
+
+---
+
 ## Spotify embed playback (added after Phase 7)
 
 Tracks carrying a Spotify link now play through **Spotify's embed iframe**,
