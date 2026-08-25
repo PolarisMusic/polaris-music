@@ -70,10 +70,89 @@ describe('MusicGraphDatabase', () => {
     });
 
     describe('Constructor', () => {
-        test('should require configuration', () => {
-            expect(() => {
-                new MusicGraphDatabase({});
-            }).toThrow('Database configuration requires uri, user, and password');
+        // Every variable the constructor consults, in the order schema.js
+        // reads them. The constructor resolves each field from config OR the
+        // environment, so a test that asserts on config validation has to say
+        // what the environment holds — otherwise it passes on a dev machine
+        // with nothing set and fails in CI, which exports GRAPH_*.
+        const CONFIG_ENV_KEYS = [
+            'GRAPH_URI', 'NEO4J_URI', 'NEO4J_URL',
+            'GRAPH_USER', 'NEO4J_USER',
+            'GRAPH_PASSWORD', 'NEO4J_PASSWORD'
+        ];
+
+        /**
+         * Run fn with CONFIG_ENV_KEYS forced to the given values.
+         * A key mapped to undefined is deleted. Everything is restored
+         * afterwards, including on failure, so one test cannot leak
+         * environment state into the next.
+         */
+        const withEnv = async (vars, fn) => {
+            const saved = {};
+            for (const key of CONFIG_ENV_KEYS) {
+                saved[key] = process.env[key];
+                if (vars[key] === undefined) {
+                    delete process.env[key];
+                } else {
+                    process.env[key] = vars[key];
+                }
+            }
+            try {
+                return await fn();
+            } finally {
+                for (const key of CONFIG_ENV_KEYS) {
+                    if (saved[key] === undefined) {
+                        delete process.env[key];
+                    } else {
+                        process.env[key] = saved[key];
+                    }
+                }
+            }
+        };
+
+        test('should require configuration when the environment supplies none', async () => {
+            await withEnv({}, () => {
+                expect(() => {
+                    new MusicGraphDatabase({});
+                }).toThrow('Database configuration requires uri, user, and password');
+            });
+        });
+
+        test('falls back to the environment when config omits the fields', async () => {
+            // Deliberate behavior that CI depends on: the Backend CI job
+            // exports GRAPH_* and constructs with no explicit config.
+            await withEnv({
+                GRAPH_URI: 'bolt://env-host:7687',
+                GRAPH_USER: 'env-user',
+                GRAPH_PASSWORD: 'env-password'
+            }, async () => {
+                const database = new MusicGraphDatabase({});
+
+                expect(database.resolved.uri).toBe('bolt://env-host:7687');
+                expect(database.resolved.user).toBe('env-user');
+                expect(database.resolved.password).toBe('env-password');
+
+                await database.close();
+            });
+        });
+
+        test('explicit config wins over the environment', async () => {
+            await withEnv({
+                GRAPH_URI: 'bolt://env-host:7687',
+                GRAPH_USER: 'env-user',
+                GRAPH_PASSWORD: 'env-password'
+            }, async () => {
+                const database = new MusicGraphDatabase({
+                    uri: 'bolt://explicit:7687',
+                    user: 'explicit-user',
+                    password: 'explicit-password'
+                });
+
+                expect(database.resolved.uri).toBe('bolt://explicit:7687');
+                expect(database.resolved.user).toBe('explicit-user');
+
+                await database.close();
+            });
         });
 
         test('should accept valid configuration', () => {
