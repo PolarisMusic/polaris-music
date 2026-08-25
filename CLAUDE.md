@@ -181,11 +181,32 @@ RETURN p.name, m.role
 **Test Commands** (in `backend/`):
 ```bash
 npm test                    # All tests
-npm run test:unit           # Fast unit tests
 npm run test:integration    # Database integration tests
 npm run test:e2e            # Full workflow tests
 npm run test:performance    # Load tests
 npm run test:coverage       # Generate coverage report
+npm run test:graph:ci       # Graph + indexer suites; requires a live Neo4j
+```
+
+To run a single file, pass the path through `npm test` — trailing arguments
+reach Jest:
+
+```bash
+npm test -- test/graph/merge-events.test.js
+```
+
+Do **not** invoke `npx jest` directly. The suite is ESM and needs
+`node --experimental-vm-modules`, which every npm script supplies and bare
+`npx jest` does not. Without it Jest dies on the first `export` it meets
+(`test/setup.js`), which reads like a config error but is only a missing flag.
+
+`test:graph:ci` needs `GRAPH_URI`, `GRAPH_USER`, and `GRAPH_PASSWORD`. CI
+supplies them alongside a Neo4j service container; locally, point them at the
+compose stack or an SSH tunnel:
+
+```bash
+GRAPH_URI=bolt://localhost:7687 GRAPH_USER=neo4j GRAPH_PASSWORD=<pw> \
+  npm run test:graph:ci
 ```
 
 **Testing Conventions**:
@@ -193,6 +214,11 @@ npm run test:coverage       # Generate coverage report
 - Use separate test database for integration tests
 - E2E tests should use realistic data (Beatles example)
 - Performance tests target: <100ms API response, <500ms graph queries
+- **A green local run does not mean the graph suites ran.** Suites guarded by
+  `describeOrSkip` on `GRAPH_URI` skip silently without a database, and a
+  `describe.skip` reports as passing too. Check the skipped count, not just
+  the failure count — both the tracklist id mismatch and the ghost-node bug
+  shipped past suites that were never executing.
 
 ### Code Style Conventions
 
