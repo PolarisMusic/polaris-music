@@ -200,14 +200,24 @@ Do **not** invoke `npx jest` directly. The suite is ESM and needs
 `npx jest` does not. Without it Jest dies on the first `export` it meets
 (`test/setup.js`), which reads like a config error but is only a missing flag.
 
-`test:graph:ci` needs `GRAPH_URI`, `GRAPH_USER`, and `GRAPH_PASSWORD`. CI
-supplies them alongside a Neo4j service container; locally, point them at the
-compose stack or an SSH tunnel:
+`test:graph:ci` needs `GRAPH_URI`, `GRAPH_USER`, and `GRAPH_PASSWORD`, plus an
+explicit `ALLOW_DESTRUCTIVE_GRAPH_TESTS=true`. **These suites run
+`MATCH (n) DETACH DELETE n` — they delete every node in whatever database
+`GRAPH_URI` names.** Point them only at a disposable local instance:
 
 ```bash
-GRAPH_URI=bolt://localhost:7687 GRAPH_USER=neo4j GRAPH_PASSWORD=<pw> \
+ALLOW_DESTRUCTIVE_GRAPH_TESTS=true \
+GRAPH_URI=bolt://127.0.0.1:7687 GRAPH_USER=neo4j GRAPH_PASSWORD=<pw> \
   npm run test:graph:ci
 ```
+
+Use `bolt://127.0.0.1:7687`, **never `bolt://localhost:7687`**. The deployment
+runbook documents an SSH tunnel on port 7687 for inspecting production Neo4j;
+ssh binds that forward on `::1` while Docker publishes on `127.0.0.1`, and
+since Node 17 `dns.lookup` no longer reorders to IPv4-first — so `localhost`
+resolves to `::1` and reaches the *tunnel*. Without the guard in
+`test/graphGuard.js`, a developer with a tunnel open would silently wipe
+production.
 
 **Testing Conventions**:
 - Mock blockchain calls in unit tests

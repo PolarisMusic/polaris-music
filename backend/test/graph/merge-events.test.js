@@ -13,6 +13,7 @@ import EventStore from '../../src/storage/eventStore.js';
 import MusicGraphDatabase from '../../src/graph/schema.js';
 import { MergeOperations } from '../../src/graph/merge.js';
 import EventProcessor from '../../src/indexer/eventProcessor.js';
+import { assertDisposableGraph } from '../graphGuard.js';
 
 // Skip these integration tests if no database is configured
 const describeOrSkip = (process.env.GRAPH_URI && process.env.SKIP_GRAPH_TESTS !== 'true') ? describe : describe.skip;
@@ -32,6 +33,9 @@ describeOrSkip('Event-Sourced Merge Operations', () => {
             password: process.env.GRAPH_PASSWORD || 'password'
         });
         driver = graphDb.driver;
+
+        // This suite deletes every node. Refuse unless explicitly opted in.
+        await assertDisposableGraph(driver, 'Event-Sourced Merge Operations');
 
         // Initialize event store with correct config shape
         eventStore = new EventStore({ /* ... */ });
