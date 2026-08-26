@@ -640,6 +640,179 @@ what is holding the port, and an `ssh` row there is the tunnel.
 
 ---
 
+## Redeploying and re-ingesting a release
+
+Use this when you have changed backend code and need the graph rebuilt from
+events that are already anchored on-chain.
+
+Each step says which machine to run it on. **Your Mac** means your own laptop.
+**The VPS** means the server, after you have SSHed into it.
+
+### Three things to know first
+
+**The sink does not remember where it left off.** `START_BLOCK` defaults to
+`-10000`, which means "10,000 blocks behind whatever the current chain head is."
+Jungle4 makes two blocks a second, so that is roughly **the last 83 minutes**.
+Restarting the sink replays only that window. If your release was anchored
+earlier than that, nothing is re-ingested — and nothing reports an error, since
+the sink streams the recent blocks correctly and simply finds no matching
+events. To replay an older release you must give `START_BLOCK` a specific block
+number.
+
+**You cannot just submit the release again.** The contract rejects a duplicate
+event hash (`check(hash_idx.find(hash) == hash_idx.end(), "Event hash already
+exists")`). Identical bundle content always produces an identical hash, so the
+transaction fails. The anchored event has to be replayed instead.
+
+**Deploy before you replay.** The API keeps a list of already-processed event
+hashes in memory. It is emptied when the API container restarts. If you replay
+without restarting the API first, it answers `duplicate` and rebuilds nothing.
+
+---
+
+### Step 0 — Connect (your Mac)
+
+```bash
+ssh -i ~/.ssh/polaris_vps polaris@polaris.mu
+cd ~/polaris-music
+```
+
+Everything from here on runs on the VPS, inside `~/polaris-music`.
+
+The `.env` file there sets `COMPOSE_FILE` and `COMPOSE_PROFILES`, so plain
+`docker compose` already includes the production overlay and the `chain`
+profile. You never need `-f` flags on this machine.
+
+### Step 1 — Deploy the new code (the VPS)
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+`--build` rebuilds the images from the new source. It covers the frontend as
+well as the backend.
+
+This takes a few minutes. Then check everything came back:
+
+```bash
+docker compose ps
+```
+
+Every service should show `Up`. `polaris-substreams-sink` should be there too —
+if it is missing, `COMPOSE_PROFILES=chain` is not set in `.env`.
+
+### Step 2 — Confirm the new code is actually running (the VPS)
+
+```bash
+docker compose ps --format 'table {{.Name}}\t{{.Status}}'
+```
+
+The `api` and `processor` rows should show an uptime of seconds or minutes, not
+days. If they show days, the rebuild did not replace them — re-run step 1 and
+read the build output for errors.
+
+This step exists because skipping it is confusing later: a stale API produces
+graph data that does not match the code you are reading.
+
+### Step 3 — Clear the graph (the VPS)
+
+```bash
+docker compose exec api node scripts/clearGraphData.js
+```
+
+**This deletes every node and relationship in Neo4j.** That is intended here —
+you are about to rebuild the graph from the anchored events, and leftover rows
+from earlier code versions are exactly what you are trying to get rid of.
+
+It needs no arguments: the API container already has `GRAPH_URI`, `GRAPH_USER`,
+and `GRAPH_PASSWORD` set.
+
+Expected output ends with `✨ Database cleared successfully!`.
+
+### Step 4 — Find the block number of your release (the VPS)
+
+The API logs the block number every time it ingests something:
+
+```bash
+docker compose logs api | grep ingest_start
+```
+
+Each line contains `"block_num":<number>`. Find the one for your release — if
+there are several, the earliest is usually the release bundle. Note that number.
+
+Subtract a small margin so the replay starts safely before the transaction:
+
+```
+START_BLOCK = block_num - 500
+```
+
+**If the logs have rotated** and `grep` finds nothing, look the block up on a
+Jungle4 explorer instead: open `https://jungle4.eosq.eosnation.io/account/polarismusic`,
+find the `put` action for your submission, and read its block number.
+
+### Step 5 — Replay (the VPS)
+
+```bash
+START_BLOCK=<the number from step 4> docker compose up -d --force-recreate substreams-sink
+```
+
+Putting the variable in front of the command feeds it into the compose file,
+which reads `${START_BLOCK:--10000}`. Substitute the actual number, for example
+`START_BLOCK=195482100 docker compose up -d --force-recreate substreams-sink`.
+
+Watch it work:
+
+```bash
+docker compose logs -f substreams-sink
+```
+
+You are looking for a line like:
+
+```
+✓ Posted 4f2a1c… block=195482613 …
+```
+
+That means the event reached the API and was accepted. A line starting
+`✗ Rejected` means the API refused it — the reason is on the same line, and
+`docker compose logs api` has the detail.
+
+Press `Ctrl-C` to stop following the logs. The sink keeps running.
+
+### Step 6 — Check the result (the VPS)
+
+```bash
+docker compose exec neo4j cypher-shell \
+  -u neo4j -p "$(grep '^NEO4J_PASSWORD=' .env | cut -d= -f2-)" \
+  "MATCH ()-[ir:IN_RELEASE]->() RETURN count(*) AS edges, count(ir.is_bonus) AS with_is_bonus, count(ir.track_number) AS with_track_number"
+```
+
+How to read it:
+
+- **`edges` equals `with_is_bonus`** — good. Every release-membership edge was
+  written by `processReleaseBundle`. If `with_is_bonus` is lower, something
+  other than our writer created edges.
+- **`with_track_number` is greater than 0** — good. The tracklist carried
+  ordering.
+- **`with_track_number` is 0** — the graph writer is fine; the submitted bundle
+  had no track numbers. Look at the submission form next, not the backend. The
+  symptom is tracks appearing in arbitrary order, not tracks going missing.
+
+---
+
+### If you only need recent events
+
+When the anchor is less than about 80 minutes old, the default window already
+covers it and you can skip step 4 entirely:
+
+```bash
+docker compose restart substreams-sink
+```
+
+Steps 1–3 still apply.
+
+---
+
 ## Day-2 operations
 
 **Backups**
