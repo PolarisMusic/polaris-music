@@ -708,9 +708,20 @@ if it is missing, `COMPOSE_PROFILES=chain` is not set in `.env`.
 docker compose ps --format 'table {{.Name}}\t{{.Status}}'
 ```
 
-The `api` and `processor` rows should show an uptime of seconds or minutes, not
-days. If they show days, the rebuild did not replace them — re-run step 1 and
-read the build output for errors.
+The `api` and `frontend` rows should show an uptime of seconds or minutes.
+
+Services whose source did not change are **not** recreated — they will keep
+showing their old uptime and report `Running` rather than `Started`. That is
+correct behaviour, not a failed deploy. If you changed only a `Dockerfile` and
+want the container replaced anyway:
+
+```bash
+docker compose up -d --build --force-recreate <service>
+```
+
+(There is no `processor` container in this deployment: that service sits behind
+the `legacy` profile. Ingestion runs through the API's `/api/ingest` endpoint,
+which the substreams sink posts to.)
 
 This step exists because skipping it is confusing later: a stale API produces
 graph data that does not match the code you are reading.
