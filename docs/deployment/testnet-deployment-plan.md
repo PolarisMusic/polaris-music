@@ -726,24 +726,24 @@ which the substreams sink posts to.)
 This step exists because skipping it is confusing later: a stale API produces
 graph data that does not match the code you are reading.
 
-### Step 3 — Clear the graph (the VPS)
+### Step 3 — Find the block number of your release (the VPS)
+
+**Do this before clearing anything.** Clearing the graph is irreversible from
+the graph's side, and the replay is only possible if you can find this number.
+Find it first, so you never end up with an empty graph and no way to rebuild it.
+
+The substreams sink logs the block number for everything it posts:
 
 ```bash
-docker compose exec api node scripts/clearGraphData.js
+docker compose logs substreams-sink | grep -E "Posted|Rejected"
 ```
 
-**This deletes every node and relationship in Neo4j.** That is intended here —
-you are about to rebuild the graph from the anchored events, and leftover rows
-from earlier code versions are exactly what you are trying to get rid of.
+Look for `✓ Posted <hash> block=<number> action=put`. Prefer this over the API
+logs: `docker compose logs` only covers the container's current incarnation, and
+the sink is usually the longest-lived container in the stack, while the API is
+recreated on every deploy.
 
-It needs no arguments: the API container already has `GRAPH_URI`, `GRAPH_USER`,
-and `GRAPH_PASSWORD` set.
-
-Expected output ends with `✨ Database cleared successfully!`.
-
-### Step 4 — Find the block number of your release (the VPS)
-
-The API logs the block number every time it ingests something:
+If the sink has also been recreated since your release was ingested, try the API:
 
 ```bash
 docker compose logs api | grep ingest_start
@@ -761,6 +761,24 @@ START_BLOCK = block_num - 500
 **If the logs have rotated** and `grep` finds nothing, look the block up on a
 Jungle4 explorer instead: open `https://jungle4.eosq.eosnation.io/account/polarismusic`,
 find the `put` action for your submission, and read its block number.
+
+### Step 4 — Clear the graph (the VPS)
+
+**Only run this once step 3 gave you a block number.** Without one you cannot
+replay, and this step leaves you with an empty graph.
+
+**This deletes every node and relationship in Neo4j.** That is intended here —
+you are about to rebuild the graph from the anchored events, and leftover rows
+from earlier code versions are exactly what you are trying to get rid of.
+
+```bash
+docker compose exec api node scripts/clearGraphData.js
+```
+
+It needs no arguments: the API container already has `GRAPH_URI`, `GRAPH_USER`,
+and `GRAPH_PASSWORD` set.
+
+Expected output ends with `✨ Database cleared successfully!`.
 
 ### Step 5 — Replay (the VPS)
 
