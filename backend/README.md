@@ -321,7 +321,7 @@ See `.env.example` for all available configuration options.
 |----------|-------------|---------|
 | `NODE_ENV` | Environment (development/production) | development |
 | `PORT` | API server port | 3000 |
-| `GRAPH_URI` | Neo4j connection URI | bolt://localhost:7687 |
+| `GRAPH_URI` | Neo4j connection URI | bolt://127.0.0.1:7687 |
 | `GRAPH_USER` | Neo4j username | neo4j |
 | `GRAPH_PASSWORD` | Neo4j password | polarisdev |
 | `IPFS_URL` | IPFS API endpoint | http://localhost:5001 |
@@ -441,7 +441,7 @@ When modifying graph schema:
 docker ps | grep neo4j
 
 # Test connection
-cypher-shell -a bolt://localhost:7687 -u neo4j -p polarisdev
+cypher-shell -a bolt://127.0.0.1:7687 -u neo4j -p polarisdev
 
 # View Neo4j logs
 docker logs polaris-neo4j

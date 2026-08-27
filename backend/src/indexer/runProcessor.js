@@ -21,7 +21,7 @@ const config = {
     },
 
     database: {
-        uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+        uri: process.env.GRAPH_URI || 'bolt://127.0.0.1:7687',
         user: process.env.GRAPH_USER || 'neo4j',
         password: process.env.GRAPH_PASSWORD || 'password'
     },

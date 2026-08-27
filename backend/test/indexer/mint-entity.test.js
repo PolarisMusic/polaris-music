@@ -30,7 +30,7 @@ describeOrSkip('MINT_ENTITY Event Handler', () => {
   beforeAll(async () => {
     // Initialize schema (creates constraints) + driver
     graphDb = new MusicGraphDatabase({
-      uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+      uri: process.env.GRAPH_URI || 'bolt://127.0.0.1:7687',
       user: process.env.GRAPH_USER || 'neo4j',
       password: process.env.GRAPH_PASSWORD || 'password'
     });

@@ -65,9 +65,20 @@ function readHtml(name) {
  * from the HTML. Returns null if no such tag exists.
  */
 function extractCsp(html) {
-    const match = html.match(
-        /<meta[^>]+http-equiv\s*=\s*["']Content-Security-Policy["'][^>]+content\s*=\s*["']([^"']+)["']/i
+    // Isolate the tag first, then read its content attribute.
+    //
+    // A single pattern with `content=["']([^"']+)["']` looks right and is not:
+    // the value legitimately contains single quotes (`'self'`), so the negated
+    // class stops at the first one and yields "default-src ". Every
+    // `expect(...).not.toContain("'unsafe-eval'")` below then passed against an
+    // empty array — the CSP gate was green without ever reading a CSP.
+    const tag = (html.match(/<meta\b[^>]*>/gi) || []).find(
+        t => /http-equiv\s*=\s*["']Content-Security-Policy["']/i.test(t)
     );
+    if (!tag) return null;
+
+    const match = tag.match(/\bcontent\s*=\s*"([^"]*)"/i)
+        || tag.match(/\bcontent\s*=\s*'([^']*)'/i);
     return match ? match[1] : null;
 }
 
@@ -195,6 +206,115 @@ describeOrSkip('dist/index.html · all script sources are same-origin', () => {
             .map(t => t.src)
             .filter(src => src && /^(data|blob|javascript):/i.test(src));
         expect(bad).toEqual([]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// submit.html — the release form served at /submit.
+//
+// This page connects a wallet, signs, and posts to the API, so it needs the
+// policy at least as much as the read-only visualizer. It nevertheless shipped
+// with no CSP at all: the only assertion covering it was "the file exists".
+// These mirror the index.html checks above.
+// ---------------------------------------------------------------------------
+
+describeOrSkip('dist/submit.html · CSP shape', () => {
+    test('CSP meta tag exists', () => {
+        const csp = extractCsp(readHtml('submit.html'));
+        expect(csp).not.toBeNull();
+    });
+
+    test('script-src does NOT contain unsafe-eval', () => {
+        const directives = parseDirectives(extractCsp(readHtml('submit.html')));
+        expect(directives['script-src'] || []).not.toContain("'unsafe-eval'");
+    });
+
+    test('script-src does NOT contain unsafe-inline', () => {
+        const directives = parseDirectives(extractCsp(readHtml('submit.html')));
+        expect(directives['script-src'] || []).not.toContain("'unsafe-inline'");
+    });
+
+    test('script-src does NOT widen to *', () => {
+        const directives = parseDirectives(extractCsp(readHtml('submit.html')));
+        expect(directives['script-src'] || []).not.toContain('*');
+    });
+
+    test('default-src is set (fallback for unset directives)', () => {
+        const directives = parseDirectives(extractCsp(readHtml('submit.html')));
+        expect(directives['default-src']).toBeDefined();
+    });
+
+    // Signing depends on these. A policy that omits them looks tighter and
+    // silently breaks wallet connection, which is worse than having none.
+    test('connect-src still permits the wallet and the API', () => {
+        const sources = parseDirectives(extractCsp(readHtml('submit.html')))['connect-src'] || [];
+        expect(sources).toContain('https://*.anchor.link');
+        expect(sources).toContain('wss://*.anchor.link');
+        expect(sources).toContain('https://api.polaris.mu');
+    });
+
+    test('frame-src still permits the wallet popup', () => {
+        const sources = parseDirectives(extractCsp(readHtml('submit.html')))['frame-src'] || [];
+        expect(sources).toContain('https://*.anchor.link');
+    });
+});
+
+describeOrSkip('dist/submit.html · no inline scripts', () => {
+    test('every <script> tag has a src= attribute', () => {
+        const inline = findScriptTags(readHtml('submit.html')).filter(t => !t.src && t.body.trim());
+        expect(inline).toHaveLength(0);
+    });
+
+    test('no script src points at an http(s):// origin', () => {
+        const external = findScriptTags(readHtml('submit.html'))
+            .map(t => t.src)
+            .filter(src => src && /^https?:\/\//i.test(src));
+        expect(external).toEqual([]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-page drift.
+//
+// The two policies are maintained by hand in two files. Nothing stops them
+// diverging, and divergence is exactly how /submit ended up unprotected. Pin
+// the differences that are intentional so any other difference fails here.
+// ---------------------------------------------------------------------------
+
+describeOrSkip('CSP parity between index.html and submit.html', () => {
+    // submit.html has no MiniPlayer, so no Spotify embed and no audio element.
+    const INTENTIONAL_DIFFERENCES = {
+        'media-src': 'index only — the MiniPlayer plays audio; the form does not',
+        'spotify': 'index only — the MiniPlayer embeds Spotify; the form does not',
+    };
+
+    const indexDirectives = () => parseDirectives(extractCsp(readHtml('index.html')));
+    const submitDirectives = () => parseDirectives(extractCsp(readHtml('submit.html')));
+
+    test('both pages declare the same directive names, except media-src', () => {
+        const inIndex = Object.keys(indexDirectives()).sort();
+        const inSubmit = Object.keys(submitDirectives()).sort();
+        const onlyInIndex = inIndex.filter(d => !inSubmit.includes(d));
+        const onlyInSubmit = inSubmit.filter(d => !inIndex.includes(d));
+
+        expect(onlyInIndex).toEqual(['media-src']);   // INTENTIONAL_DIFFERENCES
+        expect(onlyInSubmit).toEqual([]);
+    });
+
+    test('shared directives are identical once Spotify is set aside', () => {
+        const index = indexDirectives();
+        const submit = submitDirectives();
+
+        for (const name of Object.keys(submit)) {
+            const indexSources = (index[name] || []).filter(s => !s.includes('open.spotify.com'));
+            expect({ [name]: submit[name] }).toEqual({ [name]: indexSources });
+        }
+    });
+
+    test('the intentional differences are documented, not accidental', () => {
+        // Guards against someone widening the exemption list to silence a
+        // genuine divergence.
+        expect(Object.keys(INTENTIONAL_DIFFERENCES).sort()).toEqual(['media-src', 'spotify']);
     });
 });
 

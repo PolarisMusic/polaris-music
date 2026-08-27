@@ -117,7 +117,7 @@ RPC_URL=https://eos.greymass.com
 CONTRACT_ACCOUNT=<your_contract_account>  # Replace with your deployed contract account
 
 # Database Configuration
-GRAPH_URI=bolt://localhost:7687
+GRAPH_URI=bolt://127.0.0.1:7687
 GRAPH_USER=your-user
 GRAPH_PASSWORD=your-password
 
