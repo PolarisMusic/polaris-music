@@ -478,6 +478,25 @@ services:
       # START_BLOCK every time, rather than resuming where it left off.
       - START_BLOCK=${START_BLOCK:--10000}
 
+      # STOP_BLOCK: 0 follows the chain head indefinitely (normal operation).
+      #
+      # Any other value bounds the request, which is the only way to replay
+      # history. Providers cap blocks-per-request (limit-processed-blocks), and
+      # an unbounded request always spans START_BLOCK → current head — a span
+      # that grows two blocks a second. So an absolute START_BLOCK more than the
+      # cap behind head is refused outright, and the sink crash-loops:
+      #
+      #   FailedPrecondition: request needs to process a total of N blocks but
+      #   only 10000 are allowed according to 'limit-processed-blocks'
+      #
+      # A bounded range costs only the blocks in the range, however old it is.
+      # For a one-off backfill, prefer `docker compose run --rm` over `up -d`:
+      # `run` ignores the restart policy, so the container exits when the range
+      # completes instead of replaying it forever.
+      #
+      # Accepts the CLI's relative form too: +1000 means 1000 blocks past start.
+      - STOP_BLOCK=${STOP_BLOCK:-0}
+
       # Substreams package configuration
       # DEFAULT: Local package with embedded contract ABI (no Pinax dependency)
       #   - Package: /app/substreams/polaris_music_substreams.spkg (built in Docker image)
