@@ -192,7 +192,12 @@ export async function verifyIdUnification(driver) {
  */
 if (import.meta.url === `file://${process.argv[1]}`) {
     const config = {
-        uri: process.env.GRAPH_URI || 'bolt://localhost:7687',
+        // Default to 127.0.0.1, not localhost. The deployment runbook documents an
+        // SSH tunnel on port 7687 for inspecting production Neo4j; ssh binds that
+        // forward on ::1 while local Docker publishes on 127.0.0.1, and since Node 17
+        // dns.lookup no longer reorders to IPv4-first. So `localhost` resolves to ::1
+        // and reaches the tunnel — this script would run against production.
+        uri: process.env.GRAPH_URI || 'bolt://127.0.0.1:7687',
         user: process.env.GRAPH_USER || 'neo4j',
         password: process.env.GRAPH_PASSWORD || 'password'
     };

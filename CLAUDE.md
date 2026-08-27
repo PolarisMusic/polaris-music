@@ -388,7 +388,7 @@ RPC_URL=<blockchain rpc endpoint>
 CONTRACT_ACCOUNT=<your_contract_account>  # polarismusic for testnet, or your account name
 
 # Graph Database
-GRAPH_URI=bolt://localhost:7687
+GRAPH_URI=bolt://127.0.0.1:7687
 GRAPH_USER=neo4j
 GRAPH_PASSWORD=<password>
 

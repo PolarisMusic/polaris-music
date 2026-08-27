@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Same policy as index.html, minus Spotify (no MiniPlayer here) and
+         media-src (no audio). This page connects a wallet and signs, so it
+         needs the CSP more than the read-only visualizer does — it shipped
+         without one, which is backwards. Keep the anchor.link entries: without
+         them the wallet popup cannot open and submission breaks. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://api.polaris.mu https://eos.greymass.com https://jungle4.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; frame-src https://*.anchor.link;">
     <title>Polaris Music Registry - Submit Release</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/styles.css">

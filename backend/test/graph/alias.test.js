@@ -21,7 +21,7 @@ describeOrSkip('MergeOperations - createAlias', () => {
     beforeAll(async () => {
         // Connect to test database
         driver = neo4j.driver(
-            process.env.GRAPH_URI || 'bolt://localhost:7687',
+            process.env.GRAPH_URI || 'bolt://127.0.0.1:7687',
             neo4j.auth.basic(
                 process.env.GRAPH_USER || 'neo4j',
                 process.env.GRAPH_PASSWORD || 'password'

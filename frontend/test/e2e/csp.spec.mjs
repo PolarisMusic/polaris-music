@@ -90,3 +90,62 @@ test('CSP meta tag matches build expectations', async ({ page }) => {
     expect(scriptSrcMatch).not.toBeNull();
     expect(scriptSrcMatch[1]).not.toContain("'unsafe-inline'");
 });
+
+// ---------------------------------------------------------------------------
+// /submit — the release form. It connects a wallet, signs, and posts to the
+// API, and it shipped with no CSP at all while the read-only graph page was
+// locked down. These are the runtime counterpart to the static checks in
+// backend/test/frontend/dist-csp.test.js.
+// ---------------------------------------------------------------------------
+
+test('submit.html loads with zero CSP violations', async ({ page }) => {
+    const violations = [];
+
+    await page.addInitScript(() => {
+        window.__cspViolations = [];
+        document.addEventListener('securitypolicyviolation', (e) => {
+            window.__cspViolations.push({
+                directive: e.violatedDirective,
+                blockedURI: e.blockedURI,
+            });
+        });
+    });
+
+    page.on('console', (msg) => {
+        if (msg.type() === 'error' && /Content Security Policy/i.test(msg.text())) {
+            violations.push({ source: 'console', text: msg.text() });
+        }
+    });
+
+    await page.goto('/submit', { waitUntil: 'load' });
+    await page.waitForTimeout(500);
+
+    const pageViolations = await page.evaluate(() => window.__cspViolations || []);
+    const all = [...violations, ...pageViolations];
+
+    if (all.length > 0) {
+        throw new Error(
+            `Found ${all.length} CSP violation(s) on /submit:\n` +
+            all.map(v => '  ' + JSON.stringify(v)).join('\n')
+        );
+    }
+
+    // The form itself must have rendered — a policy that blocked the module
+    // script would leave the shell without it.
+    await expect(page.locator('#submit-tab')).toBeAttached();
+});
+
+test('submit.html keeps the origins wallet signing depends on', async ({ page }) => {
+    await page.goto('/submit', { waitUntil: 'domcontentloaded' });
+    const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]')
+        .getAttribute('content');
+
+    expect(csp).toBeTruthy();
+    expect(csp).not.toMatch(/'unsafe-eval'/);
+
+    // Tightening the policy past these breaks wallet connection, which is a
+    // worse outcome than the missing policy this replaced.
+    expect(csp).toContain('https://*.anchor.link');
+    expect(csp).toContain('wss://*.anchor.link');
+    expect(csp).toContain('https://api.polaris.mu');
+});
