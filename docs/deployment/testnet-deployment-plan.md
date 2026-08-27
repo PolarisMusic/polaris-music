@@ -782,31 +782,67 @@ Expected output ends with `✨ Database cleared successfully!`.
 
 ### Step 5 — Replay (the VPS)
 
+**A backfill must be bounded.** Substreams providers cap how many blocks a
+single request may process (`limit-processed-blocks` — 10,000 on Pinax's free
+tier). An unbounded request always spans `START_BLOCK → current head`, and that
+span grows two blocks a second, so an old start block is refused outright:
+
+```
+Error: rpc error: code = FailedPrecondition desc = request needs to process a
+total of 416037 blocks ... but only 10000 blocks are allowed according to the
+'limit-processed-blocks' request argument
+```
+
+Setting `STOP_BLOCK` bounds the range, and a bounded range costs only the blocks
+inside it however old they are. Replay a window around your transaction:
+
 ```bash
-START_BLOCK=<the number from step 4> docker compose up -d --force-recreate substreams-sink
+docker compose run --rm \
+  -e START_BLOCK=<block from step 3, minus 500> \
+  -e STOP_BLOCK=<block from step 3, plus 500> \
+  substreams-sink
 ```
 
-Putting the variable in front of the command feeds it into the compose file,
-which reads `${START_BLOCK:--10000}`. Substitute the actual number, for example
-`START_BLOCK=195482100 docker compose up -d --force-recreate substreams-sink`.
+Use `run --rm`, not `up -d`. `run` ignores the service's `restart: unless-stopped`
+policy, so the container exits once the range completes rather than replaying
+the same window forever, and it streams to your terminal so you can watch.
 
-Watch it work:
+You are looking for:
+
+```
+✓ Posted 4f2a1c… block=195482613 action=put status=created
+```
+
+That means the event reached the API and was accepted. `✗ Rejected` means the
+API refused it — the reason is on the same line, with detail in
+`docker compose logs api`.
+
+When the stop block is reached the process exits on its own.
+
+#### Then put the live sink back
+
+The long-running sink follows the chain head and should keep the **relative**
+default:
 
 ```bash
-docker compose logs -f substreams-sink
+docker compose up -d --force-recreate substreams-sink
 ```
 
-You are looking for a line like:
+Check `.env` while you are here. If it pins an absolute `START_BLOCK`, the live
+sink will wedge itself again as soon as it falls more than ~10,000 blocks
+behind head — it will crash-loop with the error above and silently stop
+ingesting. Either remove the line so the `-10000` default applies, or set it to
+a relative value.
 
+A crash-looping sink is easy to miss: `docker compose ps` still shows the
+container `Up`, because the restart policy keeps bringing it back. Confirm with:
+
+```bash
+docker compose logs --tail 30 substreams-sink
 ```
-✓ Posted 4f2a1c… block=195482613 …
-```
 
-That means the event reached the API and was accepted. A line starting
-`✗ Rejected` means the API refused it — the reason is on the same line, and
-`docker compose logs api` has the detail.
-
-Press `Ctrl-C` to stop following the logs. The sink keeps running.
+Healthy output ends with the startup banner and then silence or `✓ Posted`
+lines — not a repeating `Statistics:` block with `Events received: 0`.
 
 ### Step 6 — Check the result (the VPS)
 

@@ -23,6 +23,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { randomUUID } from 'crypto';
+import { buildSubstreamsArgs } from './args.mjs';
 
 // ESM __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +38,10 @@ const config = {
     // Backend ingestion API key (must match INGEST_API_KEY on the backend)
     ingestApiKey: process.env.INGEST_API_KEY || '',
     startBlock: process.env.START_BLOCK || '0',
+    // '0' follows the chain head indefinitely. Any other value bounds the run,
+    // which is the only way to replay history without tripping the provider's
+    // limit-processed-blocks cap. See sink/args.mjs.
+    stopBlock: process.env.STOP_BLOCK || '0',
     contractAccount: process.env.CONTRACT_ACCOUNT || 'polarismusic',
 
     // Substreams package configuration (Pinax Antelope foundational modules)
@@ -111,6 +116,8 @@ Example:
         config.contractAccount = arg.split('=')[1];
     } else if (arg.startsWith('--start-block=')) {
         config.startBlock = arg.split('=')[1];
+    } else if (arg.startsWith('--stop-block=')) {
+        config.stopBlock = arg.split('=')[1];
     }
 }
 
@@ -199,6 +206,12 @@ console.log(`Substreams Module:   ${config.substreamsModule}`);
 console.log(`Filter Params:       ${config.substreamsParams}`);
 console.log(`Contract Account:    ${config.contractAccount}`);
 console.log(`Start Block:         ${config.startBlock}`);
+if (config.stopBlock && config.stopBlock !== '0') {
+    console.log(`Stop Block:          ${config.stopBlock}`);
+    console.log('                     Bounded run — exits at the stop block instead of following head');
+} else {
+    console.log('Stop Block:          0 (follow chain head)');
+}
 console.log('');
 
 // Statistics
@@ -269,36 +282,6 @@ function safeHashPreview(value, n = 8) {
     return normalized.substring(0, n) + '...';
 }
 
-/**
- * Normalize module-keyed params by stripping wrapping quotes from value
- * Handles params like: module="value" or module='value' or module=value
- *
- * CRITICAL: When using spawn() with argv array (not shell), quotes are NOT
- * automatically stripped. This function removes a single pair of wrapping
- * quotes to prevent them from being passed literally to the substreams CLI.
- *
- * @param {string} params - Module-keyed params string
- * @returns {string} Normalized params without wrapping quotes on value
- */
-function normalizeModuleParams(params) {
-    // Split on first '=' to get module name and value
-    const eqIndex = params.indexOf('=');
-    if (eqIndex === -1) {
-        // No '=' means not module-keyed, return as-is
-        return params;
-    }
-
-    const moduleName = params.slice(0, eqIndex);
-    let value = params.slice(eqIndex + 1);
-
-    // Strip a single pair of wrapping quotes (either " or ')
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-    }
-
-    return `${moduleName}=${value}`;
-}
 
 /**
  * Post anchored event to backend with retry logic
@@ -769,29 +752,10 @@ async function main() {
     //   - Otherwise, prefix with module name (for backwards compatibility)
     //   - normalizeModuleParams() strips wrapping quotes from spawn() argv (not a shell)
 
-    // Build raw params (possibly with quotes from env var)
-    const rawParams = config.substreamsParams.includes('=')
-        ? config.substreamsParams
-        : `${config.substreamsModule}=${config.substreamsParams}`;
-
-    // Normalize params (strip wrapping quotes that would be passed literally via spawn)
-    const normalizedParams = normalizeModuleParams(rawParams);
-
-    const substreamsArgs = [
-        'run',
-        '-e',
-        config.substreamsEndpoint,
-        config.substreamsPackage,
-        config.substreamsModule,
-        '--params',
-        normalizedParams,
-        '--start-block',
-        config.startBlock,
-        '--stop-block',
-        '0', // Continuous streaming
-        '--output',
-        'jsonl',
-    ];
+    // argv construction lives in sink/args.mjs so it can be tested without
+    // loading this module, which starts streaming as soon as it is imported.
+    const substreamsArgs = buildSubstreamsArgs(config);
+    const normalizedParams = substreamsArgs[substreamsArgs.indexOf('--params') + 1];
 
     // Log the normalized params for debugging
     console.log(`Normalized params: ${normalizedParams}`);
