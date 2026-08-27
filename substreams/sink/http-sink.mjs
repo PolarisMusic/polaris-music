@@ -24,6 +24,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { randomUUID } from 'crypto';
 import { buildSubstreamsArgs } from './args.mjs';
+import { isLikelyJsonLine } from './lines.mjs';
 
 // ESM __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -465,8 +466,11 @@ async function processLine(line) {
             await processActionTracesOutput(dataPayload);
         }
     } catch (error) {
-        // Ignore parse errors for progress messages and other non-JSON lines
-        if (!line.startsWith('Progress:') && !line.startsWith('Block:')) {
+        // The CLI interleaves human-readable chatter with the JSONL stream
+        // (progress updates, block markers, and a `Completed ...` line at the
+        // end of a bounded run). Those are normal output, not failures. Only a
+        // line that was meant to be JSON and failed to parse is a real problem.
+        if (isLikelyJsonLine(line)) {
             console.error('Error processing line:', error.message);
         }
     }
@@ -770,16 +774,29 @@ async function main() {
         cwd: __dirname,
     });
 
-    // Process stdout line by line
+    // Process stdout line by line.
+    //
+    // Node does not await promises returned from an event handler, so every
+    // processLine() call is fire-and-forget. Track them: without this the
+    // statistics below print before any POST has resolved (reporting 0 posted
+    // when events did post), and a non-zero exit terminates in-flight requests
+    // mid-delivery — events read from the chain but never handed to the API,
+    // counted as neither posted nor failed.
+    //
+    // The handler itself stays synchronous so buffer splitting cannot interleave
+    // between concurrent 'data' events.
+    const pending = new Set();
     let buffer = '';
-    substreams.stdout.on('data', async (data) => {
+    substreams.stdout.on('data', (data) => {
         buffer += data.toString();
         const lines = buffer.split('\n');
         buffer = lines.pop(); // Keep incomplete line in buffer
 
         for (const line of lines) {
             if (line.trim()) {
-                await processLine(line);
+                const work = processLine(line);
+                pending.add(work);
+                work.finally(() => pending.delete(work));
             }
         }
     });
@@ -790,7 +807,13 @@ async function main() {
     });
 
     // Handle process exit
-    substreams.on('close', (code) => {
+    substreams.on('close', async (code) => {
+        // Wait for in-flight POSTs before reporting or exiting, so the summary
+        // reflects what was actually delivered and nothing is killed in transit.
+        if (pending.size > 0) {
+            await Promise.allSettled([...pending]);
+        }
+
         console.log('');
         console.log('Substreams closed with code', code);
         console.log('');
