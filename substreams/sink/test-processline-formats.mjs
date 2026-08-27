@@ -11,6 +11,8 @@
  * Usage: node test-processline-formats.mjs
  */
 
+import { isLikelyJsonLine } from './lines.mjs';
+
 // Track which processor functions were called
 let processAnchoredEventsCalls = [];
 let processActionTracesCalls = [];
@@ -30,8 +32,11 @@ const config = {
 };
 
 /**
- * Process Substreams output line by line
- * (Copied from http-sink.mjs for testing)
+ * Process Substreams output line by line.
+ *
+ * The format-dispatch body below mirrors http-sink.mjs. The error branch does
+ * NOT: it calls the real isLikelyJsonLine() from lines.mjs, so the rule that
+ * decides what counts as a failure cannot drift away from the shipped code.
  *
  * @param {string} line - JSON line from Substreams output
  */
@@ -83,12 +88,14 @@ async function processLine(line) {
             await processActionTracesOutput(dataPayload);
         }
     } catch (error) {
-        // Ignore parse errors for progress messages and other non-JSON lines
-        if (!line.startsWith('Progress:') && !line.startsWith('Block:')) {
-            console.error('Error processing line:', error.message);
+        if (isLikelyJsonLine(line)) {
+            reportedErrors.push(line);
         }
     }
 }
+
+// Lines the error branch decided were genuine failures.
+let reportedErrors = [];
 
 // Test cases
 const testCases = [
@@ -249,6 +256,45 @@ for (const testCase of testCases) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Error-branch classification.
+//
+// Regression cover for a bounded run's `Completed ...` line being announced as
+// `Error processing line: Unexpected token 'C'`. CLI chatter must be silent;
+// something that was meant to be JSON and failed to parse must stay loud.
+// ---------------------------------------------------------------------------
+
+console.log('==========================================');
+console.log('Error-branch classification');
+console.log('');
+
+const classificationCases = [
+    { line: 'Completed 283274672 - 283275859', report: false, why: 'bounded-run completion is not a failure' },
+    { line: 'Progress: 1187 blocks', report: false, why: 'progress chatter' },
+    { line: 'Block: 283275172', report: false, why: 'block marker' },
+    { line: '', report: false, why: 'blank line' },
+    { line: '   ', report: false, why: 'whitespace only' },
+    { line: 'Found substreams version v1.21.0', report: false, why: 'CLI banner' },
+    { line: '{ "events": [ ', report: true, why: 'truncated JSON object is a real failure' },
+    { line: '{ not json }', report: true, why: 'malformed JSON object is a real failure' },
+    { line: '[ 1, 2', report: true, why: 'truncated JSON array is a real failure' },
+    { line: '  {"broken": ', report: true, why: 'leading whitespace still counts as JSON' },
+];
+
+for (const c of classificationCases) {
+    reportedErrors = [];
+    await processLine(c.line);
+    const reported = reportedErrors.length > 0;
+    if (reported === c.report) {
+        console.log(`✓ ${c.report ? 'reports' : 'ignores'}: ${JSON.stringify(c.line)} — ${c.why}`);
+        passed++;
+    } else {
+        console.log(`✗ ${JSON.stringify(c.line)} — expected ${c.report ? 'reported' : 'ignored'}, got ${reported ? 'reported' : 'ignored'}`);
+        failed++;
+    }
+}
+
+console.log('');
 console.log('==========================================');
 console.log(`Results: ${passed} passed, ${failed} failed`);
 console.log('');
@@ -266,6 +312,8 @@ if (failed > 0) {
     console.log('- Plain ActionTraces format: ✓');
     console.log('- Progress/Block messages ignored: ✓');
     console.log('- Unrecognized JSON ignored: ✓');
+    console.log('- CLI chatter (Completed/Progress/Block) not reported as errors: ✓');
+    console.log('- Malformed JSON still reported: ✓');
     console.log('');
     console.log('processLine() will NOT silently drop events when --plain-output is used.');
     process.exit(0);
