@@ -419,6 +419,50 @@ describe('MusicGraphDatabase', () => {
             expect([...new Set(withIdKind.map(([, p]) => p.id_kind))]).toEqual(['provisional']);
         });
 
+        test('every parameter passed to a query is actually referenced by it', async () => {
+            // Neo4j ignores unused parameters without complaint, so a SET clause
+            // that was never added looks identical to one that was. That is how
+            // `id_kind: personIdKind` came to be passed to six Person writes whose
+            // Cypher never mentioned it — the value went nowhere, silently, and
+            // only surfaced when an integration test read the node back.
+            //
+            // A parameter no query references is either dead or an edit that
+            // failed to apply. Both are worth failing on.
+            const bundle = {
+                release: { name: 'Param Check' },
+                groups: [{
+                    name: 'A Band',
+                    members: [{ name: 'A Member' }],
+                    origin_city: { name: 'A City' }
+                }],
+                tracks: [{
+                    track_id: 'prov:track:params',
+                    title: 'A Track',
+                    performed_by_groups: [{ name: 'A Band' }],
+                    guests: [{ name: 'A Guest', instruments: ['sax'] }],
+                    producers: [{ name: 'A Producer' }]
+                }],
+                tracklist: [{ track_id: 'prov:track:params', track_number: 1 }],
+                sources: [{ url: 'https://example.com/x' }]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const unused = [];
+            for (const [query, params] of mockTx.run.mock.calls) {
+                if (typeof query !== 'string' || !params) continue;
+                for (const name of Object.keys(params)) {
+                    // `$name` is the reference form; a bare match would let a
+                    // parameter called e.g. `status` pass on the word "status".
+                    if (!query.includes(`$${name}`)) {
+                        unused.push({ name, query: query.trim().split('\n')[0] });
+                    }
+                }
+            }
+
+            expect(unused).toEqual([]);
+        });
+
         test('should handle groups with guests', async () => {
             const bundle = {
                 release: {
