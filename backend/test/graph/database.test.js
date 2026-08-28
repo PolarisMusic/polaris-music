@@ -370,6 +370,99 @@ describe('MusicGraphDatabase', () => {
             expect(mockTx.rollback).toHaveBeenCalled();
         });
 
+        test('writes ACTIVE status and provisional id_kind for a form submission', async () => {
+            // Regression for an empty player queue. `status` is a lifecycle field
+            // (MergeStatus: ACTIVE / MERGED / TOMBSTONE); identity kind belongs in
+            // id_kind. Writing PROVISIONAL into status hid every user submission
+            // from the 32 read queries that filter status = 'ACTIVE' — the whole
+            // player among them — so a submitted release was ingested correctly
+            // and then invisible.
+            const bundle = {
+                release: { name: 'Status Test' },
+                groups: [{ name: 'A Band', members: [{ name: 'A Member' }] }],
+                tracks: [{
+                    track_id: 'prov:track:status',
+                    title: 'A Track',
+                    performed_by_groups: [{ name: 'A Band' }]
+                }],
+                tracklist: [{ track_id: 'prov:track:status', track_number: 1 }]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const writes = mockTx.run.mock.calls.filter(([, params]) => params && 'status' in params);
+            expect(writes.length).toBeGreaterThan(0);
+
+            // Nothing may put PROVISIONAL in the lifecycle field.
+            const statuses = [...new Set(writes.map(([, p]) => p.status))];
+            expect(statuses).not.toContain('PROVISIONAL');
+            expect(statuses).toEqual(['ACTIVE']);
+        });
+
+        test('keeps the provisional/canonical distinction in id_kind', async () => {
+            // The information must not be lost, just relocated — otherwise this
+            // fix would trade an invisible-data bug for an untracked-identity one.
+            const bundle = {
+                release: { name: 'Id Kind Test' },
+                groups: [{ name: 'A Band', members: [{ name: 'A Member' }] }],
+                tracks: [{ track_id: 'prov:track:idkind', title: 'A Track' }],
+                tracklist: [{ track_id: 'prov:track:idkind', track_number: 1 }]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const withIdKind = mockTx.run.mock.calls
+                .filter(([, params]) => params && 'id_kind' in params);
+
+            expect(withIdKind.length).toBeGreaterThan(0);
+            // Everything in this bundle is provisionally identified.
+            expect([...new Set(withIdKind.map(([, p]) => p.id_kind))]).toEqual(['provisional']);
+        });
+
+        test('every parameter passed to a query is actually referenced by it', async () => {
+            // Neo4j ignores unused parameters without complaint, so a SET clause
+            // that was never added looks identical to one that was. That is how
+            // `id_kind: personIdKind` came to be passed to six Person writes whose
+            // Cypher never mentioned it — the value went nowhere, silently, and
+            // only surfaced when an integration test read the node back.
+            //
+            // A parameter no query references is either dead or an edit that
+            // failed to apply. Both are worth failing on.
+            const bundle = {
+                release: { name: 'Param Check' },
+                groups: [{
+                    name: 'A Band',
+                    members: [{ name: 'A Member' }],
+                    origin_city: { name: 'A City' }
+                }],
+                tracks: [{
+                    track_id: 'prov:track:params',
+                    title: 'A Track',
+                    performed_by_groups: [{ name: 'A Band' }],
+                    guests: [{ name: 'A Guest', instruments: ['sax'] }],
+                    producers: [{ name: 'A Producer' }]
+                }],
+                tracklist: [{ track_id: 'prov:track:params', track_number: 1 }],
+                sources: [{ url: 'https://example.com/x' }]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const unused = [];
+            for (const [query, params] of mockTx.run.mock.calls) {
+                if (typeof query !== 'string' || !params) continue;
+                for (const name of Object.keys(params)) {
+                    // `$name` is the reference form; a bare match would let a
+                    // parameter called e.g. `status` pass on the word "status".
+                    if (!query.includes(`$${name}`)) {
+                        unused.push({ name, query: query.trim().split('\n')[0] });
+                    }
+                }
+            }
+
+            expect(unused).toEqual([]);
+        });
+
         test('should handle groups with guests', async () => {
             const bundle = {
                 release: {
