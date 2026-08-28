@@ -744,7 +744,11 @@ constructor(config = {}) {
                     bio: group.bio || null,
                     formed: group.formed_date || null,
                     disbanded: group.disbanded_date || null,
-                    status: idKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
+                    // status is a lifecycle field (see MergeStatus in graph/merge.js:
+                    // ACTIVE / MERGED / TOMBSTONE). Identity kind belongs in id_kind, and
+                    // writing PROVISIONAL here hid every user submission from the 32 read
+                    // queries that filter status = 'ACTIVE' — including the whole player.
+                    status: 'ACTIVE',
                     id_kind: idKind,
                     eventHash,
                     account: submitterAccount
@@ -810,7 +814,8 @@ constructor(config = {}) {
                         personId,
                         personColor: personColorFromId(personId),
                         name: member.name,
-                        status: personIdKind === 'canonical' ? 'ACTIVE' : 'PROVISIONAL',
+                        status: 'ACTIVE',
+                        id_kind: personIdKind,
                         originCityName: member.origin_city?.name || null,
                         groupId,
                         role: primaryRole,
@@ -901,8 +906,8 @@ constructor(config = {}) {
                 linerNotes: normalizedBundle.release.liner_notes || null,
                 trivia: normalizedBundle.release.trivia || null,
                 albumArt: normalizedBundle.release.album_art || null,
-                status: normalizedBundle.release.release_id ? 'ACTIVE' : 'PROVISIONAL',
-                id_kind: normalizedBundle.release.release_id ? 'canonical' : 'provisional',
+                status: 'ACTIVE',
+                id_kind: IdentityService.parseId(releaseId).kind,
                 eventHash,
                 account: submitterAccount
             });
@@ -933,7 +938,8 @@ constructor(config = {}) {
                     personId,
                     personColor: personColorFromId(personId),
                     name: guest.name,
-                    status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
+                    status: 'ACTIVE',
+                    id_kind: IdentityService.parseId(personId).kind,
                     originCityName: guest.origin_city?.name || null,
                     releaseId,
                     roles: normalizeRoles(guest.roles || []),
@@ -978,8 +984,8 @@ constructor(config = {}) {
                     iswc: song.iswc || null,
                     year: song.year || null,
                     lyrics: song.lyrics || null,
-                    status: song.song_id ? 'ACTIVE' : 'PROVISIONAL',
-                    id_kind: song.song_id ? 'canonical' : 'provisional'
+                    status: 'ACTIVE',
+                    id_kind: IdentityService.parseId(songId).kind
                 });
 
                 // Link songwriters (Persons who WROTE this Song)
@@ -1010,7 +1016,8 @@ constructor(config = {}) {
                         personId: writerId,
                         personColor: personColorFromId(writerId),
                         name: writer.name,
-                        status: writer.person_id ? 'ACTIVE' : 'PROVISIONAL',
+                        status: 'ACTIVE',
+                        id_kind: IdentityService.parseId(writerId).kind,
                         songId,
                         role: primaryRole,
                         roles: writerRoles,
@@ -1060,8 +1067,8 @@ constructor(config = {}) {
                     recordingDate: track.recording_date || null,
                     location: track.recording_location || null,
                     listenLinks: track.listen_links || [],
-                    status: track.track_id ? 'ACTIVE' : 'PROVISIONAL',
-                    id_kind: track.track_id ? 'canonical' : 'provisional'
+                    status: 'ACTIVE',
+                    id_kind: IdentityService.parseId(trackId).kind
                 });
 
                 // ========== CRITICAL: DISTINGUISH GROUPS vs GUESTS ==========
@@ -1127,7 +1134,7 @@ constructor(config = {}) {
                             ON CREATE SET
                                 g.id = $groupId,
                                 g.name = $groupName,
-                                g.status = 'PROVISIONAL',
+                                g.status = 'ACTIVE',
                                 g.id_kind = 'provisional',
                                 g.created_at = datetime({epochMillis: $eventTs})
                             ON MATCH SET
@@ -1203,7 +1210,8 @@ constructor(config = {}) {
                                     ON CREATE SET
                                         p.id = m.personId,
                                         p.name = m.name,
-                                        p.status = 'PROVISIONAL',
+                                        p.status = 'ACTIVE',
+                                        p.id_kind = 'provisional',
                                         p.created_at = datetime({epochMillis: $eventTs}),
                                         p.color = m.color
                                     SET p.color = coalesce(p.color, m.color)
@@ -1290,7 +1298,8 @@ constructor(config = {}) {
                                     ON CREATE SET
                                         p.id = m.personId,
                                         p.name = m.name,
-                                        p.status = 'PROVISIONAL',
+                                        p.status = 'ACTIVE',
+                                        p.id_kind = 'provisional',
                                         p.created_at = datetime({epochMillis: $eventTs}),
                                         p.color = m.color
                                     SET p.color = coalesce(p.color, m.color)
@@ -1349,7 +1358,8 @@ constructor(config = {}) {
                         personId: guestId,
                         personColor: personColorFromId(guestId),
                         name: guest.name,
-                        status: guest.person_id ? 'ACTIVE' : 'PROVISIONAL',
+                        status: 'ACTIVE',
+                        id_kind: IdentityService.parseId(guestId).kind,
                         originCityName: guest.origin_city?.name || null,
                         trackId,
                         roles: normalizeRoles(guest.roles || []),
@@ -1381,7 +1391,8 @@ constructor(config = {}) {
                         personId: producerId,
                         personColor: personColorFromId(producerId),
                         name: producer.name,
-                        status: producer.person_id ? 'ACTIVE' : 'PROVISIONAL',
+                        status: 'ACTIVE',
+                        id_kind: IdentityService.parseId(producerId).kind,
                         trackId,
                         role: producer.role || 'producer',
                         claimId: trackOpId
@@ -1408,7 +1419,8 @@ constructor(config = {}) {
                         personId: arrangerId,
                         personColor: personColorFromId(arrangerId),
                         name: arranger.name,
-                        status: arranger.person_id ? 'ACTIVE' : 'PROVISIONAL',
+                        status: 'ACTIVE',
+                        id_kind: IdentityService.parseId(arrangerId).kind,
                         trackId,
                         role: arranger.role || 'arranger',
                         claimId: trackOpId
@@ -1449,7 +1461,7 @@ constructor(config = {}) {
                         ON CREATE SET
                             s.id = $songId,
                             s.title = $songTitle,
-                            s.status = 'PROVISIONAL',
+                            s.status = 'ACTIVE',
                             s.id_kind = 'provisional',
                             s.created_at = datetime({epochMillis: $eventTs})
                         ON MATCH SET
@@ -1495,7 +1507,7 @@ constructor(config = {}) {
                         MATCH (t1:Track {track_id: $trackId})
                         MERGE (t2:Track {track_id: $sampleId})
                         ON CREATE SET t2.id = $sampleId,
-                                     t2.status = 'PROVISIONAL',
+                                     t2.status = 'ACTIVE',
                                      t2.id_kind = 'provisional',
                                      t2.title = $sampleTitle
                         MERGE (t1)-[s:SAMPLES {claim_id: $claimId}]->(t2)
@@ -1627,8 +1639,8 @@ constructor(config = {}) {
                 `, {
                     labelId,
                     labelName: label.name,
-                    status: label.label_id ? 'ACTIVE' : 'PROVISIONAL',
-                    id_kind: label.label_id ? 'canonical' : 'provisional',
+                    status: 'ACTIVE',
+                    id_kind: IdentityService.parseId(labelId).kind,
                     altNames: label.alt_names || [],
                     parentLabelName: label.parent_label?.name || null,
                     parentLabelId: label.parent_label?.label_id || null,

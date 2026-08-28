@@ -370,6 +370,55 @@ describe('MusicGraphDatabase', () => {
             expect(mockTx.rollback).toHaveBeenCalled();
         });
 
+        test('writes ACTIVE status and provisional id_kind for a form submission', async () => {
+            // Regression for an empty player queue. `status` is a lifecycle field
+            // (MergeStatus: ACTIVE / MERGED / TOMBSTONE); identity kind belongs in
+            // id_kind. Writing PROVISIONAL into status hid every user submission
+            // from the 32 read queries that filter status = 'ACTIVE' — the whole
+            // player among them — so a submitted release was ingested correctly
+            // and then invisible.
+            const bundle = {
+                release: { name: 'Status Test' },
+                groups: [{ name: 'A Band', members: [{ name: 'A Member' }] }],
+                tracks: [{
+                    track_id: 'prov:track:status',
+                    title: 'A Track',
+                    performed_by_groups: [{ name: 'A Band' }]
+                }],
+                tracklist: [{ track_id: 'prov:track:status', track_number: 1 }]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const writes = mockTx.run.mock.calls.filter(([, params]) => params && 'status' in params);
+            expect(writes.length).toBeGreaterThan(0);
+
+            // Nothing may put PROVISIONAL in the lifecycle field.
+            const statuses = [...new Set(writes.map(([, p]) => p.status))];
+            expect(statuses).not.toContain('PROVISIONAL');
+            expect(statuses).toEqual(['ACTIVE']);
+        });
+
+        test('keeps the provisional/canonical distinction in id_kind', async () => {
+            // The information must not be lost, just relocated — otherwise this
+            // fix would trade an invisible-data bug for an untracked-identity one.
+            const bundle = {
+                release: { name: 'Id Kind Test' },
+                groups: [{ name: 'A Band', members: [{ name: 'A Member' }] }],
+                tracks: [{ track_id: 'prov:track:idkind', title: 'A Track' }],
+                tracklist: [{ track_id: 'prov:track:idkind', track_number: 1 }]
+            };
+
+            await db.processReleaseBundle(mockEventHash, bundle, mockSubmitter);
+
+            const withIdKind = mockTx.run.mock.calls
+                .filter(([, params]) => params && 'id_kind' in params);
+
+            expect(withIdKind.length).toBeGreaterThan(0);
+            // Everything in this bundle is provisionally identified.
+            expect([...new Set(withIdKind.map(([, p]) => p.id_kind))]).toEqual(['provisional']);
+        });
+
         test('should handle groups with guests', async () => {
             const bundle = {
                 release: {
