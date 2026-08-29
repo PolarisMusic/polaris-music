@@ -49,6 +49,13 @@ jobs:
     - name: Build production bundle
       working-directory: frontend
       run: npm run build
+      env:
+        # src/config/chain.js throws at import time when this is unset in a
+        # production build — deliberately, so a misconfigured bundle fails at
+        # build rather than at a user's first transaction. CI never set it, so
+        # every build here produced a bundle that threw on load; nothing noticed
+        # until an e2e spec actually loaded the built page.
+        VITE_CHAIN_PROFILE: jungle4
 
     - name: Check bundle size
       working-directory: frontend
@@ -110,6 +117,13 @@ jobs:
     - name: Build production bundle
       working-directory: frontend
       run: npm run build
+      env:
+        # src/config/chain.js throws at import time when this is unset in a
+        # production build — deliberately, so a misconfigured bundle fails at
+        # build rather than at a user's first transaction. CI never set it, so
+        # every build here produced a bundle that threw on load; nothing noticed
+        # until an e2e spec actually loaded the built page.
+        VITE_CHAIN_PROFILE: jungle4
 
     - name: Run Playwright tests
       working-directory: frontend
