@@ -488,8 +488,6 @@ export class MusicGraph {
         // Every way out of the info sheet routes through closeInfoPanel().
         document.getElementById('info-close')
             ?.addEventListener('click', () => this.closeInfoPanel());
-        document.getElementById('info-backdrop')
-            ?.addEventListener('click', () => this.closeInfoPanel());
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.closeInfoPanel();
         });
@@ -519,8 +517,12 @@ export class MusicGraph {
         if (!infoViewer) return;
 
         infoViewer.classList.add('open');
-        const backdrop = document.getElementById('info-backdrop');
-        if (backdrop) backdrop.hidden = false;
+        // Non-modal by design. The sheet used to sit behind a backdrop, which
+        // meant that while it was open the graph could not be tapped at all —
+        // and tapping an album to see its details instead dismissed the panel.
+        // The body class shrinks the graph to the space above the sheet
+        // instead, so the whole graph stays visible and usable.
+        document.body.classList.add('info-sheet-open');
 
         this._notifyLayoutChange();
     }
@@ -537,8 +539,7 @@ export class MusicGraph {
         if (!infoViewer) return;
 
         infoViewer.classList.remove('open');
-        const backdrop = document.getElementById('info-backdrop');
-        if (backdrop) backdrop.hidden = true;
+        document.body.classList.remove('info-sheet-open');
 
         this._notifyLayoutChange();
     }
@@ -944,6 +945,11 @@ export class MusicGraph {
         }
 
         this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
+        // Populating the panel is not the same as showing it. On desktop the
+        // panel is always present so this was invisible; on a phone the sheet
+        // has to be opened, and without this selecting an album filled a panel
+        // nobody could see.
+        this.openInfoPanel();
     }
 
     /**

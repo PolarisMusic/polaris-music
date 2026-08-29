@@ -1286,7 +1286,6 @@ body.mini-player-visible.mini-player-embed {
 /* Desktop: the sheet chrome has no place in a fixed side column. */
 .info-sheet-handle,
 .btn-info-close,
-.info-backdrop,
 .btn-actions-toggle,
 .logo-short {
     display: none;
@@ -1325,11 +1324,11 @@ body.mini-player-visible.mini-player-embed {
         top: auto;
         width: 100%;
         flex: none;
-        /* 70vh buried too much of the graph on a real phone. Half the screen
-           keeps the selected node and its neighbours in view; the panel body
-           scrolls, so nothing is lost. */
-        height: 50vh;
-        max-height: 50vh;
+        /* The graph is resized to sit above the sheet rather than behind it
+           (see body.info-sheet-open below), so this height is taken from the
+           graph rather than covering it. The panel body scrolls. */
+        height: 45vh;
+        max-height: 45vh;
         border-left: none;
         border-top: 1px solid #333;
         border-radius: 14px 14px 0 0;
@@ -1368,21 +1367,26 @@ body.mini-player-visible.mini-player-embed {
         color: #fff;
     }
 
-    .info-backdrop {
-        display: block;
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.45);
-        z-index: 850;   /* under the sheet, over everything else */
-    }
-
-    .info-backdrop[hidden] {
-        display: none;
+    /* The sheet is non-modal: with the graph resized to the space above it,
+       nodes stay tappable while details are open. A backdrop here swallowed
+       every graph tap — including the one on an album, which is why selecting
+       a release appeared to dismiss the panel. */
+    body.info-sheet-open #main-container {
+        bottom: calc(var(--bottom-bar-height) + var(--mini-player-height) + 45vh);
     }
 
     /* --- Header condenses rather than wrapping to three lines --- */
     #top-bar {
         gap: 8px;
+        flex-wrap: nowrap;
+        overflow: hidden;
+    }
+
+    /* "Log In" was wrapping onto two lines and doubling the header height. */
+    .btn-wallet {
+        white-space: nowrap;
+        padding: 6px 10px;
+        font-size: 13px;
     }
 
     /* The full name wraps to three lines at this width; the short form fits. */
@@ -1405,6 +1409,11 @@ body.mini-player-visible.mini-player-embed {
         gap: 10px;
     }
 
+    /* "Favorites"/"Curate"/"History" were bare text nodes, which CSS cannot
+       select — the previous `span:not(.icon)` rule hid only the counts, so the
+       labels still overflowed the header off-screen. They are wrapped in
+       .stat-label now. */
+    .stats .stat-label,
     .stats .stat-item span:not(.icon) {
         display: none;
     }

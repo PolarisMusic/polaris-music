@@ -39,15 +39,15 @@
             <div class="stats">
                 <span class="stat-item stat-clickable" id="favorites-toggle">
                     <span class="icon">⭐</span>
-                    <span id="favorites-count">0</span> Favorites
+                    <span id="favorites-count">0</span><span class="stat-label"> Favorites</span>
                 </span>
                 <span class="stat-item stat-clickable" id="curate-toggle">
                     <span class="icon">🗳</span>
-                    Curate
+                    <span class="stat-label">Curate</span>
                 </span>
                 <span class="stat-item stat-clickable" id="history-toggle">
                     <span class="icon">❄️</span>
-                    <span id="history-count">0</span> History
+                    <span id="history-count">0</span><span class="stat-label"> History</span>
                 </span>
             </div>
         </div>
@@ -105,13 +105,6 @@
         </div>
 
         <!-- Info Viewer Panel -->
-        <!-- Dismisses the mobile info sheet when tapped. Must be inside
-             #main-container: that element is position:fixed and so creates a
-             stacking context, and a backdrop outside it would paint above the
-             sheet no matter how high the sheet's z-index. Keeping it here also
-             leaves the top and bottom bars usable while the sheet is open. -->
-        <div id="info-backdrop" class="info-backdrop" hidden></div>
-
         <div id="info-viewer">
             <!-- Drag affordance for the mobile bottom sheet; hidden on desktop. -->
             <div id="info-sheet-handle" class="info-sheet-handle" aria-hidden="true"></div>

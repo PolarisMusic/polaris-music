@@ -115,7 +115,6 @@ test.describe('phone layout', () => {
         await gotoApp(page, { requireApp: false });
 
         await expect(page.locator('#info-viewer')).not.toHaveClass(/\bopen\b/);
-        await expect(page.locator('#info-backdrop')).toBeHidden();
     });
 
     test('the sheet can be closed once opened — the regression', async ({ page }) => {
@@ -127,26 +126,40 @@ test.describe('phone layout', () => {
 
         const sheet = page.locator('#info-viewer');
         await expect(sheet).toHaveClass(/\bopen\b/);
-        await expect(page.locator('#info-backdrop')).toBeVisible();
 
         await page.locator('#info-close').click();
 
         await expect(sheet).not.toHaveClass(/\bopen\b/);
-        await expect(page.locator('#info-backdrop')).toBeHidden();
     });
 
-    test('tapping the backdrop also closes the sheet', async ({ page }) => {
+    test('the graph shrinks above the sheet instead of hiding behind it', async ({ page }) => {
+        await gotoApp(page);
+
+        const before = (await page.locator('#viz-container').boundingBox()).height;
+        await page.evaluate(() => window.musicGraph.openInfoPanel());
+        await settleSheet(page);
+        const after = (await page.locator('#viz-container').boundingBox()).height;
+
+        // The sheet used to cover the graph, so the whole visualization was
+        // only ever half-visible while details were open.
+        expect(after).toBeLessThan(before);
+        expect(after).toBeGreaterThan(0);
+    });
+
+    test('the graph stays tappable while the sheet is open', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => window.musicGraph.openInfoPanel());
+        await settleSheet(page);
 
-        await expect(page.locator('#info-viewer')).toHaveClass(/\bopen\b/);
-
-        // The backdrop is position:fixed inset:0, so its own (10,10) is the
-        // viewport corner — under the top bar. Click where the graph is
-        // actually visible: below the 60px header, above the sheet at ~253.
-        await page.mouse.click(195, 150);
-
-        await expect(page.locator('#info-viewer')).not.toHaveClass(/\bopen\b/);
+        // A backdrop used to sit over the graph, swallowing every tap — which
+        // is why selecting an album appeared to dismiss the panel rather than
+        // showing the album.
+        const onTop = await page.evaluate(() => {
+            const viz = document.getElementById('viz-container').getBoundingClientRect();
+            const el = document.elementFromPoint(viz.x + viz.width / 2, viz.y + viz.height / 2);
+            return document.getElementById('viz-container').contains(el);
+        });
+        expect(onTop).toBe(true);
     });
 
     test('Escape closes the sheet', async ({ page }) => {
@@ -173,8 +186,8 @@ test.describe('phone layout', () => {
         // A sheet, not a takeover: the selected node stays on screen above it.
         // Half the viewport: enough for the details, little enough that the
         // selected node and its neighbours stay visible above.
-        expect(box.height).toBeLessThan(PHONE.height * 0.6);
-        expect(box.y).toBeGreaterThan(PHONE.height * 0.35);
+        expect(box.height).toBeLessThan(PHONE.height * 0.55);
+        expect(box.y).toBeGreaterThan(PHONE.height * 0.4);
     });
 
     test('the header stays on one line', async ({ page }) => {
@@ -206,6 +219,23 @@ test.describe('phone layout', () => {
         await expect(page.locator('#favorites-toggle')).toBeVisible();
         await expect(page.locator('#curate-toggle')).toBeVisible();
         await expect(page.locator('#history-toggle')).toBeVisible();
+
+        // Icon-only. Assert on rendered text rather than on the label elements:
+        // innerText excludes hidden nodes, so this catches a label that is
+        // visible for ANY reason — including one that was never wrapped in a
+        // span and so cannot be hidden by CSS at all, which is the bug this
+        // replaces. Looping over .stat-label elements could not see a missing
+        // one and passed against the broken markup.
+        const statsText = await page.locator('.stats').innerText();
+        expect(statsText).not.toMatch(/Favorites|Curate|History/);
+
+        // #top-bar has overflow:hidden, so its boundingBox is clamped to the
+        // viewport and cannot reveal overflow. scrollWidth can.
+        const { scrollWidth, clientWidth } = await page.evaluate(() => {
+            const bar = document.getElementById('top-bar');
+            return { scrollWidth: bar.scrollWidth, clientWidth: bar.clientWidth };
+        });
+        expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
     });
 });
 
