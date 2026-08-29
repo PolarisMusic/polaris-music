@@ -141,6 +141,23 @@ describeOrSkip('dist/index.html · CSP shape', () => {
         expect(directives['script-src'] || []).not.toContain('*');
     });
 
+    // The MiniPlayer loads https://open.spotify.com/embed/iframe-api/v1, which is
+    // only a loader: it fetches the actual iFrame API implementation from
+    // embed-cdn.spotifycdn.com. Allowing just open.spotify.com blocks the real
+    // script, so onSpotifyIframeApiReady never fires and playback silently does
+    // nothing.
+    //
+    // The runtime Playwright spec cannot catch this: the API script loads lazily,
+    // only once an embeddable track is selected, so a page with no Spotify-linked
+    // track reports zero violations while the policy is still wrong. Pin both
+    // origins here — nothing in our source references the CDN, so it otherwise
+    // looks like an unused entry worth deleting.
+    test('script-src permits both Spotify script origins', () => {
+        const sources = parseDirectives(extractCsp(readHtml('index.html')))['script-src'] || [];
+        expect(sources).toContain('https://open.spotify.com');
+        expect(sources).toContain('https://embed-cdn.spotifycdn.com');
+    });
+
     test('default-src is set (defense in depth — fallback for unset directives)', () => {
         const csp = extractCsp(readHtml('index.html'));
         const directives = parseDirectives(csp);
@@ -306,7 +323,10 @@ describeOrSkip('CSP parity between index.html and submit.html', () => {
         const submit = submitDirectives();
 
         for (const name of Object.keys(submit)) {
-            const indexSources = (index[name] || []).filter(s => !s.includes('open.spotify.com'));
+            // Matches the documented 'spotify' exemption as a whole: the embed
+            // needs open.spotify.com for the iframe and embed-cdn.spotifycdn.com
+            // for the script it loads. Both are index-only.
+            const indexSources = (index[name] || []).filter(s => !s.includes('spotify'));
             expect({ [name]: submit[name] }).toEqual({ [name]: indexSources });
         }
     });
