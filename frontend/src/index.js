@@ -287,7 +287,7 @@ class PolarisApp {
         // Build canonical tracklist from tracks
         const tracklist = tracks.map((track, index) => {
             const item = {
-                position: `${track._disc || 1}.${track._trackNumber || index + 1}`,
+                position: track._position || String(index + 1),
                 track_title: track.title,
             };
             if (track.track_id) item.track_id = track.track_id;
@@ -307,7 +307,7 @@ class PolarisApp {
 
         // Strip internal fields from tracks before output
         const canonicalTracks = tracks.map(track => {
-            const { _disc, _trackNumber, _songwriters, ...canonical } = track;
+            const { _position, _songwriters, ...canonical } = track;
             return canonical;
         });
 
@@ -495,6 +495,27 @@ class PolarisApp {
         });
 
         return guests;
+    }
+
+    /**
+     * Set a field's value the way a user would, so listeners notice.
+     *
+     * Assigning .value fires no event, which is why an imported tracklist left
+     * every collapsed track's header reading "Track 7" until you typed in it —
+     * the summary only updated on input. Dispatching makes programmatic fills
+     * indistinguishable from typed ones for anything listening.
+     *
+     * Deliberately `change` and not `input`: EntityLookupField listens on
+     * `input`, so an input event here would pop open an autocomplete dropdown
+     * on every field the import touches. The dirty flag listens to both.
+     *
+     * @param {HTMLElement|null} input
+     * @param {string} value
+     */
+    setFieldValue(input, value) {
+        if (!input) return;
+        input.value = value ?? '';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     /**
@@ -737,7 +758,7 @@ class PolarisApp {
     /**
      * Extract tracks from form (canonical format)
      * Emits canonical Track shape: { title, performed_by_groups, guests, producers, ... }
-     * Internal fields (_disc, _trackNumber, _songwriters) are stripped before final output.
+     * Internal fields (_position, _songwriters) are stripped before final output.
      */
     extractTracks(releaseDefaults = {}) {
         const tracks = [];
@@ -830,8 +851,11 @@ class PolarisApp {
             }
 
             // Internal fields (used by buildReleaseData for tracklist/songs, stripped before output)
-            track._disc = parseInt(this.getInputValue(item, `track-disc-${index}`) || 1);
-            track._trackNumber = parseInt(this.getInputValue(item, `track-number-${index}`) || trackIndex + 1);
+            // Carried through verbatim: "A1" must reach the backend as "A1" so
+            // deriveTrackPlacement() can recover the side. Anything that parses
+            // it here loses information the schema has room for.
+            track._position = (this.getInputValue(item, `track-position-${index}`) || '').trim()
+                || String(trackIndex + 1);
             track._songwriters = this.isInherited(item, index, 'songwriters')
                 ? structuredClone(releaseDefaults.songwriters || [])
                 : this.extractPersons(item, 'songwriter', index);
@@ -1248,6 +1272,12 @@ class PolarisApp {
                 document.getElementById('tracks-container').innerHTML = '';
                 document.getElementById('release-songwriters-container').innerHTML = '';
                 document.getElementById('listen-link-report').innerHTML = '';
+                // The Discogs panel sits outside <form>, so form.reset() misses
+                // it and the last import's id stayed in the box.
+                document.getElementById('discogs-input').value = '';
+                const discogsStatus = document.getElementById('discogs-status');
+                discogsStatus.textContent = '';
+                discogsStatus.className = 'import-status';
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
                 this.currentTransaction = null;
                 this.currentReleaseData = null;
@@ -1424,58 +1454,14 @@ class PolarisApp {
             }
         }
 
-        // ===== EXTRACT PERFORMERS FROM EXTRAARTISTS =====
-        // Separate performance roles from production/technical roles
-        const performanceRoleKeywords = ['performer', 'drums', 'guitar', 'bass', 'vocals', 'keyboards',
-                                         'piano', 'percussion', 'synthesizer', 'organ', 'harmonica',
-                                         'saxophone', 'trumpet', 'violin', 'cello', 'flute'];
-
-        const isPerformanceRole = (role) => {
-            const roleLower = (role || '').toLowerCase();
-            return performanceRoleKeywords.some(keyword => roleLower.includes(keyword));
-        };
-
-        const performers = [];
-        const performerIds = new Set();
-
-        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
-            // First pass: identify all performers and collect their IDs
-            for (const extraArtist of discogsRelease.extraartists) {
-                if (extraArtist.role && extraArtist.role.toLowerCase().includes('performer')) {
-                    performerIds.add(extraArtist.id);
-                }
-            }
-
-            // Second pass: for each performer, collect ONLY performance roles (instruments, vocals)
-            for (const performerId of performerIds) {
-                const performerEntries = discogsRelease.extraartists.filter(ea => ea.id === performerId);
-
-                if (performerEntries.length > 0) {
-                    const cleanName = performerEntries[0].name.replace(/\s*\(\d+\)$/, '');
-
-                    // Collect ONLY performance-related roles (instruments, vocals, etc.)
-                    const performanceRoles = [];
-                    for (const entry of performerEntries) {
-                        const role = entry.role || '';
-                        // Only include performance roles, skip production/technical roles
-                        if (isPerformanceRole(role) && role !== 'Performer') {
-                            performanceRoles.push(role);
-                        }
-                    }
-
-                    // Use specific performance roles if available, otherwise use generic "Performer"
-                    const finalRole = performanceRoles.length > 0 ? performanceRoles.join(', ') : 'Performer';
-
-                    performers.push({
-                        name: cleanName,
-                        id: performerId,
-                        role: finalRole
-                    });
-                }
-            }
-        }
-
-        console.log('Found performers with performance roles:', performers);
+        // ===== CLASSIFY THE CREDITS =====
+        // One pass, in discogsClient. It accumulates every credit line per
+        // person before deciding what they are, so a member who also produced
+        // is a member, and someone credited three ways is one row rather than
+        // three. The old code did this inline with a keyword list and a
+        // "performer"-substring id set, and filed whole bands as guests.
+        const credits = discogsClient.parseCredits(discogsRelease.extraartists);
+        const performers = credits.members;
 
         // ===== RELEASE-LEVEL GROUPS =====
         // Add main performing groups to release-level groups section
@@ -1492,17 +1478,30 @@ class PolarisApp {
                 releaseGroupsContainer.appendChild(groupForm);
 
                 // Populate group name
-                const groupNameInput = groupForm.querySelector(`input[name="release-group-name-${i}"]`);
-                if (groupNameInput) {
-                    groupNameInput.value = cleanName;
+                this.setFieldValue(
+                    groupForm.querySelector(`input[name="release-group-name-${i}"]`), cleanName);
+
+                // Members go on the FIRST group only. With several credited
+                // artists there is no way to tell from the Discogs payload who
+                // played in which, and splitting them by guess would put people
+                // in bands they were never in.
+                if (i === 0) {
+                    const membersContainer = groupForm.querySelector('.release-members-container');
+                    if (membersContainer) {
+                        performers.forEach((member, memberIndex) => {
+                            const memberForm = this.formBuilder.createPersonForm(
+                                memberIndex, 'release-member', i);
+                            membersContainer.appendChild(memberForm);
+
+                            this.setFieldValue(memberForm.querySelector(
+                                `input[name="release-member-name-${i}-${memberIndex}"]`), member.name);
+                            this.setFieldValue(memberForm.querySelector(
+                                `input[name="release-member-roles-${i}-${memberIndex}"]`), member.role);
+                        });
+                    }
                 }
 
-                mainGroups.push({
-                    name: cleanName,
-                    id: artist.id,
-                    index: i,
-                    members: performers  // Store performers as group members
-                });
+                mainGroups.push({ name: cleanName, id: artist.id, index: i });
             }
         }
 
@@ -1549,24 +1548,30 @@ class PolarisApp {
                 // ===== BASIC TRACK INFO =====
                 // Track title (FIXED: was song-name, should be track-title)
                 const trackTitleInput = trackForm.querySelector(`input[name="track-title-${trackIndex}"]`);
-                if (trackTitleInput) {
-                    trackTitleInput.value = discogsTrack.title || '';
-                }
+                this.setFieldValue(trackTitleInput, discogsTrack.title || '');
 
-                // Track number - parse from position (may be like "A1", "1", etc.)
-                const trackNumberInput = trackForm.querySelector(`input[name="track-number-${trackIndex}"]`);
-                if (trackNumberInput && discogsTrack.position) {
-                    // Extract numeric part from position (e.g., "A1" -> "1", "12" -> "12")
-                    const numMatch = discogsTrack.position.match(/\d+/);
-                    if (numMatch) {
-                        trackNumberInput.value = numMatch[0];
-                    }
+                // Position, carried through UNCHANGED. This previously took
+                // /\d+/ of it, so "A1" and "B1" both became "1" and every
+                // vinyl release was submitted with duplicate track numbers.
+                // deriveTrackPlacement() on the backend understands "A1"; the
+                // only job here is not to damage it on the way.
+                const trackPositionInput = trackForm.querySelector(`input[name="track-position-${trackIndex}"]`);
+                if (discogsTrack.position) {
+                    this.setFieldValue(trackPositionInput, discogsTrack.position);
                 }
 
                 // ===== SONGWRITERS =====
                 // Merge release-level and track-level songwriters
                 const trackLevelSongwriters = discogsClient.extractSongwriters(discogsTrack);
-                const releaseLevelForThisTrack = releaseSongwriters.get(discogsTrack.position) || [];
+                // parseTracksField() expands ranges like "3, 5, 6, 8 to 14" into
+                // bare numbers, but a vinyl position is "A3" — so this lookup
+                // silently matched nothing on every LP, dropping release-level
+                // Written-By credits. Try the raw position, then its number.
+                const positionNumber = (discogsTrack.position || '').match(/\d+/)?.[0];
+                const releaseLevelForThisTrack =
+                    releaseSongwriters.get(discogsTrack.position)
+                    || (positionNumber ? releaseSongwriters.get(positionNumber) : null)
+                    || [];
                 const allTrackSongwriters = releaseSongwriters.get('*ALL*') || [];
 
                 // Combine all songwriters, removing duplicates
@@ -1592,91 +1597,47 @@ class PolarisApp {
             }
         }
 
-        // Parse release-level extra artists (producers, engineers, etc.)
+        // ===== RELEASE-LEVEL GUESTS =====
+        // The production and technical people — everyone parseCredits did NOT
+        // classify as a member. Each person appears exactly once, with all of
+        // their roles on one row; the previous five near-identical loops used
+        // independent buckets, so one person credited "Producer, Engineer,
+        // Mixed By" got three rows of their own.
         const releaseGuestsContainer = document.getElementById('release-guests-container');
         let guestIndex = 0;
 
-        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
-            const credits = discogsClient.parseCredits(discogsRelease.extraartists, performerIds);
+        const memberKeys = new Set(credits.members.map(m =>
+            m.id != null ? `id:${m.id}` : `name:${discogsClient.normalizeName(m.name)}`));
 
-            // Add producers
-            for (const producer of credits.producers) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+        const guestBuckets = [
+            [credits.producers, 'Producer'],
+            [credits.engineers, 'Engineer'],
+            [credits.mixedBy, 'Mix Engineer'],
+            [credits.masteredBy, 'Mastering Engineer'],
+            [credits.guests, 'Guest Performer'],
+        ];
+
+        for (const [bucket, fallbackRole] of guestBuckets) {
+            for (const person of bucket) {
+                // Belt and braces: parseCredits already routes members away from
+                // these buckets, but the registry treats being both a MEMBER_OF
+                // and a GUEST_ON as a contradiction, so never emit one here.
+                const key = person.id != null
+                    ? `id:${person.id}`
+                    : `name:${discogsClient.normalizeName(person.name)}`;
+                if (memberKeys.has(key)) continue;
+
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex);
                 releaseGuestsContainer.appendChild(guestForm);
 
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
+                this.setFieldValue(
+                    guestForm.querySelector(`input[name="release-guest-name-${guestIndex}"]`),
+                    person.name);
+                this.setFieldValue(
+                    guestForm.querySelector(`input[name="release-guest-roles-${guestIndex}"]`),
+                    person.role || fallbackRole);
 
-                if (guestNameInput) {
-                    guestNameInput.value = producer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = 'Producer';
-                }
-            }
-
-            // Add engineers
-            for (const engineer of credits.engineers) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = engineer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = engineer.role || 'Engineer';
-                }
-            }
-
-            // Add mixing engineers
-            for (const mixer of credits.mixedBy) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = mixer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = 'Mix Engineer';
-                }
-            }
-
-            // Add mastering engineers
-            for (const masterer of credits.masteredBy) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = masterer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = 'Mastering Engineer';
-                }
-            }
-
-            // Add guest performers from release-level credits
-            for (const guest of credits.guests) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = guest.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = guest.role || 'Guest Performer';
-                }
+                guestIndex++;
             }
         }
 

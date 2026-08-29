@@ -61,11 +61,11 @@ export class FormBuilder {
                     <div class="form-row">
                         <div class="form-group">
                             <label>Latitude</label>
-                            <input type="number" step="0.00001" name="label-city-lat-${index}" placeholder="Latitude">
+                            <input type="number" step="any" name="label-city-lat-${index}" placeholder="Latitude">
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="label-city-lon-${index}" placeholder="Longitude">
+                            <input type="number" step="any" name="label-city-lon-${index}" placeholder="Longitude">
                         </div>
                     </div>
                 </div>
@@ -122,11 +122,11 @@ export class FormBuilder {
                     <div class="form-row">
                         <div class="form-group">
                             <label>Latitude</label>
-                            <input type="number" step="0.00001" name="${type}-city-lat-${parentIndex}-${index}" placeholder="Latitude">
+                            <input type="number" step="any" name="${type}-city-lat-${parentIndex}-${index}" placeholder="Latitude">
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="${type}-city-lon-${parentIndex}-${index}" placeholder="Longitude">
+                            <input type="number" step="any" name="${type}-city-lon-${parentIndex}-${index}" placeholder="Longitude">
                         </div>
                     </div>
                 </div>
@@ -232,11 +232,11 @@ export class FormBuilder {
                     <div class="form-row">
                         <div class="form-group">
                             <label>Latitude</label>
-                            <input type="number" step="0.00001" name="release-guest-city-lat-${index}" placeholder="Latitude">
+                            <input type="number" step="any" name="release-guest-city-lat-${index}" placeholder="Latitude">
                         </div>
                         <div class="form-group">
                             <label>Longitude</label>
-                            <input type="number" step="0.00001" name="release-guest-city-lon-${index}" placeholder="Longitude">
+                            <input type="number" step="any" name="release-guest-city-lon-${index}" placeholder="Longitude">
                         </div>
                     </div>
                 </div>
@@ -353,15 +353,19 @@ export class FormBuilder {
                 <small>Add streaming links (Spotify, Apple Music, etc.), separated by commas</small>
             </div>
 
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Disc/Side</label>
-                    <input type="number" name="track-disc-${index}" min="1" value="1">
-                </div>
-                <div class="form-group">
-                    <label>Track Number</label>
-                    <input type="number" name="track-number-${index}" min="1" value="${index + 1}">
-                </div>
+            <div class="form-group">
+                <label>Position</label>
+                <!-- One free-text field, not a disc number plus a track number.
+                     A vinyl position is "A1", and two number inputs cannot hold
+                     the side letter: the old pair took /\d+/ of the Discogs
+                     position, so A1 and B1 both became track 1 and every LP
+                     submitted a tracklist with duplicate numbers. The backend's
+                     deriveTrackPlacement() already parses A1 / 1.1 / 1-3 / 02
+                     into disc, side and number, so the honest thing is to carry
+                     the position through untouched and let it do that. -->
+                <input type="text" name="track-position-${index}" value="${index + 1}"
+                       placeholder="A1, B2, 1-3, or 7">
+                <small>As printed on the release. Side letters are kept.</small>
             </div>
 
             <!-- Songwriters -->
@@ -500,13 +504,20 @@ export class FormBuilder {
         // Keep the collapsed header meaningful: a list of "Track 1..14" is no
         // use for finding the one you want to edit.
         const titleInput = div.querySelector(`[name="track-title-${trackIndex}"]`);
+        const positionInput = div.querySelector(`[name="track-position-${trackIndex}"]`);
         const summaryTitle = div.querySelector('.track-summary-title');
-        titleInput.addEventListener('input', () => {
+        const syncSummary = () => {
             const typed = titleInput.value.trim();
-            summaryTitle.textContent = typed
-                ? `${trackIndex + 1}. ${typed}`
-                : `Track ${trackIndex + 1}`;
-        });
+            const position = positionInput.value.trim() || String(trackIndex + 1);
+            summaryTitle.textContent = typed ? `${position}. ${typed}` : `Track ${trackIndex + 1}`;
+        };
+        // Both events: typing fires `input`, while the Discogs import assigns
+        // .value and dispatches `change` (see PolarisApp.setFieldValue). Binding
+        // only `input` left every imported track's header reading "Track 7".
+        for (const el of [titleInput, positionInput]) {
+            el.addEventListener('input', syncSummary);
+            el.addEventListener('change', syncSummary);
+        }
 
         // "Same as release" is a typing shortcut, not a data shortcut: the
         // section is greyed out here, and extractTracks() materializes the

@@ -201,6 +201,50 @@ test.describe('same as release', () => {
     });
 });
 
+test.describe('the collapsed header', () => {
+    test('shows the position and title once a track is filled in', async ({ page }) => {
+        await gotoForm(page);
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-position-0"]', 'A1');
+        await page.fill('[name="track-title-0"]', 'Smells Like Teen Spirit');
+
+        await expect(page.locator('.track-summary-title'))
+            .toHaveText('A1. Smells Like Teen Spirit');
+    });
+
+    test('updates when a value is set programmatically, as the import does', async ({ page }) => {
+        await gotoForm(page);
+        await page.click('#add-track');
+
+        // The Discogs import assigns .value, which fires no input event. Binding
+        // the summary to `input` alone left every imported track reading
+        // "Track 7" until the user typed in the field.
+        await page.evaluate(() => {
+            const app = window.polarisApp;
+            const item = document.querySelector('.track-item');
+            app.setFieldValue(item.querySelector('[name="track-position-0"]'), 'B3');
+            app.setFieldValue(item.querySelector('[name="track-title-0"]'), 'Lounge Act');
+        });
+
+        await expect(page.locator('.track-summary-title')).toHaveText('B3. Lounge Act');
+    });
+
+    test('setFieldValue does not open an autocomplete dropdown', async ({ page }) => {
+        await gotoForm(page, { searchResults: [GROUP_RESULT] });
+        await page.click('#add-release-group');
+
+        await page.evaluate(() => {
+            const input = document.querySelector('[name="release-group-name-0"]');
+            window.polarisApp.setFieldValue(input, 'Queens of the Stone Age');
+        });
+        await page.waitForTimeout(400);
+
+        // It dispatches `change`, not `input`, precisely so an import does not
+        // pop a suggestion list open on every field it touches.
+        await expect(page.locator('.entity-lookup-dropdown .entity-lookup-item')).toHaveCount(0);
+    });
+});
+
 test.describe('listen links', () => {
     test('a link is stored stripped of share and locale cruft', async ({ page }) => {
         await gotoForm(page);
