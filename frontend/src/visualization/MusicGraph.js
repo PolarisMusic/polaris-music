@@ -484,6 +484,15 @@ export class MusicGraph {
         window.addEventListener('miniplayer:resize', () => {
             requestAnimationFrame(() => this._handleCanvasResize());
         });
+
+        // Every way out of the info sheet routes through closeInfoPanel().
+        document.getElementById('info-close')
+            ?.addEventListener('click', () => this.closeInfoPanel());
+        document.getElementById('info-backdrop')
+            ?.addEventListener('click', () => this.closeInfoPanel());
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.closeInfoPanel();
+        });
         requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
     }
@@ -496,6 +505,51 @@ export class MusicGraph {
     _isolateInfoPanelScroll() {
         // No-op. JIT listens for wheel events on the canvas element, not the
         // info panel. Native scrolling happens on #info-scroll without JS.
+    }
+
+    /**
+     * Show the info panel.
+     *
+     * On desktop this is a column that is always present; on phones the same
+     * element is a bottom sheet over the graph, so opening it also arms the
+     * backdrop that dismisses it.
+     */
+    openInfoPanel() {
+        const infoViewer = document.getElementById('info-viewer');
+        if (!infoViewer) return;
+
+        infoViewer.classList.add('open');
+        const backdrop = document.getElementById('info-backdrop');
+        if (backdrop) backdrop.hidden = false;
+
+        this._notifyLayoutChange();
+    }
+
+    /**
+     * Hide the info panel.
+     *
+     * This had no counterpart: two call sites added 'open' and nothing ever
+     * removed it, so on a phone — where the panel covers the graph — selecting
+     * a node buried the visualization with no way back.
+     */
+    closeInfoPanel() {
+        const infoViewer = document.getElementById('info-viewer');
+        if (!infoViewer) return;
+
+        infoViewer.classList.remove('open');
+        const backdrop = document.getElementById('info-backdrop');
+        if (backdrop) backdrop.hidden = true;
+
+        this._notifyLayoutChange();
+    }
+
+    /**
+     * The canvas sizes itself against its container, so re-measure whenever the
+     * layout changes. Mirrors the mini-player's 'miniplayer:resize' path; rAF
+     * so the CSS transition has applied before we measure.
+     */
+    _notifyLayoutChange() {
+        requestAnimationFrame(() => this._handleCanvasResize());
     }
 
     /**
@@ -810,7 +864,7 @@ export class MusicGraph {
 
         if (infoViewer) {
             infoViewer.style.removeProperty('display');
-            infoViewer.classList.add('open');
+            this.openInfoPanel();
         }
 
         try {
@@ -1300,7 +1354,7 @@ export class MusicGraph {
         infoContent.innerHTML = '<p>Loading song details...</p>';
         if (infoViewer) {
             infoViewer.style.removeProperty('display');
-            infoViewer.classList.add('open');
+            this.openInfoPanel();
         }
 
         try {

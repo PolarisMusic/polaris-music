@@ -26,15 +26,15 @@
     <!-- Top Bar -->
     <div id="top-bar">
         <div class="top-bar-left">
-            <div class="logo">Polaris Music Registry</div>
+            <div class="logo"><span class="logo-full">Polaris Music Registry</span><span class="logo-short">Polaris</span></div>
         </div>
         <div class="top-bar-center">
             <div id="graph-search-container"></div>
         </div>
         <div class="top-bar-right">
             <div class="user-info">
-                <span id="user-account">Not connected</span>
-                <button id="connect-wallet" class="btn-wallet">Connect Wallet</button>
+                <span id="user-account">Not logged in</span>
+                <button id="connect-wallet" class="btn-wallet">Log In</button>
             </div>
             <div class="stats">
                 <span class="stat-item stat-clickable" id="favorites-toggle">
@@ -105,10 +105,20 @@
         </div>
 
         <!-- Info Viewer Panel -->
+        <!-- Dismisses the mobile info sheet when tapped. Must be inside
+             #main-container: that element is position:fixed and so creates a
+             stacking context, and a backdrop outside it would paint above the
+             sheet no matter how high the sheet's z-index. Keeping it here also
+             leaves the top and bottom bars usable while the sheet is open. -->
+        <div id="info-backdrop" class="info-backdrop" hidden></div>
+
         <div id="info-viewer">
+            <!-- Drag affordance for the mobile bottom sheet; hidden on desktop. -->
+            <div id="info-sheet-handle" class="info-sheet-handle" aria-hidden="true"></div>
             <div class="info-header">
                 <h2 id="info-title">Select a node</h2>
                 <button id="node-favorite" class="btn-favorite" title="Like">☆</button>
+                <button id="info-close" class="btn-info-close" title="Close" aria-label="Close details">✕</button>
             </div>
 
             <div id="info-scroll" class="info-scroll">
@@ -124,6 +134,10 @@
 
     <!-- Bottom Bar -->
     <div id="bottom-bar">
+        <!-- On phones the four actions below wrap to three lines each, so they
+             collapse behind this toggle instead. Hidden on desktop. -->
+        <button class="btn-action btn-actions-toggle" id="actions-toggle"
+                aria-expanded="false" aria-controls="bottom-bar">Menu ▾</button>
         <button class="btn-action" id="submit-project">Submit a Project</button>
         <a href="https://ursapolarisrecords.com/polaris" class="btn-action" target="_blank">Info / Contact</a>
         <a href="https://ursapolarisrecords.com/album-artwork-1" class="btn-action" target="_blank">Merch / Albums</a>
@@ -165,11 +179,11 @@
             if (accountInfo) {
                 userAccountEl.textContent = accountInfo.accountName;
                 userAccountEl.style.color = '#4CAF50';
-                connectWalletBtn.textContent = 'Disconnect';
+                connectWalletBtn.textContent = 'Log Out';
             } else {
-                userAccountEl.textContent = 'Not connected';
+                userAccountEl.textContent = 'Not logged in';
                 userAccountEl.style.color = '';
-                connectWalletBtn.textContent = 'Connect Wallet';
+                connectWalletBtn.textContent = 'Log In';
             }
         }
 
@@ -222,6 +236,20 @@
             }
 
             // Load initial graph data from backend
+            // Chrome listeners go on BEFORE the data load below. Anything
+            // registered after that await never attaches if the API is
+            // unreachable, which leaves the UI's buttons dead rather than
+            // merely showing an empty graph.
+            const actionsToggle = document.getElementById('actions-toggle');
+            const bottomBar = document.getElementById('bottom-bar');
+            if (actionsToggle && bottomBar) {
+                actionsToggle.addEventListener('click', () => {
+                    const open = bottomBar.classList.toggle('actions-open');
+                    actionsToggle.setAttribute('aria-expanded', String(open));
+                    actionsToggle.textContent = open ? 'Menu ▴' : 'Menu ▾';
+                });
+            }
+
             await graph.loader.loadGraphData();
 
             // Try to restore wallet session
@@ -234,7 +262,7 @@
                 console.error('Failed to restore wallet session:', error);
             }
 
-            // Connect Wallet button
+            // Log In button
             if (connectWalletBtn) {
                 connectWalletBtn.addEventListener('click', handleWalletButtonClick);
             }
