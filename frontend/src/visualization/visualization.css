@@ -1283,19 +1283,167 @@ body.mini-player-visible.mini-player-embed {
     }
 }
 
+/* Desktop: the sheet chrome has no place in a fixed side column. */
+.info-sheet-handle,
+.btn-info-close,
+.info-backdrop,
+.btn-actions-toggle,
+.logo-short {
+    display: none;
+}
+
+/* ==========================================================================
+   Phones (<=768px)
+   ==========================================================================
+
+   Treated as its own layout, not a narrowed desktop. The graph is the product,
+   so it gets the whole viewport; the info panel becomes a bottom sheet over it
+   rather than a 320px column on a 390px screen.
+
+   The previous rule slid the panel in from the right and had no way out — two
+   call sites added .open and nothing removed it — so selecting a node buried
+   the graph permanently. Dismissal now runs through
+   MusicGraph.closeInfoPanel().
+   ========================================================================== */
 @media (max-width: 768px) {
+    /* --- Graph full-bleed --- */
+    #main-container {
+        flex-direction: column;
+    }
+
+    #viz-container {
+        width: 100%;
+        flex: 1 1 auto;
+    }
+
+    /* --- Info panel as a bottom sheet --- */
     #info-viewer {
-        position: absolute;
+        position: fixed;
+        left: 0;
         right: 0;
-        top: 0;
-        height: 100%;
-        transform: translateX(100%);
-        transition: transform 0.3s;
-        z-index: 500;
+        bottom: 0;
+        top: auto;
+        width: 100%;
+        flex: none;
+        height: 70vh;
+        max-height: 70vh;
+        border-left: none;
+        border-top: 1px solid #333;
+        border-radius: 14px 14px 0 0;
+        transform: translateY(100%);
+        transition: transform 0.28s ease;
+        z-index: 900;   /* above the mini-player (800) */
+        box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.6);
     }
 
     #info-viewer.open {
-        transform: translateX(0);
+        transform: translateY(0);
+    }
+
+    .info-sheet-handle {
+        display: block;
+        width: 40px;
+        height: 4px;
+        margin: 8px auto 4px;
+        border-radius: 2px;
+        background: #555;
+        flex-shrink: 0;
+    }
+
+    .btn-info-close {
+        display: block;
+        background: none;
+        border: none;
+        color: #aaa;
+        font-size: 20px;
+        line-height: 1;
+        padding: 4px 8px;
+        cursor: pointer;
+    }
+
+    .btn-info-close:hover {
+        color: #fff;
+    }
+
+    .info-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 850;   /* under the sheet, over everything else */
+    }
+
+    .info-backdrop[hidden] {
+        display: none;
+    }
+
+    /* --- Header condenses rather than wrapping to three lines --- */
+    #top-bar {
+        gap: 8px;
+    }
+
+    /* The full name wraps to three lines at this width; the short form fits. */
+    .logo-full { display: none; }
+    .logo-short { display: inline; }
+
+    .logo {
+        font-size: 16px;
+        white-space: nowrap;
+    }
+
+    .top-bar-center {
+        display: none;   /* search returns via the icon below */
+    }
+
+    /* Previously display:none, which removed Favorites/Curate/History entirely.
+       They carry icons already, so show those instead of hiding the features. */
+    .stats {
+        display: flex;
+        gap: 10px;
+    }
+
+    .stats .stat-item span:not(.icon) {
+        display: none;
+    }
+
+    .stats .icon {
+        font-size: 18px;
+    }
+
+    #user-account {
+        display: none;   /* the Log In / Log Out button carries the state */
+    }
+
+    /* --- Bottom bar collapses behind one control --- */
+    #bottom-bar {
+        flex-wrap: nowrap;
+        gap: 6px;
+    }
+
+    .btn-actions-toggle {
+        display: block;
+    }
+
+    #bottom-bar .btn-action:not(.btn-actions-toggle) {
+        display: none;
+    }
+
+    #bottom-bar.actions-open {
+        flex-wrap: wrap;
+        height: auto;
+    }
+
+    #bottom-bar.actions-open .btn-action {
+        display: block;
+    }
+
+    /* --- Player slims: the Spotify embed has its own progress bar --- */
+    .mp-scrubber-area {
+        display: none;
+    }
+
+    .mp-bar {
+        padding: 4px 8px;
     }
 }
 
