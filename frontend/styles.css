@@ -273,6 +273,92 @@ input[type="checkbox"] {
     align-items: center;
 }
 
+/* Collapsed tracks.
+   The <details> is presentation only: its contents stay in the DOM and still
+   submit while closed. The header margins pull the summary out to the card
+   edge, matching the old always-open .track-header. */
+.track-header {
+    cursor: pointer;
+    list-style: none;
+}
+
+.track-header::-webkit-details-marker {
+    display: none;
+}
+
+.track-header::before {
+    content: '\25B8';           /* right-pointing triangle */
+    display: inline-block;
+    margin-right: 0.6rem;
+    transition: transform 0.15s ease;
+    color: var(--text-dark);
+}
+
+.track-body[open] > .track-header::before {
+    transform: rotate(90deg);
+}
+
+.track-summary-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+/* When a section inherits from the release, it is greyed and inert. The values
+   are still applied — extractTracks() copies the release-level ones in — so
+   this communicates "filled in for you", not "left out". */
+.subsection.inherited > .subsection-header ~ * {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+.subsection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.subsection-header h4 {
+    margin-bottom: 0;
+}
+
+.inherit-toggle {
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* Listen-link import report */
+.listen-link-report {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+.link-mismatch-heading {
+    font-weight: 600;
+    margin-top: 0.5rem;
+}
+
+.link-mismatch-list {
+    margin: 0.5rem 0 0 1.25rem;
+}
+
+.link-mismatch {
+    color: #a33;
+}
+
+/* A field the Discogs import could not match to exactly one registry node. */
+.needs-review input[type="text"] {
+    border-color: #d9a441;
+    background-color: #fffaf0;
+}
+
 .subsection {
     margin-top: 1.5rem;
     padding-top: 1.5rem;

@@ -7,8 +7,11 @@
          media-src (no audio). This page connects a wallet and signs, so it
          needs the CSP more than the read-only visualizer does — it shipped
          without one, which is backwards. Keep the anchor.link entries: without
-         them the wallet popup cannot open and submission breaks. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://api.polaris.mu https://eos.greymass.com https://jungle4.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; frame-src https://*.anchor.link;">
+         them the wallet popup cannot open and submission breaks.
+         api.discogs.com is needed by the import panel below: DiscogsClient
+         calls it unauthenticated from the browser, so there is no token
+         here to protect. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://api.polaris.mu https://api.discogs.com https://eos.greymass.com https://jungle4.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; frame-src https://*.anchor.link;">
     <title>Polaris Music Registry - Submit Release</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/styles.css">
@@ -117,12 +120,15 @@
                             </div>
 
                             <div class="form-group" id="master-release-group" style="display: none;">
-                                <label for="master-release-id">Master Release ID</label>
-                                <input type="text" id="master-release-id" name="master_release_id"
-                                       placeholder="Hash of the master release">
-                                <!-- UNIMPLEMENTED: Database search for master releases -->
-                                <!-- TODO: Add autocomplete search that queries /api/search?type=release&q={query} -->
-                                <!-- Should display matching releases and allow selection -->
+                                <label for="master-release-name">Master Release</label>
+                                <input type="text" id="master-release-name" name="master_release_name"
+                                       placeholder="Search for the master release">
+                                <!-- FormLookupManager pairs this hidden field to the visible one
+                                     above and attaches an EntityLookupField, the same contract
+                                     FormBuilder emits for every other entity field. -->
+                                <input type="hidden" id="master-release-id" name="master_release_id"
+                                       data-lookup-type="Release" data-lookup-pair="master_release_name">
+                                <small>Search the registry for the original release this one reissues.</small>
                             </div>
                         </section>
 
@@ -137,11 +143,23 @@
                             </div>
                         </section>
 
-                        <!-- Labels Section -->
+                        <!-- Release Listen Links Section -->
                         <section class="form-section">
-                            <h3>Labels</h3>
-                            <div id="labels-container"></div>
-                            <button type="button" class="btn-add" id="add-label">+ Add Label</button>
+                            <h3>Listen Links</h3>
+                            <p class="section-note">
+                                Where this release can be heard. Use <strong>Import from tracks</strong> to
+                                pull up the links entered on individual tracks — it is the quickest way to
+                                check an imported tracklist, since links pointing at a different album are
+                                flagged rather than merged.
+                            </p>
+                            <div class="form-group">
+                                <label for="release-listen-links">Release Links</label>
+                                <input type="text" id="release-listen-links" name="release_listen_links"
+                                       placeholder="https://open.spotify.com/album/... (comma-separated)">
+                                <small>Share tokens and locale prefixes are stripped before submission.</small>
+                            </div>
+                            <button type="button" class="btn-secondary" id="import-track-links">Import from tracks</button>
+                            <div id="listen-link-report" class="listen-link-report"></div>
                         </section>
 
                         <!-- Release-Level Groups Section -->
@@ -155,6 +173,13 @@
                             <button type="button" class="btn-add" id="add-release-group">+ Add Release Group</button>
                         </section>
 
+                        <!-- Labels Section -->
+                        <section class="form-section">
+                            <h3>Labels</h3>
+                            <div id="labels-container"></div>
+                            <button type="button" class="btn-add" id="add-label">+ Add Label</button>
+                        </section>
+
                         <!-- Release-Level Guests Section -->
                         <section class="form-section">
                             <h3>Release-Level Credits</h3>
@@ -164,6 +189,17 @@
                             </p>
                             <div id="release-guests-container"></div>
                             <button type="button" class="btn-add" id="add-release-guest">+ Add Release Guest</button>
+                        </section>
+
+                        <!-- Release-Level Songwriters Section -->
+                        <section class="form-section">
+                            <h3>Release-Level Songwriters</h3>
+                            <p class="section-note">
+                                Writers credited across the release. Each track inherits these unless it
+                                overrides them, so a single-writer album only needs filling in once.
+                            </p>
+                            <div id="release-songwriters-container"></div>
+                            <button type="button" class="btn-add" id="add-release-songwriter">+ Add Songwriter</button>
                         </section>
 
                         <!-- Tracks Section -->

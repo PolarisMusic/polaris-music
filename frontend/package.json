@@ -2,6 +2,7 @@
   "name": "polaris-music-frontend",
   "version": "1.0.0",
   "description": "Polaris Music Registry - Release Submission Form",
+  "type": "module",
   "main": "src/index.js",
   "scripts": {
     "dev": "vite",

@@ -303,7 +303,19 @@ export class FormBuilder {
     }
 
     /**
-     * Create a complete track form
+     * Create a complete track form.
+     *
+     * The body sits inside a <details>, collapsed by default, purely so a
+     * fourteen-track release is readable. This is presentation only: content
+     * inside a closed <details> is still in the DOM, still submits, and is
+     * still found by the extractors' querySelectorAll, so no track data is
+     * dropped or deferred by collapsing.
+     *
+     * `.track-item` and `data-index` stay on the OUTER element, because
+     * extractTracks() selects on them.
+     *
+     * @param {number|null} index - Track index; allocated from the counter when null.
+     * @returns {HTMLDivElement} Detached element for the caller to append.
      */
     createTrackForm(index = null) {
         if (index === null) {
@@ -315,10 +327,11 @@ export class FormBuilder {
         div.dataset.index = index;
 
         div.innerHTML = `
-            <div class="track-header">
-                <h4>Track ${index + 1}</h4>
+            <details class="track-body">
+            <summary class="track-header">
+                <span class="track-summary-title" data-track-summary="${index}">Track ${index + 1}</span>
                 <button type="button" class="btn-remove remove-track">Remove Track</button>
-            </div>
+            </summary>
 
             <div class="form-group">
                 <label>Track Title *</label>
@@ -352,30 +365,58 @@ export class FormBuilder {
             </div>
 
             <!-- Songwriters -->
-            <div class="subsection">
-                <h4>Songwriters</h4>
+            <div class="subsection inherited" data-inherit-section="songwriters">
+                <div class="subsection-header">
+                    <h4>Songwriters</h4>
+                    <label class="inherit-toggle">
+                        <input type="checkbox" name="track-same-songwriters-${index}"
+                               data-inherit="songwriters" checked>
+                        Same as release
+                    </label>
+                </div>
                 <div class="songwriters-container" data-track="${index}"></div>
                 <button type="button" class="btn-add add-songwriter" data-track="${index}">+ Add Songwriter</button>
             </div>
 
             <!-- Producers -->
-            <div class="subsection">
-                <h4>Producers</h4>
+            <div class="subsection inherited" data-inherit-section="producers">
+                <div class="subsection-header">
+                    <h4>Producers</h4>
+                    <label class="inherit-toggle">
+                        <input type="checkbox" name="track-same-producers-${index}"
+                               data-inherit="producers" checked>
+                        Same as release
+                    </label>
+                </div>
                 <div class="producers-container" data-track="${index}"></div>
                 <button type="button" class="btn-add add-producer" data-track="${index}">+ Add Producer</button>
             </div>
 
             <!-- Performing Groups -->
-            <div class="subsection">
-                <h4>Performing Groups *</h4>
+            <div class="subsection inherited" data-inherit-section="groups">
+                <div class="subsection-header">
+                    <h4>Performing Groups *</h4>
+                    <label class="inherit-toggle">
+                        <input type="checkbox" name="track-same-groups-${index}"
+                               data-inherit="groups" checked>
+                        Same as release
+                    </label>
+                </div>
                 <p class="section-note">Add the group(s) that performed on this track, with their members and roles.</p>
                 <div class="groups-container" data-track="${index}"></div>
                 <button type="button" class="btn-add add-group" data-track="${index}">+ Add Group</button>
             </div>
 
             <!-- Guest Musicians -->
-            <div class="subsection">
-                <h4>Guest Musicians</h4>
+            <div class="subsection inherited" data-inherit-section="guests">
+                <div class="subsection-header">
+                    <h4>Guest Musicians</h4>
+                    <label class="inherit-toggle">
+                        <input type="checkbox" name="track-same-guests-${index}"
+                               data-inherit="guests" checked>
+                        Same as release
+                    </label>
+                </div>
                 <p class="section-note">Add musicians who appeared as guests (not regular group members).</p>
                 <div class="guests-container" data-track="${index}"></div>
                 <button type="button" class="btn-add add-guest" data-track="${index}">+ Add Guest</button>
@@ -397,6 +438,22 @@ export class FormBuilder {
                     <small>Search and select tracks that were sampled. Selected tracks appear as chips above.</small>
                 </div>
             </div>
+
+            <!-- Notes -->
+            <div class="subsection">
+                <h4>Lyrics & Trivia</h4>
+                <div class="form-group">
+                    <label>Lyrics</label>
+                    <textarea name="track-lyrics-${index}" rows="6"
+                              placeholder="Lyrics as printed, if you have them"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Trivia</label>
+                    <textarea name="track-trivia-${index}" rows="3"
+                              placeholder="Recording anecdotes, notable details, disputes over credits..."></textarea>
+                </div>
+            </div>
+            </details>
         `;
 
         // Add event handlers for adding nested items
@@ -430,11 +487,35 @@ export class FormBuilder {
             container.appendChild(this.createPersonForm(guestIndex, 'guest', trackIndex));
         });
 
-        // Remove track
-        div.querySelector('.remove-track').addEventListener('click', () => {
+        // Remove track. The button lives inside the <summary>, so without
+        // stopping the event the click would also toggle the disclosure.
+        div.querySelector('.remove-track').addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             if (confirm('Remove this track?')) {
                 div.remove();
             }
+        });
+
+        // Keep the collapsed header meaningful: a list of "Track 1..14" is no
+        // use for finding the one you want to edit.
+        const titleInput = div.querySelector(`[name="track-title-${trackIndex}"]`);
+        const summaryTitle = div.querySelector('.track-summary-title');
+        titleInput.addEventListener('input', () => {
+            const typed = titleInput.value.trim();
+            summaryTitle.textContent = typed
+                ? `${trackIndex + 1}. ${typed}`
+                : `Track ${trackIndex + 1}`;
+        });
+
+        // "Same as release" is a typing shortcut, not a data shortcut: the
+        // section is greyed out here, and extractTracks() materializes the
+        // release-level values — ids included — into this track's payload.
+        div.querySelectorAll('input[data-inherit]').forEach((checkbox) => {
+            checkbox.addEventListener('change', () => {
+                const section = checkbox.closest('[data-inherit-section]');
+                section.classList.toggle('inherited', checkbox.checked);
+            });
         });
 
         return div;

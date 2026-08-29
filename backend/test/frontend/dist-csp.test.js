@@ -295,9 +295,12 @@ describeOrSkip('dist/submit.html · no inline scripts', () => {
 
 describeOrSkip('CSP parity between index.html and submit.html', () => {
     // submit.html has no MiniPlayer, so no Spotify embed and no audio element.
+    // It does have the Discogs import, which the read-only graph page has no
+    // use for.
     const INTENTIONAL_DIFFERENCES = {
         'media-src': 'index only — the MiniPlayer plays audio; the form does not',
         'spotify': 'index only — the MiniPlayer embeds Spotify; the form does not',
+        'discogs': 'submit only — the import panel fetches api.discogs.com; the graph does not',
     };
 
     const indexDirectives = () => parseDirectives(extractCsp(readHtml('index.html')));
@@ -322,14 +325,19 @@ describeOrSkip('CSP parity between index.html and submit.html', () => {
             // needs open.spotify.com for the iframe and embed-cdn.spotifycdn.com
             // for the script it loads. Both are index-only.
             const indexSources = (index[name] || []).filter(s => !s.includes('spotify'));
-            expect({ [name]: submit[name] }).toEqual({ [name]: indexSources });
+            // ...and the 'discogs' exemption in the other direction. The
+            // import runs from the form only, so widening the graph page to
+            // match would grant it an origin it never calls.
+            const submitSources = submit[name].filter(s => !s.includes('discogs'));
+            expect({ [name]: submitSources }).toEqual({ [name]: indexSources });
         }
     });
 
     test('the intentional differences are documented, not accidental', () => {
         // Guards against someone widening the exemption list to silence a
         // genuine divergence.
-        expect(Object.keys(INTENTIONAL_DIFFERENCES).sort()).toEqual(['media-src', 'spotify']);
+        expect(Object.keys(INTENTIONAL_DIFFERENCES).sort())
+            .toEqual(['discogs', 'media-src', 'spotify']);
     });
 });
 
