@@ -171,9 +171,10 @@ test.describe('phone layout', () => {
 
         const box = await page.locator('#info-viewer').boundingBox();
         // A sheet, not a takeover: the selected node stays on screen above it.
-        expect(box.height).toBeLessThan(PHONE.height * 0.8);
-        expect(box.y).toBeGreaterThan(PHONE.height * 0.2);
-        expect(box.y).toBeLessThan(PHONE.height * 0.5);
+        // Half the viewport: enough for the details, little enough that the
+        // selected node and its neighbours stay visible above.
+        expect(box.height).toBeLessThan(PHONE.height * 0.6);
+        expect(box.y).toBeGreaterThan(PHONE.height * 0.35);
     });
 
     test('the header stays on one line', async ({ page }) => {

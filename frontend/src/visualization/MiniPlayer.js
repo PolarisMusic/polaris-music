@@ -33,12 +33,9 @@ export class MiniPlayer {
 
         // Spotify embed state. The controller is created lazily the first
         // time an embeddable track is selected, then reused via loadUri().
-        this._embedApiPromise = null;
-        this._embedController = null;
         this._embedUri = null;
         this._embedMode = false;
         this._embedEnded = false;
-        this._embedFailed = false;
 
         this._isPlaying = false;
         this._duration = 0;
@@ -224,113 +221,48 @@ export class MiniPlayer {
     // ========== SPOTIFY EMBED ==========
 
     /**
-     * Load Spotify's iFrame API exactly once. Injected lazily so that
-     * visitors who never touch a Spotify-linked track never fetch it.
+     * Point the embed row at a Spotify URI using a plain iframe.
      *
-     * @returns {Promise<Object>} resolves with the IFrameAPI object
-     */
-    _loadEmbedApi() {
-        if (this._embedApiPromise) return this._embedApiPromise;
-
-        this._embedApiPromise = new Promise((resolve, reject) => {
-            // Another MiniPlayer instance may already have loaded it.
-            if (window.__spotifyIframeApi) {
-                resolve(window.__spotifyIframeApi);
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = 'https://open.spotify.com/embed/iframe-api/v1';
-            script.async = true;
-
-            // The API calls this global once it has finished initializing.
-            window.onSpotifyIframeApiReady = (IFrameAPI) => {
-                window.__spotifyIframeApi = IFrameAPI;
-                resolve(IFrameAPI);
-            };
-
-            script.addEventListener('error', () => {
-                reject(new Error('Spotify iFrame API failed to load'));
-            });
-
-            document.head.appendChild(script);
-        }).catch((err) => {
-            // Reset so a later attempt can retry rather than being stuck on a
-            // permanently rejected promise.
-            this._embedApiPromise = null;
-            throw err;
-        });
-
-        return this._embedApiPromise;
-    }
-
-    /**
-     * Ensure a controller exists and is pointed at the given Spotify URI.
+     * This deliberately does NOT use Spotify's iFrame API. That API's
+     * implementation calls eval() internally:
+     *
+     *   Uncaught EvalError: Evaluating a string as JavaScript violates the
+     *   following Content Security Policy directive because 'unsafe-eval' is
+     *   not an allowed source of script
+     *
+     * Allowing 'unsafe-eval' would re-open the whole class of injection the
+     * strict script-src exists to prevent, across the entire page, to gain a
+     * play button. Not a trade worth making, so the fallback documented when
+     * the embed work started is what ships: a plain iframe, which needs only
+     * frame-src.
+     *
+     * What that costs: our transport cannot drive playback, so there is no
+     * programmatic play and no auto-advance at track end. The visitor presses
+     * play inside the embed. Prev/next still work — they swap which track the
+     * embed shows.
      *
      * @param {string} uri - spotify:track:ID
-     * @param {boolean} autoplay
      */
-    async _ensureEmbedController(uri, autoplay) {
-        let IFrameAPI;
-        try {
-            IFrameAPI = await this._loadEmbedApi();
-        } catch {
-            // Blocked by CSP, an extension, or offline. Fall back to the
-            // external link so the track is still reachable.
-            this._embedFailed = true;
-            this._exitEmbedMode();
-            this._updateTrackDisplay();
-            return;
-        }
+    _showEmbed(uri) {
+        const id = uri.split(':').pop();
+        const type = uri.split(':')[1] || 'track';
+        const src = `https://open.spotify.com/embed/${type}/${id}`;
 
-        if (!this._embedController) {
-            this._embedController = await new Promise((resolve) => {
-                IFrameAPI.createController(
-                    this._embedHostEl,
-                    { uri, width: '100%', height: 80 },
-                    (controller) => resolve(controller)
-                );
-            });
+        if (this._embedUri === uri && this._embedEl.querySelector('iframe')) return;
+        this._embedUri = uri;
 
-            this._embedUri = uri;
-            this._embedController.addListener('playback_update', (e) => {
-                this._onEmbedPlaybackUpdate(e?.data);
-            });
-        } else if (this._embedUri !== uri) {
-            this._embedUri = uri;
-            this._embedEnded = false;
-            this._embedController.loadUri(uri);
-        }
-
-        if (autoplay) {
-            // May be refused by autoplay policy — the click happened on our
-            // page, not inside Spotify's cross-origin frame — in which case
-            // the visitor presses play on the embed itself.
-            try { this._embedController.play(); } catch { /* ignore */ }
-        }
-    }
-
-    /**
-     * Mirror embed playback state onto our own bar, and auto-advance the
-     * queue when a track finishes.
-     */
-    _onEmbedPlaybackUpdate(data) {
-        if (!data || !this._embedMode) return;
-
-        this._isPlaying = !data.isPaused;
-        this._updatePlayButton();
-
-        // Positions are milliseconds. Spotify reports position === duration
-        // on completion; guard so we advance only once per track.
-        const { position, duration } = data;
-        if (duration > 0 && position >= duration) {
-            if (!this._embedEnded) {
-                this._embedEnded = true;
-                this._autoAdvance();
-            }
-        } else if (position > 0) {
-            this._embedEnded = false;
-        }
+        // Rebuild rather than reuse: assigning src on an existing iframe leaves
+        // a history entry, so Back inside the page would step through tracks.
+        this._embedEl.innerHTML = '';
+        const frame = document.createElement('iframe');
+        frame.src = src;
+        frame.width = '100%';
+        frame.height = '80';
+        frame.frameBorder = '0';
+        frame.loading = 'lazy';
+        frame.allow = 'encrypted-media; clipboard-write; picture-in-picture';
+        frame.title = 'Spotify player';
+        this._embedEl.appendChild(frame);
     }
 
     _enterEmbedMode() {
@@ -344,10 +276,8 @@ export class MiniPlayer {
 
     _exitEmbedMode() {
         this._embedUri = null;
-        this._embedEnded = false;
-        if (this._embedController) {
-            try { this._embedController.pause(); } catch { /* ignore */ }
-        }
+        // Removing the iframe stops playback; there is no controller to pause.
+        if (this._embedEl) this._embedEl.innerHTML = '';
         if (!this._embedMode) return;
         this._embedMode = false;
         this._embedEl.style.display = 'none';
@@ -365,7 +295,7 @@ export class MiniPlayer {
     _modeFor(track) {
         if (!track || !track.listen) return 'none';
         if (track.listen.can_inline_play) return 'audio';
-        if (track.listen.embed_uri && !this._embedFailed) return 'embed';
+        if (track.listen.embed_uri) return 'embed';
         if (track.listen.preferred_link) return 'external';
         return 'none';
     }
@@ -397,12 +327,11 @@ export class MiniPlayer {
                 this.audio.play().catch(() => {});
             }
         } else if (mode === 'embed') {
+            // Show the embed; playback is started from inside it. A plain
+            // iframe exposes no API to call, and adding 'unsafe-eval' to reach
+            // Spotify's would weaken the whole page's CSP.
             this._enterEmbedMode();
-            if (this._embedController && this._embedUri === track.listen.embed_uri) {
-                try { this._embedController.togglePlay(); } catch { /* ignore */ }
-            } else {
-                this._ensureEmbedController(track.listen.embed_uri, true);
-            }
+            this._showEmbed(track.listen.embed_uri);
         } else if (mode === 'external') {
             window.open(track.listen.preferred_link, '_blank', 'noopener');
         }
@@ -459,7 +388,7 @@ export class MiniPlayer {
             }
         } else if (mode === 'embed') {
             this._enterEmbedMode();
-            this._ensureEmbedController(track.listen.embed_uri, autoplay);
+            this._showEmbed(track.listen.embed_uri);
         } else {
             this._exitEmbedMode();
         }
