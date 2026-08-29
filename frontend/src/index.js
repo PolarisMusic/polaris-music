@@ -11,7 +11,8 @@ import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
 import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
-import { canonicalizeListenLink, sameTarget, normalizeListenLink } from './utils/listenLinks.js';
+import { canonicalizeListenLink, sameTarget } from './utils/listenLinks.js';
+import { diffTracklists, describeDifference } from './utils/tracklistDiff.js';
 
 class PolarisApp {
     constructor() {
@@ -155,7 +156,9 @@ class PolarisApp {
 
         // Pull track links up to the release, flagging any that disagree
         document.getElementById('import-track-links').addEventListener('click', () => {
-            this.importTrackListenLinks();
+            this.importTrackListenLinks().catch(error => {
+                console.error('Listen-link check failed:', error);
+            });
         });
 
         // A required control inside a collapsed <details> cannot be focused,
@@ -595,108 +598,143 @@ class PolarisApp {
     }
 
     /**
-     * Collect the listen links entered on individual tracks and offer them at
-     * the release level, flagging any that disagree.
+     * Gather the track-level listen links, then ask Spotify whether the
+     * tracklist we imported matches the one it has.
      *
-     * This is the Discogs cross-check: an imported tracklist can carry links
-     * belonging to a different edition, and the giveaway is a track pointing at
-     * an album other than the one its neighbours point at. Those are reported
-     * rather than merged in — the whole point is that a human looks.
+     * Discogs is community-edited and regularly disagrees with the streaming
+     * release — a hidden pre-roll track, a tracklist taken from a different
+     * edition, two tracks transposed. Catching that here is much cheaper than
+     * after a submission has been signed and anchored.
+     *
+     * This replaces an earlier version that only compared the track links
+     * against each other and flagged whichever album id was in the minority.
+     * That answered a question nobody asked, and barely fired anyway: track
+     * links parse as type "track", and the rule only triggered on "album".
+     *
+     * Neither source is authoritative, so this reports differences and leaves
+     * the decision to the submitter.
      */
-    importTrackListenLinks() {
+    async importTrackListenLinks() {
         const report = document.getElementById('listen-link-report');
         const target = document.getElementById('release-listen-links');
         report.innerHTML = '';
 
-        /** @type {{track: string, link: string, parsed: object|null}[]} */
-        const entries = [];
+        const tracks = [];
+        const links = [];
         document.querySelectorAll('.track-item').forEach(item => {
             const index = item.dataset.index;
-            const title = this.getInputValue(item, `track-title-${index}`)
-                || `Track ${Number(index) + 1}`;
+            const title = this.getInputValue(item, `track-title-${index}`);
+            if (!title) return;
+
+            tracks.push({
+                position: this.getInputValue(item, `track-position-${index}`) || null,
+                title,
+            });
             this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`))
-                .forEach(link => entries.push({
-                    track: title, link, parsed: normalizeListenLink(link)
-                }));
+                .forEach(link => links.push(link));
         });
 
-        if (entries.length === 0) {
-            report.textContent = 'No track links to import yet.';
+        if (tracks.length === 0) {
+            report.textContent = 'Add some tracks first.';
             return;
         }
 
-        // The album every track ought to belong to: the most common album id
-        // among track links that carry one.
-        const albumCounts = new Map();
-        for (const entry of entries) {
-            const album = entry.parsed?.type === 'album' ? entry.parsed.id : null;
-            if (album) albumCounts.set(album, (albumCounts.get(album) || 0) + 1);
-        }
-        const [dominantAlbum] = [...albumCounts.entries()]
-            .sort((a, b) => b[1] - a[1])[0] || [];
+        // Import the links regardless of whether the check can run: pulling
+        // them up to the release is useful on its own.
+        const imported = this.mergeTrackLinksIntoRelease(links, target);
 
-        const accepted = [];
-        const mismatches = [];
-        for (const entry of entries) {
-            const canonical = canonicalizeListenLink(entry.link);
-            if (!canonical) {
-                mismatches.push({ ...entry, reason: 'not a usable URL' });
-                continue;
-            }
-            if (!entry.parsed) {
-                mismatches.push({ ...entry, reason: 'unrecognized service — kept, but unverified' });
-                accepted.push(canonical);
-                continue;
-            }
-            if (dominantAlbum && entry.parsed.type === 'album'
-                && entry.parsed.id !== dominantAlbum) {
-                mismatches.push({ ...entry, reason: 'points at a different album' });
-                continue;
-            }
-            accepted.push(canonical);
+        if (links.length === 0) {
+            report.textContent =
+                'No track links to import. Add a Spotify link to a track to check the tracklist.';
+            return;
         }
 
-        // De-duplicate on identity, not on string, so a locale-prefixed link
-        // and its plain twin collapse to one entry.
-        const unique = [];
-        for (const link of accepted) {
-            if (!unique.some(existing => sameTarget(existing, link))) unique.push(link);
+        report.textContent = `Imported ${imported} link(s). Checking against Spotify…`;
+
+        let result;
+        try {
+            result = await api.getSpotifyAlbum(links);
+        } catch (error) {
+            console.warn('Spotify check failed:', error);
+            report.textContent =
+                `Imported ${imported} link(s). Could not reach the server to check against Spotify.`;
+            return;
         }
 
-        const existing = this.parseCommaSeparated(target.value);
-        for (const link of unique) {
-            if (!existing.some(current => sameTarget(current, link))) existing.push(link);
+        if (!result.success) {
+            report.textContent = `Imported ${imported} link(s). ${result.message
+                || 'The Spotify check is unavailable.'}`;
+            return;
         }
-        target.value = existing.join(', ');
 
-        this.renderListenLinkReport(report, unique.length, mismatches);
+        this.renderListenLinkReport(report, imported, result.album,
+            diffTracklists(tracks, result.album.tracks));
     }
 
     /**
-     * Render the outcome of a link import.
+     * Add track links to the release-level field, without duplicates.
+     *
+     * De-duplication is on normalized identity rather than string equality, so
+     * a locale-prefixed link and its plain twin collapse into one.
+     *
+     * @param {string[]} links
+     * @param {HTMLInputElement} target
+     * @returns {number} How many distinct links the field now holds.
+     */
+    mergeTrackLinksIntoRelease(links, target) {
+        const existing = this.parseCommaSeparated(target.value);
+
+        for (const link of links) {
+            const canonical = canonicalizeListenLink(link);
+            if (!canonical) continue;
+            if (!existing.some(current => sameTarget(current, canonical))) {
+                existing.push(canonical);
+            }
+        }
+
+        target.value = existing.join(', ');
+        return existing.length;
+    }
+
+    /**
+     * Show what Spotify said, and where it disagrees.
+     *
+     * A clean result is stated explicitly rather than left blank — "nothing to
+     * report" and "the check did not run" must not look the same.
      *
      * @param {HTMLElement} report
      * @param {number} importedCount
-     * @param {{track: string, link: string, reason: string}[]} mismatches
+     * @param {{name: string, total_tracks: number}} album
+     * @param {{kind: string}[]} differences
      */
-    renderListenLinkReport(report, importedCount, mismatches) {
+    renderListenLinkReport(report, importedCount, album, differences) {
+        report.innerHTML = '';
+
         const summary = document.createElement('p');
-        summary.textContent = `Imported ${importedCount} link(s).`;
+        summary.textContent = `Imported ${importedCount} link(s). `
+            + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks).`;
         report.appendChild(summary);
 
-        if (mismatches.length === 0) return;
+        if (differences.length === 0) {
+            const clean = document.createElement('p');
+            clean.className = 'link-check-ok';
+            clean.textContent = 'The tracklist matches.';
+            report.appendChild(clean);
+            return;
+        }
 
         const heading = document.createElement('p');
         heading.className = 'link-mismatch-heading';
-        heading.textContent = `${mismatches.length} link(s) need a look:`;
+        heading.textContent = `${differences.length} difference(s) — neither source is `
+            + 'authoritative, so check which is right before submitting:';
         report.appendChild(heading);
 
         const list = document.createElement('ul');
         list.className = 'link-mismatch-list';
-        for (const mismatch of mismatches) {
+        for (const difference of differences) {
             const row = document.createElement('li');
             row.className = 'link-mismatch';
-            row.textContent = `${mismatch.track}: ${mismatch.link} — ${mismatch.reason}`;
+            row.textContent = describeDifference(difference);
             list.appendChild(row);
         }
         report.appendChild(list);

@@ -28,7 +28,7 @@ const GROUP_RESULT = {
     score: 10,
 };
 
-async function gotoForm(page, { searchResults = [] } = {}) {
+async function gotoForm(page, { searchResults = [], spotifyAlbum = null } = {}) {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(`${e.name}: ${e.message}`));
 
@@ -40,6 +40,12 @@ async function gotoForm(page, { searchResults = [] } = {}) {
         route.fulfill({
             contentType: 'application/json',
             body: JSON.stringify({ success: true, results: searchResults }),
+        }));
+    await page.route('**/spotify/album', (route) =>
+        route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify(spotifyAlbum
+                ?? { success: false, reason: 'not_configured', message: 'Not configured.' }),
         }));
 
     await page.goto('/submit', { waitUntil: 'load' });
@@ -257,26 +263,80 @@ test.describe('listen links', () => {
             .toEqual(['https://open.spotify.com/track/0Fl6Pl6w89IL1FWt8Uvg01']);
     });
 
-    test('importing from tracks flags a link pointing at another album', async ({ page }) => {
-        await gotoForm(page);
-        await page.fill('[name="release_name"]', 'Songs For The Deaf');
+    test('the check reports a track Spotify does not have', async ({ page }) => {
+        await gotoForm(page, {
+            spotifyAlbum: {
+                success: true,
+                album: {
+                    id: 'alb1', name: 'Nevermind', total_tracks: 2,
+                    tracks: [
+                        { name: 'Smells Like Teen Spirit', track_number: 1 },
+                        { name: 'In Bloom', track_number: 2 },
+                    ],
+                },
+            },
+        });
+        await page.fill('[name="release_name"]', 'Nevermind');
 
-        // Two tracks agreeing on one album, one dissenting — the shape of a
-        // Discogs import that picked up a link from a different edition.
-        for (const [i, album] of [['0', 'ALBUMAAA'], ['1', 'ALBUMAAA'], ['2', 'ALBUMBBB']]) {
+        // Three tracks here, two on Spotify — the shape of a Discogs import
+        // carrying a hidden track the streaming release omits.
+        for (const [i, title] of [['0', 'Smells Like Teen Spirit'], ['1', 'In Bloom'],
+                                  ['2', 'Endless, Nameless']]) {
             await addOpenTrack(page, Number(i));
-            await page.fill(`[name="track-title-${i}"]`, `Track ${Number(i) + 1}`);
+            await page.fill(`[name="track-title-${i}"]`, title);
             await page.fill(`[name="track-listen-link-${i}"]`,
-                `https://open.spotify.com/album/${album}`);
+                `https://open.spotify.com/track/T${i}`);
         }
 
         await page.click('#import-track-links');
 
-        await expect(page.locator('.link-mismatch')).toHaveCount(1);
-        await expect(page.locator('.link-mismatch')).toContainText('different album');
-        // The dissenting link is reported, not silently merged in.
-        await expect(page.locator('#release-listen-links')).toHaveValue(
-            'https://open.spotify.com/album/ALBUMAAA');
+        await expect(page.locator('.link-mismatch').first()).toBeVisible();
+        const text = await page.locator('#listen-link-report').innerText();
+        expect(text).toContain('Endless, Nameless');
+        expect(text).toMatch(/3.*2|2.*3/);          // the count difference
+    });
+
+    test('a matching tracklist says so rather than staying blank', async ({ page }) => {
+        await gotoForm(page, {
+            spotifyAlbum: {
+                success: true,
+                album: {
+                    id: 'alb1', name: 'Nevermind', total_tracks: 1,
+                    // A remaster suffix must not read as a difference, or the
+                    // report cries wolf on almost every album.
+                    tracks: [{ name: 'In Bloom - Remastered 2011', track_number: 1 }],
+                },
+            },
+        });
+        await page.fill('[name="release_name"]', 'Nevermind');
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'In Bloom');
+        await page.fill('[name="track-listen-link-0"]', 'https://open.spotify.com/track/T0');
+
+        await page.click('#import-track-links');
+
+        // "Nothing to report" and "the check did not run" must not look alike.
+        await expect(page.locator('.link-check-ok')).toHaveText('The tracklist matches.');
+    });
+
+    test('links are still imported when the check is unconfigured', async ({ page }) => {
+        await gotoForm(page, {
+            spotifyAlbum: { success: false, reason: 'not_configured',
+                message: 'Spotify lookup is not configured on this server.' },
+        });
+        await page.fill('[name="release_name"]', 'Nevermind');
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'In Bloom');
+        await page.fill('[name="track-listen-link-0"]',
+            'https://open.spotify.com/intl-de/track/T0?si=abc');
+
+        await page.click('#import-track-links');
+
+        // Pulling the links up is useful on its own, so it must not depend on
+        // an optional integration being switched on.
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue('https://open.spotify.com/track/T0');
+        await expect(page.locator('#listen-link-report')).toContainText('not configured');
     });
 });
 

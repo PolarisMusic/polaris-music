@@ -353,6 +353,11 @@ input[type="checkbox"] {
     color: #a33;
 }
 
+.link-check-ok {
+    color: #2a7;
+    font-weight: 600;
+}
+
 /* A field the Discogs import could not match to exactly one registry node. */
 .needs-review input[type="text"] {
     border-color: #d9a441;

@@ -147,10 +147,12 @@
                         <section class="form-section">
                             <h3>Listen Links</h3>
                             <p class="section-note">
-                                Where this release can be heard. Use <strong>Import from tracks</strong> to
-                                pull up the links entered on individual tracks — it is the quickest way to
-                                check an imported tracklist, since links pointing at a different album are
-                                flagged rather than merged.
+                                Where this release can be heard. <strong>Import &amp; check</strong> pulls up
+                                the links entered on individual tracks, then asks Spotify what that album
+                                contains and reports anything that disagrees with the tracklist here.
+                                Discogs is community-edited and often differs from the streaming release,
+                                so differences are reported rather than corrected — neither source is
+                                authoritative.
                             </p>
                             <div class="form-group">
                                 <label for="release-listen-links">Release Links</label>
@@ -158,7 +160,7 @@
                                        placeholder="https://open.spotify.com/album/... (comma-separated)">
                                 <small>Share tokens and locale prefixes are stripped before submission.</small>
                             </div>
-                            <button type="button" class="btn-secondary" id="import-track-links">Import from tracks</button>
+                            <button type="button" class="btn-secondary" id="import-track-links">Import &amp; check against Spotify</button>
                             <div id="listen-link-report" class="listen-link-report"></div>
                         </section>
 
