@@ -558,6 +558,32 @@ export class MusicGraph {
      * Called when the layout changes (e.g. mini-player appearing) so that
      * click hit-testing stays aligned with the visual node positions.
      */
+    /**
+     * The node currently at the centre of the hypertree.
+     *
+     * The Hypertree places the focused node at the origin of the unit disk and
+     * pushes everything else outward (observed: focus 0.00, neighbours ~0.75),
+     * so the centred node is simply the one nearest the origin.
+     *
+     * @returns {string|null} node id, or null when the graph is empty
+     * @private
+     */
+    _centredNodeId() {
+        if (!this.ht?.graph?.eachNode) return null;
+
+        let closestId = null;
+        let closest = Infinity;
+        this.ht.graph.eachNode((node) => {
+            const p = node.pos.getc(true);
+            const distance = Math.hypot(p.x, p.y);
+            if (distance < closest) {
+                closest = distance;
+                closestId = node.id;
+            }
+        });
+        return closestId;
+    }
+
     _handleCanvasResize() {
         if (!this.ht || !this.ht.canvas || !this.container) return;
         // Don't resize before graph data is loaded (no root node yet)
@@ -567,11 +593,43 @@ export class MusicGraph {
         const height = this.container.clientHeight;
         if (!width || !height) return;
 
+        // Bail when nothing actually changed. canvas.resize() is destructive to
+        // the view (see below), and this runs from openInfoPanel(), which fires
+        // on every node selection. On desktop the info panel is a permanent
+        // column, so selecting a node changes no dimension at all — yet the
+        // resize still ran and still threw the view back to the root, which is
+        // what made the graph impossible to navigate.
+        if (width === this._lastCanvasWidth && height === this._lastCanvasHeight) {
+            return;
+        }
+        this._lastCanvasWidth = width;
+        this._lastCanvasHeight = height;
+
+        // Remember what the user is looking at before resizing. canvas.resize()
+        // zeroes the pan/zoom offsets (jit.js:2941) and recomputes the layout
+        // from the root, so without this the view snaps home — which is what
+        // made the graph impossible to navigate.
+        //
+        // Read it from the model rather than from this.selectedNode: the
+        // centred node is the one at the origin of the unit disk, which is true
+        // however the view got there — a node click, a search result, a
+        // programmatic move. Keying off selectedNode missed every path that
+        // does not set it, and fell back to re-centring on the root, which is
+        // itself the reset being fixed.
+        const focusId = this._centredNodeId();
+
         if (typeof this.ht.canvas.resize === 'function') {
             this.ht.canvas.resize(width, height);
         }
 
-        this.ht.plot();
+        if (focusId && focusId !== this.ht.root && this.ht.graph.getNode(focusId)) {
+            // Zero duration: the click animation that triggered this has
+            // already finished, so animating again would show a second move.
+            this.ht.onClick(focusId, { duration: 0 });
+        } else {
+            this.ht.plot();
+        }
+
         this.overlayPositioner.updateOverlayPosition();
     }
 
