@@ -25,6 +25,7 @@ import { dirname } from 'path';
 import { randomUUID } from 'crypto';
 import { buildSubstreamsArgs } from './args.mjs';
 import { isLikelyJsonLine } from './lines.mjs';
+import { createSerialQueue } from './serialQueue.mjs';
 
 // ESM __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -785,7 +786,22 @@ async function main() {
     //
     // The handler itself stays synchronous so buffer splitting cannot interleave
     // between concurrent 'data' events.
-    const pending = new Set();
+    // Chain, don't fan out. Blockchain events must be applied in block order:
+    // an EDIT_CLAIM that arrives before the CREATE_RELEASE_BUNDLE which creates
+    // its target can only fail with "Target node not found". Firing processLine()
+    // without awaiting let events in one stdout chunk race each other, and a
+    // colour-change edit at block 283275359 finished 3s before the bundle at
+    // block 283275172 that created the Person it edits.
+    //
+    // Non-determinism made it worse: the same two events succeeded on an earlier
+    // replay purely on timing. Serial ingestion is slower and correct, which is
+    // the right trade for an event-sourced pipeline.
+    //
+    // The handler stays synchronous so buffer splitting cannot interleave
+    // between concurrent 'data' events.
+    const queue = createSerialQueue({
+        onError: (error) => console.error('Error processing line:', error.message)
+    });
     let buffer = '';
     substreams.stdout.on('data', (data) => {
         buffer += data.toString();
@@ -794,9 +810,7 @@ async function main() {
 
         for (const line of lines) {
             if (line.trim()) {
-                const work = processLine(line);
-                pending.add(work);
-                work.finally(() => pending.delete(work));
+                queue.enqueue(() => processLine(line));
             }
         }
     });
@@ -808,11 +822,9 @@ async function main() {
 
     // Handle process exit
     substreams.on('close', async (code) => {
-        // Wait for in-flight POSTs before reporting or exiting, so the summary
-        // reflects what was actually delivered and nothing is killed in transit.
-        if (pending.size > 0) {
-            await Promise.allSettled([...pending]);
-        }
+        // Drain the chain before reporting or exiting, so the summary reflects
+        // what was actually delivered and nothing is killed in transit.
+        await queue.drain();
 
         console.log('');
         console.log('Substreams closed with code', code);
