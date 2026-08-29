@@ -882,6 +882,7 @@ constructor(config = {}) {
                     r.liner_notes = $linerNotes,
                     r.trivia = $trivia,
                     r.album_art = $albumArt,
+                    r.listen_links = $listenLinks,
                     r.status = $status,
                     r.id_kind = $id_kind,
                     r.updated_by = $eventHash,
@@ -904,6 +905,7 @@ constructor(config = {}) {
                 format: normalizedBundle.release.format || [],
                 country: normalizedBundle.release.country || null,
                 catalogNumber: normalizedBundle.release.catalog_number || null,
+                listenLinks: normalizedBundle.release.listen_links || [],
                 linerNotes: normalizedBundle.release.liner_notes || null,
                 trivia: normalizedBundle.release.trivia || null,
                 albumArt: normalizedBundle.release.album_art || null,
@@ -1058,6 +1060,8 @@ constructor(config = {}) {
                         t.recording_date = $recordingDate,
                         t.recording_location = $location,
                         t.listen_links = $listenLinks,
+                        t.lyrics = $lyrics,
+                        t.trivia = $trivia,
                         t.status = $status,
                         t.id_kind = $id_kind,
                         t.updated_at = datetime({epochMillis: $eventTs})
@@ -1070,6 +1074,8 @@ constructor(config = {}) {
                     recordingDate: track.recording_date || null,
                     location: track.recording_location || null,
                     listenLinks: track.listen_links || [],
+                    lyrics: track.lyrics || null,
+                    trivia: track.trivia || null,
                     status: 'ACTIVE',
                     id_kind: IdentityService.parseId(trackId).kind
                 });

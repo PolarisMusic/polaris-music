@@ -32,7 +32,11 @@ export class FormLookupManager {
     constructor(formRoot) {
         this.formRoot = formRoot;
         this._boundFields = new WeakSet();
-        this._instances = [];
+        // Keyed by the hidden input so callers can reach an instance to bind
+        // it programmatically (the Discogs import does this). A Map rather
+        // than the previous plain array because instances also have to be
+        // found again to destroy them when their row is removed.
+        this._instances = new Map();
 
         // Initial scan
         this._scanAndBind();
@@ -97,7 +101,7 @@ export class FormLookupManager {
             });
 
             this._boundFields.add(hiddenInput);
-            this._instances.push(instance);
+            this._instances.set(hiddenInput, instance);
         }
 
         // Bind multi-select samples chip fields
@@ -119,17 +123,47 @@ export class FormLookupManager {
             });
 
             this._boundFields.add(container);
-            this._instances.push(instance);
+            this._instances.set(container, instance);
         }
+
+        this._reapDetached();
+    }
+
+    /**
+     * Drop instances whose element has left the document.
+     *
+     * The Discogs import clears every container with innerHTML = '', which
+     * removes the rows but not the document-level click listeners each
+     * EntityLookupField registers. Without this, re-importing repeatedly
+     * accumulates listeners over detached nodes.
+     *
+     * @private
+     */
+    _reapDetached() {
+        for (const [element, instance] of this._instances) {
+            if (element.isConnected) continue;
+            instance.destroy();
+            this._instances.delete(element);
+        }
+    }
+
+    /**
+     * Get the lookup field bound to a hidden input, for programmatic binding.
+     *
+     * @param {HTMLInputElement} hiddenInput
+     * @returns {import('./EntityLookupField.js').EntityLookupField|undefined}
+     */
+    getInstance(hiddenInput) {
+        return this._instances.get(hiddenInput);
     }
 
     /** Destroy all instances and stop observing */
     destroy() {
         this._observer.disconnect();
         clearTimeout(this._scanTimer);
-        for (const instance of this._instances) {
+        for (const instance of this._instances.values()) {
             instance.destroy();
         }
-        this._instances = [];
+        this._instances.clear();
     }
 }

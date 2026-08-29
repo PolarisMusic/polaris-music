@@ -57,7 +57,17 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: { browserName: 'chromium' },
+            use: {
+                browserName: 'chromium',
+                // Sandboxes and CI images often ship a Chromium build that does
+                // not match the revision this Playwright version expects, and
+                // the resulting "Executable doesn't exist" reads like a test
+                // failure rather than a missing download. Point at an existing
+                // binary instead of re-fetching ~150MB.
+                ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
+                    ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } }
+                    : {}),
+            },
         },
     ],
 });

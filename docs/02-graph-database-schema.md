@@ -282,6 +282,7 @@ class MusicGraphDatabase {
                     r.liner_notes = $linerNotes,
                     r.trivia = $trivia,
                     r.album_art = $albumArt,
+                    r.listen_links = $listenLinks,
                     r.updated_by = $eventHash
                 RETURN r
             `, {
@@ -295,6 +296,7 @@ class MusicGraphDatabase {
                 linerNotes: bundle.release.liner_notes,
                 trivia: bundle.release.trivia,
                 albumArt: bundle.release.album_art,
+                listenLinks: bundle.release.listen_links || [],
                 eventHash
             });
             
@@ -359,7 +361,9 @@ class MusicGraphDatabase {
                         t.duration = $duration,
                         t.recording_date = $recordingDate,
                         t.recording_location = $location,
-                        t.listen_links = $listenLinks
+                        t.listen_links = $listenLinks,
+                        t.lyrics = $lyrics,
+                        t.trivia = $trivia
                 `, {
                     trackId,
                     title: track.title,
@@ -367,7 +371,9 @@ class MusicGraphDatabase {
                     duration: track.duration,
                     recordingDate: track.recording_date,
                     location: track.recording_location,
-                    listenLinks: track.listen_links || []
+                    listenLinks: track.listen_links || [],
+                    lyrics: track.lyrics || null,
+                    trivia: track.trivia || null
                 });
                 
                 // ========== CRITICAL: DISTINGUISH GROUPS vs GUESTS ==========
@@ -930,8 +936,8 @@ CONSIDER THIS SECTION CANONICAL
 | Person | Individual musician/artist | person_id, name, bio, status |
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
 | Song | Musical composition | song_id, title, iswc, writers |
-| Track | Recording of a song | track_id, title, isrc, duration |
-| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format |
+| Track | Recording of a song | track_id, title, isrc, duration, listen_links, lyrics, trivia |
+| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, listen_links |
 | Master | Canonical album grouping | master_id, name |
 | Label | Record label | label_id, name |
 | Account | Blockchain account | account_id |

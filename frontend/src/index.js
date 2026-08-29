@@ -9,13 +9,21 @@ import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
 import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
+import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
+import { canonicalizeListenLink, sameTarget, normalizeListenLink } from './utils/listenLinks.js';
 
 class PolarisApp {
     constructor() {
         this.formBuilder = new FormBuilder();
         this.currentReleaseData = null;
         this.currentTransaction = null;
+
+        // Set by the first edit; gates the navigate-away confirmation. Tracked
+        // as a flag rather than inferred from field values, because a fresh
+        // form is not empty — is-master is checked and every track number is
+        // prefilled, so a value-based test calls an untouched form dirty.
+        this.formDirty = false;
 
         // Initialize wallet manager
         this.walletManager = new WalletManager();
@@ -32,16 +40,33 @@ class PolarisApp {
 
                 // Special handling for Browse Registry tab
                 if (tabName === 'browse') {
-                    const confirmed = confirm('Are you sure you want to navigate away from this page? Any unsaved changes will be lost.');
-                    if (confirmed) {
-                        window.location.href = '/';
+                    if (this.formDirty && !confirm(
+                        'Are you sure you want to navigate away from this page? '
+                        + 'Any unsaved changes will be lost.')) {
+                        return;
                     }
+                    window.location.href = '/';
                     return;
                 }
 
                 this.switchTab(tabName);
             });
         });
+
+        // Any edit anywhere in the form counts, including in dynamically added
+        // track rows — these are delegated from the form element, so rows added
+        // later are covered without rebinding.
+        const releaseForm = document.getElementById('release-form');
+        if (releaseForm) {
+            const markDirty = () => { this.formDirty = true; };
+            releaseForm.addEventListener('input', markDirty);
+            releaseForm.addEventListener('change', markDirty);
+            // Adding an empty track or label fires neither, but it is still
+            // work the submitter would not want to lose silently.
+            releaseForm.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-add')) markDirty();
+            });
+        }
 
         // Initialize form handlers
         this.initializeForm();
@@ -109,9 +134,8 @@ class PolarisApp {
             const index = container.children.length;
             const groupForm = this.formBuilder.createReleaseGroupForm(index);
             container.appendChild(groupForm);
-
-            // Auto-populate this group to all existing tracks
-            this.addReleaseGroupToAllTracks(index);
+            // Tracks pick this up through their "same as release" checkbox at
+            // extraction time, so there is nothing to copy into them here.
         });
 
         // Add release guest button
@@ -120,6 +144,30 @@ class PolarisApp {
             const index = container.children.length;
             container.appendChild(this.formBuilder.createReleaseGuestForm(index));
         });
+
+        // Add release songwriter button
+        document.getElementById('add-release-songwriter').addEventListener('click', () => {
+            const container = document.getElementById('release-songwriters-container');
+            const index = container.children.length;
+            container.appendChild(
+                this.formBuilder.createPersonForm(index, 'release-songwriter'));
+        });
+
+        // Pull track links up to the release, flagging any that disagree
+        document.getElementById('import-track-links').addEventListener('click', () => {
+            this.importTrackListenLinks();
+        });
+
+        // A required control inside a collapsed <details> cannot be focused,
+        // and Chrome then aborts submission with "An invalid form control is
+        // not focusable" and no visible cause. Open its ancestors so the
+        // browser can show the message where the problem is. `invalid` does
+        // not bubble, hence capture.
+        form.addEventListener('invalid', (e) => {
+            for (let el = e.target; el; el = el.parentElement) {
+                if (el.tagName === 'DETAILS') el.open = true;
+            }
+        }, true);
 
         // Add track button
         document.getElementById('add-track').addEventListener('click', () => {
@@ -183,15 +231,30 @@ class PolarisApp {
         const form = document.getElementById('release-form');
         const formData = new FormData(form);
 
+        // Release-level values are gathered first, because any track set to
+        // "same as release" copies them into its own payload.
+        const releaseDefaults = {
+            groups: this.extractReleaseGroups(),
+            guests: this.extractReleaseGuests(),
+            producers: [],
+            songwriters: this.extractReleaseSongwriters(),
+        };
+
         // Extract tracks first (needed for tracklist, songs)
-        const tracks = this.extractTracks();
+        const tracks = this.extractTracks(releaseDefaults);
 
         // Release metadata (canonical keys)
         const release = {
             name: formData.get('release_name'),
             labels: this.extractLabels(),
-            guests: this.extractReleaseGuests(),
+            guests: releaseDefaults.guests,
         };
+
+        const releaseListenLinks = this.parseCommaSeparated(
+            formData.get('release_listen_links'))
+            .map(canonicalizeListenLink)
+            .filter(Boolean);
+        if (releaseListenLinks.length > 0) release.listen_links = releaseListenLinks;
 
         // Optional release fields
         const altNames = this.parseCommaSeparated(formData.get('release_altnames'));
@@ -206,15 +269,20 @@ class PolarisApp {
         const linerNotes = formData.get('liner_notes');
         if (linerNotes) release.liner_notes = linerNotes;
 
-        // Master release
+        // Master release. The id is set only when the submitter picked an
+        // existing Release from the lookup; otherwise keep the typed name so a
+        // master that is not in the registry yet is still recorded rather than
+        // silently dropped.
         const isMaster = document.getElementById('is-master').checked;
         if (!isMaster) {
             const masterId = formData.get('master_release_id');
+            const masterName = formData.get('master_release_name');
             if (masterId) release.master_id = masterId;
+            if (masterName) release.master_name = masterName;
         }
 
         // Release-level groups (with members)
-        const groups = this.extractReleaseGroups();
+        const groups = releaseDefaults.groups;
 
         // Build canonical tracklist from tracks
         const tracklist = tracks.map((track, index) => {
@@ -430,11 +498,248 @@ class PolarisApp {
     }
 
     /**
+     * Try to attach an existing registry node to a field the Discogs import
+     * just filled in.
+     *
+     * Binding is deliberately conservative: exactly one result, matching the
+     * name exactly bar case. A wrong id is far worse than no id — it merges
+     * two different artists into one node, and the graph has no cheap way back
+     * from that. Anything short of certain is left for a human, marked so it
+     * can be found.
+     *
+     * @param {HTMLInputElement} hiddenInput - The data-lookup-type field.
+     * @param {string} name - The name Discogs supplied.
+     * @param {string[]} types - Node labels to search.
+     * @returns {Promise<boolean>} Whether a binding was made.
+     */
+    async reconcileField(hiddenInput, name, types) {
+        if (!hiddenInput || !name || !this.lookupManager) return false;
+
+        const field = this.lookupManager.getInstance(hiddenInput);
+        if (!field) return false;
+
+        let results;
+        try {
+            results = await searchNodes(name, { types, limit: 5 });
+        } catch (error) {
+            console.warn('Reconciliation lookup failed for', name, error);
+            return false;
+        }
+
+        const wanted = name.trim().toLowerCase();
+        const exact = results.filter(
+            r => (r.display_name || '').trim().toLowerCase() === wanted);
+
+        if (exact.length === 1) {
+            field.bind(exact[0]);
+            return true;
+        }
+
+        // Ambiguous or absent: keep the typed name, flag for review.
+        hiddenInput.closest('.form-group')?.classList.add('needs-review');
+        return false;
+    }
+
+    /**
+     * Reconcile every name the Discogs import filled in, in one pass.
+     *
+     * Runs after the form is fully built rather than per field, so the lookup
+     * manager's MutationObserver has attached instances to the new rows.
+     * Lookups run sequentially: searchNodes has no request cancellation and
+     * the backend is a shared instance, so a burst of parallel queries for one
+     * import is not worth the few hundred milliseconds it would save.
+     */
+    async reconcileImportedFields() {
+        const form = document.getElementById('release-form');
+        if (!form) return;
+
+        const targets = form.querySelectorAll('input[data-lookup-type]');
+        let bound = 0;
+
+        for (const hiddenInput of targets) {
+            if (hiddenInput.value) continue;   // already bound
+
+            const pairName = hiddenInput.dataset.lookupPair;
+            const visible = pairName ? form.querySelector(`[name="${pairName}"]`) : null;
+            const name = visible?.value?.trim();
+            if (!name) continue;
+
+            const lookupType = hiddenInput.dataset.lookupType;
+            if (await this.reconcileField(hiddenInput, name, [lookupType])) bound++;
+        }
+
+        if (bound > 0) {
+            this.showToast(`Matched ${bound} entit${bound === 1 ? 'y' : 'ies'} to existing registry nodes`, 'success');
+        }
+    }
+
+    /**
+     * Collect the listen links entered on individual tracks and offer them at
+     * the release level, flagging any that disagree.
+     *
+     * This is the Discogs cross-check: an imported tracklist can carry links
+     * belonging to a different edition, and the giveaway is a track pointing at
+     * an album other than the one its neighbours point at. Those are reported
+     * rather than merged in — the whole point is that a human looks.
+     */
+    importTrackListenLinks() {
+        const report = document.getElementById('listen-link-report');
+        const target = document.getElementById('release-listen-links');
+        report.innerHTML = '';
+
+        /** @type {{track: string, link: string, parsed: object|null}[]} */
+        const entries = [];
+        document.querySelectorAll('.track-item').forEach(item => {
+            const index = item.dataset.index;
+            const title = this.getInputValue(item, `track-title-${index}`)
+                || `Track ${Number(index) + 1}`;
+            this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`))
+                .forEach(link => entries.push({
+                    track: title, link, parsed: normalizeListenLink(link)
+                }));
+        });
+
+        if (entries.length === 0) {
+            report.textContent = 'No track links to import yet.';
+            return;
+        }
+
+        // The album every track ought to belong to: the most common album id
+        // among track links that carry one.
+        const albumCounts = new Map();
+        for (const entry of entries) {
+            const album = entry.parsed?.type === 'album' ? entry.parsed.id : null;
+            if (album) albumCounts.set(album, (albumCounts.get(album) || 0) + 1);
+        }
+        const [dominantAlbum] = [...albumCounts.entries()]
+            .sort((a, b) => b[1] - a[1])[0] || [];
+
+        const accepted = [];
+        const mismatches = [];
+        for (const entry of entries) {
+            const canonical = canonicalizeListenLink(entry.link);
+            if (!canonical) {
+                mismatches.push({ ...entry, reason: 'not a usable URL' });
+                continue;
+            }
+            if (!entry.parsed) {
+                mismatches.push({ ...entry, reason: 'unrecognized service — kept, but unverified' });
+                accepted.push(canonical);
+                continue;
+            }
+            if (dominantAlbum && entry.parsed.type === 'album'
+                && entry.parsed.id !== dominantAlbum) {
+                mismatches.push({ ...entry, reason: 'points at a different album' });
+                continue;
+            }
+            accepted.push(canonical);
+        }
+
+        // De-duplicate on identity, not on string, so a locale-prefixed link
+        // and its plain twin collapse to one entry.
+        const unique = [];
+        for (const link of accepted) {
+            if (!unique.some(existing => sameTarget(existing, link))) unique.push(link);
+        }
+
+        const existing = this.parseCommaSeparated(target.value);
+        for (const link of unique) {
+            if (!existing.some(current => sameTarget(current, link))) existing.push(link);
+        }
+        target.value = existing.join(', ');
+
+        this.renderListenLinkReport(report, unique.length, mismatches);
+    }
+
+    /**
+     * Render the outcome of a link import.
+     *
+     * @param {HTMLElement} report
+     * @param {number} importedCount
+     * @param {{track: string, link: string, reason: string}[]} mismatches
+     */
+    renderListenLinkReport(report, importedCount, mismatches) {
+        const summary = document.createElement('p');
+        summary.textContent = `Imported ${importedCount} link(s).`;
+        report.appendChild(summary);
+
+        if (mismatches.length === 0) return;
+
+        const heading = document.createElement('p');
+        heading.className = 'link-mismatch-heading';
+        heading.textContent = `${mismatches.length} link(s) need a look:`;
+        report.appendChild(heading);
+
+        const list = document.createElement('ul');
+        list.className = 'link-mismatch-list';
+        for (const mismatch of mismatches) {
+            const row = document.createElement('li');
+            row.className = 'link-mismatch';
+            row.textContent = `${mismatch.track}: ${mismatch.link} — ${mismatch.reason}`;
+            list.appendChild(row);
+        }
+        report.appendChild(list);
+    }
+
+    /**
+     * Extract release-level songwriters.
+     *
+     * Songwriters are canonically Song.writers, not a Release property, so
+     * these are defaults: buildSongsFromTracks() materializes them onto each
+     * song whose track has not overridden them. Same shape as track-level
+     * songwriters so the two are interchangeable.
+     *
+     * @returns {Array<{name: string, person_id?: string, roles?: string[]}>}
+     */
+    extractReleaseSongwriters() {
+        const writers = [];
+
+        document.querySelectorAll('[data-type="release-songwriter"]').forEach(item => {
+            const index = item.dataset.index;
+            // createPersonForm() names fields `${type}-name-${parent}-${index}`
+            // and is called with the default parent of 0, so the leading 0 is
+            // part of the contract, not a stray literal.
+            const name = this.getInputValue(item, `release-songwriter-name-0-${index}`);
+            if (!name) return;
+
+            const writer = { name };
+
+            const personId = this.getInputValue(item, `release-songwriter-person-id-0-${index}`);
+            if (personId) writer.person_id = personId;
+
+            const roles = this.parseRoles(
+                this.getInputValue(item, `release-songwriter-roles-0-${index}`));
+            if (roles.length > 0) writer.roles = roles;
+
+            writers.push(writer);
+        });
+
+        return writers;
+    }
+
+    /**
+     * Whether a track section is set to inherit from the release.
+     *
+     * Absent checkbox means "not inheriting" so that any markup predating the
+     * inherit toggles keeps its own values rather than silently adopting the
+     * release's.
+     *
+     * @param {Element} trackItem
+     * @param {string|number} index
+     * @param {string} key - groups | guests | producers | songwriters
+     * @returns {boolean}
+     */
+    isInherited(trackItem, index, key) {
+        const checkbox = trackItem.querySelector(`[name="track-same-${key}-${index}"]`);
+        return Boolean(checkbox && checkbox.checked);
+    }
+
+    /**
      * Extract tracks from form (canonical format)
      * Emits canonical Track shape: { title, performed_by_groups, guests, producers, ... }
      * Internal fields (_disc, _trackNumber, _songwriters) are stripped before final output.
      */
-    extractTracks() {
+    extractTracks(releaseDefaults = {}) {
         const tracks = [];
         const trackItems = document.querySelectorAll('.track-item');
 
@@ -463,21 +768,44 @@ class PolarisApp {
                 track.recording_of = songTitle;
             }
 
-            // Performing groups → performed_by_groups (canonical key)
-            const performedByGroups = this.extractGroups(item, index);
+            // Performing groups, guests and producers each either come from
+            // this track's own fields or are inherited from the release.
+            //
+            // Inheriting COPIES the release-level values, node ids and all, into
+            // this track's payload — the bundle stays as explicit as one filled
+            // in by hand. This replaces addReleaseGroupToAllTracks(), which
+            // copied only the name string and so dropped the bound group_id,
+            // leaving every track pointing at a new provisional group instead
+            // of the one the submitter picked.
+            const performedByGroups = this.isInherited(item, index, 'groups')
+                ? structuredClone(releaseDefaults.groups || [])
+                : this.extractGroups(item, index);
             if (performedByGroups.length > 0) track.performed_by_groups = performedByGroups;
 
-            // Guest musicians
-            const guests = this.extractPersons(item, 'guest', index);
+            const guests = this.isInherited(item, index, 'guests')
+                ? structuredClone(releaseDefaults.guests || [])
+                : this.extractPersons(item, 'guest', index);
             if (guests.length > 0) track.guests = guests;
 
-            // Track producers
-            const producers = this.extractPersons(item, 'producer', index);
+            const producers = this.isInherited(item, index, 'producers')
+                ? structuredClone(releaseDefaults.producers || [])
+                : this.extractPersons(item, 'producer', index);
             if (producers.length > 0) track.producers = producers;
 
-            // Listen links (comma-separated URLs)
-            const listenLinks = this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`));
+            // Listen links (comma-separated URLs), reduced to the part that
+            // identifies the recording — share tokens and locale prefixes
+            // describe whoever copied the link, not the music.
+            const listenLinks = this.parseCommaSeparated(
+                this.getInputValue(item, `track-listen-link-${index}`))
+                .map(canonicalizeListenLink)
+                .filter(Boolean);
             if (listenLinks.length > 0) track.listen_links = listenLinks;
+
+            const lyrics = this.getInputValue(item, `track-lyrics-${index}`);
+            if (lyrics) track.lyrics = lyrics;
+
+            const trivia = this.getInputValue(item, `track-trivia-${index}`);
+            if (trivia) track.trivia = trivia;
 
             // Cover of (original song) - prefer hidden ID from lookup
             const coverOfSongId = this.getInputValue(item, `track-cover-song-id-${index}`)
@@ -504,7 +832,9 @@ class PolarisApp {
             // Internal fields (used by buildReleaseData for tracklist/songs, stripped before output)
             track._disc = parseInt(this.getInputValue(item, `track-disc-${index}`) || 1);
             track._trackNumber = parseInt(this.getInputValue(item, `track-number-${index}`) || trackIndex + 1);
-            track._songwriters = this.extractPersons(item, 'songwriter', index);
+            track._songwriters = this.isInherited(item, index, 'songwriters')
+                ? structuredClone(releaseDefaults.songwriters || [])
+                : this.extractPersons(item, 'songwriter', index);
 
             tracks.push(track);
         });
@@ -916,9 +1246,13 @@ class PolarisApp {
                 document.getElementById('release-groups-container').innerHTML = '';
                 document.getElementById('release-guests-container').innerHTML = '';
                 document.getElementById('tracks-container').innerHTML = '';
+                document.getElementById('release-songwriters-container').innerHTML = '';
+                document.getElementById('listen-link-report').innerHTML = '';
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
                 this.currentTransaction = null;
                 this.currentReleaseData = null;
+                // Submitted work is no longer unsaved.
+                this.formDirty = false;
             }, 5000);
 
         } catch (error) {
@@ -972,67 +1306,6 @@ class PolarisApp {
         }
 
         return positions;
-    }
-
-    /**
-     * Add a release-level group to all existing tracks
-     * @param {number} releaseGroupIndex - Index of the release group
-     * @param {Array} members - Optional array of group members to add
-     */
-    addReleaseGroupToAllTracks(releaseGroupIndex, members = []) {
-        const tracksContainer = document.getElementById('tracks-container');
-        const trackItems = tracksContainer.querySelectorAll('.track-item');
-
-        // Get the group name from the release-level group form
-        const releaseGroupForm = document.querySelector(`.release-group-item[data-index="${releaseGroupIndex}"]`);
-        if (!releaseGroupForm) return;
-
-        const groupNameInput = releaseGroupForm.querySelector(`input[name="release-group-name-${releaseGroupIndex}"]`);
-        const groupName = groupNameInput ? groupNameInput.value : '';
-
-        // Add this group to each track
-        trackItems.forEach((trackItem) => {
-            const trackIndex = parseInt(trackItem.dataset.index);
-            const groupsContainer = trackItem.querySelector('.groups-container');
-            if (!groupsContainer) return;
-
-            // Get the next group index for this track
-            const existingGroups = groupsContainer.querySelectorAll('.nested-item');
-            const groupIndex = existingGroups.length;
-
-            // Create and add the group form
-            const groupForm = this.formBuilder.createGroupForm(trackIndex, groupIndex);
-            groupsContainer.appendChild(groupForm);
-
-            // Populate the group name
-            const trackGroupNameInput = groupForm.querySelector(`input[name="group-name-${trackIndex}-${groupIndex}"]`);
-            if (trackGroupNameInput && groupName) {
-                trackGroupNameInput.value = groupName;
-            }
-
-            // Add members if provided
-            if (members && members.length > 0) {
-                const membersContainer = groupForm.querySelector('.members-container');
-                if (membersContainer) {
-                    members.forEach((member, memberIndex) => {
-                        const memberForm = this.formBuilder.createPersonForm(memberIndex, 'member', `${trackIndex}-${groupIndex}`);
-                        membersContainer.appendChild(memberForm);
-
-                        // Populate member name
-                        const memberNameInput = memberForm.querySelector(`input[name="member-name-${trackIndex}-${groupIndex}-${memberIndex}"]`);
-                        if (memberNameInput) {
-                            memberNameInput.value = member.name;
-                        }
-
-                        // Populate member role if available
-                        const memberRolesInput = memberForm.querySelector(`input[name="member-roles-${trackIndex}-${groupIndex}-${memberIndex}"]`);
-                        if (memberRolesInput && member.role) {
-                            memberRolesInput.value = member.role;
-                        }
-                    });
-                }
-            }
-        });
     }
 
     /**
@@ -1319,12 +1592,6 @@ class PolarisApp {
             }
         }
 
-        // ===== AUTO-POPULATE RELEASE GROUPS TO TRACKS =====
-        // After all tracks are created, add release groups to each track
-        for (const group of mainGroups) {
-            this.addReleaseGroupToAllTracks(group.index, group.members);
-        }
-
         // Parse release-level extra artists (producers, engineers, etc.)
         const releaseGuestsContainer = document.getElementById('release-guests-container');
         let guestIndex = 0;
@@ -1436,6 +1703,17 @@ class PolarisApp {
 
         console.log('Form populated successfully');
         console.log(`Added: ${mainGroups.length} groups, ${guestIndex} release guests`);
+
+        // An import is unsaved work like any other.
+        this.formDirty = true;
+
+        // Attach registry ids to the names Discogs supplied. Deferred a tick so
+        // the lookup manager's observer (50ms debounce) has bound the rows this
+        // import just created — without instances there is nothing to bind to.
+        setTimeout(() => {
+            this.reconcileImportedFields().catch(error =>
+                console.warn('Reconciliation pass failed:', error));
+        }, 150);
     }
 
     /**
@@ -1448,7 +1726,10 @@ class PolarisApp {
     }
 }
 
-// Initialize app when DOM is ready
+// Initialize app when DOM is ready.
+// Exposed on window so the e2e suite can call buildReleaseData() and assert on
+// the bundle directly; there is no other way to check what a form submission
+// would actually contain without signing a real transaction.
 document.addEventListener('DOMContentLoaded', () => {
-    new PolarisApp();
+    window.polarisApp = new PolarisApp();
 });
