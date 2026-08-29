@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- embed-cdn.spotifycdn.com is required even though no source file
-         mentions it: https://open.spotify.com/embed/iframe-api/v1 is only a
-         loader, and it fetches the actual iFrame API implementation from that
-         CDN. Without it the script is blocked, onSpotifyIframeApiReady never
-         fires, and the MiniPlayer's play button does nothing. Do not remove it
-         as unused. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://open.spotify.com https://embed-cdn.spotifycdn.com; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://api.polaris.mu https://eos.greymass.com https://jungle4.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link https://open.spotify.com https://embed-cdn.spotifycdn.com; img-src 'self' data: https:; media-src 'self' https: blob:; frame-src https://*.anchor.link https://open.spotify.com;">
+    <!-- Spotify appears only under frame-src. The MiniPlayer embeds a plain
+         <iframe>, so none of Spotify's code runs in this page's context and
+         script-src stays same-origin. Their iFrame API would allow us to drive
+         playback from our own transport, but its implementation calls eval(),
+         which would mean adding 'unsafe-eval' — re-opening the injection class
+         this policy exists to prevent, page-wide, for a play button. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 http://localhost:3000 https://api.polaris.mu https://eos.greymass.com https://jungle4.greymass.com https://eos.eosusa.io https://*.anchor.link wss://*.anchor.link https://cb.anchor.link wss://cb.anchor.link; img-src 'self' data: https:; media-src 'self' https: blob:; frame-src https://*.anchor.link https://open.spotify.com;">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <title>Polaris Music Registry - Graph Visualization</title>
 

@@ -141,21 +141,16 @@ describeOrSkip('dist/index.html · CSP shape', () => {
         expect(directives['script-src'] || []).not.toContain('*');
     });
 
-    // The MiniPlayer loads https://open.spotify.com/embed/iframe-api/v1, which is
-    // only a loader: it fetches the actual iFrame API implementation from
-    // embed-cdn.spotifycdn.com. Allowing just open.spotify.com blocks the real
-    // script, so onSpotifyIframeApiReady never fires and playback silently does
-    // nothing.
-    //
-    // The runtime Playwright spec cannot catch this: the API script loads lazily,
-    // only once an embeddable track is selected, so a page with no Spotify-linked
-    // track reports zero violations while the policy is still wrong. Pin both
-    // origins here — nothing in our source references the CDN, so it otherwise
-    // looks like an unused entry worth deleting.
-    test('script-src permits both Spotify script origins', () => {
-        const sources = parseDirectives(extractCsp(readHtml('index.html')))['script-src'] || [];
-        expect(sources).toContain('https://open.spotify.com');
-        expect(sources).toContain('https://embed-cdn.spotifycdn.com');
+    // The MiniPlayer embeds Spotify as a plain <iframe>, so Spotify belongs
+    // under frame-src and nowhere else. Their iFrame API would let our own
+    // transport drive playback, but its implementation calls eval(), so using
+    // it would mean adding 'unsafe-eval' page-wide. script-src must stay
+    // same-origin: if a future change reaches for that API, these two
+    // assertions are what should stop it.
+    test('Spotify is permitted to frame, not to run scripts', () => {
+        const directives = parseDirectives(extractCsp(readHtml('index.html')));
+        expect(directives['frame-src'] || []).toContain('https://open.spotify.com');
+        expect(directives['script-src'] || []).toEqual(["'self'"]);
     });
 
     test('default-src is set (defense in depth — fallback for unset directives)', () => {
