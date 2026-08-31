@@ -858,7 +858,19 @@ export class IngestionHandler {
             const payloadStr = typeof payload === 'string' ? payload : payload.toString('utf-8');
             const actionData = JSON.parse(payloadStr);
 
-            // Step 4: Only process 'put' actions (event anchoring)
+            // Step 4: Route by action.
+            //
+            // The sink has always delivered put, vote and finalize, and two of
+            // the three were dropped here. That was the only reason the curation
+            // UI had to read votes back out of contract RAM — and it is why
+            // reclaim() has never been safe to call, leaving every finalized
+            // anchor paying rent it no longer owes.
+            if (action_name === 'vote' || action_name === 'finalize') {
+                return await this.processCurationAction(action_name, actionData, {
+                    block_num, block_id, trx_id, source, timestamp
+                });
+            }
+
             if (action_name !== 'put') {
                 this.log.info('anchored_event_skip', { event_hash: contentHash, action_name });
                 return {
@@ -952,6 +964,97 @@ export class IngestionHandler {
      * @param {string|Array|Object} hash - Hash in any format
      * @returns {string} Lowercase hex string (without 0x prefix)
      */
+    /**
+     * Project a vote or finalize action into the graph.
+     *
+     * These two actions carry no off-chain payload — everything they say is in
+     * the action arguments themselves (`vote(voter, tx_hash, val)`,
+     * `finalize(tx_hash)`), so there is nothing to fetch from the event store
+     * and no hash to verify. That is exactly why they can be projected cheaply,
+     * and why the contract's copy becomes redundant once they are.
+     *
+     * Failures are reported, not thrown: a curation projection that cannot be
+     * written must not stall the ingestion of the submissions behind it.
+     *
+     * @param {string} actionName - 'vote' or 'finalize'.
+     * @param {Object} actionData - Decoded action arguments.
+     * @param {Object} meta - { block_num, block_id, trx_id, source }.
+     * @returns {Promise<Object>} Status envelope, matching the put path's shape.
+     * @private
+     */
+    async processCurationAction(actionName, actionData, meta = {}) {
+        const graph = this.processor?.db;
+        // normalizeHash throws on a non-hash, and a malformed trace should be
+        // skipped rather than reported as a projection failure.
+        let targetHash = null;
+        try {
+            if (actionData?.tx_hash) targetHash = this.normalizeHash(actionData.tx_hash);
+        } catch {
+            targetHash = null;
+        }
+
+        if (!targetHash) {
+            this.log.warn('curation_action_no_target', { action_name: actionName });
+            return { status: 'skipped', message: `${actionName} carried no tx_hash` };
+        }
+
+        if (!graph?.recordVote) {
+            // Older graph instances, and the unit tests that stub the processor,
+            // have no projection to write to. Skipping is correct: the chain
+            // rows are still authoritative until a reclaim job runs.
+            this.log.info('curation_action_no_graph', { action_name: actionName, event_hash: targetHash });
+            return { status: 'skipped', contentHash: targetHash, message: 'No graph projection available' };
+        }
+
+        try {
+            if (actionName === 'vote') {
+                await graph.recordVote({
+                    eventHash: targetHash,
+                    voter: actionData.voter,
+                    val: actionData.val,
+                    blockNum: meta.block_num,
+                    ts: this.blockTimeToMillis(meta)
+                });
+            } else {
+                await graph.recordFinalization({
+                    eventHash: targetHash,
+                    blockNum: meta.block_num,
+                    ts: this.blockTimeToMillis(meta)
+                });
+            }
+
+            this.log.info('curation_action_recorded', {
+                action_name: actionName,
+                event_hash: targetHash,
+                block_num: meta.block_num
+            });
+            return { status: 'processed', contentHash: targetHash, actionName };
+        } catch (error) {
+            this.log.error('curation_action_failed', {
+                action_name: actionName, event_hash: targetHash, error: error.message
+            });
+            return { status: 'error', contentHash: targetHash, message: error.message };
+        }
+    }
+
+    /**
+     * Block timestamp in epoch millis, or null.
+     *
+     * Chain time rather than wall clock, so a replay reproduces the same graph —
+     * the same reason eventProcessor prefers actionData.ts.
+     *
+     * @param {Object} meta
+     * @returns {number|null}
+     * @private
+     */
+    blockTimeToMillis(meta = {}) {
+        const raw = meta.timestamp ?? meta.block_time ?? null;
+        if (raw == null) return null;
+        if (typeof raw === 'number') return raw > 1e12 ? raw : raw * 1000;
+        const parsed = Date.parse(raw.endsWith('Z') ? raw : `${raw}Z`);
+        return Number.isNaN(parsed) ? null : parsed;
+    }
+
     normalizeHash(hash) {
         // Already a hex string
         if (typeof hash === 'string') {
