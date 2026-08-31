@@ -641,7 +641,7 @@ describe('Polaris Music Registry Smart Contract', function() {
                         permission: 'active'
                     }],
                     data: {
-                        respect_data: [[alice', 500]], // 500 Respect
+                        respect_data: [['alice', 500]], // 500 Respect
                         election_round: 1
                     }
                 }]
@@ -928,6 +928,124 @@ describe('Polaris Music Registry Smart Contract', function() {
         it('should prevent underflow in unlike (LOW-8 fix)', async function() {
             // This would require corrupting data or complex setup
             // The fix adds a check to prevent underflow
+        });
+    });
+
+    describe('RAM Reclamation (reclaim action)', function() {
+        /**
+         * reclaim() releases the anchor, tally and vote rows once curation is
+         * settled — roughly 552, 336 and 461 bytes each, billed to authors and
+         * voters. It shipped untested and uncalled; a scheduled job is about to
+         * start invoking it, and it deletes on-chain state irreversibly.
+         *
+         * What can be tested against a plain local chain is the guard, which is
+         * the dangerous half: reclaiming an anchor whose vote is still open
+         * would destroy the rows that decide who gets paid.
+         *
+         * The lifecycle cases below are skipped rather than written to pass,
+         * because they cannot run here. finalize() requires the voting window to
+         * have expired, and setparams() clamps the minimum window to one hour
+         * (polaris.music.cpp:461). Reaching finalization therefore needs a chain
+         * with time control, not just a local nodeos. They are left in place,
+         * and explicitly skipped, so the gap is visible rather than implied by
+         * absence.
+         */
+
+        /**
+         * Push one action and return the result.
+         *
+         * @param {string} name - Action name.
+         * @param {Object} data - Action arguments.
+         * @param {string} actor - Authorizing account.
+         */
+        async function pushAction(name, data, actor) {
+            return contractApi.transact({
+                actions: [{
+                    account: CONTRACT_ACCOUNT,
+                    name,
+                    authorization: [{ actor, permission: 'active' }],
+                    data
+                }]
+            }, { blocksBehind: 3, expireSeconds: 30 });
+        }
+
+        /**
+         * Assert an action fails, and that it fails for the stated reason.
+         *
+         * Matching the message matters here: "Anchor not found" and "Cannot
+         * reclaim before finalization" are very different outcomes, and a bare
+         * "it threw" assertion would accept either.
+         *
+         * @param {Function} fn - Thunk performing the action.
+         * @param {string} expectedMessage - Substring of the contract's check().
+         */
+        async function expectFailure(fn, expectedMessage) {
+            let threw = false;
+            try {
+                await fn();
+            } catch (error) {
+                threw = true;
+                expect(JSON.stringify(error.json || error.message)).to.include(expectedMessage);
+            }
+            expect(threw, `expected failure: ${expectedMessage}`).to.be.true;
+        }
+
+        it('should refuse to reclaim before finalization', async function() {
+            // The gate that makes the whole thing safe: while a vote is open,
+            // its rows still determine who gets paid.
+            const hash = hexToChecksum256(sha256(`reclaim-open-${Date.now()}`));
+
+            await pushAction('put', {
+                author: 'alice', type: 21, hash,
+                parent: null, ts: getCurrentTimestamp(), tags: []
+            }, 'alice');
+
+            await expectFailure(
+                () => pushAction('reclaim', { tx_hash: hash, max_rows: 100 }, 'alice'),
+                'Cannot reclaim before finalization'
+            );
+        });
+
+        it('should reject max_rows of zero', async function() {
+            const hash = hexToChecksum256(sha256(`reclaim-zero-${Date.now()}`));
+            await expectFailure(
+                () => pushAction('reclaim', { tx_hash: hash, max_rows: 0 }, 'alice'),
+                'max_rows must be greater than zero'
+            );
+        });
+
+        it('should fail for an unknown anchor', async function() {
+            await expectFailure(
+                () => pushAction('reclaim', {
+                    tx_hash: hexToChecksum256(sha256(`nonexistent-${Date.now()}`)),
+                    max_rows: 100
+                }, 'alice'),
+                'Anchor not found'
+            );
+        });
+
+        // ---- Requires a chain with time control; see the note above. ----
+
+        it.skip('should erase anchor, tally and votes for a finalized submission', async function() {
+            // put -> vote -> advance past expires_at -> finalize -> reclaim,
+            // then assert the anchors and votes tables have no rows for the hash.
+        });
+
+        it.skip('should keep the anchor until every vote is gone', async function() {
+            // With max_rows below the vote count, the anchor must survive: it is
+            // the only way a later call locates the remaining votes, so erasing
+            // it early would strand them permanently (polaris.music.cpp:826-835).
+        });
+
+        it.skip('should complete over repeated calls', async function() {
+            // MAX_RECLAIM_ROWS caps each call at 100 rows, so an anchor with
+            // more votes than that needs the caller to loop. This is the case
+            // the scheduled job depends on.
+        });
+
+        it.skip('should be harmless to call twice', async function() {
+            // The job retries; a second pass should fail with "Anchor not
+            // found" rather than anything that reads like a real fault.
         });
     });
 
