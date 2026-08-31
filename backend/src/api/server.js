@@ -43,6 +43,7 @@ import { createIngestRoutes } from './routes/ingest.js';
 import { createCryptoRoutes } from './routes/crypto.js';
 import { createEntityRoutes } from './routes/entities.js';
 import { createSearchRoutes } from './routes/search.js';
+import { createSpotifyRoutes } from './routes/spotify.js';
 import { createCurateRoutes } from './routes/curate.js';
 import { createPlayerRoutes } from './routes/player.js';
 import { createGraphRoutes } from './routes/graph.js';
@@ -150,6 +151,8 @@ class APIServer {
 
         // Node search
         this.app.use('/api/search', createSearchRoutes(ctx));
+        // Optional: reports itself unconfigured when SPOTIFY_* is unset.
+        this.app.use('/api/spotify', createSpotifyRoutes(ctx));
 
         // Curation
         this.app.use('/api/curate', createCurateRoutes(ctx));

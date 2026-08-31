@@ -11,7 +11,8 @@ import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
 import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
-import { canonicalizeListenLink, sameTarget, normalizeListenLink } from './utils/listenLinks.js';
+import { canonicalizeListenLink, sameTarget } from './utils/listenLinks.js';
+import { diffTracklists, describeDifference } from './utils/tracklistDiff.js';
 
 class PolarisApp {
     constructor() {
@@ -155,7 +156,9 @@ class PolarisApp {
 
         // Pull track links up to the release, flagging any that disagree
         document.getElementById('import-track-links').addEventListener('click', () => {
-            this.importTrackListenLinks();
+            this.importTrackListenLinks().catch(error => {
+                console.error('Listen-link check failed:', error);
+            });
         });
 
         // A required control inside a collapsed <details> cannot be focused,
@@ -287,7 +290,7 @@ class PolarisApp {
         // Build canonical tracklist from tracks
         const tracklist = tracks.map((track, index) => {
             const item = {
-                position: `${track._disc || 1}.${track._trackNumber || index + 1}`,
+                position: track._position || String(index + 1),
                 track_title: track.title,
             };
             if (track.track_id) item.track_id = track.track_id;
@@ -307,7 +310,7 @@ class PolarisApp {
 
         // Strip internal fields from tracks before output
         const canonicalTracks = tracks.map(track => {
-            const { _disc, _trackNumber, _songwriters, ...canonical } = track;
+            const { _position, _songwriters, ...canonical } = track;
             return canonical;
         });
 
@@ -498,6 +501,27 @@ class PolarisApp {
     }
 
     /**
+     * Set a field's value the way a user would, so listeners notice.
+     *
+     * Assigning .value fires no event, which is why an imported tracklist left
+     * every collapsed track's header reading "Track 7" until you typed in it —
+     * the summary only updated on input. Dispatching makes programmatic fills
+     * indistinguishable from typed ones for anything listening.
+     *
+     * Deliberately `change` and not `input`: EntityLookupField listens on
+     * `input`, so an input event here would pop open an autocomplete dropdown
+     * on every field the import touches. The dirty flag listens to both.
+     *
+     * @param {HTMLElement|null} input
+     * @param {string} value
+     */
+    setFieldValue(input, value) {
+        if (!input) return;
+        input.value = value ?? '';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    /**
      * Try to attach an existing registry node to a field the Discogs import
      * just filled in.
      *
@@ -574,108 +598,143 @@ class PolarisApp {
     }
 
     /**
-     * Collect the listen links entered on individual tracks and offer them at
-     * the release level, flagging any that disagree.
+     * Gather the track-level listen links, then ask Spotify whether the
+     * tracklist we imported matches the one it has.
      *
-     * This is the Discogs cross-check: an imported tracklist can carry links
-     * belonging to a different edition, and the giveaway is a track pointing at
-     * an album other than the one its neighbours point at. Those are reported
-     * rather than merged in — the whole point is that a human looks.
+     * Discogs is community-edited and regularly disagrees with the streaming
+     * release — a hidden pre-roll track, a tracklist taken from a different
+     * edition, two tracks transposed. Catching that here is much cheaper than
+     * after a submission has been signed and anchored.
+     *
+     * This replaces an earlier version that only compared the track links
+     * against each other and flagged whichever album id was in the minority.
+     * That answered a question nobody asked, and barely fired anyway: track
+     * links parse as type "track", and the rule only triggered on "album".
+     *
+     * Neither source is authoritative, so this reports differences and leaves
+     * the decision to the submitter.
      */
-    importTrackListenLinks() {
+    async importTrackListenLinks() {
         const report = document.getElementById('listen-link-report');
         const target = document.getElementById('release-listen-links');
         report.innerHTML = '';
 
-        /** @type {{track: string, link: string, parsed: object|null}[]} */
-        const entries = [];
+        const tracks = [];
+        const links = [];
         document.querySelectorAll('.track-item').forEach(item => {
             const index = item.dataset.index;
-            const title = this.getInputValue(item, `track-title-${index}`)
-                || `Track ${Number(index) + 1}`;
+            const title = this.getInputValue(item, `track-title-${index}`);
+            if (!title) return;
+
+            tracks.push({
+                position: this.getInputValue(item, `track-position-${index}`) || null,
+                title,
+            });
             this.parseCommaSeparated(this.getInputValue(item, `track-listen-link-${index}`))
-                .forEach(link => entries.push({
-                    track: title, link, parsed: normalizeListenLink(link)
-                }));
+                .forEach(link => links.push(link));
         });
 
-        if (entries.length === 0) {
-            report.textContent = 'No track links to import yet.';
+        if (tracks.length === 0) {
+            report.textContent = 'Add some tracks first.';
             return;
         }
 
-        // The album every track ought to belong to: the most common album id
-        // among track links that carry one.
-        const albumCounts = new Map();
-        for (const entry of entries) {
-            const album = entry.parsed?.type === 'album' ? entry.parsed.id : null;
-            if (album) albumCounts.set(album, (albumCounts.get(album) || 0) + 1);
-        }
-        const [dominantAlbum] = [...albumCounts.entries()]
-            .sort((a, b) => b[1] - a[1])[0] || [];
+        // Import the links regardless of whether the check can run: pulling
+        // them up to the release is useful on its own.
+        const imported = this.mergeTrackLinksIntoRelease(links, target);
 
-        const accepted = [];
-        const mismatches = [];
-        for (const entry of entries) {
-            const canonical = canonicalizeListenLink(entry.link);
-            if (!canonical) {
-                mismatches.push({ ...entry, reason: 'not a usable URL' });
-                continue;
-            }
-            if (!entry.parsed) {
-                mismatches.push({ ...entry, reason: 'unrecognized service — kept, but unverified' });
-                accepted.push(canonical);
-                continue;
-            }
-            if (dominantAlbum && entry.parsed.type === 'album'
-                && entry.parsed.id !== dominantAlbum) {
-                mismatches.push({ ...entry, reason: 'points at a different album' });
-                continue;
-            }
-            accepted.push(canonical);
+        if (links.length === 0) {
+            report.textContent =
+                'No track links to import. Add a Spotify link to a track to check the tracklist.';
+            return;
         }
 
-        // De-duplicate on identity, not on string, so a locale-prefixed link
-        // and its plain twin collapse to one entry.
-        const unique = [];
-        for (const link of accepted) {
-            if (!unique.some(existing => sameTarget(existing, link))) unique.push(link);
+        report.textContent = `Imported ${imported} link(s). Checking against Spotify…`;
+
+        let result;
+        try {
+            result = await api.getSpotifyAlbum(links);
+        } catch (error) {
+            console.warn('Spotify check failed:', error);
+            report.textContent =
+                `Imported ${imported} link(s). Could not reach the server to check against Spotify.`;
+            return;
         }
 
-        const existing = this.parseCommaSeparated(target.value);
-        for (const link of unique) {
-            if (!existing.some(current => sameTarget(current, link))) existing.push(link);
+        if (!result.success) {
+            report.textContent = `Imported ${imported} link(s). ${result.message
+                || 'The Spotify check is unavailable.'}`;
+            return;
         }
-        target.value = existing.join(', ');
 
-        this.renderListenLinkReport(report, unique.length, mismatches);
+        this.renderListenLinkReport(report, imported, result.album,
+            diffTracklists(tracks, result.album.tracks));
     }
 
     /**
-     * Render the outcome of a link import.
+     * Add track links to the release-level field, without duplicates.
+     *
+     * De-duplication is on normalized identity rather than string equality, so
+     * a locale-prefixed link and its plain twin collapse into one.
+     *
+     * @param {string[]} links
+     * @param {HTMLInputElement} target
+     * @returns {number} How many distinct links the field now holds.
+     */
+    mergeTrackLinksIntoRelease(links, target) {
+        const existing = this.parseCommaSeparated(target.value);
+
+        for (const link of links) {
+            const canonical = canonicalizeListenLink(link);
+            if (!canonical) continue;
+            if (!existing.some(current => sameTarget(current, canonical))) {
+                existing.push(canonical);
+            }
+        }
+
+        target.value = existing.join(', ');
+        return existing.length;
+    }
+
+    /**
+     * Show what Spotify said, and where it disagrees.
+     *
+     * A clean result is stated explicitly rather than left blank — "nothing to
+     * report" and "the check did not run" must not look the same.
      *
      * @param {HTMLElement} report
      * @param {number} importedCount
-     * @param {{track: string, link: string, reason: string}[]} mismatches
+     * @param {{name: string, total_tracks: number}} album
+     * @param {{kind: string}[]} differences
      */
-    renderListenLinkReport(report, importedCount, mismatches) {
+    renderListenLinkReport(report, importedCount, album, differences) {
+        report.innerHTML = '';
+
         const summary = document.createElement('p');
-        summary.textContent = `Imported ${importedCount} link(s).`;
+        summary.textContent = `Imported ${importedCount} link(s). `
+            + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks).`;
         report.appendChild(summary);
 
-        if (mismatches.length === 0) return;
+        if (differences.length === 0) {
+            const clean = document.createElement('p');
+            clean.className = 'link-check-ok';
+            clean.textContent = 'The tracklist matches.';
+            report.appendChild(clean);
+            return;
+        }
 
         const heading = document.createElement('p');
         heading.className = 'link-mismatch-heading';
-        heading.textContent = `${mismatches.length} link(s) need a look:`;
+        heading.textContent = `${differences.length} difference(s) — neither source is `
+            + 'authoritative, so check which is right before submitting:';
         report.appendChild(heading);
 
         const list = document.createElement('ul');
         list.className = 'link-mismatch-list';
-        for (const mismatch of mismatches) {
+        for (const difference of differences) {
             const row = document.createElement('li');
             row.className = 'link-mismatch';
-            row.textContent = `${mismatch.track}: ${mismatch.link} — ${mismatch.reason}`;
+            row.textContent = describeDifference(difference);
             list.appendChild(row);
         }
         report.appendChild(list);
@@ -737,7 +796,7 @@ class PolarisApp {
     /**
      * Extract tracks from form (canonical format)
      * Emits canonical Track shape: { title, performed_by_groups, guests, producers, ... }
-     * Internal fields (_disc, _trackNumber, _songwriters) are stripped before final output.
+     * Internal fields (_position, _songwriters) are stripped before final output.
      */
     extractTracks(releaseDefaults = {}) {
         const tracks = [];
@@ -830,8 +889,11 @@ class PolarisApp {
             }
 
             // Internal fields (used by buildReleaseData for tracklist/songs, stripped before output)
-            track._disc = parseInt(this.getInputValue(item, `track-disc-${index}`) || 1);
-            track._trackNumber = parseInt(this.getInputValue(item, `track-number-${index}`) || trackIndex + 1);
+            // Carried through verbatim: "A1" must reach the backend as "A1" so
+            // deriveTrackPlacement() can recover the side. Anything that parses
+            // it here loses information the schema has room for.
+            track._position = (this.getInputValue(item, `track-position-${index}`) || '').trim()
+                || String(trackIndex + 1);
             track._songwriters = this.isInherited(item, index, 'songwriters')
                 ? structuredClone(releaseDefaults.songwriters || [])
                 : this.extractPersons(item, 'songwriter', index);
@@ -1248,6 +1310,12 @@ class PolarisApp {
                 document.getElementById('tracks-container').innerHTML = '';
                 document.getElementById('release-songwriters-container').innerHTML = '';
                 document.getElementById('listen-link-report').innerHTML = '';
+                // The Discogs panel sits outside <form>, so form.reset() misses
+                // it and the last import's id stayed in the box.
+                document.getElementById('discogs-input').value = '';
+                const discogsStatus = document.getElementById('discogs-status');
+                discogsStatus.textContent = '';
+                discogsStatus.className = 'import-status';
                 this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
                 this.currentTransaction = null;
                 this.currentReleaseData = null;
@@ -1424,58 +1492,14 @@ class PolarisApp {
             }
         }
 
-        // ===== EXTRACT PERFORMERS FROM EXTRAARTISTS =====
-        // Separate performance roles from production/technical roles
-        const performanceRoleKeywords = ['performer', 'drums', 'guitar', 'bass', 'vocals', 'keyboards',
-                                         'piano', 'percussion', 'synthesizer', 'organ', 'harmonica',
-                                         'saxophone', 'trumpet', 'violin', 'cello', 'flute'];
-
-        const isPerformanceRole = (role) => {
-            const roleLower = (role || '').toLowerCase();
-            return performanceRoleKeywords.some(keyword => roleLower.includes(keyword));
-        };
-
-        const performers = [];
-        const performerIds = new Set();
-
-        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
-            // First pass: identify all performers and collect their IDs
-            for (const extraArtist of discogsRelease.extraartists) {
-                if (extraArtist.role && extraArtist.role.toLowerCase().includes('performer')) {
-                    performerIds.add(extraArtist.id);
-                }
-            }
-
-            // Second pass: for each performer, collect ONLY performance roles (instruments, vocals)
-            for (const performerId of performerIds) {
-                const performerEntries = discogsRelease.extraartists.filter(ea => ea.id === performerId);
-
-                if (performerEntries.length > 0) {
-                    const cleanName = performerEntries[0].name.replace(/\s*\(\d+\)$/, '');
-
-                    // Collect ONLY performance-related roles (instruments, vocals, etc.)
-                    const performanceRoles = [];
-                    for (const entry of performerEntries) {
-                        const role = entry.role || '';
-                        // Only include performance roles, skip production/technical roles
-                        if (isPerformanceRole(role) && role !== 'Performer') {
-                            performanceRoles.push(role);
-                        }
-                    }
-
-                    // Use specific performance roles if available, otherwise use generic "Performer"
-                    const finalRole = performanceRoles.length > 0 ? performanceRoles.join(', ') : 'Performer';
-
-                    performers.push({
-                        name: cleanName,
-                        id: performerId,
-                        role: finalRole
-                    });
-                }
-            }
-        }
-
-        console.log('Found performers with performance roles:', performers);
+        // ===== CLASSIFY THE CREDITS =====
+        // One pass, in discogsClient. It accumulates every credit line per
+        // person before deciding what they are, so a member who also produced
+        // is a member, and someone credited three ways is one row rather than
+        // three. The old code did this inline with a keyword list and a
+        // "performer"-substring id set, and filed whole bands as guests.
+        const credits = discogsClient.parseCredits(discogsRelease.extraartists);
+        const performers = credits.members;
 
         // ===== RELEASE-LEVEL GROUPS =====
         // Add main performing groups to release-level groups section
@@ -1492,17 +1516,30 @@ class PolarisApp {
                 releaseGroupsContainer.appendChild(groupForm);
 
                 // Populate group name
-                const groupNameInput = groupForm.querySelector(`input[name="release-group-name-${i}"]`);
-                if (groupNameInput) {
-                    groupNameInput.value = cleanName;
+                this.setFieldValue(
+                    groupForm.querySelector(`input[name="release-group-name-${i}"]`), cleanName);
+
+                // Members go on the FIRST group only. With several credited
+                // artists there is no way to tell from the Discogs payload who
+                // played in which, and splitting them by guess would put people
+                // in bands they were never in.
+                if (i === 0) {
+                    const membersContainer = groupForm.querySelector('.release-members-container');
+                    if (membersContainer) {
+                        performers.forEach((member, memberIndex) => {
+                            const memberForm = this.formBuilder.createPersonForm(
+                                memberIndex, 'release-member', i);
+                            membersContainer.appendChild(memberForm);
+
+                            this.setFieldValue(memberForm.querySelector(
+                                `input[name="release-member-name-${i}-${memberIndex}"]`), member.name);
+                            this.setFieldValue(memberForm.querySelector(
+                                `input[name="release-member-roles-${i}-${memberIndex}"]`), member.role);
+                        });
+                    }
                 }
 
-                mainGroups.push({
-                    name: cleanName,
-                    id: artist.id,
-                    index: i,
-                    members: performers  // Store performers as group members
-                });
+                mainGroups.push({ name: cleanName, id: artist.id, index: i });
             }
         }
 
@@ -1549,24 +1586,30 @@ class PolarisApp {
                 // ===== BASIC TRACK INFO =====
                 // Track title (FIXED: was song-name, should be track-title)
                 const trackTitleInput = trackForm.querySelector(`input[name="track-title-${trackIndex}"]`);
-                if (trackTitleInput) {
-                    trackTitleInput.value = discogsTrack.title || '';
-                }
+                this.setFieldValue(trackTitleInput, discogsTrack.title || '');
 
-                // Track number - parse from position (may be like "A1", "1", etc.)
-                const trackNumberInput = trackForm.querySelector(`input[name="track-number-${trackIndex}"]`);
-                if (trackNumberInput && discogsTrack.position) {
-                    // Extract numeric part from position (e.g., "A1" -> "1", "12" -> "12")
-                    const numMatch = discogsTrack.position.match(/\d+/);
-                    if (numMatch) {
-                        trackNumberInput.value = numMatch[0];
-                    }
+                // Position, carried through UNCHANGED. This previously took
+                // /\d+/ of it, so "A1" and "B1" both became "1" and every
+                // vinyl release was submitted with duplicate track numbers.
+                // deriveTrackPlacement() on the backend understands "A1"; the
+                // only job here is not to damage it on the way.
+                const trackPositionInput = trackForm.querySelector(`input[name="track-position-${trackIndex}"]`);
+                if (discogsTrack.position) {
+                    this.setFieldValue(trackPositionInput, discogsTrack.position);
                 }
 
                 // ===== SONGWRITERS =====
                 // Merge release-level and track-level songwriters
                 const trackLevelSongwriters = discogsClient.extractSongwriters(discogsTrack);
-                const releaseLevelForThisTrack = releaseSongwriters.get(discogsTrack.position) || [];
+                // parseTracksField() expands ranges like "3, 5, 6, 8 to 14" into
+                // bare numbers, but a vinyl position is "A3" — so this lookup
+                // silently matched nothing on every LP, dropping release-level
+                // Written-By credits. Try the raw position, then its number.
+                const positionNumber = (discogsTrack.position || '').match(/\d+/)?.[0];
+                const releaseLevelForThisTrack =
+                    releaseSongwriters.get(discogsTrack.position)
+                    || (positionNumber ? releaseSongwriters.get(positionNumber) : null)
+                    || [];
                 const allTrackSongwriters = releaseSongwriters.get('*ALL*') || [];
 
                 // Combine all songwriters, removing duplicates
@@ -1592,91 +1635,47 @@ class PolarisApp {
             }
         }
 
-        // Parse release-level extra artists (producers, engineers, etc.)
+        // ===== RELEASE-LEVEL GUESTS =====
+        // The production and technical people — everyone parseCredits did NOT
+        // classify as a member. Each person appears exactly once, with all of
+        // their roles on one row; the previous five near-identical loops used
+        // independent buckets, so one person credited "Producer, Engineer,
+        // Mixed By" got three rows of their own.
         const releaseGuestsContainer = document.getElementById('release-guests-container');
         let guestIndex = 0;
 
-        if (discogsRelease.extraartists && discogsRelease.extraartists.length > 0) {
-            const credits = discogsClient.parseCredits(discogsRelease.extraartists, performerIds);
+        const memberKeys = new Set(credits.members.map(m =>
+            m.id != null ? `id:${m.id}` : `name:${discogsClient.normalizeName(m.name)}`));
 
-            // Add producers
-            for (const producer of credits.producers) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
+        const guestBuckets = [
+            [credits.producers, 'Producer'],
+            [credits.engineers, 'Engineer'],
+            [credits.mixedBy, 'Mix Engineer'],
+            [credits.masteredBy, 'Mastering Engineer'],
+            [credits.guests, 'Guest Performer'],
+        ];
+
+        for (const [bucket, fallbackRole] of guestBuckets) {
+            for (const person of bucket) {
+                // Belt and braces: parseCredits already routes members away from
+                // these buckets, but the registry treats being both a MEMBER_OF
+                // and a GUEST_ON as a contradiction, so never emit one here.
+                const key = person.id != null
+                    ? `id:${person.id}`
+                    : `name:${discogsClient.normalizeName(person.name)}`;
+                if (memberKeys.has(key)) continue;
+
+                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex);
                 releaseGuestsContainer.appendChild(guestForm);
 
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
+                this.setFieldValue(
+                    guestForm.querySelector(`input[name="release-guest-name-${guestIndex}"]`),
+                    person.name);
+                this.setFieldValue(
+                    guestForm.querySelector(`input[name="release-guest-roles-${guestIndex}"]`),
+                    person.role || fallbackRole);
 
-                if (guestNameInput) {
-                    guestNameInput.value = producer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = 'Producer';
-                }
-            }
-
-            // Add engineers
-            for (const engineer of credits.engineers) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = engineer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = engineer.role || 'Engineer';
-                }
-            }
-
-            // Add mixing engineers
-            for (const mixer of credits.mixedBy) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = mixer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = 'Mix Engineer';
-                }
-            }
-
-            // Add mastering engineers
-            for (const masterer of credits.masteredBy) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = masterer.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = 'Mastering Engineer';
-                }
-            }
-
-            // Add guest performers from release-level credits
-            for (const guest of credits.guests) {
-                const guestForm = this.formBuilder.createReleaseGuestForm(guestIndex++);
-                releaseGuestsContainer.appendChild(guestForm);
-
-                const guestNameInput = guestForm.querySelector(`input[name="release-guest-name-${guestIndex - 1}"]`);
-                const guestRolesInput = guestForm.querySelector(`input[name="release-guest-roles-${guestIndex - 1}"]`);
-
-                if (guestNameInput) {
-                    guestNameInput.value = guest.name;
-                }
-                if (guestRolesInput) {
-                    guestRolesInput.value = guest.role || 'Guest Performer';
-                }
+                guestIndex++;
             }
         }
 

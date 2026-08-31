@@ -336,6 +336,26 @@ class APIClient {
             return false;
         }
     }
+
+    /**
+     * Ask the backend what Spotify says an album contains.
+     *
+     * Goes through our API rather than Spotify directly: the client-credentials
+     * flow needs a secret, and everything in this bundle is public.
+     *
+     * @param {string[]} links - Spotify links gathered from the form.
+     * @returns {Promise<{success: boolean, reason?: string, message?: string, album?: Object}>}
+     */
+    async getSpotifyAlbum(links) {
+        const response = await fetch(`${API_BASE_URL}/spotify/album`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ links }),
+        });
+        // A 4xx/5xx here still carries a usable reason, and the caller shows it
+        // to the submitter — so read the body rather than throwing on status.
+        return response.json();
+    }
 }
 
 export const api = new APIClient();

@@ -192,49 +192,134 @@ export class DiscogsClient {
     }
 
     /**
-     * Parse Discogs credits to identify roles
-     * @param {Array} extraArtists - Discogs extraartists array
-     * @returns {Object} Categorized credits
+     * Roles that mean someone played on the record, rather than worked on it.
+     *
+     * The distinction drives MEMBER_OF versus GUEST_ON, which is the
+     * relationship the registry cares most about getting right.
      */
-    parseCredits(extraArtists, performerIds = new Set()) {
+    static PERFORMANCE_ROLES = [
+        'performer', 'vocals', 'vocal', 'guitar', 'bass', 'drums', 'percussion',
+        'keyboards', 'piano', 'organ', 'synthesizer', 'harmonica', 'saxophone',
+        'trumpet', 'trombone', 'violin', 'viola', 'cello', 'flute', 'clarinet',
+        'banjo', 'mandolin', 'sitar', 'accordion', 'strings', 'horns', 'backing'
+    ];
+
+    /**
+     * Normalize a name for identity comparison.
+     *
+     * Strips Discogs' disambiguating "(2)" suffix, collapses whitespace and
+     * folds case, so an ANV like "Chris Novoselic" and the canonical "Krist
+     * Novoselic" at least compare consistently with themselves. It cannot
+     * unify genuinely different spellings — that is what the id is for — but it
+     * stops the same string being treated as two people.
+     *
+     * @param {string} name
+     * @returns {string}
+     */
+    normalizeName(name) {
+        return (name || '')
+            .replace(/\s*\(\d+\)$/, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
+    /**
+     * Parse Discogs credits into members, and the production people who are not.
+     *
+     * Rewritten because the previous version misfiled a whole band as guests.
+     * It had four defects that compounded:
+     *
+     *   1. Its "is a performer" set was built only from roles containing the
+     *      literal word "performer". Discogs usually writes the instrument
+     *      instead — "Bass, Vocals" — so the set was normally empty.
+     *   2. The performer exclusion guarded only the guests bucket; the
+     *      production buckets deliberately "include EVERYONE (even
+     *      performers)", so a member who co-produced became a guest anyway.
+     *   3. The buckets were independent `if`s, so one person credited
+     *      "Producer, Engineer, Mixed By" produced three separate rows. That is
+     *      how four credit lines became eleven guests.
+     *   4. Identity was the numeric Discogs id with no name fallback, so an
+     *      alias entry and the canonical entry were two different people.
+     *
+     * The fix is to accumulate every credit line per person FIRST, then
+     * classify that person once. Anyone who played gets treated as a member of
+     * the performing group; production-only people are guests. Someone who both
+     * played and produced is a member — a production credit does not stop them
+     * being in the band.
+     *
+     * @param {Array} extraArtists - Discogs extraartists array
+     * @returns {{members: Array, producers: Array, engineers: Array,
+     *            mixedBy: Array, masteredBy: Array, guests: Array}}
+     */
+    parseCredits(extraArtists) {
         const credits = {
-            producers: [],
-            engineers: [],
-            mixedBy: [],
-            masteredBy: [],
-            guests: []
+            members: [], producers: [], engineers: [],
+            mixedBy: [], masteredBy: [], guests: []
         };
 
-        if (!extraArtists) return credits;
+        if (!extraArtists || extraArtists.length === 0) return credits;
+
+        // Accumulate every credit line for one human into a single entry.
+        // Key on the Discogs id when present, else the normalized name, so two
+        // lines for the same person converge however Discogs recorded them.
+        const people = new Map();
 
         for (const artist of extraArtists) {
-            const role = artist.role ? artist.role.toLowerCase() : '';
-            const name = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
+            const name = (artist.name || '').replace(/\s*\(\d+\)$/, '').trim();
+            if (!name) continue;
 
-            // Production/technical roles - include EVERYONE (even performers)
-            if (role.includes('producer')) {
-                credits.producers.push({ name, id: artist.id });
+            const key = artist.id != null ? `id:${artist.id}` : `name:${this.normalizeName(name)}`;
+
+            if (!people.has(key)) {
+                people.set(key, { name, id: artist.id ?? null, roles: [], altNames: new Set() });
+            }
+            const person = people.get(key);
+
+            // Discogs' ANV is how the name was printed on this release. Keep it
+            // as an alternative rather than discarding it, which is what the
+            // previous code did.
+            if (artist.anv && this.normalizeName(artist.anv) !== this.normalizeName(name)) {
+                person.altNames.add(artist.anv.trim());
             }
 
-            if (role.includes('engineer') || role.includes('recording')) {
-                credits.engineers.push({ name, id: artist.id, role: artist.role });
+            for (const role of String(artist.role || '').split(',')) {
+                const trimmed = role.trim();
+                if (trimmed) person.roles.push(trimmed);
+            }
+        }
+
+        for (const person of people.values()) {
+            const roles = [...new Set(person.roles)];
+            const lowered = roles.map(r => r.toLowerCase());
+            const has = (needle) => lowered.some(r => r.includes(needle));
+
+            const entry = {
+                name: person.name,
+                id: person.id,
+                roles,
+                role: roles.join(', '),
+                altNames: [...person.altNames]
+            };
+
+            const performanceRoles = roles.filter(r =>
+                DiscogsClient.PERFORMANCE_ROLES.some(k => r.toLowerCase().includes(k)));
+
+            if (performanceRoles.length > 0) {
+                // Played on the record: a member of the performing group. Keep
+                // only the instrument roles here — "Producer" is not something
+                // a MEMBER_OF edge should claim they played.
+                credits.members.push({ ...entry, roles: performanceRoles, role: performanceRoles.join(', ') });
+                continue;
             }
 
-            if (role.includes('mix')) {
-                credits.mixedBy.push({ name, id: artist.id });
-            }
-
-            if (role.includes('master')) {
-                credits.masteredBy.push({ name, id: artist.id });
-            }
-
-            // Guest musicians - ONLY non-performers with instrument roles
-            if (!performerIds.has(artist.id) &&
-                (role.includes('vocals') || role.includes('guitar') ||
-                 role.includes('bass') || role.includes('drums') ||
-                 role.includes('keyboards') || role.includes('piano'))) {
-                credits.guests.push({ name, id: artist.id, role: artist.role });
-            }
+            // Production and technical people. Each person lands in exactly one
+            // bucket, most specific first, so nobody is listed three times.
+            if (has('master')) credits.masteredBy.push(entry);
+            else if (has('mix')) credits.mixedBy.push(entry);
+            else if (has('producer')) credits.producers.push(entry);
+            else if (has('engineer') || has('recording')) credits.engineers.push(entry);
+            else credits.guests.push(entry);
         }
 
         return credits;

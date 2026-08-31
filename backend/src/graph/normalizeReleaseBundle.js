@@ -120,6 +120,12 @@ export function normalizeReleaseBundle(bundle) {
         sources: normalizedSources.length
     });
 
+    // Enforce the member/guest invariant before anything is written.
+    const dropped = dropContradictoryGuests(normalizedRelease, normalizedGroups, normalizedTracks);
+    if (dropped > 0) {
+        log.warn('guest_contradiction_dropped', { count: dropped });
+    }
+
     // Return normalized bundle (schema-compliant — no graph-specific fields like relationships)
     return {
         release: normalizedRelease,
@@ -926,5 +932,77 @@ function extractRelationships(release, groups, tracks, songs) {
     return relationships;
 }
 
-export { extractRelationships };
+/**
+ * Identity key for comparing two credited people.
+ *
+ * Prefers person_id, falls back to the name with Discogs' disambiguating "(2)"
+ * suffix stripped and case folded. Not clever — an alias spelled differently
+ * will not match, which is what person_id is for — but it stops the same person
+ * being counted twice for the same spelling.
+ *
+ * @param {Object} person
+ * @returns {string|null}
+ */
+function personKey(person) {
+    if (!person) return null;
+    if (person.person_id) return `id:${person.person_id}`;
+    const name = (person.name || '').replace(/\s*\(\d+\)$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return name ? `name:${name}` : null;
+}
+
+/**
+ * Remove guests who are already members of a group performing on the same thing.
+ *
+ * CLAUDE.md states the invariant plainly — "A Person can't be both MEMBER_OF and
+ * GUEST_ON for same track" — but nothing enforced it. The two edges are merged
+ * in independent loops that never see each other, so a bundle listing someone
+ * twice produced both, and the contradiction was papered over at read time by a
+ * `WHERE NOT (guest)-[:MEMBER_OF]->(g)` filter on one query in entities.js.
+ *
+ * Membership is the stronger claim, so the guest credit is what gives way: a
+ * bassist who also played tambourine on one track is still the bassist, not a
+ * guest on their own record. Dropping is deliberate rather than throwing —
+ * refusing the whole submission over a duplicated credit would be worse than
+ * recording the person once.
+ *
+ * Mutates in place, and returns how many credits were removed so the caller can
+ * log it. A silent drop would make a submitter's missing credit inexplicable.
+ *
+ * @param {Object} release
+ * @param {Array} groups
+ * @param {Array} tracks
+ * @returns {number} Count of guest credits removed.
+ */
+function dropContradictoryGuests(release, groups, tracks) {
+    const memberKeys = new Set();
+    for (const group of groups || []) {
+        for (const member of group.members || []) {
+            const key = personKey(member);
+            if (key) memberKeys.add(key);
+        }
+    }
+
+    if (memberKeys.size === 0) return 0;
+
+    let dropped = 0;
+    const filter = (guests) => {
+        if (!Array.isArray(guests)) return guests;
+        const kept = guests.filter(g => !memberKeys.has(personKey(g)));
+        dropped += guests.length - kept.length;
+        return kept;
+    };
+
+    if (release && Array.isArray(release.guests)) {
+        release.guests = filter(release.guests);
+    }
+    for (const track of tracks || []) {
+        if (Array.isArray(track.guests)) {
+            track.guests = filter(track.guests);
+        }
+    }
+
+    return dropped;
+}
+
+export { extractRelationships, dropContradictoryGuests };
 export default normalizeReleaseBundle;
