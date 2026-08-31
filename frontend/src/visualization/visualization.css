@@ -9,7 +9,16 @@
 html, body {
     --top-bar-height: 60px;
     --bottom-bar-height: 60px;
+    /* Kept in step with the player's real rendered height by
+       MiniPlayer._notifyHeightChange(). The values below are only a first-paint
+       fallback: they used to be hand-summed, and the sum was already a pixel
+       out from what actually rendered, which the layout below cannot tolerate
+       now that the sheet is positioned against it. */
     --mini-player-height: 0px;
+    /* How much of the screen the mobile bottom sheet takes. Written once and
+       used by the sheet's own height and by the graph's bottom inset, which
+       previously repeated 45vh in three places and drifted. */
+    --info-sheet-height: 35vh;
     height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background: #0a0a0a;
@@ -1316,25 +1325,38 @@ body.mini-player-visible.mini-player-embed {
     }
 
     /* --- Info panel as a bottom sheet --- */
+    /* The sheet occupies the band BETWEEN the graph and the player — it does
+       not span to the bottom of the screen.
+    
+       It used to be bottom:0, spanning over both the player and the bottom bar,
+       while #main-container separately subtracted them again on top of the
+       sheet's own height. The graph's bottom edge and the sheet's top edge
+       therefore never met: 60px of dead black normally, 198px with the Spotify
+       embed open, which is why the visualization was 206px tall.
+    
+       Two occlusions came from the same mistake. #bottom-bar (z-index 1000)
+       covered the sheet's last 60px, cutting off the end of every list; and
+       #mini-player-container — a sibling of #main-container, so outside the
+       stacking context that position:fixed creates on it — floated over the
+       scrolling content regardless of the sheet's z-index. */
     #info-viewer {
         position: fixed;
         left: 0;
         right: 0;
-        bottom: 0;
+        bottom: calc(var(--bottom-bar-height) + var(--mini-player-height));
         top: auto;
         width: 100%;
         flex: none;
-        /* The graph is resized to sit above the sheet rather than behind it
-           (see body.info-sheet-open below), so this height is taken from the
-           graph rather than covering it. The panel body scrolls. */
-        height: 45vh;
-        max-height: 45vh;
+        height: var(--info-sheet-height);
+        max-height: var(--info-sheet-height);
         border-left: none;
         border-top: 1px solid #333;
         border-radius: 14px 14px 0 0;
-        transform: translateY(100%);
+        /* Closed, it must clear its own height AND everything below it, or a
+           sliver stays parked over the player. */
+        transform: translateY(calc(100% + var(--bottom-bar-height) + var(--mini-player-height)));
         transition: transform 0.28s ease;
-        z-index: 900;   /* above the mini-player (800) */
+        z-index: 900;
         box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.6);
     }
 
@@ -1342,11 +1364,14 @@ body.mini-player-visible.mini-player-embed {
         transform: translateY(0);
     }
 
+    /* A decorative grabber that cost 16px of a 295px sheet. It is not
+       draggable — the X beside the title is the close control — so it is
+       sized as the hint it is. */
     .info-sheet-handle {
         display: block;
-        width: 40px;
-        height: 4px;
-        margin: 8px auto 4px;
+        width: 36px;
+        height: 3px;
+        margin: 5px auto 3px;
         border-radius: 2px;
         background: #555;
         flex-shrink: 0;
@@ -1372,7 +1397,49 @@ body.mini-player-visible.mini-player-embed {
        every graph tap — including the one on an album, which is why selecting
        a release appeared to dismiss the panel. */
     body.info-sheet-open #main-container {
-        bottom: calc(var(--bottom-bar-height) + var(--mini-player-height) + 45vh);
+        bottom: calc(var(--bottom-bar-height) + var(--mini-player-height) + var(--info-sheet-height));
+    }
+
+    /* --- Density: the sheet's own furniture used 91px before any content --- */
+
+    .info-header {
+        padding: 8px 12px;
+    }
+
+    #info-title {
+        font-size: 17px;
+    }
+
+    /* This was the tallest thing in the header and so set its height. */
+    .btn-favorite {
+        font-size: 22px;
+        width: 26px;
+        height: 26px;
+    }
+
+    .info-content {
+        padding: 12px;
+    }
+
+    .info-section {
+        margin-bottom: 14px;
+    }
+
+    .info-section h4 {
+        margin-bottom: 6px;
+    }
+
+    .info-section li,
+    .info-list li {
+        padding: 5px 0;
+    }
+
+    .info-photo {
+        margin-bottom: 12px;
+    }
+
+    .info-photo img {
+        max-height: 160px;
     }
 
     /* --- Header condenses rather than wrapping to three lines --- */
@@ -1450,20 +1517,14 @@ body.mini-player-visible.mini-player-embed {
     }
 
     /* --- Player slims: the Spotify embed has its own progress bar --- */
-    .mp-scrubber-area {
-        display: none;
-    }
 
-    .mp-bar {
-        padding: 4px 8px;
-    }
 }
 
 /* ========== MINI PLAYER ========== */
 
 #mini-player-container {
     position: fixed;
-    bottom: 60px; /* above #bottom-bar */
+    bottom: var(--bottom-bar-height); /* above #bottom-bar */
     left: 0;
     right: 0;
     z-index: 800;
@@ -1753,6 +1814,10 @@ body.mini-player-visible.mini-player-embed {
         padding: 6px 8px;
     }
 
+    /* Wraps to its own row on a phone. It stays visible for direct-audio
+       tracks, which it can actually scrub — an earlier `display:none` in the
+       layout media block never applied, because the base rule below it in this
+       file re-declares display. */
     .mp-scrubber-area {
         order: 10;
         width: 100%;
@@ -1761,5 +1826,39 @@ body.mini-player-visible.mini-player-embed {
 
     .mp-info {
         flex: 1;
+    }
+
+    /* Embed mode: Spotify's own card sits directly below this row and already
+       shows the artwork, the title and a working play button. Ours duplicates
+       all three — and our play button is genuinely dead here, because a plain
+       iframe exposes nothing to call, so _togglePlay() just re-shows the embed
+       already on screen and early-returns.
+    
+       Prev/next are NOT dead (they move the queue position and reload the
+       frame), so they stay, along with the open-in-Spotify link and the queue
+       toggle. */
+    body.mini-player-embed .mp-art,
+    body.mini-player-embed .mp-info,
+    body.mini-player-embed .mp-play,
+    /* Nothing to scrub: the embed plays inside Spotify's iframe, not through
+       our <audio> element, so the bar never moves. It also wraps to a second
+       row, which was keeping the bar 54px tall with 22px of content in it. */
+    body.mini-player-embed .mp-scrubber-area {
+        display: none;
+    }
+
+    body.mini-player-embed .mp-bar {
+        padding: 2px 8px;
+        justify-content: center;
+        gap: 16px;
+        /* The base rule sets BOTH height and min-height to 52px, and the mobile
+           override only relaxes height — so the bar stayed 52px tall however
+           little was left in it. */
+        min-height: 0;
+    }
+
+    body.mini-player-embed .mp-embed {
+        height: 82px;
+        padding: 1px 8px;
     }
 }

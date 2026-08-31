@@ -402,6 +402,10 @@ export class MiniPlayer {
     _show() {
         this.container.style.display = 'flex';
         document.body.classList.add('mini-player-visible');
+        // The player appearing changes the layout as much as the embed opening
+        // does; without this the graph and the info sheet keep sizing against a
+        // player height of zero until something else happens to notify them.
+        this._notifyHeightChange();
     }
 
     _hide() {
@@ -413,12 +417,27 @@ export class MiniPlayer {
     }
 
     /**
-     * The graph canvas sizes itself against the player's height, so tell it
-     * to re-measure whenever the player grows or shrinks. Without this the
-     * canvas keeps its old size and node hit-testing drifts.
+     * Publish the player's real height, then tell the graph to re-measure.
+     *
+     * On mobile the info sheet is positioned against --mini-player-height and
+     * the graph's bottom inset is computed from it, so a wrong value shows up
+     * directly as a gap or an overlap. It used to be a hand-summed constant in
+     * CSS (54px bar, 138px with the embed) that was already a pixel out from
+     * what rendered, because .mp-bar is height:auto on mobile. Measuring is the
+     * only way it stays right as paddings change.
+     *
+     * Read after a frame: the class that grows the player is applied in the
+     * same tick, so measuring immediately returns the old height.
      */
     _notifyHeightChange() {
-        window.dispatchEvent(new CustomEvent('miniplayer:resize'));
+        requestAnimationFrame(() => {
+            const height = this.container?.offsetHeight ?? 0;
+            // On body, not documentElement: the .mini-player-visible class
+            // rules define this same variable on body, and a value set on the
+            // nearer ancestor wins for everything inside it.
+            document.body.style.setProperty('--mini-player-height', `${height}px`);
+            window.dispatchEvent(new CustomEvent('miniplayer:resize'));
+        });
     }
 
     _updateTrackDisplay() {

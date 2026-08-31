@@ -190,6 +190,108 @@ test.describe('phone layout', () => {
         expect(box.y).toBeGreaterThan(PHONE.height * 0.4);
     });
 
+    test('the graph meets the sheet with no dead space between them', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => window.musicGraph.openInfoPanel());
+        await settleSheet(page);
+
+        const viz = await page.locator('#viz-container').boundingBox();
+        const sheet = await page.locator('#info-viewer').boundingBox();
+
+        // THE bug. #info-viewer was bottom:0, spanning over the player and the
+        // bottom bar, while #main-container subtracted them AGAIN on top of the
+        // sheet's own height — so the two edges never met. 60px of dead black
+        // normally, 198px with the Spotify embed open, which is why the graph
+        // was 206px tall on a 844px screen.
+        const gap = sheet.y - (viz.y + viz.height);
+        expect(Math.abs(gap)).toBeLessThanOrEqual(1);
+    });
+
+    test('the sheet clears the bottom bar rather than hiding under it', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => window.musicGraph.openInfoPanel());
+        await settleSheet(page);
+
+        const sheet = await page.locator('#info-viewer').boundingBox();
+        const bar = await page.locator('#bottom-bar').boundingBox();
+
+        // #bottom-bar is z-index 1000 against the sheet's 900, so anything the
+        // sheet put in its last 60px was permanently invisible — the cut-off
+        // end of every list.
+        expect(sheet.y + sheet.height).toBeLessThanOrEqual(bar.y + 1);
+    });
+
+    test('the player sits below the sheet instead of over its content', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => {
+            window.musicGraph.miniPlayer._show();
+            window.musicGraph.openInfoPanel();
+        });
+        await settleSheet(page);
+
+        const sheet = await page.locator('#info-viewer').boundingBox();
+        const player = await page.locator('#mini-player-container').boundingBox();
+
+        // The player is a sibling of #main-container, and position:fixed makes
+        // #main-container a stacking context — so the sheet's z-index could
+        // never lift it above the player. It floated over the scrolling rows.
+        expect(player.y).toBeGreaterThanOrEqual(sheet.y + sheet.height - 1);
+    });
+
+    test('the Spotify embed does not displace the node details', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => {
+            const p = window.musicGraph.miniPlayer;
+            p._show();
+            p._enterEmbedMode();
+            p._showEmbed('spotify:track:EMBEDTEST');
+            window.musicGraph.openInfoPanel();
+        });
+        await settleSheet(page);
+
+        const scroll = await page.locator('#info-scroll').boundingBox();
+        const viz = await page.locator('#viz-container').boundingBox();
+
+        // Previously the embed grew the player to 138px, which covered
+        // essentially the whole sheet and left the graph at 206px.
+        expect(scroll.height).toBeGreaterThan(100);
+        expect(viz.height).toBeGreaterThan(300);
+    });
+
+    test('embed mode hides the controls that do nothing there', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => {
+            const p = window.musicGraph.miniPlayer;
+            p._show();
+            p._enterEmbedMode();
+            p._showEmbed('spotify:track:EMBEDTEST');
+        });
+
+        // A plain iframe exposes nothing to call, so _togglePlay() re-shows the
+        // embed already on screen and early-returns — the button did nothing
+        // while Spotify's own play button sat right below it.
+        await expect(page.locator('.mp-play')).toBeHidden();
+        // Prev/next DO work: they move the queue position and reload the frame.
+        await expect(page.locator('.mp-next')).toBeVisible();
+    });
+
+    test('the player height the layout uses is the height it actually has', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => window.musicGraph.miniPlayer._show());
+        await page.waitForTimeout(100);
+
+        const { declared, actual } = await page.evaluate(() => ({
+            declared: getComputedStyle(document.body)
+                .getPropertyValue('--mini-player-height').trim(),
+            actual: document.getElementById('mini-player-container').offsetHeight,
+        }));
+
+        // This was a hand-summed CSS constant, already a pixel out from what
+        // rendered. Now that the sheet is positioned against it, a stale value
+        // is a visible gap.
+        expect(parseFloat(declared)).toBeCloseTo(actual, 0);
+    });
+
     test('the header stays on one line', async ({ page }) => {
         await gotoApp(page, { requireApp: false });
 

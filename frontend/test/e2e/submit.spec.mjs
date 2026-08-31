@@ -73,7 +73,24 @@ async function gotoForm(page, { searchResults = [], spotifyAlbum = null } = {}) 
  */
 async function addOpenTrack(page, index = 0) {
     await page.click('#add-track');
-    await page.locator('.track-item').nth(index).locator('.track-header').click();
+    // Wait for the lookup to have claimed the title input before touching it.
+    // EntityLookupField._build() RE-PARENTS the input into a wrapper div, and
+    // FormLookupManager only does that from a MutationObserver on a 50ms
+    // debounce. A fill that is in flight when the node moves is silently lost —
+    // Playwright inserts text into whatever is focused, and re-parenting blurs
+    // it. That is the whole cause of the flakiness here, and it is an app
+    // behaviour, not a test artefact.
+    await expect(
+        page.locator(`[name="track-title-${index}"]`)
+            .locator('xpath=ancestor::*[contains(@class,"entity-lookup-wrapper")]')
+    ).toBeAttached();
+    // Set `open` rather than clicking the summary. A click TOGGLES, so it is
+    // only correct if the disclosure is currently closed — and the form's
+    // `invalid` handler opens tracks on its own, which made this helper
+    // intermittently close the track it was meant to open. Two specs went
+    // flaky that way. The summary's own click behaviour is covered
+    // separately by 'the summary toggles the track' below.
+    await page.locator('.track-body').nth(index).evaluate((el) => { el.open = true; });
     await expect(page.locator('.track-body').nth(index)).toHaveAttribute('open', '');
 }
 
@@ -98,6 +115,33 @@ async function pickSuggestion(page, selector, text) {
     await page.locator('.entity-lookup-dropdown .entity-lookup-item').first().click();
 }
 
+/**
+ * Add a track and fill it, asserting the values actually landed.
+ *
+ * The listen-link specs went flaky because they filled a track and then
+ * immediately clicked the button that reads it back. FormLookupManager attaches
+ * an EntityLookupField to the title input from a MutationObserver on a 50ms
+ * debounce, which re-parents the input; under full-suite load a fill could race
+ * that and the extractor would skip the track as untitled. Asserting the value
+ * makes the precondition explicit and lets Playwright retry it, rather than
+ * silently testing a two-track release when three were intended.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {number} index
+ * @param {{title: string, link?: string}} fields
+ */
+async function fillTrack(page, index, { title, link }) {
+    await addOpenTrack(page, index);
+
+    await page.fill(`[name="track-title-${index}"]`, title);
+    await expect(page.locator(`[name="track-title-${index}"]`)).toHaveValue(title);
+
+    if (link) {
+        await page.fill(`[name="track-listen-link-${index}"]`, link);
+        await expect(page.locator(`[name="track-listen-link-${index}"]`)).toHaveValue(link);
+    }
+}
+
 /** Fill the minimum needed for buildReleaseData() to produce a bundle. */
 async function fillMinimalRelease(page) {
     await page.fill('[name="release_name"]', 'Songs For The Deaf');
@@ -113,6 +157,31 @@ test.describe('release submission form', () => {
         // Collapsed by default is the entire point of the restructure: a
         // fourteen-track release was an unreadable wall.
         await expect(page.locator('.track-item .track-body')).not.toHaveAttribute('open', '');
+    });
+
+    test('the summary toggles the track', async ({ page }) => {
+        await gotoForm(page);
+        await page.click('#add-track');
+
+        const body = page.locator('.track-body').first();
+        await expect(body).not.toHaveAttribute('open', '');
+
+        await page.locator('.track-item').first().locator('.track-header').click();
+        await expect(body).toHaveAttribute('open', '');
+
+        await page.locator('.track-item').first().locator('.track-header').click();
+        await expect(body).not.toHaveAttribute('open', '');
+    });
+
+    test('removing a track does not toggle the disclosure', async ({ page }) => {
+        await gotoForm(page);
+        await page.click('#add-track');
+        page.once('dialog', (d) => d.accept());
+
+        // The Remove button lives inside the <summary>, so without
+        // stopPropagation the click would also open the track it just deleted.
+        await page.locator('.remove-track').first().click();
+        await expect(page.locator('.track-item')).toHaveCount(0);
     });
 
     test('a collapsed track still submits every field — the core claim', async ({ page }) => {
@@ -280,12 +349,11 @@ test.describe('listen links', () => {
 
         // Three tracks here, two on Spotify — the shape of a Discogs import
         // carrying a hidden track the streaming release omits.
-        for (const [i, title] of [['0', 'Smells Like Teen Spirit'], ['1', 'In Bloom'],
-                                  ['2', 'Endless, Nameless']]) {
-            await addOpenTrack(page, Number(i));
-            await page.fill(`[name="track-title-${i}"]`, title);
-            await page.fill(`[name="track-listen-link-${i}"]`,
-                `https://open.spotify.com/track/T${i}`);
+        for (const [i, title] of [[0, 'Smells Like Teen Spirit'], [1, 'In Bloom'],
+                                  [2, 'Endless, Nameless']]) {
+            await fillTrack(page, i, {
+                title, link: `https://open.spotify.com/track/T${i}`,
+            });
         }
 
         await page.click('#import-track-links');
@@ -309,9 +377,9 @@ test.describe('listen links', () => {
             },
         });
         await page.fill('[name="release_name"]', 'Nevermind');
-        await addOpenTrack(page, 0);
-        await page.fill('[name="track-title-0"]', 'In Bloom');
-        await page.fill('[name="track-listen-link-0"]', 'https://open.spotify.com/track/T0');
+        await fillTrack(page, 0, {
+            title: 'In Bloom', link: 'https://open.spotify.com/track/T0',
+        });
 
         await page.click('#import-track-links');
 
@@ -325,10 +393,10 @@ test.describe('listen links', () => {
                 message: 'Spotify lookup is not configured on this server.' },
         });
         await page.fill('[name="release_name"]', 'Nevermind');
-        await addOpenTrack(page, 0);
-        await page.fill('[name="track-title-0"]', 'In Bloom');
-        await page.fill('[name="track-listen-link-0"]',
-            'https://open.spotify.com/intl-de/track/T0?si=abc');
+        await fillTrack(page, 0, {
+            title: 'In Bloom',
+            link: 'https://open.spotify.com/intl-de/track/T0?si=abc',
+        });
 
         await page.click('#import-track-links');
 

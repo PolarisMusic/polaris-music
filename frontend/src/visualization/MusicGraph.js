@@ -921,6 +921,13 @@ export class MusicGraph {
         infoTitle.textContent = node.name || 'Loading...';
         infoContent.innerHTML = '<p>Loading details...</p>';
 
+        // Start a new node's details at the top. The scroller is reused across
+        // selections, so without this you land wherever you had scrolled the
+        // previous node to — which on a short mobile sheet can be past the end
+        // of the new content entirely.
+        const infoScroll = document.getElementById('info-scroll');
+        if (infoScroll) infoScroll.scrollTop = 0;
+
         if (infoViewer) {
             infoViewer.style.removeProperty('display');
             this.openInfoPanel();
