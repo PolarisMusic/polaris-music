@@ -190,6 +190,23 @@ test.describe('phone layout', () => {
         expect(box.y).toBeGreaterThan(PHONE.height * 0.4);
     });
 
+    test('the sheet takes about a third, and the graph gets the rest', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => window.musicGraph.openInfoPanel());
+        await settleSheet(page);
+
+        const sheet = await page.locator('#info-viewer').boundingBox();
+        const viz = await page.locator('#viz-container').boundingBox();
+
+        // A third, deliberately: the visualization is the point of the page,
+        // and the sheet used to leave it at 206px of an 844px screen.
+        expect(sheet.height / PHONE.height).toBeGreaterThan(0.29);
+        expect(sheet.height / PHONE.height).toBeLessThan(0.37);
+
+        // And the graph must be the largest thing on screen, not the smallest.
+        expect(viz.height).toBeGreaterThan(sheet.height);
+    });
+
     test('the graph meets the sheet with no dead space between them', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => window.musicGraph.openInfoPanel());
