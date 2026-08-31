@@ -187,7 +187,69 @@ export function parseOperationDetail(event) {
  * @param {Object} ctx.config
  * @returns {express.Router}
  */
-export function createCurateRoutes({ store, config }) {
+/**
+ * Read a curation operation from the off-chain projection.
+ *
+ * The chain copy is transient by design: reclaim() erases the anchor, tally and
+ * vote rows once curation is settled, because they are ~552, ~336 and ~461
+ * bytes each billed to authors and voters, and nothing on chain reads them
+ * again. This is where a reclaimed operation is read from afterwards.
+ *
+ * Returns null when the operation was never projected, which is the honest
+ * answer for a hash that does not exist at all.
+ *
+ * @param {Object} db - Graph instance exposing a neo4j driver.
+ * @param {string} hash - Event hash.
+ * @returns {Promise<{hash: string, finalized: boolean, tally: Object,
+ *   votes: Array}|null>}
+ */
+export async function loadProjectedOperation(db, hash) {
+    if (!db?.driver || !hash) return null;
+
+    const session = db.driver.session();
+    try {
+        const result = await session.run(`
+            MATCH (o:Operation {event_hash: $hash})
+            OPTIONAL MATCH (a:Account)-[v:VOTED]->(o)
+            RETURN o,
+                   collect(CASE WHEN a IS NULL THEN NULL
+                                ELSE {voter: a.account_id, val: v.val, ts: v.voted_at} END) AS votes
+        `, { hash });
+
+        if (result.records.length === 0) return null;
+
+        const record = result.records[0];
+        const op = record.get('o').properties;
+        const toInt = (v) => (v == null ? 0 : Number(v));
+
+        return {
+            hash,
+            finalized: op.finalized === true,
+            tally: {
+                up_weight: toInt(op.up_weight),
+                down_weight: toInt(op.down_weight),
+                up_voter_count: toInt(op.up_voter_count),
+                down_voter_count: toInt(op.down_voter_count),
+                updated_at: op.finalized_at?.toString?.() ?? null
+            },
+            votes: record.get('votes')
+                .filter(Boolean)
+                .map(v => ({
+                    voter: v.voter,
+                    val: toInt(v.val),
+                    // Respect-at-vote-time is not in any action trace, so a
+                    // per-vote weight cannot be projected. The aggregate above
+                    // is exact; this is honestly null rather than a guess.
+                    weight: null,
+                    ts: v.ts?.toString?.() ?? null
+                }))
+        };
+    } finally {
+        await session.close();
+    }
+}
+
+export function createCurateRoutes({ store, config, db }) {
     const router = express.Router();
 
     /**
@@ -359,11 +421,28 @@ export function createCurateRoutes({ store, config }) {
             if (!anchorsResp.ok) throw new Error(`Chain RPC error: ${anchorsResp.status}`);
             const anchorsData = await anchorsResp.json();
 
+            // A missing anchor row is the expected steady state for a settled
+            // operation, not an error: reclaim() erases it precisely because
+            // nothing on chain needs it any more. Fall back to the projection.
+            let projected = null;
             if (!anchorsData.rows || anchorsData.rows.length === 0) {
-                return res.status(404).json({ success: false, error: 'Anchor not found' });
+                projected = await loadProjectedOperation(db, hash);
+                if (!projected) {
+                    return res.status(404).json({ success: false, error: 'Anchor not found' });
+                }
             }
 
-            const anchor = anchorsData.rows[0];
+            const anchor = anchorsData.rows?.[0] ?? {
+                hash,
+                id: null,
+                // Reclaim is gated on finalization, so a reclaimed operation is
+                // necessarily finalized.
+                finalized: true,
+                author: null,
+                ts: null,
+                event_cid: null,
+                type: null
+            };
 
             // Fetch tally
             let tally = null;
@@ -437,9 +516,10 @@ export function createCurateRoutes({ store, config }) {
             const viewerAccount = req.query.viewer;
             let viewerVote = null;
             if (viewerAccount && votes.length > 0) {
-                const found = votes.find(v => v.voter === viewerAccount);
+                const searchable = votes.length > 0 ? votes : (projected?.votes ?? []);
+                const found = searchable.find(v => v.voter === viewerAccount);
                 if (found) {
-                    viewerVote = { val: found.val, weight: found.weight };
+                    viewerVote = { val: found.val, weight: found.weight ?? null };
                 }
             }
 
@@ -451,22 +531,26 @@ export function createCurateRoutes({ store, config }) {
                     type_code: typeCode,
                     type_name: typeNames[typeCode] || `TYPE_${typeCode}`,
                     author: anchor.author || eventPayload?.author || null,
-                    ts: anchor.ts || null,
+                    ts: anchor.ts || eventPayload?.ts || null,
                     finalized: !!anchor.finalized,
                     event_cid: anchor.event_cid || null
                 },
+                // Chain first while the rows exist; the projection once they
+                // have been reclaimed. Zeros only when neither has anything,
+                // which is a genuinely unvoted operation.
                 tally: tally ? {
                     up_weight: parseInt(tally.up_weight) || 0,
                     down_weight: parseInt(tally.down_weight) || 0,
                     up_voter_count: parseInt(tally.up_voter_count) || 0,
                     down_voter_count: parseInt(tally.down_voter_count) || 0,
                     updated_at: tally.updated_at
-                } : { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+                } : (projected?.tally
+                    ?? { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 }),
                 viewer_vote: viewerVote,
-                votes: votes.map(v => ({
+                votes: (votes.length > 0 ? votes : (projected?.votes ?? [])).map(v => ({
                     voter: v.voter,
                     val: v.val,
-                    weight: v.weight,
+                    weight: v.weight ?? null,
                     ts: v.ts
                 })),
                 event: eventPayload,

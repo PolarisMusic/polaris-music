@@ -415,6 +415,14 @@ constructor(config = {}) {
                     query: 'CREATE CONSTRAINT claim_id IF NOT EXISTS FOR (cl:Claim) REQUIRE cl.claim_id IS UNIQUE'
                 },
 
+                // Operation: the off-chain projection of a curation operation.
+                // Exists so the anchor, tally and vote rows can be reclaimed from
+                // contract RAM once curation is settled — see recordVote() below.
+                {
+                    name: 'operation_hash',
+                    query: 'CREATE CONSTRAINT operation_hash IF NOT EXISTS FOR (o:Operation) REQUIRE o.event_hash IS UNIQUE'
+                },
+
                 // Source: External data source reference
                 {
                     name: 'source_id',
@@ -2255,6 +2263,132 @@ constructor(config = {}) {
      * @param {string} reason - Reason for merge (for audit trail)
      * @returns {Promise<Object>} Result with mergeId
      */
+    /**
+     * Record a vote as an off-chain projection of the on-chain vote row.
+     *
+     * Votes have always lived only on chain — eventProcessor's handleVote was a
+     * no-op with the comment "Vote data is stored on blockchain, not in graph".
+     * That is now the problem: the contract's votes, votetally and anchors rows
+     * are ~461, ~336 and ~552 bytes each, billed to voters and authors, and
+     * reclaim() exists precisely to free them once curation is settled. Nothing
+     * can be reclaimed while the curation UI is the only copy's reader.
+     *
+     * So this projection is what makes the RAM reclaimable. It is built from the
+     * `vote` action trace, which the substreams sink already delivers and which
+     * ingestion.js used to discard.
+     *
+     * Keyed on (voter, operation) rather than on the trace's content_hash: a
+     * vote action's payload is {voter, tx_hash, val} with no timestamp, so
+     * changing a vote from +1 to -1 and back would produce a content_hash the
+     * in-memory dedup has already seen. Last write by block height wins, which
+     * also makes replay idempotent.
+     *
+     * `weight` is deliberately absent. Respect-at-vote-time is the one field no
+     * action trace carries (substreams/src/lib.rs:390), so it is captured by
+     * recordFinalization() from the tally row instead, at the moment the reclaim
+     * job is about to delete it.
+     *
+     * @param {Object} vote
+     * @param {string} vote.eventHash - The anchor's content hash (vote.tx_hash).
+     * @param {string} vote.voter - Voting account.
+     * @param {number} vote.val - +1, -1, or 0 to clear.
+     * @param {number} vote.blockNum - Block height, used for last-write-wins.
+     * @param {number} [vote.ts] - Block time in epoch millis.
+     * @returns {Promise<{status: string}>}
+     */
+    async recordVote({ eventHash, voter, val, blockNum, ts }) {
+        if (!eventHash || !voter) {
+            throw new Error('recordVote requires eventHash and voter');
+        }
+
+        const session = this.driver.session();
+        try {
+            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+
+            // val === 0 clears a vote on chain, so it clears the edge here.
+            if (Number(val) === 0) {
+                await session.run(`
+                    MATCH (a:Account {account_id: $voter})-[v:VOTED]->(o:Operation {event_hash: $eventHash})
+                    WHERE v.block_num IS NULL OR v.block_num <= $blockNum
+                    DELETE v
+                `, { voter, eventHash, blockNum: neo4j.int(blockNum ?? 0) });
+                return { status: 'cleared' };
+            }
+
+            await session.run(`
+                MERGE (o:Operation {event_hash: $eventHash})
+                MERGE (a:Account {account_id: $voter})
+                    ON CREATE SET a.id = $voter
+                MERGE (a)-[v:VOTED]->(o)
+                // Guard against an out-of-order replay overwriting a newer vote.
+                WITH v WHERE v.block_num IS NULL OR v.block_num <= $blockNum
+                SET v.val = $val,
+                    v.block_num = $blockNum,
+                    v.voted_at = ${tsExpr}
+            `, {
+                eventHash,
+                voter,
+                val: neo4j.int(Number(val)),
+                blockNum: neo4j.int(blockNum ?? 0),
+                ts: ts ?? null
+            });
+
+            return { status: 'recorded' };
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * Mark an operation finalized, optionally snapshotting its tally.
+     *
+     * The snapshot is the answer to a gap rather than a convenience: vote
+     * `weight` is respect-at-vote-time, which no action trace carries, so it
+     * cannot be recomputed off-chain. The reclaim job reads the tally row
+     * anyway — immediately before erasing it — so passing it here preserves the
+     * exact figures instead of an approximation.
+     *
+     * @param {Object} finalization
+     * @param {string} finalization.eventHash
+     * @param {number} finalization.blockNum
+     * @param {number} [finalization.ts] - Block time in epoch millis.
+     * @param {Object} [finalization.tally] - {up_weight, down_weight,
+     *   up_voter_count, down_voter_count} read from chain before reclaiming.
+     * @returns {Promise<{status: string}>}
+     */
+    async recordFinalization({ eventHash, blockNum, ts, tally = null }) {
+        if (!eventHash) throw new Error('recordFinalization requires eventHash');
+
+        const session = this.driver.session();
+        try {
+            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            await session.run(`
+                MERGE (o:Operation {event_hash: $eventHash})
+                SET o.finalized = true,
+                    o.finalized_at = ${tsExpr},
+                    o.finalized_block = $blockNum
+                FOREACH (_ IN CASE WHEN $tally IS NULL THEN [] ELSE [1] END |
+                    SET o.up_weight = $upWeight,
+                        o.down_weight = $downWeight,
+                        o.up_voter_count = $upCount,
+                        o.down_voter_count = $downCount)
+            `, {
+                eventHash,
+                blockNum: neo4j.int(blockNum ?? 0),
+                ts: ts ?? null,
+                tally: tally ? 1 : null,
+                upWeight: neo4j.int(Number(tally?.up_weight ?? 0)),
+                downWeight: neo4j.int(Number(tally?.down_weight ?? 0)),
+                upCount: neo4j.int(Number(tally?.up_voter_count ?? 0)),
+                downCount: neo4j.int(Number(tally?.down_voter_count ?? 0))
+            });
+
+            return { status: 'finalized' };
+        } finally {
+            await session.close();
+        }
+    }
+
     async mergeNodes(sourceId, targetId, nodeType, reason) {
         const session = this.driver.session();
         const tx = session.beginTransaction();
