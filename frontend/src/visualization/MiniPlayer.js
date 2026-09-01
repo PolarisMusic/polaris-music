@@ -56,8 +56,44 @@ export class MiniPlayer {
         const data = await this.api.fetchPlaybackQueue(contextType, contextId);
         if (!data.success || !data.queue) return;
 
-        this.context = data.context;
-        this.queue = data.queue;
+        // Selecting a node used to stop whatever was playing, because loading a
+        // queue tore down the audio element and the embed. Browsing the graph
+        // and listening to it are separate activities, and navigating is the
+        // main thing you do here — so if something is sounding, the new queue
+        // waits rather than interrupting it.
+        if (this._isSounding()) {
+            this._pendingQueue = { context: data.context, queue: data.queue };
+            this._updatePlayButton();
+            return;
+        }
+
+        this._applyQueue(data.context, data.queue);
+    }
+
+    /**
+     * Whether audio is actually coming out.
+     *
+     * `_isPlaying` only tracks the <audio> element. In embed mode Spotify plays
+     * inside an iframe we cannot query, so the embed being on screen is the
+     * best available signal that the user may be listening.
+     *
+     * @returns {boolean}
+     */
+    _isSounding() {
+        return this._isPlaying || this._embedMode;
+    }
+
+    /**
+     * Replace the queue and reset to its first track.
+     *
+     * @param {Object} context
+     * @param {Array} queue
+     * @private
+     */
+    _applyQueue(context, queue) {
+        this._pendingQueue = null;
+        this.context = context;
+        this.queue = queue;
         this.currentIndex = this.queue.length > 0 ? 0 : -1;
         this._isPlaying = false;
         this._stopAudio();
@@ -140,6 +176,15 @@ export class MiniPlayer {
         this._queueToggleEl.title = 'Queue';
         this._queueToggleEl.textContent = '\u2630'; // hamburger icon
 
+        // Collapse toggle. The player sits above the info sheet and takes its
+        // height from the sheet's, so hiding it is how you get that space back
+        // for reading. Collapsed it keeps a strip showing what is playing —
+        // vanishing entirely would leave no way back.
+        this._collapseToggleEl = document.createElement('button');
+        this._collapseToggleEl.className = 'mp-btn mp-collapse-toggle';
+        this._collapseToggleEl.title = 'Hide player';
+        this._collapseToggleEl.textContent = '\u25BE'; // down triangle
+
         // Queue drawer
         this._drawerEl = document.createElement('div');
         this._drawerEl.className = 'mp-drawer';
@@ -150,6 +195,7 @@ export class MiniPlayer {
         rightEl.className = 'mp-right';
         rightEl.appendChild(this._externalEl);
         rightEl.appendChild(this._queueToggleEl);
+        rightEl.appendChild(this._collapseToggleEl);
 
         // Assemble bar
         const barEl = document.createElement('div');
@@ -198,6 +244,7 @@ export class MiniPlayer {
 
         // Queue toggle
         this._queueToggleEl.addEventListener('click', () => this._toggleDrawer());
+        this._collapseToggleEl.addEventListener('click', () => this._toggleCollapsed());
     }
 
     _bindAudioEvents() {
@@ -281,6 +328,33 @@ export class MiniPlayer {
         this._embedEl.appendChild(frame);
     }
 
+    /**
+     * Which Spotify URI to embed for a track.
+     *
+     * Prefers the album, because a track embed cannot advance — a plain iframe
+     * exposes nothing to call, so playback stops at every boundary. An album
+     * embed carries Spotify's own queue and continues by itself.
+     *
+     * Falls back to the track when the release has no album link, which is the
+     * case for a loose track or a release nobody has added one to.
+     *
+     * @param {Object} track - Queue entry.
+     * @returns {string|null}
+     */
+    _embedUriFor(track) {
+        return track?.release_embed_uri || track?.listen?.embed_uri || null;
+    }
+
+    /**
+     * Whether the embed currently on screen is an album, and therefore owns its
+     * own queue.
+     *
+     * @returns {boolean}
+     */
+    _albumEmbedActive() {
+        return this._embedMode && !!this._embedUri?.startsWith('spotify:album:');
+    }
+
     _enterEmbedMode() {
         this._stopAudio();
         if (this._embedMode) return;
@@ -329,6 +403,14 @@ export class MiniPlayer {
     }
 
     _togglePlay() {
+        // A queue that arrived while something was playing is adopted here:
+        // pressing play is the moment the user says they want the thing they
+        // selected, rather than the thing still sounding.
+        if (this._pendingQueue) {
+            const { context, queue } = this._pendingQueue;
+            this._applyQueue(context, queue);
+        }
+
         const track = this.queue[this.currentIndex];
         const mode = this._modeFor(track);
 
@@ -404,7 +486,7 @@ export class MiniPlayer {
             }
         } else if (mode === 'embed') {
             this._enterEmbedMode();
-            this._showEmbed(track.listen.embed_uri);
+            this._showEmbed(this._embedUriFor(track));
         } else {
             this._exitEmbedMode();
         }
@@ -414,6 +496,23 @@ export class MiniPlayer {
     }
 
     // ========== UI UPDATES ==========
+
+    /**
+     * Collapse the player to a strip, or restore it.
+     *
+     * The class goes on body because the sheet's height is derived from
+     * --mini-player-height, which is republished here once the new height has
+     * rendered.
+     */
+    _toggleCollapsed() {
+        this._collapsed = !this._collapsed;
+        document.body.classList.toggle('mini-player-collapsed', this._collapsed);
+        this._collapseToggleEl.textContent = this._collapsed ? '\u25B4' : '\u25BE';
+        this._collapseToggleEl.title = this._collapsed ? 'Show player' : 'Hide player';
+        // A drawer left open under a collapsed player would keep its height.
+        if (this._collapsed && this.drawerOpen) this._toggleDrawer();
+        this._notifyHeightChange();
+    }
 
     _show() {
         this.container.style.display = 'flex';
@@ -447,12 +546,7 @@ export class MiniPlayer {
      */
     _notifyHeightChange() {
         requestAnimationFrame(() => {
-            // On a phone the player is an overlay inside the visualization, so
-            // it occupies no row in the layout and must declare zero. Reporting
-            // its rendered height there would re-open the double-count that put
-            // a band of dead space between the graph and the info sheet.
-            const overlaid = window.matchMedia('(max-width: 768px)').matches;
-            const height = overlaid ? 0 : (this.container?.offsetHeight ?? 0);
+            const height = this.container?.offsetHeight ?? 0;
 
             // On body, not documentElement: the .mini-player-visible class
             // rules define this same variable on body, and a value set on the
@@ -487,6 +581,20 @@ export class MiniPlayer {
         // Play button state
         this._updatePlayButton();
 
+        // Inside an album embed Spotify owns the queue: our prev/next would
+        // move this display without moving what is actually sounding, since
+        // _showEmbed early-returns for a URI already on screen. Better to say
+        // they do not apply than to let them lie.
+        const albumEmbed = this._albumEmbedActive();
+        for (const cls of ['.mp-prev', '.mp-next']) {
+            const btn = this._controlsEl.querySelector(cls);
+            if (!btn) continue;
+            btn.disabled = albumEmbed;
+            btn.title = albumEmbed
+                ? 'Spotify controls the queue while an album is playing'
+                : (cls === '.mp-prev' ? 'Previous' : 'Next');
+        }
+
         // Scrubber is ours only in audio mode; the Spotify embed owns its own
         // progress bar, so we hide ours rather than keep two out of sync.
         const mode = this._modeFor(track);
@@ -508,6 +616,16 @@ export class MiniPlayer {
 
     _updatePlayButton() {
         const playBtn = this.container.querySelector('.mp-play');
+
+        // A queue is waiting because something is still playing. Say what the
+        // button will do, so switching is a choice rather than a surprise.
+        if (this._pendingQueue) {
+            playBtn.disabled = false;
+            playBtn.innerHTML = '&#9654;';
+            playBtn.title = `Play ${this._pendingQueue.context?.name ?? 'selection'}`;
+            return;
+        }
+
         const track = this.queue[this.currentIndex];
 
         if (!track) {

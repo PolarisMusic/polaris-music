@@ -246,43 +246,65 @@ test.describe('phone layout', () => {
         expect(sheet.y + sheet.height).toBeLessThanOrEqual(bar.y + 1);
     });
 
-    test('the player lives inside the visualization, not above the sheet', async ({ page }) => {
+    test('the player sits between the graph and the sheet, touching neither', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => {
             window.musicGraph.miniPlayer._show();
             window.musicGraph.openInfoPanel();
         });
         await settleSheet(page);
+        await page.waitForTimeout(350);   // the panel slides with the sheet
 
-        const sheet = await page.locator('#info-viewer').boundingBox();
         const viz = await page.locator('#viz-container').boundingBox();
         const player = await page.locator('#mini-player-container').boundingBox();
+        const sheet = await page.locator('#info-viewer').boundingBox();
 
-        // Contained by the canvas, so it costs the layout nothing. It used to
-        // be a row in the vertical stack that took 109px from the graph and the
-        // sheet both.
-        expect(player.y).toBeGreaterThanOrEqual(viz.y - 1);
-        expect(player.y + player.height).toBeLessThanOrEqual(viz.y + viz.height + 1);
-        expect(player.x).toBeGreaterThanOrEqual(viz.x - 1);
-
-        // And it must not reach the sheet.
+        // Stacked, in this order, with no gaps. An earlier version overlaid the
+        // canvas corner, which cost the layout nothing but covered the graph.
+        expect(player.y).toBeGreaterThanOrEqual(viz.y + viz.height - 1);
         expect(player.y + player.height).toBeLessThanOrEqual(sheet.y + 1);
     });
 
-    test('the player keeps to the corner rather than covering the disk', async ({ page }) => {
+    test('the player takes its height from the sheet, not the graph', async ({ page }) => {
         await gotoApp(page);
-        await page.evaluate(() => window.musicGraph.miniPlayer._show());
+        await page.evaluate(() => window.musicGraph.openInfoPanel());
+        await settleSheet(page);
+        const before = await page.locator('#viz-container').boundingBox();
 
-        const viz = await page.locator('#viz-container').boundingBox();
+        await page.evaluate(() => window.musicGraph.miniPlayer._show());
+        await page.waitForTimeout(350);
+        const after = await page.locator('#viz-container').boundingBox();
+        const sheet = await page.locator('#info-viewer').boundingBox();
+
+        // The disk stops growing at a square canvas, so height taken from the
+        // canvas would shrink the graph while height taken from the sheet only
+        // shortens a scroll. Showing the player must not cost the graph a pixel.
+        expect(after.height).toBe(before.height);
+        expect(Math.abs(after.height - after.width)).toBeLessThanOrEqual(1);
+        expect(sheet.height).toBeLessThan(before.height);
+    });
+
+    test('the player can be collapsed to reclaim sheet space', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => {
+            window.musicGraph.miniPlayer._show();
+            window.musicGraph.openInfoPanel();
+        });
+        await settleSheet(page);
+        await page.waitForTimeout(350);
+        const expanded = await page.locator('#info-viewer').boundingBox();
+
+        await page.locator('.mp-collapse-toggle').click();
+        await page.waitForTimeout(350);
+        const collapsed = await page.locator('#info-viewer').boundingBox();
         const player = await page.locator('#mini-player-container').boundingBox();
 
-        // Some overlap of the disk's outer edge is unavoidable — a tile that
-        // never touched an inscribed circle could only be ~57px square. What
-        // must not happen is the tile growing with its content: it once
-        // reached 244px wide because the grid took its width from the button
-        // row and a long track title.
-        expect(player.width).toBeLessThan(viz.width / 3);
-        expect(player.height).toBeLessThan(viz.height / 2);
+        // Collapsing gives the space to the sheet, which is the point.
+        expect(collapsed.height).toBeGreaterThan(expanded.height);
+        // But it keeps a strip, so there is a way back and you can still see
+        // what is playing.
+        expect(player.height).toBeGreaterThan(0);
+        await expect(page.locator('.mp-collapse-toggle')).toBeVisible();
     });
 
     test('the Spotify embed does not displace the node details', async ({ page }) => {
@@ -322,7 +344,7 @@ test.describe('phone layout', () => {
         await expect(page.locator('.mp-next')).toBeVisible();
     });
 
-    test('the player costs the layout no height', async ({ page }) => {
+    test('the height the layout uses is the height the player has', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => window.musicGraph.miniPlayer._show());
         await page.waitForTimeout(150);
@@ -333,12 +355,10 @@ test.describe('phone layout', () => {
             actual: document.getElementById('mini-player-container').offsetHeight,
         }));
 
-        // An overlay has a real rendered height and occupies no row. The token
-        // drives the sheet's position and the graph's bottom inset, so
-        // reporting the rendered height here would re-open the double-count
-        // that put a band of dead space between the graph and the sheet.
-        expect(parseFloat(declared)).toBe(0);
-        expect(actual).toBeGreaterThan(0);
+        // The token drives the sheet's height and the graph's bottom inset, so
+        // a stale value shows up directly as a gap or an overlap. It was once a
+        // hand-summed constant that was already a pixel out from what rendered.
+        expect(parseFloat(declared)).toBeCloseTo(actual, 0);
     });
 
     test('the header stays on one line', async ({ page }) => {

@@ -871,6 +871,15 @@ export class IngestionHandler {
                 });
             }
 
+            // Likes stopped being stored on chain: the contract's likes table
+            // was read by nothing except like()/unlike() checking their own
+            // prior write, so the trace is now the only record.
+            if (action_name === 'like' || action_name === 'unlike') {
+                return await this.processLikeAction(action_name, actionData, {
+                    block_num, source, timestamp
+                });
+            }
+
             if (action_name !== 'put') {
                 this.log.info('anchored_event_skip', { event_hash: contentHash, action_name });
                 return {
@@ -1034,6 +1043,55 @@ export class IngestionHandler {
                 action_name: actionName, event_hash: targetHash, error: error.message
             });
             return { status: 'error', contentHash: targetHash, message: error.message };
+        }
+    }
+
+    /**
+     * Project a like or unlike into the graph.
+     *
+     * The toggle rule lives in the graph layer, not here — see recordLike().
+     * This only routes.
+     *
+     * @param {string} actionName - 'like' or 'unlike'.
+     * @param {Object} actionData - { account, node_id, node_path }.
+     * @param {Object} meta
+     * @returns {Promise<Object>}
+     * @private
+     */
+    async processLikeAction(actionName, actionData, meta = {}) {
+        const graph = this.processor?.db;
+        const account = actionData?.account;
+        const nodeId = actionData?.node_id;
+
+        if (!account || !nodeId) {
+            this.log.warn('like_action_incomplete', { action_name: actionName });
+            return { status: 'skipped', message: `${actionName} carried no account or node_id` };
+        }
+
+        if (!graph?.recordLike) {
+            this.log.info('like_action_no_graph', { action_name: actionName });
+            return { status: 'skipped', message: 'No graph projection available' };
+        }
+
+        try {
+            const result = actionName === 'like'
+                ? await graph.recordLike({
+                    account, nodeId,
+                    path: Array.isArray(actionData.node_path) ? actionData.node_path : [],
+                    blockNum: meta.block_num,
+                    ts: this.blockTimeToMillis(meta)
+                })
+                : await graph.recordUnlike({ account, nodeId });
+
+            this.log.info('like_action_recorded', {
+                action_name: actionName, account, status: result.status
+            });
+            return { status: 'processed', actionName, result: result.status };
+        } catch (error) {
+            this.log.error('like_action_failed', {
+                action_name: actionName, account, error: error.message
+            });
+            return { status: 'error', message: error.message };
         }
     }
 

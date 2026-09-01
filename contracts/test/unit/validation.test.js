@@ -8,6 +8,73 @@
 
 const { expect } = require('chai');
 
+describe('RAM policy', () => {
+    // The contract's own constants, mirrored here. These encode decisions about
+    // what the chain stores, and the reasoning is easy to lose.
+    const MIN_CONTENT_TYPE = 20;
+    const MAX_CONTENT_TYPE = 39;
+    const MIN_PENDING_REWARD = 1000;
+
+    /** Mirrors put()'s `anchored` predicate. */
+    const isAnchored = (type) => type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE;
+
+    describe('which event types get an anchor row', () => {
+        it('should anchor content submissions', () => {
+            // These mint, advance g.x, and are voted on — finalize() reads their
+            // tally to decide whether to award or redistribute.
+            [21, 22, 23, 30, 31].forEach(t => {
+                expect(isAnchored(t)).to.be.true;
+            });
+        });
+
+        it('should NOT anchor votes, likes or discussions', () => {
+            // ~552 bytes for the anchor and ~336 for a tally that reads
+            // 0/0/0/0 forever, billed to the author, for events that cannot
+            // mint and are never voted on.
+            [40, 41, 42].forEach(t => {
+                expect(isAnchored(t)).to.be.false;
+            });
+        });
+
+        it('should NOT anchor finalize or merge event types', () => {
+            [50, 60].forEach(t => {
+                expect(isAnchored(t)).to.be.false;
+            });
+        });
+
+        it('should treat the range boundaries as content', () => {
+            expect(isAnchored(MIN_CONTENT_TYPE)).to.be.true;
+            expect(isAnchored(MAX_CONTENT_TYPE)).to.be.true;
+            expect(isAnchored(MIN_CONTENT_TYPE - 1)).to.be.false;
+            expect(isAnchored(MAX_CONTENT_TYPE + 1)).to.be.false;
+        });
+    });
+
+    describe('pending reward dust threshold', () => {
+        // A new row costs ~336 bytes plus ~108 for a new account scope, and the
+        // CONTRACT pays. distribute_to_stakers fans out over every node and
+        // every staker per rejection, so without a floor one rejected
+        // submission can open a permanent contract-funded row for every staker
+        // to hold a fraction of a cent.
+        const opensRow = (share, hasExisting) => hasExisting || share >= MIN_PENDING_REWARD;
+
+        it('should not open a row for dust', () => {
+            expect(opensRow(1, false)).to.be.false;
+            expect(opensRow(MIN_PENDING_REWARD - 1, false)).to.be.false;
+        });
+
+        it('should open a row at the threshold', () => {
+            expect(opensRow(MIN_PENDING_REWARD, false)).to.be.true;
+        });
+
+        it('should always top up an existing row, however small', () => {
+            // Adding to a row already in RAM costs nothing, so refusing dust
+            // there would forfeit it for no saving.
+            expect(opensRow(1, true)).to.be.true;
+        });
+    });
+});
+
 describe('Polaris Contract Validation Logic', () => {
 
     // Constants from the contract

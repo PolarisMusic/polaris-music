@@ -415,6 +415,15 @@ constructor(config = {}) {
                     query: 'CREATE CONSTRAINT claim_id IF NOT EXISTS FOR (cl:Claim) REQUIRE cl.claim_id IS UNIQUE'
                 },
 
+                // LikeTarget: whatever an account liked, identified only by the
+                // id the like action carried. A stub rather than the real node
+                // because the trace does not say what type it is, and a like
+                // can name something the graph has not ingested yet.
+                {
+                    name: 'like_target_id',
+                    query: 'CREATE CONSTRAINT like_target_id IF NOT EXISTS FOR (lt:LikeTarget) REQUIRE lt.node_id IS UNIQUE'
+                },
+
                 // Operation: the off-chain projection of a curation operation.
                 // Exists so the anchor, tally and vote rows can be reclaimed from
                 // contract RAM once curation is settled — see recordVote() below.
@@ -2263,6 +2272,143 @@ constructor(config = {}) {
      * @param {string} reason - Reason for merge (for audit trail)
      * @returns {Promise<Object>} Result with mergeId
      */
+    /**
+     * Record a like, or toggle one off.
+     *
+     * Likes used to live in a contract table that no action ever read except
+     * like() and unlike() checking whether they had already written — ~410
+     * bytes per like, up to 640 of it the discovery path, which the contract
+     * described as data to understand how users navigate. That is analytics,
+     * and it is entirely present in the action trace, so the table stopped
+     * being written and this is where the state lives now.
+     *
+     * The toggle rule is the interesting part, and it is deliberate:
+     *
+     *   - liking something not yet liked likes it;
+     *   - liking it again by the SAME path is read as a second press of the
+     *     same button, so it unlikes;
+     *   - liking it by a DIFFERENT path leaves it liked and records the new
+     *     path, because arriving somewhere a second way is a discovery, not a
+     *     retraction.
+     *
+     * The frontend sends `unlike` explicitly when it knows the node is already
+     * liked, so the same-path case is a fallback for a client that has lost
+     * track rather than the normal route.
+     *
+     * @param {Object} like
+     * @param {string} like.account
+     * @param {string} like.nodeId
+     * @param {string[]} [like.path] - Discovery path, ending at nodeId.
+     * @param {number} like.blockNum
+     * @param {number} [like.ts] - Block time in epoch millis.
+     * @returns {Promise<{status: 'liked'|'unliked'}>}
+     */
+    async recordLike({ account, nodeId, path = [], blockNum, ts }) {
+        if (!account || !nodeId) throw new Error('recordLike requires account and nodeId');
+
+        const session = this.driver.session();
+        try {
+            const existing = await session.run(`
+                MATCH (a:Account {account_id: $account})-[l:LIKED]->(t:LikeTarget {node_id: $nodeId})
+                RETURN l.path AS path
+            `, { account, nodeId });
+
+            const previous = existing.records[0]?.get('path') ?? null;
+            const samePath = previous !== null
+                && JSON.stringify(previous) === JSON.stringify(path);
+
+            if (samePath) {
+                await this._deleteLike(session, account, nodeId);
+                return { status: 'unliked' };
+            }
+
+            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            await session.run(`
+                MERGE (t:LikeTarget {node_id: $nodeId})
+                MERGE (a:Account {account_id: $account})
+                    ON CREATE SET a.id = $account
+                MERGE (a)-[l:LIKED]->(t)
+                SET l.path = $path,
+                    l.block_num = $blockNum,
+                    l.liked_at = ${tsExpr}
+            `, {
+                account, nodeId, path,
+                blockNum: neo4j.int(blockNum ?? 0),
+                ts: ts ?? null
+            });
+
+            return { status: 'liked' };
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * Remove a like.
+     *
+     * @param {Object} unlike
+     * @param {string} unlike.account
+     * @param {string} unlike.nodeId
+     * @returns {Promise<{status: 'unliked'}>}
+     */
+    async recordUnlike({ account, nodeId }) {
+        if (!account || !nodeId) throw new Error('recordUnlike requires account and nodeId');
+
+        const session = this.driver.session();
+        try {
+            await this._deleteLike(session, account, nodeId);
+            return { status: 'unliked' };
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * @param {Object} session
+     * @param {string} account
+     * @param {string} nodeId
+     * @private
+     */
+    async _deleteLike(session, account, nodeId) {
+        await session.run(`
+            MATCH (a:Account {account_id: $account})-[l:LIKED]->(t:LikeTarget {node_id: $nodeId})
+            DELETE l
+            WITH t
+            // A target nothing likes any more is not worth keeping.
+            WHERE NOT (t)<-[:LIKED]-()
+            DELETE t
+        `, { account, nodeId });
+    }
+
+    /**
+     * Everything an account has liked.
+     *
+     * Replaces a read of the contract's per-account `likes` table.
+     *
+     * @param {string} account
+     * @param {number} [limit]
+     * @returns {Promise<{node_id: string, path: string[], liked_at: string|null}[]>}
+     */
+    async getAccountLikes(account, limit = 200) {
+        const session = this.driver.session();
+        try {
+            const result = await session.run(`
+                MATCH (a:Account {account_id: $account})-[l:LIKED]->(t:LikeTarget)
+                RETURN t.node_id AS node_id, l.path AS path, l.liked_at AS liked_at
+                ORDER BY l.liked_at DESC
+                LIMIT $limit
+            `, { account, limit: neo4j.int(limit) });
+
+            return result.records.map(r => ({
+                node_id: r.get('node_id'),
+                path: r.get('path') ?? [],
+                liked_at: r.get('liked_at')?.toString?.() ?? null
+            }));
+        } finally {
+            await session.close();
+        }
+    }
+
     /**
      * Record a vote as an off-chain projection of the on-chain vote row.
      *

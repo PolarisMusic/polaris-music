@@ -392,6 +392,18 @@ export class PlayerService {
     _buildQueueEntry(track, inRelease, release) {
         const listen = normalizeListenLinks(track.listen_links);
 
+        // The release's own Spotify link, when it has one.
+        //
+        // A track embed cannot advance: a plain iframe exposes nothing to call,
+        // so playback stops at every track boundary. An ALBUM embed carries
+        // Spotify's own queue and continues on its own, which is the only way
+        // to get continuous playback without loading their eval-dependent
+        // iFrame API and weakening the page's CSP.
+        //
+        // Release nodes have carried listen_links since the submission form
+        // gained a release-level field; nothing exposed them until now.
+        const releaseEmbedUri = normalizeListenLinks(release.listen_links).embed_uri;
+
         return {
             track_id: track.track_id,
             track_name: track.title,
@@ -402,6 +414,12 @@ export class PlayerService {
             release_name: release.name,
             release_date: release.release_date || null,
             album_art: release.album_art || null,
+            // Only when it really is an album: a release whose link happens to
+            // point at a single track gives no queue to advance through, and
+            // treating it as one would silently drop the rest of the record.
+            release_embed_uri: releaseEmbedUri?.startsWith('spotify:album:')
+                ? releaseEmbedUri
+                : null,
             listen
         };
     }
