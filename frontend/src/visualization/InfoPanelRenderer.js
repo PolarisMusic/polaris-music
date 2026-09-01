@@ -495,14 +495,27 @@ export class InfoPanelRenderer {
                     `${tally.down_weight} (${tally.down_voter_count})`)));
 
         if (!operation.finalized) {
+            // Clicking the vote you already hold clears it. The contract erases
+            // the row on val === 0 (polaris.music.cpp:667), but these buttons
+            // always re-sent the same value, so a vote could be changed and
+            // never withdrawn — the label read "Downvoted" and clicking it did
+            // nothing visible, because re-asserting a vote is a no-op on chain.
             votingDiv.appendChild(this._el('button', {
                 className: 'curate-vote-btn curate-vote-up' + (viewerVote?.val === 1 ? ' curate-vote-btn--active' : ''),
-                onClick: (e) => { e.stopPropagation(); this.callbacks.voteFromDetail(op, 1); },
+                title: viewerVote?.val === 1 ? 'Click to remove your upvote' : 'Upvote',
+                onClick: (e) => {
+                    e.stopPropagation();
+                    this.callbacks.voteFromDetail(op, viewerVote?.val === 1 ? 0 : 1);
+                },
             }, viewerVote?.val === 1 ? 'Upvoted' : 'Upvote'));
 
             votingDiv.appendChild(this._el('button', {
                 className: 'curate-vote-btn curate-vote-down' + (viewerVote?.val === -1 ? ' curate-vote-btn--active' : ''),
-                onClick: (e) => { e.stopPropagation(); this.callbacks.voteFromDetail(op, -1); },
+                title: viewerVote?.val === -1 ? 'Click to remove your downvote' : 'Downvote',
+                onClick: (e) => {
+                    e.stopPropagation();
+                    this.callbacks.voteFromDetail(op, viewerVote?.val === -1 ? 0 : -1);
+                },
             }, viewerVote?.val === -1 ? 'Downvoted' : 'Downvote'));
         }
         container.appendChild(votingDiv);

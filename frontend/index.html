@@ -102,6 +102,14 @@
 
             <!-- Release orbit overlay (positioned above canvas) -->
             <div id="release-orbit-overlay"></div>
+
+            <!-- Mini player. Inside the visualization because on a phone it is
+                 an overlay in the canvas's bottom-left corner, which the
+                 hypertree's disk never reaches. On desktop it stays a fixed
+                 full-width bar; position:fixed ignores this ancestor, and
+                 #viz-container's overflow:hidden does not clip a fixed
+                 descendant, so the desktop layout is unchanged. -->
+            <div id="mini-player-container"></div>
         </div>
 
         <!-- Info Viewer Panel -->
@@ -121,9 +129,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Mini Player (persistent bottom bar) -->
-    <div id="mini-player-container"></div>
 
     <!-- Bottom Bar -->
     <div id="bottom-bar">

@@ -10,14 +10,13 @@ html, body {
     --top-bar-height: 60px;
     --bottom-bar-height: 60px;
     /* Kept in step with the player's real rendered height by
-       MiniPlayer._notifyHeightChange(). The values below are only a first-paint
-       fallback: they used to be hand-summed, and the sum was already a pixel
-       out from what actually rendered, which the layout below cannot tolerate
-       now that the sheet is positioned against it. */
+       MiniPlayer._notifyHeightChange(). On desktop the player is still a bar in
+       the vertical stack and this is its measured height; on phones it is an
+       overlay inside the visualization and this stays 0, because an overlay
+       costs no layout height. */
     --mini-player-height: 0px;
-    /* How much of the screen the mobile bottom sheet takes. Written once and
-       used by the sheet's own height and by the graph's bottom inset, which
-       previously repeated 45vh in three places and drifted. */
+    /* Desktop only. The phone value is derived from the viewport — see the
+       media query. */
     --info-sheet-height: 33vh;
     height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -1402,6 +1401,33 @@ body.mini-player-visible.mini-player-embed {
         bottom: calc(var(--bottom-bar-height) + var(--mini-player-height) + var(--info-sheet-height));
     }
 
+    /* The visualization is a SQUARE, and the sheet takes whatever is left.
+    
+       The hypertree is a disk sized by the smaller canvas dimension —
+       jit.js:18006, `Math.min(s.width, s.height) / 2`. On a phone that is always
+       the width, so canvas height beyond 100vw renders nothing at all. The
+       previous 33vh sheet left the canvas 461px tall on a 390px-wide screen:
+       71px of pure waste, because the disk was still only 390px across.
+    
+       Sizing the canvas square costs the graph nothing and hands those pixels
+       to the sheet. The player no longer appears in this sum because it moved
+       into the canvas as an overlay. */
+    html, body {
+        /* On a phone the bottom bar holds one button; 60px of chrome for it is
+           space the graph wants more. Declared here rather than beside
+           #bottom-bar because --info-sheet-height below subtracts it, and two
+           separate html/body blocks in one media query invite a stale edit. */
+        --bottom-bar-height: 44px;
+
+        --info-sheet-height: calc(100vh - var(--top-bar-height)
+                                        - var(--bottom-bar-height) - 100vw);
+
+        /* An overlaid player occupies no row in the layout. Leaving this at its
+           measured height would re-introduce the double-count that used to put
+           a band of dead space between the graph and the sheet. */
+        --mini-player-height: 0px;
+    }
+
     /* --- Density: the sheet's own furniture used 91px before any content --- */
 
     .info-header {
@@ -1518,12 +1544,6 @@ body.mini-player-visible.mini-player-embed {
     }
 
     /* --- Bottom bar collapses behind one control --- */
-    /* On a phone this bar holds one button. 60px of chrome for it is space the
-       graph wants more. */
-    html, body {
-        --bottom-bar-height: 44px;
-    }
-
     #bottom-bar {
         flex-wrap: nowrap;
         gap: 6px;
@@ -1581,6 +1601,15 @@ body.mini-player-visible.mini-player-embed {
 }
 
 /* Album art */
+/* Positioning context for the play overlay. The overlay must be a sibling of
+   .mp-art, not a child: _updateTrackDisplay() replaces .mp-art's innerHTML on
+   every track change and would destroy anything inside it. */
+.mp-art-frame {
+    position: relative;
+    flex-shrink: 0;
+    line-height: 0;
+}
+
 .mp-art {
     width: 40px;
     height: 40px;
@@ -1588,6 +1617,44 @@ body.mini-player-visible.mini-player-embed {
     border-radius: 3px;
     overflow: hidden;
     background: #333;
+}
+
+/* The play control sits on the artwork, the way every music player does it.
+   One layout for both breakpoints; the phone overlay just scales it up. */
+.mp-art-frame .mp-play {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+/* Always legible when there is no artwork to reveal, and on touch devices,
+   where there is no hover to discover it with. */
+.mp-art-frame .mp-play:focus-visible,
+.mp-art-frame:hover .mp-play,
+.mp-art-frame:has(.mp-art-placeholder) .mp-play {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .mp-art-frame .mp-play {
+        opacity: 1;
+    }
+}
+
+.mp-art-frame .mp-play:disabled {
+    opacity: 0;
 }
 
 .mp-art-img {
@@ -1871,9 +1938,10 @@ body.mini-player-visible.mini-player-embed {
        Prev/next are NOT dead (they move the queue position and reload the
        frame), so they stay, along with the open-in-Spotify link and the queue
        toggle. */
-    body.mini-player-embed .mp-art,
+    /* .mp-art-frame, not .mp-art: hiding only the artwork would leave the
+       frame behind holding the play overlay. */
+    body.mini-player-embed .mp-art-frame,
     body.mini-player-embed .mp-info,
-    body.mini-player-embed .mp-play,
     /* Nothing to scrub: the embed plays inside Spotify's iframe, not through
        our <audio> element, so the bar never moves. It also wraps to a second
        row, which was keeping the bar 54px tall with 22px of content in it. */
@@ -1894,5 +1962,153 @@ body.mini-player-visible.mini-player-embed {
     body.mini-player-embed .mp-embed {
         height: 82px;
         padding: 1px 8px;
+    }
+
+    /* ---- The player lives IN the visualization, bottom-left ----
+    
+       The hypertree is a disk (jit.js:18006 sizes it by the smaller dimension),
+       so the corners of a square canvas are never drawn on. Putting the player
+       there costs the graph nothing, where a row in the vertical stack cost it
+       109px.
+    
+       Positioned against #viz-container, which is already position:relative.
+       Follows #release-orbit-overlay's convention: pointer-events none on the
+       shell, auto on the controls, so taps meant for the graph pass through. */
+    #mini-player-container {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        right: auto;
+        /* Fixed, not content-sized. Left to size itself the tile grew past
+           240px — more than half the canvas — because the grid took its width
+           from the longest row. How far this intrudes on the disk should be a
+           decision, not a consequence of how long a track title is. */
+        width: 96px;
+        /* Above the release orbit (50), far below the info sheet (900). */
+        z-index: 60;
+        background: transparent;
+        border-top: none;
+        pointer-events: none;
+    }
+
+    .mini-player {
+        background: transparent;
+        border-top: none;
+    }
+
+    /* A tile, not a bar: transport, then artwork carrying the play control,
+       then the title.
+    
+       Sizing is a compromise worth naming. A tile that never touched the disk
+       would have to be about 57px square — the corner triangle outside an
+       inscribed circle is small. Anything usable overlaps the disk's outer
+       edge, which is where the hyperbolic projection compresses nodes to
+       near-nothing, so that is the cheap place to spend. */
+    .mp-bar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: center;
+        gap: 4px;
+        padding: 0;
+        height: auto;
+        min-height: 0;
+        background: rgba(20, 20, 20, 0.72);
+        border: 1px solid #333;
+        border-radius: 8px;
+        backdrop-filter: blur(4px);
+        pointer-events: auto;
+    }
+
+    .mp-bar > * {
+        grid-column: 1;
+        max-width: 100%;
+    }
+
+    .mp-controls {
+        order: 1;
+        gap: 8px;
+        padding-top: 5px;
+    }
+
+    .mp-art-frame {
+        order: 2;
+        width: 76px;
+        height: 76px;
+    }
+
+    .mp-art {
+        width: 100%;
+        height: 100%;
+        border-radius: 4px;
+    }
+
+    .mp-art-frame .mp-play {
+        border-radius: 4px;
+        font-size: 22px;
+    }
+
+    .mp-info {
+        order: 3;
+        flex: none;
+        width: 100%;
+        padding: 0 4px 4px;
+        text-align: center;
+    }
+
+    .mp-info .mp-track-name {
+        font-size: 11px;
+    }
+
+    .mp-info .mp-release-name {
+        font-size: 10px;
+    }
+
+    /* Below the title. Sharing the transport's row is what made the tile wide. */
+    .mp-right {
+        order: 4;
+        gap: 4px;
+        padding-bottom: 5px;
+    }
+
+    .mp-bar .mp-btn {
+        padding: 2px 5px;
+        font-size: 10px;
+    }
+
+    /* The drawer needs real width; break it out of the tile rather than squeeze
+       a track list into 96px. */
+    .mp-drawer {
+        position: absolute;
+        left: 0;
+        bottom: 100%;
+        width: min(300px, calc(100vw - 32px));
+        max-height: 40vh;
+        pointer-events: auto;
+        border: 1px solid #333;
+        border-radius: 8px;
+        margin-bottom: 6px;
+    }
+
+    /* Spotify's compact embed is a horizontal card — 80px tall is its floor and
+       it needs roughly 300px of width before its own title and controls
+       collide. It cannot render inside the artwork square, so in embed mode the
+       tile gives way to a strip along the bottom edge. That clips the disk's
+       lower arc, which is where the hyperbolic projection compresses nodes to
+       near-invisibility — the cheapest part of the canvas to cover. */
+    body.mini-player-embed #mini-player-container {
+        width: min(340px, calc(100% - 16px));
+    }
+
+    body.mini-player-embed .mp-bar {
+        grid-template-columns: 1fr auto;
+        justify-items: stretch;
+        padding: 2px 6px;
+    }
+
+    body.mini-player-embed .mp-embed {
+        pointer-events: auto;
+        border-top: none;
+        border-radius: 8px;
+        overflow: hidden;
     }
 }

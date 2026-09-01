@@ -190,21 +190,29 @@ test.describe('phone layout', () => {
         expect(box.y).toBeGreaterThan(PHONE.height * 0.4);
     });
 
-    test('the sheet takes about a third, and the graph gets the rest', async ({ page }) => {
+    test('the visualization is square, and the sheet takes what is left', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => window.musicGraph.openInfoPanel());
         await settleSheet(page);
 
-        const sheet = await page.locator('#info-viewer').boundingBox();
         const viz = await page.locator('#viz-container').boundingBox();
+        const sheet = await page.locator('#info-viewer').boundingBox();
 
-        // A third, deliberately: the visualization is the point of the page,
-        // and the sheet used to leave it at 206px of an 844px screen.
-        expect(sheet.height / PHONE.height).toBeGreaterThan(0.29);
-        expect(sheet.height / PHONE.height).toBeLessThan(0.37);
+        // The real invariant, and the reason the earlier "a third of the
+        // screen" rule was the wrong target. The hypertree is a disk sized by
+        // the SMALLER canvas dimension (jit.js:18006), so on a phone it is
+        // width-constrained and every pixel of canvas height beyond the width
+        // renders nothing. A 33vh sheet left the canvas 461px tall on a 390px
+        // screen: 71px that drew no graph and could not.
+        expect(Math.abs(viz.height - viz.width)).toBeLessThanOrEqual(1);
 
-        // And the graph must be the largest thing on screen, not the smallest.
-        expect(viz.height).toBeGreaterThan(sheet.height);
+        // Which means the disk is as large as the screen allows.
+        expect(Math.min(viz.width, viz.height)).toBe(PHONE.width);
+
+        // The sheet gets the remainder rather than a fixed fraction.
+        const chrome = PHONE.height - viz.height - sheet.height;
+        expect(chrome).toBeGreaterThan(0);      // top bar + bottom bar
+        expect(chrome).toBeLessThan(140);
     });
 
     test('the graph meets the sheet with no dead space between them', async ({ page }) => {
@@ -238,7 +246,7 @@ test.describe('phone layout', () => {
         expect(sheet.y + sheet.height).toBeLessThanOrEqual(bar.y + 1);
     });
 
-    test('the player sits below the sheet instead of over its content', async ({ page }) => {
+    test('the player lives inside the visualization, not above the sheet', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => {
             window.musicGraph.miniPlayer._show();
@@ -247,12 +255,34 @@ test.describe('phone layout', () => {
         await settleSheet(page);
 
         const sheet = await page.locator('#info-viewer').boundingBox();
+        const viz = await page.locator('#viz-container').boundingBox();
         const player = await page.locator('#mini-player-container').boundingBox();
 
-        // The player is a sibling of #main-container, and position:fixed makes
-        // #main-container a stacking context — so the sheet's z-index could
-        // never lift it above the player. It floated over the scrolling rows.
-        expect(player.y).toBeGreaterThanOrEqual(sheet.y + sheet.height - 1);
+        // Contained by the canvas, so it costs the layout nothing. It used to
+        // be a row in the vertical stack that took 109px from the graph and the
+        // sheet both.
+        expect(player.y).toBeGreaterThanOrEqual(viz.y - 1);
+        expect(player.y + player.height).toBeLessThanOrEqual(viz.y + viz.height + 1);
+        expect(player.x).toBeGreaterThanOrEqual(viz.x - 1);
+
+        // And it must not reach the sheet.
+        expect(player.y + player.height).toBeLessThanOrEqual(sheet.y + 1);
+    });
+
+    test('the player keeps to the corner rather than covering the disk', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => window.musicGraph.miniPlayer._show());
+
+        const viz = await page.locator('#viz-container').boundingBox();
+        const player = await page.locator('#mini-player-container').boundingBox();
+
+        // Some overlap of the disk's outer edge is unavoidable — a tile that
+        // never touched an inscribed circle could only be ~57px square. What
+        // must not happen is the tile growing with its content: it once
+        // reached 244px wide because the grid took its width from the button
+        // row and a long track title.
+        expect(player.width).toBeLessThan(viz.width / 3);
+        expect(player.height).toBeLessThan(viz.height / 2);
     });
 
     test('the Spotify embed does not displace the node details', async ({ page }) => {
@@ -292,10 +322,10 @@ test.describe('phone layout', () => {
         await expect(page.locator('.mp-next')).toBeVisible();
     });
 
-    test('the player height the layout uses is the height it actually has', async ({ page }) => {
+    test('the player costs the layout no height', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => window.musicGraph.miniPlayer._show());
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(150);
 
         const { declared, actual } = await page.evaluate(() => ({
             declared: getComputedStyle(document.body)
@@ -303,10 +333,12 @@ test.describe('phone layout', () => {
             actual: document.getElementById('mini-player-container').offsetHeight,
         }));
 
-        // This was a hand-summed CSS constant, already a pixel out from what
-        // rendered. Now that the sheet is positioned against it, a stale value
-        // is a visible gap.
-        expect(parseFloat(declared)).toBeCloseTo(actual, 0);
+        // An overlay has a real rendered height and occupies no row. The token
+        // drives the sheet's position and the graph's bottom inset, so
+        // reporting the rendered height here would re-open the double-count
+        // that put a band of dead space between the graph and the sheet.
+        expect(parseFloat(declared)).toBe(0);
+        expect(actual).toBeGreaterThan(0);
     });
 
     test('the header stays on one line', async ({ page }) => {

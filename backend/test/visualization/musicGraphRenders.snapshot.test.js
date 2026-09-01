@@ -268,6 +268,81 @@ describe('Stage H · _renderCurateDetail', () => {
         expect(container.innerHTML).toMatchSnapshot('release-bundle-open');
     });
 
+    /**
+     * Clicking the vote you already hold must clear it.
+     *
+     * The contract erases the row on val === 0 (polaris.music.cpp:667), but
+     * these buttons always re-sent the same value, so a vote could be changed
+     * and never withdrawn. The label read "Downvoted", clicking it did nothing
+     * visible, and nothing failed — re-asserting a vote is a no-op on chain,
+     * so there was no error to notice.
+     */
+    describe('vote buttons toggle rather than re-assert', () => {
+        /**
+         * @param {Object|null} viewerVote - The viewer's existing vote.
+         * @returns {{stub: Object, buttons: HTMLButtonElement[]}}
+         */
+        function renderVoting(viewerVote) {
+            const fn = compileMethod('renderCurateDetail');
+            const stub = makeStubThis();
+            const container = document.createElement('div');
+            fn.call(stub, container, {
+                operation: { type_name: 'ADD_CLAIM', author: 'alice', ts: '2026-05-05T00:00:00', finalized: false },
+                tally: { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+                viewer_vote: viewerVote,
+                event: {},
+                detail: { type: 'claim' }
+            }, op_for_detail());
+
+            return {
+                stub,
+                buttons: [...container.querySelectorAll('.curate-vote-btn')]
+            };
+        }
+
+        const clickByClass = (buttons, cls) =>
+            buttons.find(b => b.classList.contains(cls)).click();
+
+        test('an existing downvote is cleared with 0, not re-sent as -1', () => {
+            const { stub, buttons } = renderVoting({ val: -1 });
+
+            clickByClass(buttons, 'curate-vote-down');
+
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
+                expect.anything(), 0);
+        });
+
+        test('an existing upvote is cleared with 0', () => {
+            const { stub, buttons } = renderVoting({ val: 1 });
+
+            clickByClass(buttons, 'curate-vote-up');
+
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
+                expect.anything(), 0);
+        });
+
+        test('a fresh vote still sends its value', () => {
+            const { stub, buttons } = renderVoting(null);
+
+            clickByClass(buttons, 'curate-vote-up');
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(expect.anything(), 1);
+
+            clickByClass(buttons, 'curate-vote-down');
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(expect.anything(), -1);
+        });
+
+        test('switching sides sends the new value, not 0', () => {
+            // Only the button matching your current vote clears it; the other
+            // one changes it.
+            const { stub, buttons } = renderVoting({ val: -1 });
+
+            clickByClass(buttons, 'curate-vote-up');
+
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
+                expect.anything(), 1);
+        });
+    });
+
     test('add_claim detail (finalized) suppresses vote buttons', () => {
         const fn = compileMethod('renderCurateDetail');
         const stub = makeStubThis();
