@@ -82,10 +82,19 @@ export class MiniPlayer {
         this.container.className = 'mini-player';
         this.container.style.display = 'none';
 
-        // Album art
+        // Album art, inside a frame.
+        //
+        // The frame exists because _updateTrackDisplay() replaces .mp-art's
+        // innerHTML wholesale on every track change. Anything nested inside it
+        // would be destroyed; the play overlay is therefore a SIBLING of the
+        // art, positioned over it by CSS.
+        this._artFrameEl = document.createElement('div');
+        this._artFrameEl.className = 'mp-art-frame';
+
         this._artEl = document.createElement('div');
         this._artEl.className = 'mp-art';
         this._artEl.innerHTML = '<div class="mp-art-placeholder"></div>';
+        this._artFrameEl.appendChild(this._artEl);
 
         // Track info
         this._infoEl = document.createElement('div');
@@ -95,14 +104,21 @@ export class MiniPlayer {
             <div class="mp-release-name"></div>
         `;
 
-        // Controls
+        // Transport. The play button is NOT here: it sits over the album art
+        // (see _artFrameEl above), which is what makes the phone layout a
+        // single tappable tile rather than a row of small buttons.
         this._controlsEl = document.createElement('div');
         this._controlsEl.className = 'mp-controls';
         this._controlsEl.innerHTML = `
             <button class="mp-btn mp-prev" title="Previous">&#9664;&#9664;</button>
-            <button class="mp-btn mp-play" title="Play">&#9654;</button>
             <button class="mp-btn mp-next" title="Next">&#9654;&#9654;</button>
         `;
+
+        const playBtn = document.createElement('button');
+        playBtn.className = 'mp-btn mp-play';
+        playBtn.title = 'Play';
+        playBtn.innerHTML = '&#9654;';
+        this._artFrameEl.appendChild(playBtn);
 
         // Scrubber area
         this._scrubberEl = document.createElement('div');
@@ -138,7 +154,7 @@ export class MiniPlayer {
         // Assemble bar
         const barEl = document.createElement('div');
         barEl.className = 'mp-bar';
-        barEl.appendChild(this._artEl);
+        barEl.appendChild(this._artFrameEl);
         barEl.appendChild(this._infoEl);
         barEl.appendChild(this._controlsEl);
         barEl.appendChild(this._scrubberEl);
@@ -161,7 +177,7 @@ export class MiniPlayer {
 
     _bindControlEvents() {
         // Play/pause
-        const playBtn = this._controlsEl.querySelector('.mp-play');
+        const playBtn = this.container.querySelector('.mp-play');
         playBtn.addEventListener('click', () => this._togglePlay());
 
         // Prev / Next
@@ -431,7 +447,13 @@ export class MiniPlayer {
      */
     _notifyHeightChange() {
         requestAnimationFrame(() => {
-            const height = this.container?.offsetHeight ?? 0;
+            // On a phone the player is an overlay inside the visualization, so
+            // it occupies no row in the layout and must declare zero. Reporting
+            // its rendered height there would re-open the double-count that put
+            // a band of dead space between the graph and the info sheet.
+            const overlaid = window.matchMedia('(max-width: 768px)').matches;
+            const height = overlaid ? 0 : (this.container?.offsetHeight ?? 0);
+
             // On body, not documentElement: the .mini-player-visible class
             // rules define this same variable on body, and a value set on the
             // nearer ancestor wins for everything inside it.
@@ -485,7 +507,7 @@ export class MiniPlayer {
     }
 
     _updatePlayButton() {
-        const playBtn = this._controlsEl.querySelector('.mp-play');
+        const playBtn = this.container.querySelector('.mp-play');
         const track = this.queue[this.currentIndex];
 
         if (!track) {
