@@ -80,7 +80,9 @@ class APIServer {
         this.playerService = new PlayerService(this.db.driver);
         this.chainReader = new ChainReaderService({
             rpcUrl: process.env.RPC_URL || config.rpcUrl,
-            contractAccount: process.env.CONTRACT_ACCOUNT || config.contractAccount || 'polarismusic'
+            contractAccount: process.env.CONTRACT_ACCOUNT || config.contractAccount || 'polarismusic',
+            // Likes come from the graph projection now, not a contract table.
+            graph: this.db
         });
 
         // Wire middleware, GraphQL, and routes synchronously so that

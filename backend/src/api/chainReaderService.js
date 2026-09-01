@@ -15,6 +15,10 @@ export class ChainReaderService {
     constructor(config = {}) {
         this.rpcUrl = config.rpcUrl || process.env.RPC_URL || 'https://jungle4.greymass.com';
         this.contractAccount = config.contractAccount || process.env.CONTRACT_ACCOUNT || 'polarismusic';
+        // Likes are no longer a contract table, so this reads them from the
+        // graph projection instead of the chain. Optional: without it the
+        // endpoint reports an empty list rather than failing.
+        this.graph = config.graph || null;
     }
 
     /**
@@ -55,14 +59,16 @@ export class ChainReaderService {
      * @returns {Promise<Array>} Rows from the likes table
      */
     async getAccountLikes(account, limit = 200) {
-        const result = await this.getTableRows({
-            code: this.contractAccount,
-            scope: account,
-            table: 'likes',
-            limit,
-            reverse: true
-        });
-        return result.rows || [];
+        // The contract stopped writing its likes table — nothing on chain ever
+        // read it except like()/unlike() checking their own prior write, at
+        // ~410 bytes per like. The record is now the action trace, projected
+        // into the graph by the indexer.
+        if (this.graph?.getAccountLikes) {
+            return this.graph.getAccountLikes(account, limit);
+        }
+
+        console.warn('getAccountLikes: no graph projection available, returning empty');
+        return [];
     }
 
     /**

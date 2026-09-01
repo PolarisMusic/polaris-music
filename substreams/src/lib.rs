@@ -113,7 +113,10 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
 
             // Filter actions we care about for ingestion
             match action.name.as_str() {
-                "put" | "vote" | "finalize" => {}
+                // like/unlike joined this list when the contract stopped
+                // writing the likes table: the trace is now the only record of
+                // what an account liked, and the backend projects it.
+                "put" | "vote" | "finalize" | "like" | "unlike" => {}
                 _ => return None,
             }
 
