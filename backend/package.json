@@ -13,6 +13,8 @@
     "db:clear": "node --env-file=.env scripts/clearGraphData.js",
     "db:load-white-album": "node --env-file=.env scripts/loadWhiteAlbumData.js",
     "db:reset": "npm run db:clear && npm run db:load-white-album",
+    "chain:reclaim": "node --env-file=.env scripts/reclaimAnchors.js",
+    "chain:reclaim:execute": "node --env-file=.env scripts/reclaimAnchors.js --execute",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --watch",
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js --coverage",
