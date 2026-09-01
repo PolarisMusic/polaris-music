@@ -1808,13 +1808,22 @@ body.mini-player-visible.mini-player-embed {
 
 /* Queue drawer */
 /* Spotify embed row. The API replaces the host div with its own iframe,
-   so size the iframe rather than the placeholder. */
+   so size the iframe rather than the placeholder.
+   
+   Visibility lives here rather than in an inline style. MiniPlayer used to set
+   display directly, which beat every selector — including the rule meant to
+   hide the embed with the rest of the player. */
 .mp-embed {
+    display: none;
     height: 84px;
     box-sizing: border-box;
     padding: 2px 12px;
     background: #1a1a1a;
     border-top: 1px solid #333;
+}
+
+body.mini-player-embed .mp-embed {
+    display: block;
 }
 
 .mp-embed iframe {
@@ -2003,7 +2012,6 @@ body.mini-player-visible.mini-player-embed {
     body.mini-player-collapsed .mp-controls,
     body.mini-player-collapsed .mp-scrubber-area,
     body.mini-player-collapsed .mp-info,
-    body.mini-player-collapsed .mp-embed,
     body.mini-player-collapsed .mp-drawer,
     /* Not .mp-right itself — the toggle lives in it, and hiding the control
        that brings the panel back is exactly the dead end this leaves room for. */
@@ -2021,6 +2029,27 @@ body.mini-player-visible.mini-player-embed {
     body.mini-player-collapsed .mp-collapse-toggle {
         font-size: 11px;
         padding: 3px 10px;
+    }
+
+    /* Out of the layout, still in the page.
+    
+       display:none on an iframe stops its audio on iOS WebKit, and hiding the
+       panel to read the details is browsing — the same activity the queue was
+       taught not to interrupt. So the embed keeps playing from a pixel nobody
+       can see, and the show button brings it back.
+    
+       Declared after the embed-mode rule above and at equal specificity, so
+       collapsing wins. Swap this block for `display: none` if hiding should
+       stop the music instead. */
+    body.mini-player-collapsed.mini-player-embed .mp-embed {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        border: 0;
+        opacity: 0;
+        pointer-events: none;
+        overflow: hidden;
     }
 
     /* Spotify's compact card is horizontal and needs roughly 300px of width

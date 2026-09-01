@@ -214,9 +214,13 @@ export class MiniPlayer {
 
         // Spotify embed row. .mini-player is a flex column anchored to the
         // bottom of the viewport, so this row grows the player upward.
+        // Visibility is CSS's, keyed off body.mini-player-embed. It used to be
+        // set inline here and in _enter/_exitEmbedMode, and an inline style
+        // beats any selector — so the collapsed rule that hides the embed could
+        // never win, and hiding the player left Spotify's card covering the
+        // sheet.
         this._embedEl = document.createElement('div');
         this._embedEl.className = 'mp-embed';
-        this._embedEl.style.display = 'none';
         this._embedHostEl = document.createElement('div');
         this._embedEl.appendChild(this._embedHostEl);
 
@@ -366,7 +370,6 @@ export class MiniPlayer {
         this._stopAudio();
         if (this._embedMode) return;
         this._embedMode = true;
-        this._embedEl.style.display = 'block';
         document.body.classList.add('mini-player-embed');
         this._notifyHeightChange();
     }
@@ -377,7 +380,6 @@ export class MiniPlayer {
         if (this._embedEl) this._embedEl.innerHTML = '';
         if (!this._embedMode) return;
         this._embedMode = false;
-        this._embedEl.style.display = 'none';
         document.body.classList.remove('mini-player-embed');
         this._notifyHeightChange();
     }
