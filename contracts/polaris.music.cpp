@@ -656,8 +656,27 @@ public:
         auto anchor_itr = hash_idx.find(tx_hash);
         check(anchor_itr != hash_idx.end(), "Anchor not found");
         check(!anchor_itr->finalized, "Voting already finalized");
-        check(current_time_point().sec_since_epoch() < anchor_itr->expires_at,
-              "Voting window has closed");
+
+        // The window closes on quorum AND time, not time alone.
+        //
+        // Closing on the clock by itself meant a submission nobody got round to
+        // reviewing was shut and then rejected on a technicality. Staying open
+        // until enough people have actually looked is the point of a review
+        // period. The backstop stops that becoming indefinite.
+        votetally_table tallies(get_self(), get_self().value);
+        auto tally_itr = tallies.find(anchor_itr->id);
+        check(tally_itr != tallies.end(), "Vote tally not found for anchor");
+
+        {
+            uint32_t now_seconds = current_time_point().sec_since_epoch();
+            uint32_t voters = tally_itr->up_voter_count + tally_itr->down_voter_count;
+
+            bool quorum_and_time = (voters >= MIN_QUORUM_VOTERS)
+                                   && (now_seconds >= anchor_itr->expires_at);
+            bool past_backstop = now_seconds >= (anchor_itr->expires_at + FINALIZE_BACKSTOP_SECONDS);
+
+            check(!quorum_and_time && !past_backstop, "Voting window has closed");
+        }
 
         // Get voter's Respect for weight calculation
         respect_table respect(get_self(), get_self().value);
@@ -670,11 +689,6 @@ public:
                 voter_respect = g.max_vote_weight;
             }
         }
-
-        // Resolve tally row for this anchor
-        votetally_table tallies(get_self(), get_self().value);
-        auto tally_itr = tallies.find(anchor_itr->id);
-        check(tally_itr != tallies.end(), "Vote tally not found for anchor");
 
         // Find existing vote for this voter+hash
         votes_table votes(get_self(), get_self().value);
@@ -743,13 +757,30 @@ public:
         auto anchor_itr = hash_idx.find(tx_hash);
         check(anchor_itr != hash_idx.end(), "Anchor not found");
         check(!anchor_itr->finalized, "Already finalized");
-        check(current_time_point().sec_since_epoch() >= anchor_itr->expires_at,
-              "Voting window still open");
 
         // Read aggregate tallies directly from on-chain tally table
         votetally_table tallies(get_self(), get_self().value);
         auto tally_itr = tallies.find(anchor_itr->id);
         check(tally_itr != tallies.end(), "Vote tally not found for anchor");
+
+        // Finalizable once the window has genuinely closed — quorum AND time —
+        // or once the backstop has passed. The tally read has to come first,
+        // which is why the time check moved down here.
+        //
+        // Mirrors vote() exactly and deliberately: any gap between the two
+        // would leave a submission either unvotable and unfinalizable, or open
+        // to votes that arrive after the outcome is settled.
+        {
+            uint32_t now_seconds = current_time_point().sec_since_epoch();
+            uint32_t voters = tally_itr->up_voter_count + tally_itr->down_voter_count;
+
+            bool quorum_and_time = (voters >= MIN_QUORUM_VOTERS)
+                                   && (now_seconds >= anchor_itr->expires_at);
+            bool past_backstop = now_seconds >= (anchor_itr->expires_at + FINALIZE_BACKSTOP_SECONDS);
+
+            check(quorum_and_time || past_backstop,
+                  "Voting window still open (needs quorum, or the backstop to pass)");
+        }
 
         uint64_t up_votes = tally_itr->up_weight;
         uint64_t down_votes = tally_itr->down_weight;
@@ -886,28 +917,23 @@ public:
         transfer_tokens(account, get_self(), quantity,
                        "Stake on node " + checksum_to_hex(node_id).substr(0, 16));
 
-        // Update individual stake record (for user's portfolio view)
-        stakes_table stakes(get_self(), account.value);
-        auto stakes_by_node = stakes.get_index<"bynode"_n>();
-        auto itr = stakes_by_node.find(node_id);
+        // Position tracking. This used to be written twice: once into `stakes`,
+        // scoped per account, and again into `stakernodes` forty lines below —
+        // the same {node_id, amount}, updated in lockstep, differing only by two
+        // timestamps that nothing ever read. `stakes` cost ~336 bytes per open
+        // position plus ~108 for each account's first, for a duplicate.
+        //
+        // `stakernodes` is the one that has to stay: its `bynode` index is the
+        // only way distribute_to_stakers() can enumerate a node's stakers, and
+        // `byaccnode` answers both questions `stakes` was consulted for. So the
+        // lookup moves UP to here, because is_new_staker feeds the nodeagg
+        // staker_count below it.
+        staker_nodes_table staker_nodes(get_self(), get_self().value);
+        auto sn_idx = staker_nodes.get_index<"byaccnode"_n>();
+        uint128_t composite_key = combine_keys(account.value, node_id);
+        auto sn_itr = sn_idx.find(composite_key);
 
-        bool is_new_staker = (itr == stakes_by_node.end());
-
-        if (is_new_staker) {
-            stakes.emplace(account, [&](auto& s) {
-                s.id = stakes.available_primary_key();
-                s.node_id = node_id;
-                s.amount = quantity;
-                s.staked_at = current_time_point();
-                s.last_updated = current_time_point();
-            });
-        } else {
-            auto pk_itr = stakes.iterator_to(*itr);
-            stakes.modify(pk_itr, account, [&](auto& s) {
-                s.amount += quantity;
-                s.last_updated = current_time_point();
-            });
-        }
+        bool is_new_staker = (sn_itr == sn_idx.end());
 
         // Update aggregate for the node (used for voting power and rewards)
         nodeagg_table aggregates(get_self(), get_self().value);
@@ -933,13 +959,8 @@ public:
 
 
         // Update staker tracking for reward distribution
-        staker_nodes_table staker_nodes(get_self(), get_self().value);
-        auto sn_idx = staker_nodes.get_index<"byaccnode"_n>();
-        uint128_t composite_key = combine_keys(account.value, node_id);
-        auto sn_itr = sn_idx.find(composite_key);
-
-        if(sn_itr == sn_idx.end()) {
-            // New staker on this node
+        // Uses the lookup taken above rather than repeating it.
+        if(is_new_staker) {
             staker_nodes.emplace(account, [&](auto& sn) {
                 sn.id = staker_nodes.available_primary_key();
                 sn.account = account;
@@ -947,7 +968,6 @@ public:
                 sn.amount = quantity;
             });
         } else {
-            // Update existing staker record
             sn_idx.modify(sn_itr, account, [&](auto& sn) {
                 sn.amount += quantity;
             });
@@ -967,24 +987,38 @@ public:
         check(quantity.symbol == g.token_symbol, "Invalid token symbol");
         check(quantity.amount > 0, "Must unstake positive amount");
 
-        // Update individual stake
+        // The position, from stakernodes. Both questions this needs — does a
+        // position exist, and is it large enough — are answered by the same
+        // byaccnode index the write below already uses, which is why `stakes`
+        // was a duplicate. The lookup moves UP because removing_all feeds the
+        // nodeagg staker_count.
+        staker_nodes_table staker_nodes(get_self(), get_self().value);
+        auto sn_idx = staker_nodes.get_index<"byaccnode"_n>();
+        uint128_t composite_key = combine_keys(account.value, node_id);
+        auto sn_itr = sn_idx.find(composite_key);
+        check(sn_itr != sn_idx.end(), "No stake found for this node");
+        check(sn_itr->amount >= quantity, "Insufficient stake");
+
+        bool removing_all = (sn_itr->amount == quantity);
+
+        // Opportunistically clear any legacy `stakes` row. stake() no longer
+        // writes them, and this is the only path that can reach them: the table
+        // is scoped per account, and the TESTNET clear() says outright that it
+        // cannot reach per-account scopes. Without this they would sit in RAM
+        // for good.
         stakes_table stakes(get_self(), account.value);
         auto stakes_by_node = stakes.get_index<"bynode"_n>();
-        auto itr = stakes_by_node.find(node_id);
-        check(itr != stakes_by_node.end(), "No stake found for this node");
-
-        auto stake_pk_itr = stakes.iterator_to(*itr);
-        check(stake_pk_itr->amount >= quantity, "Insufficient stake");
-
-        bool removing_all = (stake_pk_itr->amount == quantity);
-
-        if (removing_all) {
-            stakes.erase(stake_pk_itr);
-        } else {
-            stakes.modify(stake_pk_itr, account, [&](auto& s) {
-                s.amount -= quantity;
-                s.last_updated = current_time_point();
-            });
+        auto legacy_itr = stakes_by_node.find(node_id);
+        if (legacy_itr != stakes_by_node.end()) {
+            auto legacy_pk_itr = stakes.iterator_to(*legacy_itr);
+            if (removing_all) {
+                stakes.erase(legacy_pk_itr);
+            } else {
+                stakes.modify(legacy_pk_itr, account, [&](auto& st) {
+                    st.amount -= quantity;
+                    st.last_updated = current_time_point();
+                });
+            }
         }
 
         // Update aggregate
@@ -1009,12 +1043,7 @@ public:
         }
 
 
-        // Update staker tracking
-        staker_nodes_table staker_nodes(get_self(), get_self().value);
-        auto sn_idx = staker_nodes.get_index<"byaccnode"_n>();
-        uint128_t composite_key = combine_keys(account.value, node_id);
-        auto sn_itr = sn_idx.require_find(composite_key, "Staker node tracking not found");
-
+        // Update staker tracking, using the lookup taken above.
         if(removing_all) {
             // Remove staker tracking record
             sn_idx.erase(sn_itr);
@@ -1396,6 +1425,23 @@ private:
      * an EXISTING row is always allowed, since that costs no new RAM.
      */
     static constexpr uint64_t MIN_PENDING_REWARD = 1000;
+
+    /**
+     * How long after expires_at a submission can be finalized without quorum.
+     *
+     * The voting window closes on quorum AND time, so a submission nobody got
+     * round to voting on stays open past its deadline rather than being
+     * rejected on a technicality. That alone would strand it: with no quorum
+     * there is no path to finalize(), its escrow is locked permanently, and
+     * reclaim() can never free its rows because reclaim() requires
+     * finalization.
+     *
+     * This is the escape. Thirty days after the window closed, finalize()
+     * succeeds regardless of turnout and takes the rejected path — the same
+     * outcome as a failed vote, which is the honest reading of "nobody
+     * reviewed this".
+     */
+    static constexpr uint32_t FINALIZE_BACKSTOP_SECONDS = 2592000; // 30 days
 
     // ============ DATA STRUCTURES ============
 

@@ -1996,14 +1996,17 @@ body.mini-player-visible.mini-player-embed {
     /* ---- Collapsed ----
        A strip that still says what is playing and how to get back, rather than
        vanishing entirely and leaving no affordance. */
+    /* Hidden is the default: a show button and nothing else. The track name
+       goes too — knowing what is playing is what expanding is for, and the
+       panel's height comes out of the sheet you are trying to read. */
     body.mini-player-collapsed .mp-art-frame,
     body.mini-player-collapsed .mp-controls,
     body.mini-player-collapsed .mp-scrubber-area,
+    body.mini-player-collapsed .mp-info,
     body.mini-player-collapsed .mp-embed,
     body.mini-player-collapsed .mp-drawer,
-    /* Not .mp-right itself — the collapse toggle lives in it, and hiding the
-       control that un-collapses the panel is exactly the dead end this strip
-       exists to avoid. */
+    /* Not .mp-right itself — the toggle lives in it, and hiding the control
+       that brings the panel back is exactly the dead end this leaves room for. */
     body.mini-player-collapsed .mp-external,
     body.mini-player-collapsed .mp-queue-toggle {
         display: none;
@@ -2012,10 +2015,12 @@ body.mini-player-visible.mini-player-embed {
     body.mini-player-collapsed .mp-bar {
         padding: 2px 8px;
         gap: 6px;
+        justify-content: flex-end;
     }
 
-    body.mini-player-collapsed .mp-info .mp-release-name {
-        display: none;
+    body.mini-player-collapsed .mp-collapse-toggle {
+        font-size: 11px;
+        padding: 3px 10px;
     }
 
     /* Spotify's compact card is horizontal and needs roughly 300px of width

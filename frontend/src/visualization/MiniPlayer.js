@@ -42,6 +42,12 @@ export class MiniPlayer {
         this._currentTime = 0;
         this._seeking = false;
 
+        // Hidden until asked for. The panel takes its height from the info
+        // sheet, and for what it currently does that is not a trade worth
+        // making by default — present enough to know it exists, not occupying
+        // the space you are reading in.
+        this._collapsed = true;
+
         this._render();
         this._bindAudioEvents();
     }
@@ -219,6 +225,7 @@ export class MiniPlayer {
         this.container.appendChild(this._drawerEl);
 
         this._bindControlEvents();
+        this._applyCollapsedState();
     }
 
     _bindControlEvents() {
@@ -506,12 +513,25 @@ export class MiniPlayer {
      */
     _toggleCollapsed() {
         this._collapsed = !this._collapsed;
-        document.body.classList.toggle('mini-player-collapsed', this._collapsed);
-        this._collapseToggleEl.textContent = this._collapsed ? '\u25B4' : '\u25BE';
-        this._collapseToggleEl.title = this._collapsed ? 'Show player' : 'Hide player';
+        this._applyCollapsedState();
         // A drawer left open under a collapsed player would keep its height.
         if (this._collapsed && this.drawerOpen) this._toggleDrawer();
         this._notifyHeightChange();
+    }
+
+    /**
+     * Reflect the collapsed flag in the DOM.
+     *
+     * Separate from the toggle so the initial state can be applied during
+     * render, before the first height is published — otherwise the sheet is
+     * laid out against an expanded player and visibly resizes a frame later.
+     *
+     * @private
+     */
+    _applyCollapsedState() {
+        document.body.classList.toggle('mini-player-collapsed', this._collapsed);
+        this._collapseToggleEl.textContent = this._collapsed ? '\u25B4 Player' : '\u25BE';
+        this._collapseToggleEl.title = this._collapsed ? 'Show player' : 'Hide player';
     }
 
     _show() {

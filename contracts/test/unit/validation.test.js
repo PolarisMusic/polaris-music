@@ -50,6 +50,49 @@ describe('RAM policy', () => {
         });
     });
 
+    describe('when the voting window closes', () => {
+        const MIN_QUORUM_VOTERS = 3;
+        const FINALIZE_BACKSTOP_SECONDS = 2592000; // 30 days
+
+        /**
+         * Mirrors the predicate shared by vote() and finalize().
+         *
+         * The window used to close on the clock alone, so a submission nobody
+         * got round to reviewing was shut and then rejected on a technicality.
+         * It now closes only once enough people have actually looked — with a
+         * backstop, because otherwise a submission with no votes could never be
+         * finalized, its escrow would be locked permanently, and reclaim()
+         * could never free its rows.
+         */
+        const closed = (voters, secondsSinceExpiry) =>
+            (voters >= MIN_QUORUM_VOTERS && secondsSinceExpiry >= 0)
+            || secondsSinceExpiry >= FINALIZE_BACKSTOP_SECONDS;
+
+        it('should stay open before the deadline even with quorum', () => {
+            // Time still has to pass; quorum alone does not end the review.
+            expect(closed(5, -1)).to.be.false;
+        });
+
+        it('should stay open after the deadline without quorum', () => {
+            // The case that motivated the change.
+            expect(closed(0, 1)).to.be.false;
+            expect(closed(MIN_QUORUM_VOTERS - 1, 86400)).to.be.false;
+        });
+
+        it('should close once quorum and the deadline are both met', () => {
+            expect(closed(MIN_QUORUM_VOTERS, 0)).to.be.true;
+        });
+
+        it('should close at the backstop regardless of turnout', () => {
+            // Otherwise an ignored submission strands its escrow forever.
+            expect(closed(0, FINALIZE_BACKSTOP_SECONDS)).to.be.true;
+        });
+
+        it('should still be open one second before the backstop', () => {
+            expect(closed(0, FINALIZE_BACKSTOP_SECONDS - 1)).to.be.false;
+        });
+    });
+
     describe('pending reward dust threshold', () => {
         // A new row costs ~336 bytes plus ~108 for a new account scope, and the
         // CONTRACT pays. distribute_to_stakers fans out over every node and
