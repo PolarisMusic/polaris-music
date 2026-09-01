@@ -284,7 +284,7 @@ test.describe('phone layout', () => {
         expect(sheet.height).toBeLessThan(before.height);
     });
 
-    test('the player can be collapsed to reclaim sheet space', async ({ page }) => {
+    test('the player starts hidden, and showing it costs the sheet height', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => {
             window.musicGraph.miniPlayer._show();
@@ -292,19 +292,42 @@ test.describe('phone layout', () => {
         });
         await settleSheet(page);
         await page.waitForTimeout(350);
-        const expanded = await page.locator('#info-viewer').boundingBox();
+        const hidden = await page.locator('#info-viewer').boundingBox();
+
+        // Hidden by default: the panel's height comes out of the sheet, and for
+        // what it currently does that is not a trade worth making unasked.
+        await expect(page.locator('.mp-art-frame')).toBeHidden();
+        // But the control that brings it back must be there, or the feature is
+        // unreachable — an earlier version hid the toggle along with the panel.
+        await expect(page.locator('.mp-collapse-toggle')).toBeVisible();
 
         await page.locator('.mp-collapse-toggle').click();
         await page.waitForTimeout(350);
-        const collapsed = await page.locator('#info-viewer').boundingBox();
-        const player = await page.locator('#mini-player-container').boundingBox();
+        const shown = await page.locator('#info-viewer').boundingBox();
 
-        // Collapsing gives the space to the sheet, which is the point.
-        expect(collapsed.height).toBeGreaterThan(expanded.height);
-        // But it keeps a strip, so there is a way back and you can still see
-        // what is playing.
-        expect(player.height).toBeGreaterThan(0);
-        await expect(page.locator('.mp-collapse-toggle')).toBeVisible();
+        await expect(page.locator('.mp-art-frame')).toBeVisible();
+        expect(shown.height).toBeLessThan(hidden.height);
+    });
+
+    test('hiding the player never touches the graph', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => {
+            window.musicGraph.miniPlayer._show();
+            window.musicGraph.openInfoPanel();
+        });
+        await settleSheet(page);
+        await page.waitForTimeout(350);
+        const before = await page.locator('#viz-container').boundingBox();
+
+        await page.locator('.mp-collapse-toggle').click();
+        await page.waitForTimeout(350);
+        const after = await page.locator('#viz-container').boundingBox();
+
+        // The canvas is a square because the disk stops growing there; showing
+        // or hiding the panel moves height between the panel and the sheet, and
+        // must not reach the graph in either direction.
+        expect(after.height).toBe(before.height);
+        expect(Math.abs(after.height - after.width)).toBeLessThanOrEqual(1);
     });
 
     test('the Spotify embed does not displace the node details', async ({ page }) => {
@@ -332,6 +355,9 @@ test.describe('phone layout', () => {
         await page.evaluate(() => {
             const p = window.musicGraph.miniPlayer;
             p._show();
+            // Expand first: the panel is hidden by default, which would hide
+            // these controls for a reason that has nothing to do with the embed.
+            p._toggleCollapsed();
             p._enterEmbedMode();
             p._showEmbed('spotify:track:EMBEDTEST');
         });
