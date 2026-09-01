@@ -140,6 +140,15 @@ export class MiniPlayer {
         this._queueToggleEl.title = 'Queue';
         this._queueToggleEl.textContent = '\u2630'; // hamburger icon
 
+        // Collapse toggle. The player sits above the info sheet and takes its
+        // height from the sheet's, so hiding it is how you get that space back
+        // for reading. Collapsed it keeps a strip showing what is playing —
+        // vanishing entirely would leave no way back.
+        this._collapseToggleEl = document.createElement('button');
+        this._collapseToggleEl.className = 'mp-btn mp-collapse-toggle';
+        this._collapseToggleEl.title = 'Hide player';
+        this._collapseToggleEl.textContent = '\u25BE'; // down triangle
+
         // Queue drawer
         this._drawerEl = document.createElement('div');
         this._drawerEl.className = 'mp-drawer';
@@ -150,6 +159,7 @@ export class MiniPlayer {
         rightEl.className = 'mp-right';
         rightEl.appendChild(this._externalEl);
         rightEl.appendChild(this._queueToggleEl);
+        rightEl.appendChild(this._collapseToggleEl);
 
         // Assemble bar
         const barEl = document.createElement('div');
@@ -198,6 +208,7 @@ export class MiniPlayer {
 
         // Queue toggle
         this._queueToggleEl.addEventListener('click', () => this._toggleDrawer());
+        this._collapseToggleEl.addEventListener('click', () => this._toggleCollapsed());
     }
 
     _bindAudioEvents() {
@@ -415,6 +426,23 @@ export class MiniPlayer {
 
     // ========== UI UPDATES ==========
 
+    /**
+     * Collapse the player to a strip, or restore it.
+     *
+     * The class goes on body because the sheet's height is derived from
+     * --mini-player-height, which is republished here once the new height has
+     * rendered.
+     */
+    _toggleCollapsed() {
+        this._collapsed = !this._collapsed;
+        document.body.classList.toggle('mini-player-collapsed', this._collapsed);
+        this._collapseToggleEl.textContent = this._collapsed ? '\u25B4' : '\u25BE';
+        this._collapseToggleEl.title = this._collapsed ? 'Show player' : 'Hide player';
+        // A drawer left open under a collapsed player would keep its height.
+        if (this._collapsed && this.drawerOpen) this._toggleDrawer();
+        this._notifyHeightChange();
+    }
+
     _show() {
         this.container.style.display = 'flex';
         document.body.classList.add('mini-player-visible');
@@ -447,12 +475,7 @@ export class MiniPlayer {
      */
     _notifyHeightChange() {
         requestAnimationFrame(() => {
-            // On a phone the player is an overlay inside the visualization, so
-            // it occupies no row in the layout and must declare zero. Reporting
-            // its rendered height there would re-open the double-count that put
-            // a band of dead space between the graph and the info sheet.
-            const overlaid = window.matchMedia('(max-width: 768px)').matches;
-            const height = overlaid ? 0 : (this.container?.offsetHeight ?? 0);
+            const height = this.container?.offsetHeight ?? 0;
 
             // On body, not documentElement: the .mini-player-visible class
             // rules define this same variable on body, and a value set on the
