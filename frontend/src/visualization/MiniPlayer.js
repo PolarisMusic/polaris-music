@@ -328,6 +328,33 @@ export class MiniPlayer {
         this._embedEl.appendChild(frame);
     }
 
+    /**
+     * Which Spotify URI to embed for a track.
+     *
+     * Prefers the album, because a track embed cannot advance — a plain iframe
+     * exposes nothing to call, so playback stops at every boundary. An album
+     * embed carries Spotify's own queue and continues by itself.
+     *
+     * Falls back to the track when the release has no album link, which is the
+     * case for a loose track or a release nobody has added one to.
+     *
+     * @param {Object} track - Queue entry.
+     * @returns {string|null}
+     */
+    _embedUriFor(track) {
+        return track?.release_embed_uri || track?.listen?.embed_uri || null;
+    }
+
+    /**
+     * Whether the embed currently on screen is an album, and therefore owns its
+     * own queue.
+     *
+     * @returns {boolean}
+     */
+    _albumEmbedActive() {
+        return this._embedMode && !!this._embedUri?.startsWith('spotify:album:');
+    }
+
     _enterEmbedMode() {
         this._stopAudio();
         if (this._embedMode) return;
@@ -459,7 +486,7 @@ export class MiniPlayer {
             }
         } else if (mode === 'embed') {
             this._enterEmbedMode();
-            this._showEmbed(track.listen.embed_uri);
+            this._showEmbed(this._embedUriFor(track));
         } else {
             this._exitEmbedMode();
         }
@@ -553,6 +580,20 @@ export class MiniPlayer {
 
         // Play button state
         this._updatePlayButton();
+
+        // Inside an album embed Spotify owns the queue: our prev/next would
+        // move this display without moving what is actually sounding, since
+        // _showEmbed early-returns for a URI already on screen. Better to say
+        // they do not apply than to let them lie.
+        const albumEmbed = this._albumEmbedActive();
+        for (const cls of ['.mp-prev', '.mp-next']) {
+            const btn = this._controlsEl.querySelector(cls);
+            if (!btn) continue;
+            btn.disabled = albumEmbed;
+            btn.title = albumEmbed
+                ? 'Spotify controls the queue while an album is playing'
+                : (cls === '.mp-prev' ? 'Previous' : 'Next');
+        }
 
         // Scrubber is ours only in audio mode; the Spotify embed owns its own
         // progress bar, so we hide ours rather than keep two out of sync.

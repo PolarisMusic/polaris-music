@@ -115,3 +115,65 @@ test('the page does not ask to run Spotify script, only to frame it', async ({ p
     // again; that path needs 'unsafe-eval' and must not come back.
     expect(found.filter(v => /script-src/.test(v.directive)).concat(violations)).toEqual([]);
 });
+
+test('an album link on the release is preferred over the track link', async ({ page }) => {
+    await bootPlayer(page);
+
+    // A track embed cannot advance — a plain iframe exposes nothing to call, so
+    // playback stops at every boundary. An album embed carries Spotify's own
+    // queue, which is the only way to get continuity under this CSP.
+    const uri = await page.evaluate(() => window.musicGraph.miniPlayer._embedUriFor({
+        release_embed_uri: 'spotify:album:ALBUM1',
+        listen: { embed_uri: 'spotify:track:TRACK1' },
+    }));
+
+    expect(uri).toBe('spotify:album:ALBUM1');
+});
+
+test('the track link is used when the release has no album link', async ({ page }) => {
+    await bootPlayer(page);
+
+    const uri = await page.evaluate(() => window.musicGraph.miniPlayer._embedUriFor({
+        release_embed_uri: null,
+        listen: { embed_uri: 'spotify:track:TRACK1' },
+    }));
+
+    expect(uri).toBe('spotify:track:TRACK1');
+});
+
+test('our transport is disabled while an album embed owns the queue', async ({ page }) => {
+    await bootPlayer(page);
+
+    await page.evaluate(() => {
+        const p = window.musicGraph.miniPlayer;
+        p.queue = [{ track_id: 't1', track_name: 'In Bloom', listen: {} }];
+        p.currentIndex = 0;
+        p._enterEmbedMode();
+        p._showEmbed('spotify:album:ALBUM1');
+        p._updateTrackDisplay();
+    });
+
+    // _showEmbed early-returns for a URI already on screen, so pressing next
+    // would move our display without moving what is sounding. Saying the
+    // control does not apply beats letting it lie.
+    await expect(page.locator('.mp-next')).toBeDisabled();
+    await expect(page.locator('.mp-prev')).toBeDisabled();
+});
+
+test('the transport works again for a track embed', async ({ page }) => {
+    await bootPlayer(page);
+
+    await page.evaluate(() => {
+        const p = window.musicGraph.miniPlayer;
+        p.queue = [
+            { track_id: 't1', track_name: 'In Bloom', listen: {} },
+            { track_id: 't2', track_name: 'Lithium', listen: {} },
+        ];
+        p.currentIndex = 0;
+        p._enterEmbedMode();
+        p._showEmbed('spotify:track:TRACK1');
+        p._updateTrackDisplay();
+    });
+
+    await expect(page.locator('.mp-next')).toBeEnabled();
+});
