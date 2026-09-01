@@ -93,8 +93,14 @@ public:
         auto hash_idx = anchors.get_index<"byhash"_n>();
         check(hash_idx.find(hash) == hash_idx.end(), "Event hash already exists");
 
-        // Validate parent hash exists if provided
-        if(parent.has_value()) {
+        // Types outside the content range are not anchored (see below), so a
+        // reply to one has no row to point at. Threading is resolved off-chain
+        // from the action traces, which carry `parent` verbatim; validating it
+        // here would make a reply-to-a-comment impossible while proving nothing
+        // a dangling-parent check in the indexer cannot prove better.
+        const bool anchored = (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE);
+
+        if(parent.has_value() && anchored) {
             auto parent_itr = hash_idx.find(parent.value());
             check(parent_itr != hash_idx.end(), "Parent event not found");
         }
@@ -141,44 +147,65 @@ public:
             issue_tokens(get_self(), mint, "Escrow for anchor " + std::to_string(anchor_id));
         }
 
-        anchors.emplace(author, [&](auto& a) {
-            a.id = anchor_id;
-            a.author = author;
-            a.type = type;
-            a.hash = hash;
-            a.event_cid = event_cid;
-            a.parent = parent;
-            a.ts = ts;
-            a.tags = tags;
-            a.expires_at = expires_at;
-            a.finalized = false;
-            a.escrowed_amount = mint;
-            a.submission_x = submission_x;
-        });
+        // Only content types get a row.
+        //
+        // These two writes used to happen for every accepted type — ~552 bytes
+        // for the anchor and ~336 for the tally, billed to the author. For a
+        // vote, a like or a comment (types 40-42) that bought nothing: they
+        // cannot mint, they do not advance g.x, and nobody votes on a comment,
+        // so the tally read 0/0/0/0 for as long as the row existed. Freeing it
+        // took a finalize() and a reclaim() — two more transactions per comment.
+        //
+        // The rows exist to serve curation: finalize() reads the tally to decide
+        // whether to award or redistribute, and reclaim() erases both once that
+        // is settled. A type with no escrow and no vote has nothing for either
+        // to do.
+        //
+        // Everything an indexer needs is in the action trace regardless —
+        // author, type, hash, event_cid, parent, ts and tags are all `put`
+        // arguments, which is how the substreams module reads them already.
+        if (anchored) {
+            anchors.emplace(author, [&](auto& a) {
+                a.id = anchor_id;
+                a.author = author;
+                a.type = type;
+                a.hash = hash;
+                a.event_cid = event_cid;
+                a.parent = parent;
+                a.ts = ts;
+                a.tags = tags;
+                a.expires_at = expires_at;
+                a.finalized = false;
+                a.escrowed_amount = mint;
+                a.submission_x = submission_x;
+            });
 
-        // Initialize zeroed tally row for this anchor
-        votetally_table tallies(get_self(), get_self().value);
-        tallies.emplace(author, [&](auto& t) {
-            t.anchor_id = anchor_id;
-            t.tx_hash = hash;
-            t.up_weight = 0;
-            t.down_weight = 0;
-            t.up_voter_count = 0;
-            t.down_voter_count = 0;
-            t.updated_at = current_time_point();
-        });
+            // Initialize zeroed tally row for this anchor
+            votetally_table tallies(get_self(), get_self().value);
+            tallies.emplace(author, [&](auto& t) {
+                t.anchor_id = anchor_id;
+                t.tx_hash = hash;
+                t.up_weight = 0;
+                t.down_weight = 0;
+                t.up_voter_count = 0;
+                t.down_voter_count = 0;
+                t.updated_at = current_time_point();
+            });
+        }
 
         // NOW increment global submission counter AFTER capturing submission_x
         // Only increment for content submissions, not votes/likes/discussions
-        if (type >= MIN_CONTENT_TYPE && type <= MAX_CONTENT_TYPE) {
+        if (anchored) {
             g.x += 1; // Global submission number
         }
 
         globals_singleton globals(get_self(), get_self().value);
         globals.set(g, get_self());
 
-        // Emit event for off-chain indexers
-        emit_anchor_event(author, type, hash, anchor_id, submission_x);
+        // Emit event for off-chain indexers. An unanchored type has no anchor,
+        // so it reports 0 rather than an id that was never allocated — two
+        // comments in one block would otherwise claim the same one.
+        emit_anchor_event(author, type, hash, anchored ? anchor_id : 0, submission_x);
     }
 
     /**
@@ -205,17 +232,23 @@ public:
         check(anchor_itr->type == confirmed_type, "Event type mismatch");
         check(!anchor_itr->finalized, "Already finalized");
 
-        // Store attestation
-        attestations_table attestations(get_self(), get_self().value);
-        uint64_t att_id = attestations.available_primary_key();
-
-        attestations.emplace(attestor, [&](auto& a) {
-            a.id = att_id;
-            a.tx_hash = tx_hash;
-            a.attestor = attestor;
-            a.type = confirmed_type;
-            a.ts = current_time_point();
-        });
+        // Deliberately writes no row.
+        //
+        // The attestations table was written on every call and read by nothing.
+        // Its only would-be consumer, requires_attestation(), returns false
+        // unconditionally, so no code path ever consulted it — ~321 bytes per
+        // attestation, billed to the attestor, accumulating forever with no
+        // cleanup.
+        //
+        // The action still executes and still emits a trace, which is the
+        // permanent record: the indexer reads action traces, not tables. If
+        // finalization ever needs to gate on attestations, the count belongs in
+        // votetally (already read by finalize) rather than in a table nobody
+        // queries.
+        //
+        // The table declaration stays so existing rows remain erasable — a
+        // multi_index that is no longer declared cannot be reached to erase,
+        // and dropping the declaration would strand its rows in RAM forever.
     }
 
     /**
@@ -235,46 +268,34 @@ public:
         check(node_path.size() <= 20, "Path too long (max 20 nodes)");
         check(node_path.back() == node_id, "Path must end at liked node");
 
-        // Store like record
-        likes_table likes(get_self(), account.value);
-        auto likes_by_node = likes.get_index<"bynode"_n>();
-        auto itr = likes_by_node.find(node_id);
-
-        bool is_new_like = (itr == likes_by_node.end());
-
-        if (is_new_like) {
-            likes.emplace(account, [&](auto& l) {
-                l.id = likes.available_primary_key();
-                l.node_id = node_id;
-                l.path = node_path;
-                l.liked_at = current_time_point();
-            });
-        } else {
-            auto pk_itr = likes.iterator_to(*itr);
-            likes.modify(pk_itr, account, [&](auto& l) {
-                l.path = node_path;
-                l.liked_at = current_time_point();
-            });
-        }
-
-        // Update aggregate like count for the node
-        likeagg_table aggregates(get_self(), get_self().value);
-        auto agg_by_node = aggregates.get_index<"bynode"_n>();
-        auto agg_itr = agg_by_node.find(node_id);
-
-        if (agg_itr == agg_by_node.end()) {
-            aggregates.emplace(account, [&](auto& a) {
-                a.id = aggregates.available_primary_key();
-                a.node_id = node_id;
-                a.like_count = 1;
-            });
-        } else if (is_new_like) {
-            auto agg_pk_itr = aggregates.iterator_to(*agg_itr);
-            aggregates.modify(agg_pk_itr, account, [&](auto& a) {
-                a.like_count += 1;
-            });
-        }
-
+        // Deliberately writes no rows.
+        //
+        // Liking mints nothing and gates nothing: no contract action ever read
+        // the likes or likeagg tables except like() and unlike() themselves,
+        // checking whether they had already written. That check is the only
+        // thing the storage bought, and it cost ~410 bytes per like plus 108
+        // for each account's first — the discovery path alone is up to 640 of
+        // it, and the code says outright that it exists "to understand how
+        // users discover music", which is analytics, not consensus.
+        //
+        // Everything is in the trace: account, node_id and the full path are
+        // all action arguments, already decoded by the substreams module. The
+        // liked/unliked state is a fold over like and unlike actions:
+        //
+        //   - an identical repeat (same node, same path) reads as like then
+        //     unlike, so the node ends unliked;
+        //   - a like with a different path leaves the node liked and records
+        //     the new path;
+        //   - the frontend gates the button, sending unlike when the node is
+        //     already liked, so the common case is explicit rather than
+        //     inferred.
+        //
+        // The validation above stays: a malformed path should fail at the point
+        // of signing rather than be discovered by an indexer later.
+        //
+        // The table declarations stay so existing rows remain erasable — an
+        // undeclared multi_index cannot be reached to erase, which would strand
+        // its rows in RAM permanently.
     }
 
     /**
@@ -286,19 +307,25 @@ public:
     ACTION unlike(name account, checksum256 node_id) {
         require_auth(account);
 
-        // Remove like record
+        // A missing row is now the normal case, not an error: like() stopped
+        // writing one. This used to check() and fail, which after that change
+        // would have rejected every unlike and broken the toggle outright.
+        //
+        // It still erases when a row IS present, which is how likes recorded
+        // before that change get cleaned up — the only path that can reach
+        // them, since the tables are scoped per account and the TESTNET-only
+        // clear() explicitly cannot reach per-account scopes.
         likes_table likes(get_self(), account.value);
         auto likes_by_node = likes.get_index<"bynode"_n>();
         auto itr = likes_by_node.find(node_id);
-        check(itr != likes_by_node.end(), "Like not found");
-        likes.erase(likes.iterator_to(*itr));
+        if (itr != likes_by_node.end()) {
+            likes.erase(likes.iterator_to(*itr));
+        }
 
-        // Update aggregate (gracefully handle missing aggregate)
         likeagg_table aggregates(get_self(), get_self().value);
         auto agg_by_node = aggregates.get_index<"bynode"_n>();
         auto agg_itr = agg_by_node.find(node_id);
 
-        // If aggregate exists, decrement and remove if zero
         if (agg_itr != agg_by_node.end()) {
             auto agg_pk_itr = aggregates.iterator_to(*agg_itr);
             aggregates.modify(agg_pk_itr, account, [&](auto& a) {
@@ -312,8 +339,6 @@ public:
                 aggregates.erase(aggregates.iterator_to(*agg_itr));
             }
         }
-
-        // If aggregate doesn't exist, that's okay - like record was still removed
     }
 
     // ============ FRACTALLY INTEGRATION ============
@@ -1355,6 +1380,23 @@ private:
     // callers repeat until the anchor is gone.
     static constexpr uint32_t MAX_RECLAIM_ROWS = 100;
 
+    /**
+     * Smallest reward worth opening a pendingrwd row for.
+     *
+     * A new row costs ~336 bytes, plus ~108 the first time an account appears,
+     * and the CONTRACT pays for both. distribute_to_stakers() fans out across
+     * every node and every staker on each rejection, so without a floor a
+     * single rejected submission can open a permanent, contract-funded row for
+     * every staker in the system to hold a fraction of a cent — and rows only
+     * disappear when a staker chooses to claim.
+     *
+     * 1000 atomic units is 0.1 MUS at the default precision of 4. Dust below it
+     * is not recorded and stays with the contract: a real if tiny loss to the
+     * staker, against a permanent liability the whole network funds. Adding to
+     * an EXISTING row is always allowed, since that costs no new RAM.
+     */
+    static constexpr uint64_t MIN_PENDING_REWARD = 1000;
+
     // ============ DATA STRUCTURES ============
 
     /**
@@ -1715,6 +1757,11 @@ private:
 
     /**
      * @brief Check if event type requires attestation before finalization
+     *
+     * Returns false unconditionally and is called from nowhere. Kept as the
+     * documented hook for when Respect-weighted governance lands; attest() no
+     * longer writes a table, so re-enabling this means deciding where the
+     * count should live rather than just flipping the return.
      */
     bool requires_attestation(uint8_t /*type*/) const {
         return false; // Attestation disabled until Respect + governance is fully implemented
@@ -2010,6 +2057,14 @@ private:
                     auto pending_itr = pending_by_node.find(node_itr->node_id);
 
                     asset reward = asset(staker_share, g.token_symbol);
+
+                    // Topping up an existing row is free; opening a new one is
+                    // not, and the contract pays. See MIN_PENDING_REWARD.
+                    if (pending_itr == pending_by_node.end()
+                        && staker_share < MIN_PENDING_REWARD) {
+                        ++staker_itr;
+                        continue;
+                    }
 
                     if (pending_itr == pending_by_node.end()) {
                         // New pending reward
