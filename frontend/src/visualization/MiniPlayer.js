@@ -56,8 +56,44 @@ export class MiniPlayer {
         const data = await this.api.fetchPlaybackQueue(contextType, contextId);
         if (!data.success || !data.queue) return;
 
-        this.context = data.context;
-        this.queue = data.queue;
+        // Selecting a node used to stop whatever was playing, because loading a
+        // queue tore down the audio element and the embed. Browsing the graph
+        // and listening to it are separate activities, and navigating is the
+        // main thing you do here — so if something is sounding, the new queue
+        // waits rather than interrupting it.
+        if (this._isSounding()) {
+            this._pendingQueue = { context: data.context, queue: data.queue };
+            this._updatePlayButton();
+            return;
+        }
+
+        this._applyQueue(data.context, data.queue);
+    }
+
+    /**
+     * Whether audio is actually coming out.
+     *
+     * `_isPlaying` only tracks the <audio> element. In embed mode Spotify plays
+     * inside an iframe we cannot query, so the embed being on screen is the
+     * best available signal that the user may be listening.
+     *
+     * @returns {boolean}
+     */
+    _isSounding() {
+        return this._isPlaying || this._embedMode;
+    }
+
+    /**
+     * Replace the queue and reset to its first track.
+     *
+     * @param {Object} context
+     * @param {Array} queue
+     * @private
+     */
+    _applyQueue(context, queue) {
+        this._pendingQueue = null;
+        this.context = context;
+        this.queue = queue;
         this.currentIndex = this.queue.length > 0 ? 0 : -1;
         this._isPlaying = false;
         this._stopAudio();
@@ -340,6 +376,14 @@ export class MiniPlayer {
     }
 
     _togglePlay() {
+        // A queue that arrived while something was playing is adopted here:
+        // pressing play is the moment the user says they want the thing they
+        // selected, rather than the thing still sounding.
+        if (this._pendingQueue) {
+            const { context, queue } = this._pendingQueue;
+            this._applyQueue(context, queue);
+        }
+
         const track = this.queue[this.currentIndex];
         const mode = this._modeFor(track);
 
@@ -531,6 +575,16 @@ export class MiniPlayer {
 
     _updatePlayButton() {
         const playBtn = this.container.querySelector('.mp-play');
+
+        // A queue is waiting because something is still playing. Say what the
+        // button will do, so switching is a choice rather than a surprise.
+        if (this._pendingQueue) {
+            playBtn.disabled = false;
+            playBtn.innerHTML = '&#9654;';
+            playBtn.title = `Play ${this._pendingQueue.context?.name ?? 'selection'}`;
+            return;
+        }
+
         const track = this.queue[this.currentIndex];
 
         if (!track) {
