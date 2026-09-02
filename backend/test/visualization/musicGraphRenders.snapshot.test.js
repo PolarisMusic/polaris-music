@@ -473,3 +473,77 @@ describe('Stage H · _renderClaimDetail', () => {
         expect(container.innerHTML).toMatchSnapshot('edit-claim-primitive');
     });
 });
+
+describe('Stage H · mint_entity and resolve_id detail', () => {
+    // These types are anchored by put() and so appear in the feed, but had no
+    // renderer at all — the detail pane said "Unsupported operation type" and
+    // the row badge read "TYPE 22".
+    test('mint_entity with provenance and initial claims', () => {
+        const fn = compileMethod('renderMintEntityDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            type: 'mint_entity',
+            entity_type: 'person',
+            canonical_id: 'person:mbid:abc123',
+            initial_claims: [
+                { field: 'name', value: 'Mark Lanegan' },
+                { field: 'aka', value: { stage: 'ML' } }
+            ],
+            provenance: { source: 'musicbrainz' }
+        });
+        expect(container.innerHTML).toMatchSnapshot('mint-entity-full');
+    });
+
+    test('mint_entity with no claims and no provenance', () => {
+        const fn = compileMethod('renderMintEntityDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            type: 'mint_entity', entity_type: 'group', canonical_id: 'group:qotsa',
+            initial_claims: [], provenance: null
+        });
+        expect(container.innerHTML).toMatchSnapshot('mint-entity-minimal');
+    });
+
+    test('resolve_id renders every field', () => {
+        const fn = compileMethod('renderResolveIdDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            type: 'resolve_id',
+            subject_id: 'prov:person:913eff5c',
+            canonical_id: 'person:mbid:abc123',
+            method: 'manual',
+            confidence: 0.9,
+            evidence: 'liner notes'
+        });
+        expect(container.innerHTML).toMatchSnapshot('resolve-id-full');
+    });
+
+    test('a confidence of zero is rendered, not dropped', () => {
+        // detailField drops falsy values, so 0 needs its own path: "not
+        // trusted" is a strong claim about a mapping and must not read as
+        // "nothing was said".
+        const fn = compileMethod('renderResolveIdDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            type: 'resolve_id', subject_id: 'prov:person:abc',
+            canonical_id: 'person:x', method: 'automatic', confidence: 0
+        });
+        expect(container.innerHTML).toContain('Confidence');
+        expect(container.innerHTML).toContain('>0<');
+    });
+
+    test('an absent confidence renders no confidence row', () => {
+        const fn = compileMethod('renderResolveIdDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            type: 'resolve_id', subject_id: 'prov:person:abc',
+            canonical_id: 'person:x', confidence: null
+        });
+        expect(container.innerHTML).not.toContain('Confidence');
+    });
+});

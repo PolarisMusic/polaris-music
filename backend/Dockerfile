@@ -11,6 +11,13 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
+# Registry fetches from the deploy host are slow enough that npm's default idle
+# timeout gives up mid-install (EIDLETIMEOUT), failing the build outright. These
+# turn that into a slow build rather than a broken one.
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set fetch-timeout 600000
+
 RUN npm ci
 
 # Copy source code

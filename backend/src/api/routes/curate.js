@@ -12,6 +12,7 @@
 
 import express from 'express';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
+import { EVENT_TYPES, TYPE_CODE_TO_EVENT_TYPE, toTypeCode } from '../../constants/eventTypes.js';
 
 // Bounds for the operations listing. Without these the endpoint can hang
 // indefinitely: Node's fetch has no default timeout, and eventStore performs
@@ -69,16 +70,23 @@ async function withTimeout(promise, timeoutMs, fallback) {
  * Pure function: returns a structured object the frontend can render
  * without deep knowledge of event internals.
  *
+ * The type is normalized before dispatch because stored events carry their type
+ * as a *name* — a body reads `"type":"CREATE_RELEASE_BUNDLE"`, not `"type":21`.
+ * Comparing that against numeric literals never matched, so every release
+ * bundle fell through to the unrecognized-type fallback and the UI reported
+ * "Unsupported operation type for detailed view" for operations whose anchors
+ * were perfectly intact.
+ *
  * @param {Object|null|undefined} event - stored event payload
  * @returns {Object|null}
  */
 export function parseOperationDetail(event) {
     if (!event || !event.body) return null;
 
-    const typeCode = event.type;
+    const typeCode = toTypeCode(event.type);
     const body = event.body;
 
-    if (typeCode === 21) {
+    if (typeCode === EVENT_TYPES.CREATE_RELEASE_BUNDLE) {
         // CREATE_RELEASE_BUNDLE
         return {
             type: 'release_bundle',
@@ -153,8 +161,7 @@ export function parseOperationDetail(event) {
         };
     }
 
-    if (typeCode === 30) {
-        // ADD_CLAIM
+    if (typeCode === EVENT_TYPES.ADD_CLAIM) {
         return {
             type: 'add_claim',
             target_type: body.target_type || null,
@@ -165,8 +172,7 @@ export function parseOperationDetail(event) {
         };
     }
 
-    if (typeCode === 31) {
-        // EDIT_CLAIM
+    if (typeCode === EVENT_TYPES.EDIT_CLAIM) {
         return {
             type: 'edit_claim',
             target_type: body.target_type || null,
@@ -177,8 +183,35 @@ export function parseOperationDetail(event) {
         };
     }
 
-    // Fallback for other types
-    return { type: `type_${typeCode}`, raw: body };
+    if (typeCode === EVENT_TYPES.MINT_ENTITY) {
+        // Fields per handleMintEntity (eventProcessor.js:779).
+        return {
+            type: 'mint_entity',
+            entity_type: body.entity_type || null,
+            canonical_id: body.canonical_id || null,
+            initial_claims: body.initial_claims || [],
+            provenance: body.provenance || null
+        };
+    }
+
+    if (typeCode === EVENT_TYPES.RESOLVE_ID) {
+        // Fields per handleResolveId (eventProcessor.js:939).
+        return {
+            type: 'resolve_id',
+            subject_id: body.subject_id || null,
+            canonical_id: body.canonical_id || null,
+            method: body.method || null,
+            // Explicitly nullable: 0 confidence is meaningful and must not be
+            // collapsed to "absent" by a truthiness fallback.
+            confidence: body.confidence ?? null,
+            evidence: body.evidence || null
+        };
+    }
+
+    // Fallback for other types. Keyed on the resolved code where there is one,
+    // so an unrecognized shape is still distinguishable from a known type the
+    // frontend simply has no renderer for.
+    return { type: `type_${typeCode ?? 'unknown'}`, raw: body };
 }
 
 /**
@@ -250,9 +283,21 @@ export async function loadProjectedOperation(db, hash) {
         const op = record.get('o').properties;
         const toInt = (v) => (v == null ? 0 : Number(v));
 
+        const submittedAt = op.submitted_at ?? op.finalized_at ?? null;
+
         return {
             hash,
             finalized: op.finalized === true,
+            // Identity, written at ingest by recordOperation(). The detail route
+            // falls back to these when the anchor has been reclaimed, so a
+            // settled operation still shows who submitted it and when.
+            author: op.author ?? null,
+            type: op.type == null ? null : Number(op.type),
+            // Unix seconds, matching the shape anchors.ts arrives in, so the
+            // renderer sees one kind of timestamp rather than two.
+            ts: submittedAt?.toStandardDate
+                ? Math.floor(submittedAt.toStandardDate().getTime() / 1000)
+                : null,
             tally: {
                 up_weight: toInt(op.up_weight),
                 down_weight: toInt(op.down_weight),
@@ -623,12 +668,17 @@ export function createCurateRoutes({ store, config, db }) {
             // Parse type-specific detail for rendering
             const detail = parseOperationDetail(eventPayload);
 
-            // Determine operation metadata
-            const typeCode = eventPayload?.type || anchor.type || 0;
-            const typeNames = {
-                21: 'CREATE_RELEASE_BUNDLE', 30: 'ADD_CLAIM', 31: 'EDIT_CLAIM',
-                40: 'VOTE', 41: 'LIKE', 50: 'FINALIZE', 60: 'MERGE_NODE'
-            };
+            // Determine operation metadata.
+            //
+            // Anchor first, then the projection, then the payload. The anchor's
+            // `type` is the uint8 the contract was actually given; the stored
+            // body carries a type *name*, which used to win here and left the
+            // header reading "TYPE_CREATE_RELEASE_BUNDLE". toTypeCode resolves
+            // whichever of the three answers, so the order is now about trust
+            // rather than about shape.
+            const typeCode = toTypeCode(anchor.type)
+                ?? toTypeCode(projected?.type)
+                ?? toTypeCode(eventPayload?.type);
 
             // Check viewer's vote if account provided
             const viewerAccount = req.query.viewer;
@@ -647,9 +697,12 @@ export function createCurateRoutes({ store, config, db }) {
                     hash: anchor.hash,
                     anchor_id: anchor.id,
                     type_code: typeCode,
-                    type_name: typeNames[typeCode] || `TYPE_${typeCode}`,
-                    author: anchor.author || eventPayload?.author || null,
-                    ts: anchor.ts || eventPayload?.ts || null,
+                    type_name: TYPE_CODE_TO_EVENT_TYPE[typeCode] ?? `TYPE_${typeCode ?? 'UNKNOWN'}`,
+                    // A reclaimed anchor carries neither, and a stored event has
+                    // `author_pubkey` / `created_at` rather than `author` / `ts`
+                    // — so the projection is the fallback, not the payload.
+                    author: anchor.author ?? projected?.author ?? null,
+                    ts: anchor.ts ?? projected?.ts ?? eventPayload?.created_at ?? null,
                     finalized: !!anchor.finalized,
                     event_cid: anchor.event_cid || null
                 },

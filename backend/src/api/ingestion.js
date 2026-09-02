@@ -46,6 +46,7 @@ import { createHash } from 'crypto';
 import stringify from 'fast-json-stable-stringify';
 import { verifyEventSignature } from '../crypto/verifyEventSignature.js';
 import { createLogger } from '../utils/logger.js';
+import { TYPE_CODE_TO_EVENT_TYPE, isContentType } from '../constants/eventTypes.js';
 
 /**
  * Maximum size of in-memory dedup cache before clearing.
@@ -54,36 +55,6 @@ import { createLogger } from '../utils/logger.js';
  */
 const MAX_PROCESSED_HASHES = 10000;
 
-/**
- * Content-type range that put() actually anchors on chain.
- *
- * Mirrors MIN_CONTENT_TYPE / MAX_CONTENT_TYPE in polaris.music.cpp:1395. Only
- * these types get an anchor row, a vote tally and a place in the curation feed;
- * votes, likes and discussions travel through put() too but are not operations
- * anyone curates, so they must not be projected as feed rows.
- */
-const MIN_CONTENT_TYPE = 20;
-const MAX_CONTENT_TYPE = 39;
-
-/**
- * Mapping of numeric type codes to event type strings.
- * Used to validate that on-chain type matches off-chain event.type.
- * This prevents bugs, data corruption, or malicious mismatches where
- * the blockchain type code doesn't match the actual event content.
- *
- * Must match EVENT_TYPES in eventProcessor.js
- */
-const TYPE_CODE_TO_EVENT_TYPE = {
-    21: 'CREATE_RELEASE_BUNDLE',
-    22: 'MINT_ENTITY',
-    23: 'RESOLVE_ID',
-    30: 'ADD_CLAIM',
-    31: 'EDIT_CLAIM',
-    40: 'VOTE',
-    41: 'LIKE',
-    50: 'FINALIZE',
-    60: 'MERGE_ENTITY'
-};
 
 /**
  * Ingestion handler for blockchain events
@@ -1029,10 +1000,8 @@ export class IngestionHandler {
     async recordOperationProjection(actionData, contentHash, meta = {}) {
         const { author, type, event_cid, parent, ts } = actionData;
 
+        if (!isContentType(type)) return;
         const typeCode = Number(type);
-        if (!Number.isFinite(typeCode) || typeCode < MIN_CONTENT_TYPE || typeCode > MAX_CONTENT_TYPE) {
-            return;
-        }
 
         const graph = this.processor?.db;
         if (!graph?.recordOperation) return;
