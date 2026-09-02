@@ -448,8 +448,12 @@ export class InfoPanelRenderer {
     }
 
     renderCurateRow(op) {
+        // Human labels, not the contract's enum names — a display concern, so
+        // this map is deliberately separate from backend/src/constants/eventTypes.js.
+        // 22 and 23 were missing, which is why those rows read "TYPE 22".
         const typeNames = {
-            21: 'Release', 30: 'Add Claim', 31: 'Edit Claim',
+            21: 'Release', 22: 'Mint Entity', 23: 'Resolve ID',
+            30: 'Add Claim', 31: 'Edit Claim',
             40: 'Vote', 41: 'Like', 50: 'Finalize', 60: 'Merge',
         };
         const typeName = typeNames[op.type] || `Type ${op.type}`;
@@ -560,6 +564,10 @@ export class InfoPanelRenderer {
             this.renderReleaseBundleDetail(body, detail);
         } else if (detail?.type === 'add_claim' || detail?.type === 'edit_claim') {
             this.renderClaimDetail(body, detail);
+        } else if (detail?.type === 'mint_entity') {
+            this.renderMintEntityDetail(body, detail);
+        } else if (detail?.type === 'resolve_id') {
+            this.renderResolveIdDetail(body, detail);
         } else if (detail) {
             body.appendChild(this._el('p', { style: 'color:#888' },
                 'Unsupported operation type for detailed view.'));
@@ -786,6 +794,73 @@ export class InfoPanelRenderer {
                 : detail.source;
             fields.push(this.detailField('Source', sourceStr));
         }
+
+        for (const f of fields) if (f) section.appendChild(f);
+        container.appendChild(section);
+    }
+
+    /**
+     * MINT_ENTITY (type 22): the creation of a canonical entity.
+     *
+     * @param {Element} container
+     * @param {Object} detail - As shaped by parseOperationDetail.
+     */
+    renderMintEntityDetail(container, detail) {
+        const section = this._el('div', { className: 'curate-section' },
+            this._el('h4', null, 'Mint Entity'));
+
+        const fields = [
+            this.detailField('Entity Type', detail.entity_type),
+            this.detailField('Canonical ID', detail.canonical_id),
+        ];
+
+        if (detail.provenance) {
+            const prov = typeof detail.provenance === 'object'
+                ? (detail.provenance.source || JSON.stringify(detail.provenance))
+                : detail.provenance;
+            fields.push(this.detailField('Provenance', prov));
+        }
+
+        for (const f of fields) if (f) section.appendChild(f);
+
+        // Initial claims are the entity's opening facts, so they are the
+        // substance of the operation rather than a footnote to it.
+        if (detail.initial_claims?.length) {
+            section.appendChild(this._el('h4', null, 'Initial Claims'));
+            for (const claim of detail.initial_claims) {
+                const value = typeof claim.value === 'object'
+                    ? JSON.stringify(claim.value)
+                    : claim.value;
+                const field = this.detailField(claim.field ?? 'Claim', value);
+                if (field) section.appendChild(field);
+            }
+        }
+
+        container.appendChild(section);
+    }
+
+    /**
+     * RESOLVE_ID (type 23): mapping a provisional or external id to a canonical one.
+     *
+     * @param {Element} container
+     * @param {Object} detail - As shaped by parseOperationDetail.
+     */
+    renderResolveIdDetail(container, detail) {
+        const section = this._el('div', { className: 'curate-section' },
+            this._el('h4', null, 'Resolve ID'));
+
+        const fields = [
+            this.detailField('Subject ID', detail.subject_id),
+            this.detailField('Canonical ID', detail.canonical_id),
+            this.detailField('Method', detail.method),
+            // Not detailField: a confidence of 0 is a real, and rather
+            // important, claim about the mapping, and detailField drops falsy
+            // values.
+            detail.confidence == null ? null : this._el('div', { className: 'curate-field' },
+                this._el('span', { className: 'curate-field-label' }, 'Confidence'),
+                this._el('span', { className: 'curate-field-value' }, String(detail.confidence))),
+            this.detailField('Evidence', detail.evidence),
+        ];
 
         for (const f of fields) if (f) section.appendChild(f);
         container.appendChild(section);

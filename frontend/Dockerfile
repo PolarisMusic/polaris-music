@@ -4,6 +4,13 @@ WORKDIR /app
 
 # Install deps (including devDeps needed for Vite build)
 COPY frontend/package*.json ./
+# Registry fetches from the deploy host are slow enough that npm's default idle
+# timeout gives up mid-install (EIDLETIMEOUT), failing the build outright. These
+# turn that into a slow build rather than a broken one.
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set fetch-timeout 600000
+
 RUN npm ci
 
 # Copy shared config (used by src/config/chain.js)

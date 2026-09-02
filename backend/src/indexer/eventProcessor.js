@@ -55,28 +55,12 @@ export function translateEndpoints(rel, resolvedIds) {
 }
 import { safeClose } from '../graph/safeTx.js';
 import { createLogger } from '../utils/logger.js';
-
-/**
- * Event types from smart contract
- */
-const EVENT_TYPES = {
-    CREATE_RELEASE_BUNDLE: 21,
-    MINT_ENTITY: 22,           // Create canonical entity
-    RESOLVE_ID: 23,            // Map provisional/external ID to canonical
-    ADD_CLAIM: 30,
-    EDIT_CLAIM: 31,
-    VOTE: 40,
-    LIKE: 41,
-    FINALIZE: 50,
-    MERGE_ENTITY: 60           // Merge duplicate entities (renamed from MERGE_NODE)
-};
+import { EVENT_TYPES, TYPE_CODE_TO_EVENT_TYPE } from '../constants/eventTypes.js';
 
 /**
  * Reverse lookup: event type number -> handler name (for logging)
  */
-const EVENT_TYPE_NAMES = Object.fromEntries(
-    Object.entries(EVENT_TYPES).map(([name, num]) => [num, name])
-);
+const EVENT_TYPE_NAMES = TYPE_CODE_TO_EVENT_TYPE;
 
 /**
  * Safe mapping of entity types to Neo4j node labels
