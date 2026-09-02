@@ -83,6 +83,39 @@ export class InfoPanelRenderer {
      *     can be inlined: `cond && _el(...)`)
      *   - arrays are flattened
      */
+    /**
+     * Parse a timestamp that may be unix seconds or a naive ISO string.
+     *
+     * These two shapes reach the same renderer from different places, and one
+     * of them was silently broken: the contract stores anchors.ts as a uint32
+     * of unix SECONDS, so `new Date(ts + 'Z')` built the string "1787608856Z"
+     * and every row in the Curate feed read "Invalid Date". The `+ 'Z'` idiom
+     * is for a naive datetime like 2026-05-05T00:00:00, which needs a zone;
+     * applied to a number it produces nonsense.
+     *
+     * Returns null rather than an Invalid Date for anything unparseable, so an
+     * absent timestamp renders as absent instead of as an error string.
+     *
+     * @param {number|string|null|undefined} ts
+     * @returns {Date|null}
+     */
+    parseTimestamp(ts) {
+        if (ts == null || ts === '') return null;
+
+        // Unix seconds, as a number or an all-digit string.
+        if (typeof ts === 'number' || /^\d+$/.test(String(ts))) {
+            const date = new Date(Number(ts) * 1000);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        const raw = String(ts);
+        // A naive ISO datetime carries no zone; the chain emits UTC.
+        const date = new Date(/T/.test(raw) && !/[Zz]|[+-]\d{2}:?\d{2}$/.test(raw)
+            ? `${raw}Z`
+            : raw);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
     _el(tag, attrs, ...children) {
         const el = document.createElement(tag);
         if (attrs) {
@@ -424,7 +457,7 @@ export class InfoPanelRenderer {
         const summary = op.event_summary;
         const title = summary?.release_name || summary?.group_name || op.hash.substring(0, 12) + '...';
 
-        const ts = op.ts ? new Date(op.ts + 'Z') : null;
+        const ts = this.parseTimestamp(op.ts);
         const timeStr = ts ? ts.toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
 
         const tally = op.tally || { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 };
@@ -475,7 +508,7 @@ export class InfoPanelRenderer {
             this._el('h3', null, operation.type_name || 'Operation'),
             this._el('div', { className: 'curate-detail-meta' },
                 this._el('span', null, 'by ', operation.author || '?'),
-                this._el('span', null, operation.ts ? new Date(operation.ts + 'Z').toLocaleString() : ''),
+                this._el('span', null, this.parseTimestamp(operation.ts)?.toLocaleString() ?? ''),
                 this._el('span', null, operation.finalized ? 'Finalized' : 'Open'))));
 
         // Voting controls
