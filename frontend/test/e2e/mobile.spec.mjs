@@ -370,6 +370,34 @@ test.describe('phone layout', () => {
         await expect(page.locator('.mp-next')).toBeVisible();
     });
 
+    test('hiding the player hides the Spotify card with it', async ({ page }) => {
+        await gotoApp(page);
+        await page.evaluate(() => {
+            const p = window.musicGraph.miniPlayer;
+            p._show();
+            p._toggleCollapsed();          // expand
+            p._enterEmbedMode();
+            p._showEmbed('spotify:album:HIDEME');
+        });
+        await page.waitForTimeout(200);
+
+        const shown = await page.locator('#mini-player-container').boundingBox();
+        expect(shown.height).toBeGreaterThan(60);
+
+        await page.locator('.mp-collapse-toggle').click();
+        await page.waitForTimeout(300);
+        const hidden = await page.locator('#mini-player-container').boundingBox();
+
+        // The rule to hide it always existed; MiniPlayer set display inline,
+        // which beats any selector, so Spotify's card stayed over the sheet.
+        expect(hidden.height).toBeLessThan(40);
+
+        // Still in the document, deliberately: display:none stops an iframe's
+        // audio on iOS WebKit, and hiding the panel to read is browsing — the
+        // activity the queue was taught not to interrupt.
+        await expect(page.locator('.mp-embed iframe')).toHaveCount(1);
+    });
+
     test('the height the layout uses is the height the player has', async ({ page }) => {
         await gotoApp(page);
         await page.evaluate(() => window.musicGraph.miniPlayer._show());

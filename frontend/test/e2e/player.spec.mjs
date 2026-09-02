@@ -80,6 +80,28 @@ test('re-showing the same URI does not rebuild the frame', async ({ page }) => {
     await expect(page.locator('.mp-embed iframe')).toHaveAttribute('data-marked', 'yes');
 });
 
+test('leaving embed mode hides the row, not just the frame', async ({ page }) => {
+    await bootPlayer(page);
+
+    await page.evaluate(() => {
+        const p = window.musicGraph.miniPlayer;
+        // _show() first: the container is display:none until the player has a
+        // queue, and nothing inside it can be visible while that holds.
+        p._show();
+        p._enterEmbedMode();
+        p._showEmbed('spotify:track:GONE');
+    });
+    await expect(page.locator('.mp-embed')).toBeVisible();
+
+    await page.evaluate(() => window.musicGraph.miniPlayer._exitEmbedMode());
+
+    // Visibility is CSS's now, keyed off body.mini-player-embed. MiniPlayer set
+    // display inline in three places, and an inline style beats every selector,
+    // so whichever wrote last decided. Leaving one behind strips the row of its
+    // iframe and leaves the empty band sitting over the sheet.
+    await expect(page.locator('.mp-embed')).toBeHidden();
+});
+
 test('leaving embed mode removes the frame, which stops playback', async ({ page }) => {
     await bootPlayer(page);
 

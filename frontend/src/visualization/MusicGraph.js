@@ -1604,9 +1604,16 @@ export class MusicGraph {
 
     async _refreshCurateRowTally(op) {
         try {
-            // Use backend chain reader to avoid CSP/CORS issues
-            // from direct browser-to-chain RPC calls
-            const tally = await backendApi.getVoteTally(op.anchor_id);
+            // A reclaimed operation has no anchor row to read a tally from, and
+            // carries anchor_id: null rather than an id pointing at a table
+            // entry the contract has erased. Its tally is the snapshot taken at
+            // finalization, already on `op` — so skip the chain call and just
+            // re-render the row below.
+            const tally = op.anchor_id == null
+                ? null
+                // Use backend chain reader to avoid CSP/CORS issues
+                // from direct browser-to-chain RPC calls
+                : await backendApi.getVoteTally(op.anchor_id);
 
             if (tally) {
                 op.tally = {

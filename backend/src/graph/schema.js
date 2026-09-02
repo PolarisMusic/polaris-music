@@ -2535,6 +2535,63 @@ constructor(config = {}) {
         }
     }
 
+    /**
+     * Project a submitted operation so the curation feed survives reclamation.
+     *
+     * recordVote() and recordFinalization() both MERGE an :Operation, but they
+     * only ever set curation outcome — an Operation born from a finalize trace
+     * has no author, no type and no timestamp, which is enough to fetch by hash
+     * and not enough to list. This is called at ingest instead, so every
+     * submission is listable from the moment it is indexed, whether or not
+     * anyone votes on it and whether or not its anchor still exists.
+     *
+     * `ON CREATE` for the identity fields rather than `SET`: a finalize trace
+     * can be ingested before the put it finalizes (a replay from an arbitrary
+     * block, or an out-of-order sink), and the resulting empty node must be
+     * filled in without a later replay of the put clobbering the outcome
+     * fields. Both orderings converge on the same node.
+     *
+     * @param {Object} operation
+     * @param {string} operation.eventHash - Anchor content hash.
+     * @param {string} operation.author - Submitting account.
+     * @param {number} operation.type - Event type code (content types only).
+     * @param {string} [operation.eventCid] - Off-chain body CID.
+     * @param {string} [operation.parent] - Parent hash, for edits.
+     * @param {number} [operation.ts] - Submission time in epoch millis.
+     * @param {number} [operation.blockNum]
+     * @returns {Promise<{status: string}>}
+     */
+    async recordOperation({ eventHash, author, type, eventCid, parent, ts, blockNum }) {
+        if (!eventHash) throw new Error('recordOperation requires eventHash');
+
+        const session = this.driver.session();
+        try {
+            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            await session.run(`
+                MERGE (o:Operation {event_hash: $eventHash})
+                ON CREATE SET o.finalized = false
+                SET o.author = coalesce($author, o.author),
+                    o.type = coalesce($type, o.type),
+                    o.event_cid = coalesce($eventCid, o.event_cid),
+                    o.parent_hash = coalesce($parent, o.parent_hash),
+                    o.submitted_at = coalesce(o.submitted_at, ${tsExpr}),
+                    o.submitted_block = coalesce(o.submitted_block, $blockNum)
+            `, {
+                eventHash,
+                author: author ?? null,
+                type: type == null ? null : neo4j.int(Number(type)),
+                eventCid: eventCid ?? null,
+                parent: parent ?? null,
+                ts: ts ?? null,
+                blockNum: blockNum == null ? null : neo4j.int(Number(blockNum))
+            });
+
+            return { status: 'recorded' };
+        } finally {
+            await session.close();
+        }
+    }
+
     async mergeNodes(sourceId, targetId, nodeType, reason) {
         const session = this.driver.session();
         const tx = session.beginTransaction();

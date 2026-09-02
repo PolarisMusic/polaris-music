@@ -188,6 +188,34 @@ export function parseOperationDetail(event) {
  * @returns {express.Router}
  */
 /**
+ * Summarize a stored event body for a feed row, or null if it is not reachable.
+ *
+ * Timeboxed: retrieveEvent walks Redis -> IPFS -> S3 with no internal bound,
+ * and an event this host has never stored sends it into an IPFS DHT search
+ * that may never return. Listing an operation without its summary is the
+ * honest representation of "anchored on chain, body not held here".
+ *
+ * @param {Object} store - Event store.
+ * @param {string} hash - Event hash.
+ * @returns {Promise<{type_name: string|null, release_name: string|null,
+ *   group_name: string|null}|null>}
+ */
+async function loadEventSummary(store, hash) {
+    try {
+        const stored = await withTimeout(store.retrieveEvent(hash), EVENT_LOOKUP_TIMEOUT_MS, null);
+        if (!stored?.body) return null;
+        return {
+            type_name: stored.type || null,
+            release_name: stored.body?.release?.name || null,
+            group_name: stored.body?.groups?.[0]?.name || null
+        };
+    } catch (e) {
+        // Event retrieval is best-effort.
+        return null;
+    }
+}
+
+/**
  * Read a curation operation from the off-chain projection.
  *
  * The chain copy is transient by design: reclaim() erases the anchor, tally and
@@ -244,6 +272,82 @@ export async function loadProjectedOperation(db, hash) {
                     ts: v.ts?.toString?.() ?? null
                 }))
         };
+    } finally {
+        await session.close();
+    }
+}
+
+/**
+ * Read recent curation operations from the off-chain projection.
+ *
+ * The listing route's counterpart to loadProjectedOperation(): same node, same
+ * vote edges, many rows instead of one. It exists because the feed reads the
+ * chain's `anchors` table, and reclaim() deletes anchors — so once curation
+ * settles, an operation that is still perfectly well recorded off-chain would
+ * simply stop appearing.
+ *
+ * Only projections carrying an author are returned. An :Operation can be
+ * created by a vote or finalize trace alone, which leaves a node with an
+ * outcome and no identity; listing those would put blank rows in the feed.
+ * ingestion.js projects every anchored submission with its author, so anything
+ * genuinely submitted qualifies.
+ *
+ * @param {Object} db - Graph instance exposing a neo4j driver.
+ * @param {number} limit - Maximum rows.
+ * @param {number} [type] - Restrict to one event type, as ?type= does on the
+ *   chain side. Filtered in the query rather than afterwards: taking the newest
+ *   `limit` rows of every type and then filtering would return almost nothing
+ *   for a narrow type while the chain half of the same feed returned a full page.
+ * @returns {Promise<Array<Object>>} Feed-shaped rows, newest first.
+ */
+export async function listProjectedOperations(db, limit = 50, type = null) {
+    if (!db?.driver) return [];
+
+    const session = db.driver.session();
+    try {
+        const result = await session.run(`
+            MATCH (o:Operation)
+            WHERE o.author IS NOT NULL
+              AND ($type IS NULL OR o.type = toInteger($type))
+            RETURN o
+            ORDER BY coalesce(o.submitted_at, o.finalized_at) DESC
+            LIMIT toInteger($limit)
+        `, { limit, type: Number.isFinite(Number(type)) && type !== null ? Number(type) : null });
+
+        const toInt = (v) => (v == null ? 0 : Number(v));
+
+        return result.records.map((record) => {
+            const op = record.get('o').properties;
+            const submittedAt = op.submitted_at ?? op.finalized_at ?? null;
+
+            return {
+                // No anchor_id: the chain row it came from may be gone, and
+                // inventing an id would let the UI link to a table entry that
+                // no longer exists. The hash is the stable identifier.
+                anchor_id: null,
+                author: op.author ?? null,
+                type: toInt(op.type),
+                hash: op.event_hash,
+                event_cid: op.event_cid ?? null,
+                // Seconds, matching the shape anchors.ts arrives in, so the
+                // renderer sees one type of timestamp rather than two.
+                ts: submittedAt?.toStandardDate
+                    ? Math.floor(submittedAt.toStandardDate().getTime() / 1000)
+                    : null,
+                expires_at: null,
+                finalized: op.finalized === true,
+                tally: {
+                    up_weight: toInt(op.up_weight),
+                    down_weight: toInt(op.down_weight),
+                    up_voter_count: toInt(op.up_voter_count),
+                    down_voter_count: toInt(op.down_voter_count)
+                },
+                event_summary: null,
+                // Lets the UI say why an operation has no anchor to act on:
+                // reclaimed, not missing.
+                reclaimed: true
+            };
+        });
     } finally {
         await session.close();
     }
@@ -331,30 +435,7 @@ export function createCurateRoutes({ store, config, db }) {
                     // Tally fetch failure (including timeout) is non-fatal
                 }
 
-                // Try to get stored event summary from our event store.
-                //
-                // Timeboxed: retrieveEvent walks Redis -> IPFS -> S3 with no
-                // internal bound, and an event this host has never stored
-                // sends it into an IPFS DHT search that may never return.
-                // Listing an operation without its summary is the honest
-                // representation of "anchored on chain, body not held here".
-                let eventSummary = null;
-                try {
-                    const stored = await withTimeout(
-                        store.retrieveEvent(anchor.hash),
-                        EVENT_LOOKUP_TIMEOUT_MS,
-                        null
-                    );
-                    if (stored && stored.body) {
-                        eventSummary = {
-                            type_name: stored.type || null,
-                            release_name: stored.body?.release?.name || null,
-                            group_name: stored.body?.groups?.[0]?.name || null
-                        };
-                    }
-                } catch (e) {
-                    // Event retrieval is best-effort
-                }
+                const eventSummary = await loadEventSummary(store, anchor.hash);
 
                 return {
                     anchor_id: anchor.id,
@@ -375,9 +456,46 @@ export function createCurateRoutes({ store, config, db }) {
                 };
             }));
 
+            // Merge in operations whose anchor has been reclaimed.
+            //
+            // Chain rows win on collision: while an anchor still exists it is
+            // authoritative, and its tally is live where the projection's is a
+            // snapshot taken at finalization. The projection only fills in what
+            // the chain no longer has.
+            const merged = new Map(operations.map(op => [String(op.hash).toLowerCase(), op]));
+            // First page only. listProjectedOperations always returns the newest
+            // rows, so merging it into a lower_bound page would repeat the same
+            // reclaimed entries on every page rather than continuing past them.
+            try {
+                const projectedType = req.query.type ? parseInt(req.query.type) : null;
+                const projected = (lower_bound !== undefined
+                    ? []
+                    : await listProjectedOperations(db, limit, projectedType))
+                    .filter(op => !merged.has(String(op.hash).toLowerCase()));
+                // The body outlives the anchor, so a reclaimed row can still
+                // show what it was about — it should not read as less complete
+                // than a live one just because the chain forgot it.
+                await Promise.all(projected.map(async (op) => {
+                    op.event_summary = await loadEventSummary(store, op.hash);
+                    merged.set(String(op.hash).toLowerCase(), op);
+                }));
+            } catch (e) {
+                // A graph that is down should degrade the feed to chain-only,
+                // not fail it.
+                console.warn('Curate projection listing failed:', e.message);
+            }
+
+            let allOperations = [...merged.values()];
+            if (req.query.type) {
+                const filterType = parseInt(req.query.type);
+                allOperations = allOperations.filter(op => op.type === filterType);
+            }
+            allOperations.sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+            allOperations = allOperations.slice(0, limit);
+
             res.json({
                 success: true,
-                operations,
+                operations: allOperations,
                 more: anchorsData.more || false,
                 next_key: anchorsData.next_key || null
             });

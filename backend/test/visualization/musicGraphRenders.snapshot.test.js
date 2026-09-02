@@ -109,6 +109,10 @@ function makeStubThis() {
     // the assertion layer.
     stub._el = compileMethod('_el').bind(stub);
     stub.detailField = compileMethod('detailField').bind(stub);
+    // Curate rows render a date through this. Compiled from source rather than
+    // stubbed, so a regression in timestamp handling shows up in the snapshots
+    // — "Invalid Date" shipped once already.
+    stub.parseTimestamp = compileMethod('parseTimestamp').bind(stub);
     // The two delegating methods need real impls so renderCurateDetail can
     // invoke them through `this`.
     stub.renderReleaseBundleDetail = compileMethod('renderReleaseBundleDetail').bind(stub);

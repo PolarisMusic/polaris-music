@@ -55,6 +55,17 @@ import { createLogger } from '../utils/logger.js';
 const MAX_PROCESSED_HASHES = 10000;
 
 /**
+ * Content-type range that put() actually anchors on chain.
+ *
+ * Mirrors MIN_CONTENT_TYPE / MAX_CONTENT_TYPE in polaris.music.cpp:1395. Only
+ * these types get an anchor row, a vote tally and a place in the curation feed;
+ * votes, likes and discussions travel through put() too but are not operations
+ * anyone curates, so they must not be projected as feed rows.
+ */
+const MIN_CONTENT_TYPE = 20;
+const MAX_CONTENT_TYPE = 39;
+
+/**
  * Mapping of numeric type codes to event type strings.
  * Used to validate that on-chain type matches off-chain event.type.
  * This prevents bugs, data corruption, or malicious mismatches where
@@ -480,7 +491,20 @@ export class IngestionHandler {
 
         this.log.info('put_action_start', logCtx);
 
-        // Step 2: Check for duplicates
+        // Step 2: Project the operation for the curation feed.
+        //
+        // Before storage retrieval, deliberately. The feed row describes what
+        // was anchored on chain, which is true whether or not this host holds
+        // the body, and reclaim() will erase the anchor once curation settles —
+        // after which this projection is the only thing the feed can list. An
+        // event whose payload never reached this host would otherwise return
+        // not_found below and leave nothing behind at all.
+        //
+        // Best-effort: a projection failure must not stop the event itself from
+        // being ingested into the graph.
+        await this.recordOperationProjection(actionData, content_hash, blockchainMetadata);
+
+        // Step 2.5: Check for duplicates
         if (this.processedHashes.has(content_hash)) {
             this.log.info('put_action_dedup_hit', { event_hash: content_hash, dedup_key: 'hash_cache' });
             this.stats.eventsDuplicate++;
@@ -907,7 +931,11 @@ export class IngestionHandler {
                 block_id,
                 trx_id,
                 action_ordinal,
-                source
+                source,
+                // Carried through so the feed projection can date a submission
+                // by block time. put()'s own `ts` is the author's claim about
+                // when they submitted; this is the chain's.
+                timestamp
             };
 
             // Create put action data format
@@ -973,6 +1001,61 @@ export class IngestionHandler {
      * @param {string|Array|Object} hash - Hash in any format
      * @returns {string} Lowercase hex string (without 0x prefix)
      */
+    /**
+     * Project a submitted operation so the curation feed can list it.
+     *
+     * The feed used to read the chain's `anchors` table and nothing else, so a
+     * reclaimed operation disappeared from it entirely — even though fetching
+     * the same hash by URL still worked, because the detail route already
+     * consulted the projection. This closes that gap at the source: every
+     * anchored submission is projected as it is indexed, so the listing has a
+     * row to fall back on once the anchor is gone.
+     *
+     * Only content types are projected. Votes, likes and discussions go through
+     * put() as well, but put() does not anchor them (polaris.music.cpp:101) and
+     * they are not things anyone curates; projecting them would put entries in
+     * the feed that no chain row ever backed.
+     *
+     * Best-effort by design, and swallowing rather than reporting: the caller
+     * ingests the event body next, and a feed row that cannot be written is not
+     * a reason to lose the graph data behind it.
+     *
+     * @param {Object} actionData - Decoded put() arguments.
+     * @param {string} contentHash - Already-normalized hash.
+     * @param {Object} meta - Blockchain metadata.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async recordOperationProjection(actionData, contentHash, meta = {}) {
+        const { author, type, event_cid, parent, ts } = actionData;
+
+        const typeCode = Number(type);
+        if (!Number.isFinite(typeCode) || typeCode < MIN_CONTENT_TYPE || typeCode > MAX_CONTENT_TYPE) {
+            return;
+        }
+
+        const graph = this.processor?.db;
+        if (!graph?.recordOperation) return;
+
+        try {
+            await graph.recordOperation({
+                eventHash: contentHash,
+                author,
+                type: typeCode,
+                eventCid: event_cid || null,
+                // A parent of all-zeros is put()'s "no parent" sentinel, not a hash.
+                parent: parent && !/^0+$/.test(String(parent)) ? this.normalizeHash(parent) : null,
+                // put()'s own ts is the author's claim; block time is the chain's.
+                ts: this.blockTimeToMillis(meta) ?? (ts != null ? Number(ts) * 1000 : null),
+                blockNum: meta.block_num
+            });
+        } catch (error) {
+            this.log.warn('operation_projection_failed', {
+                event_hash: contentHash, error: error.message
+            });
+        }
+    }
+
     /**
      * Project a vote or finalize action into the graph.
      *
