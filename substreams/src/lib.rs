@@ -5,7 +5,7 @@ use substreams::errors::Error;
 use substreams::log;
 use substreams::prelude::*;
 use substreams::store::{StoreAddInt64, StoreGetInt64};
-use substreams_antelope::pb::Block;
+use substreams_antelope::pb::{ActionTraces, Block};
 use substreams_antelope::Action;
 
 use pb::polaris::v1::{
@@ -117,31 +117,35 @@ fn contract_account_from_params(params: &str) -> &str {
 }
 
 #[substreams::handlers::map]
-fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, Error> {
+fn map_anchored_events(params: String, actions: ActionTraces) -> Result<AnchoredEvents, Error> {
     use sha2::{Digest, Sha256};
 
     let contract_account = contract_account_from_params(&params);
 
-    // Pre-compute block-level values once (PERF-05: avoid recomputing per action)
-    let block_id = &block.id;
-    let block_num = block.number as u64;
-    let block_timestamp = block
-        .header
-        .as_ref()
-        .and_then(|h| h.timestamp.as_ref())
-        .map(|t| t.seconds as u64)
-        .unwrap_or(0);
-
-    // PERF-05: Use block.action_traces() iterator with filter_map for streaming
-    let anchored_events: Vec<AnchoredEvent> = block
-        .action_traces()
-        .filter_map(|(action_trace, trx)| {
-            // Only process actions received by our contract
+    let anchored_events: Vec<AnchoredEvent> = actions
+        .action_traces
+        .iter()
+        .filter_map(|action_trace| {
+            // filtered_actions has already applied the `code:` query server-side.
+            // Kept anyway: the params could name a different account than the
+            // filter query if someone sets them independently, and a feed
+            // carrying another contract's actions would be worse than an empty one.
             if action_trace.receiver != contract_account {
                 return None;
             }
 
             let action = action_trace.action.as_ref()?;
+
+            // Block and transaction identity travel on the trace itself
+            // (sf.antelope.type.v1.ActionTrace), so nothing is lost by no longer
+            // receiving the enclosing Block.
+            let block_num = action_trace.block_num;
+            let block_id = &action_trace.producer_block_id;
+            let block_timestamp = action_trace
+                .block_time
+                .as_ref()
+                .map(|t| t.seconds as u64)
+                .unwrap_or(0);
 
             // Filter actions we care about for ingestion
             match action.name.as_str() {
@@ -242,7 +246,7 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
                 payload: json_data.into_bytes(),
                 block_num,
                 block_id: block_id.clone(),
-                trx_id: trx.id.clone(),
+                trx_id: action_trace.transaction_id.clone(),
                 action_ordinal: action_trace.execution_index as u32,
                 timestamp: block_timestamp,
                 source: "substreams-eos".to_string(),
@@ -253,9 +257,9 @@ fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, E
         .collect();
 
     log::info!(
-        "Extracted {} anchored events from block {}",
+        "Extracted {} anchored events from {} filtered actions",
         anchored_events.len(),
-        block.number
+        actions.action_traces.len()
     );
 
     Ok(AnchoredEvents {
