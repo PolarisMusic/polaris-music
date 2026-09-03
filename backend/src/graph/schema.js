@@ -2322,7 +2322,7 @@ constructor(config = {}) {
                 return { status: 'unliked' };
             }
 
-            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            const tsExpr = 'datetime({epochMillis: $ts})';
             await session.run(`
                 MERGE (t:LikeTarget {node_id: $nodeId})
                 MERGE (a:Account {account_id: $account})
@@ -2334,7 +2334,7 @@ constructor(config = {}) {
             `, {
                 account, nodeId, path,
                 blockNum: neo4j.int(blockNum ?? 0),
-                ts: ts ?? null
+                ts: toNeo4jEpochMillis(ts)
             });
 
             return { status: 'liked' };
@@ -2452,7 +2452,7 @@ constructor(config = {}) {
 
         const session = this.driver.session();
         try {
-            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            const tsExpr = 'datetime({epochMillis: $ts})';
 
             // val === 0 clears a vote on chain, so it clears the edge here.
             if (Number(val) === 0) {
@@ -2483,7 +2483,7 @@ constructor(config = {}) {
                 voter,
                 val: neo4j.int(Number(val)),
                 blockNum: neo4j.int(blockNum ?? 0),
-                ts: ts ?? null,
+                ts: toNeo4jEpochMillis(ts),
                 memo: memo || null
             });
 
@@ -2515,7 +2515,7 @@ constructor(config = {}) {
 
         const session = this.driver.session();
         try {
-            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            const tsExpr = 'datetime({epochMillis: $ts})';
             await session.run(`
                 MERGE (o:Operation {event_hash: $eventHash})
                 SET o.finalized = true,
@@ -2529,7 +2529,7 @@ constructor(config = {}) {
             `, {
                 eventHash,
                 blockNum: neo4j.int(blockNum ?? 0),
-                ts: ts ?? null,
+                ts: toNeo4jEpochMillis(ts),
                 tally: tally ? 1 : null,
                 upWeight: neo4j.int(Number(tally?.up_weight ?? 0)),
                 downWeight: neo4j.int(Number(tally?.down_weight ?? 0)),
@@ -2574,7 +2574,7 @@ constructor(config = {}) {
 
         const session = this.driver.session();
         try {
-            const tsExpr = ts != null ? 'datetime({epochMillis: $ts})' : 'datetime()';
+            const tsExpr = 'datetime({epochMillis: $ts})';
             await session.run(`
                 MERGE (o:Operation {event_hash: $eventHash})
                 ON CREATE SET o.finalized = false
@@ -2590,7 +2590,7 @@ constructor(config = {}) {
                 type: type == null ? null : neo4j.int(Number(type)),
                 eventCid: eventCid ?? null,
                 parent: parent ?? null,
-                ts: ts ?? null,
+                ts: toNeo4jEpochMillis(ts),
                 blockNum: blockNum == null ? null : neo4j.int(Number(blockNum))
             });
 
