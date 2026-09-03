@@ -80,15 +80,47 @@ fn map_events(params: String, block: Block) -> Result<Events, Error> {
 ///
 /// PERF-05: Uses iterator-based processing with early filtering.
 /// Pre-computes block-level values once, defers per-trx allocations.
+/// Extract the contract account from this module's params.
+///
+/// The params double as the `blockFilter` query, so that the provider can skip
+/// blocks holding no action for our contract instead of streaming every block
+/// to be filtered here. That saved bandwidth is the whole point: an unfiltered
+/// run costs the same 4.3 MiB per 10,000 blocks whether it matches anything or
+/// not.
+///
+/// The query grammar is the foundational modules' (`code:`, `action:`,
+/// `receiver:`, joined by `&&` / `||`), so a `code:` term is pulled back out
+/// here rather than duplicating the account in the manifest, where it would
+/// drift from CONTRACT_ACCOUNT.
+///
+/// A bare account name is still accepted, because that is what every existing
+/// deployment passes and a params change that silently matched nothing would be
+/// indistinguishable from a quiet chain.
+fn contract_account_from_params(params: &str) -> &str {
+    let trimmed = params.trim();
+    if trimmed.is_empty() {
+        return "polaris";
+    }
+
+    for term in trimmed.split(|c| c == '&' || c == '|') {
+        let term = term.trim().trim_matches(|c| c == '(' || c == ')').trim();
+        if let Some(account) = term.strip_prefix("code:") {
+            let account = account.trim();
+            if !account.is_empty() {
+                return account;
+            }
+        }
+    }
+
+    // No `code:` term — treat the whole thing as a bare account name.
+    trimmed
+}
+
 #[substreams::handlers::map]
 fn map_anchored_events(params: String, block: Block) -> Result<AnchoredEvents, Error> {
     use sha2::{Digest, Sha256};
 
-    let contract_account = if params.is_empty() {
-        "polaris"
-    } else {
-        &params
-    };
+    let contract_account = contract_account_from_params(&params);
 
     // Pre-compute block-level values once (PERF-05: avoid recomputing per action)
     let block_id = &block.id;
@@ -560,4 +592,63 @@ fn extract_update_respect_event(
             )),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contract_account_from_params;
+
+    // These params now double as the blockFilter query, so a parse that returns
+    // the wrong account does not error — it silently matches no action and the
+    // chain looks quiet. Worth pinning precisely for that reason.
+
+    #[test]
+    fn a_bare_account_is_still_accepted() {
+        // What every existing deployment passes today.
+        assert_eq!(contract_account_from_params("polarismusic"), "polarismusic");
+    }
+
+    #[test]
+    fn a_code_term_yields_the_account() {
+        assert_eq!(contract_account_from_params("code:polarismusic"), "polarismusic");
+    }
+
+    #[test]
+    fn a_code_term_is_found_among_others() {
+        assert_eq!(
+            contract_account_from_params("code:polarismusic && action:put"),
+            "polarismusic"
+        );
+        assert_eq!(
+            contract_account_from_params("action:put && code:polarismusic"),
+            "polarismusic"
+        );
+    }
+
+    #[test]
+    fn parentheses_and_spacing_do_not_defeat_the_match() {
+        assert_eq!(
+            contract_account_from_params("(code:polarismusic || code:polaristoken)"),
+            "polarismusic"
+        );
+        assert_eq!(contract_account_from_params("  code: polarismusic  "), "polarismusic");
+    }
+
+    #[test]
+    fn empty_params_fall_back_to_the_default() {
+        assert_eq!(contract_account_from_params(""), "polaris");
+        assert_eq!(contract_account_from_params("   "), "polaris");
+    }
+
+    #[test]
+    fn an_empty_code_term_does_not_yield_an_empty_account() {
+        // An empty account would match no receiver at all. Falling back to the
+        // literal is wrong too, but it is visibly wrong rather than quietly so.
+        assert_eq!(contract_account_from_params("code:"), "code:");
+    }
+
+    #[test]
+    fn a_query_without_a_code_term_is_treated_as_a_bare_name() {
+        assert_eq!(contract_account_from_params("action:put"), "action:put");
+    }
 }

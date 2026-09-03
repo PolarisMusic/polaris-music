@@ -132,6 +132,24 @@ function decryptData(encryptedData, key) {
 }
 
 /**
+ * How long any single IPFS call may take before it is abandoned.
+ *
+ * ipfs-http-client issues these with no deadline of its own, so a block the
+ * local node does not already hold sends it into a bitswap/DHT search that may
+ * never return. That is not hypothetical: it hung every ingest POST during a
+ * replay until the sink's own 10s client timeout fired, five times per event,
+ * and nothing was ever indexed. Redis only caches for 86400s, so any event more
+ * than a day old takes this path.
+ *
+ * Bounded per call rather than around the whole lookup, so giving up on IPFS
+ * still falls through to S3 — which is where these bodies actually are.
+ *
+ * Two nodes at 3s each leaves headroom inside a 30s ingest budget for the graph
+ * writes that follow.
+ */
+const IPFS_CALL_TIMEOUT_MS = Number(process.env.IPFS_CALL_TIMEOUT_MS) || 3000;
+
+/**
  * Multi-layered event storage with IPFS, S3, and Redis.
  * Provides redundant storage with automatic fallback and caching.
  *
@@ -870,14 +888,14 @@ class EventStore {
                 // Path 1: Try UnixFS cat() first (new format, works with gateways)
                 try {
                     const chunks = [];
-                    for await (const chunk of client.cat(event_cid)) {
+                    for await (const chunk of client.cat(event_cid, { timeout: IPFS_CALL_TIMEOUT_MS })) {
                         chunks.push(chunk);
                     }
                     data = Buffer.concat(chunks);
                     retrievalMethod = 'UnixFS (cat)';
                 } catch (catError) {
                     // Path 2: Fallback to raw block.get() for backward compatibility
-                    const block = await client.block.get(event_cid);
+                    const block = await client.block.get(event_cid, { timeout: IPFS_CALL_TIMEOUT_MS });
                     data = Buffer.from(block);
                     retrievalMethod = 'raw block (block.get)';
                 }
@@ -1164,7 +1182,7 @@ class EventStore {
         const errors = [];
         for (const { client, url, isPrimary } of this.ipfsClients) {
             try {
-                const block = await client.block.get(cid);
+                const block = await client.block.get(cid, { timeout: IPFS_CALL_TIMEOUT_MS });
                 if (!isPrimary) {
                     console.log(`   Retrieved from secondary IPFS node: ${url}`);
                 }
