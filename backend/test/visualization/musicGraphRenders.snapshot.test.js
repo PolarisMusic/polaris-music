@@ -300,7 +300,9 @@ describe('Stage H · _renderCurateDetail', () => {
 
             return {
                 stub,
-                buttons: [...container.querySelectorAll('.curate-vote-btn')]
+                container,
+                buttons: [...container.querySelectorAll('.curate-vote-btn')],
+                memo: container.querySelector('.curate-memo-input')
             };
         }
 
@@ -313,7 +315,7 @@ describe('Stage H · _renderCurateDetail', () => {
             clickByClass(buttons, 'curate-vote-down');
 
             expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
-                expect.anything(), 0);
+                expect.anything(), 0, '');
         });
 
         test('an existing upvote is cleared with 0', () => {
@@ -322,17 +324,60 @@ describe('Stage H · _renderCurateDetail', () => {
             clickByClass(buttons, 'curate-vote-up');
 
             expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
-                expect.anything(), 0);
+                expect.anything(), 0, '');
         });
 
         test('a fresh vote still sends its value', () => {
             const { stub, buttons } = renderVoting(null);
 
             clickByClass(buttons, 'curate-vote-up');
-            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(expect.anything(), 1);
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(expect.anything(), 1, '');
 
             clickByClass(buttons, 'curate-vote-down');
-            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(expect.anything(), -1);
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(expect.anything(), -1, '');
+        });
+
+        test('what the curator typed is sent with the vote', () => {
+            // The reason for the whole feature: a downvote nobody can interpret
+            // is not much use to the next reviewer.
+            const { stub, buttons, memo } = renderVoting(null);
+
+            memo.value = 'track 7 credits the wrong Lennon';
+            clickByClass(buttons, 'curate-vote-down');
+
+            expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
+                expect.anything(), -1, 'track 7 credits the wrong Lennon');
+        });
+
+        test('the box is prefilled with the comment already left', () => {
+            // viewer_vote carries the memo back, so editing a vote does not
+            // silently wipe the reason attached to it.
+            const { memo } = renderVoting({ val: -1, memo: 'wrong Lennon' });
+            expect(memo.value).toBe('wrong Lennon');
+        });
+
+        test('a viewer with no prior vote gets an empty box', () => {
+            expect(renderVoting(null).memo.value).toBe('');
+        });
+
+        test('the box is capped at the length the contract accepts', () => {
+            // The contract rejects anything over 280, so the transaction would
+            // fail rather than truncate.
+            expect(renderVoting(null).memo.getAttribute('maxlength')).toBe('280');
+        });
+
+        test('a finalized operation offers no memo box', () => {
+            // No vote to attach it to.
+            const fn = compileMethod('renderCurateDetail');
+            const stub = makeStubThis();
+            const container = document.createElement('div');
+            fn.call(stub, container, {
+                operation: { type_name: 'ADD_CLAIM', author: 'alice', finalized: true },
+                tally: { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+                viewer_vote: null, event: {}, detail: { type: 'claim' }
+            }, op_for_detail());
+
+            expect(container.querySelector('.curate-memo-input')).toBeNull();
         });
 
         test('switching sides sends the new value, not 0', () => {
@@ -343,7 +388,7 @@ describe('Stage H · _renderCurateDetail', () => {
             clickByClass(buttons, 'curate-vote-up');
 
             expect(stub.callbacks.voteFromDetail).toHaveBeenCalledWith(
-                expect.anything(), 1);
+                expect.anything(), 1, '');
         });
     });
 
@@ -545,5 +590,76 @@ describe('Stage H · mint_entity and resolve_id detail', () => {
             canonical_id: 'person:x', confidence: null
         });
         expect(container.innerHTML).not.toContain('Confidence');
+    });
+});
+
+describe('Stage H · curation comments', () => {
+    /**
+     * @param {Array<Object>} votes
+     * @returns {HTMLElement}
+     */
+    function renderWithVotes(votes) {
+        const fn = compileMethod('renderCurateDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            operation: { type_name: 'ADD_CLAIM', author: 'alice', finalized: true },
+            tally: { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+            viewer_vote: null, votes, event: {}, detail: { type: 'claim' }
+        }, { hash: 'opHash', type: 30, author: 'alice' });
+        return container;
+    }
+
+    test('a comment is shown against its voter and direction', () => {
+        const el = renderWithVotes([
+            { voter: 'bob', val: -1, memo: 'track 7 credits the wrong Lennon' },
+        ]);
+
+        const comment = el.querySelector('.curate-comment');
+        expect(comment.textContent).toContain('bob');
+        expect(comment.textContent).toContain('track 7 credits the wrong Lennon');
+        expect(el.querySelector('.curate-comment__voter').className).toContain('curate-down');
+    });
+
+    test('votes without a comment are left out', () => {
+        // A list of bare names says nothing; the count should reflect comments,
+        // not voters.
+        const el = renderWithVotes([
+            { voter: 'bob', val: -1, memo: 'wrong Lennon' },
+            { voter: 'carol', val: 1, memo: null },
+            { voter: 'dave', val: 1 },
+        ]);
+
+        expect(el.querySelectorAll('.curate-comment')).toHaveLength(1);
+        expect(el.querySelector('.curate-comments h4').textContent).toBe('Comments (1)');
+    });
+
+    test('no comments means no section at all', () => {
+        const el = renderWithVotes([{ voter: 'bob', val: 1, memo: null }]);
+        expect(el.querySelector('.curate-comments')).toBeNull();
+    });
+
+    test('an absent votes array is tolerated', () => {
+        // Older API responses, and the reclaimed case before a projection exists.
+        const fn = compileMethod('renderCurateDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        expect(() => fn.call(stub, container, {
+            operation: { type_name: 'ADD_CLAIM', finalized: true },
+            tally: { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+            viewer_vote: null, event: {}, detail: { type: 'claim' }
+        }, { hash: 'opHash', type: 30 })).not.toThrow();
+    });
+
+    test('comment text is escaped, not injected', () => {
+        // Memos are arbitrary strings from any account on chain.
+        const el = renderWithVotes([
+            { voter: 'mallory', val: -1, memo: '<img src=x onerror="alert(1)">' },
+        ]);
+
+        expect(el.querySelector('.curate-comment__text').innerHTML)
+            .not.toContain('<img');
+        expect(el.querySelector('.curate-comment__text').textContent)
+            .toContain('<img src=x');
     });
 });

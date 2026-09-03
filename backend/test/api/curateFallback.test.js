@@ -11,7 +11,7 @@
  */
 
 import { describe, test, expect, jest } from '@jest/globals';
-import { loadProjectedOperation, listProjectedOperations } from '../../src/api/routes/curate.js';
+import { loadProjectedOperation, listProjectedOperations, mergeVotes } from '../../src/api/routes/curate.js';
 
 const HASH = 'a'.repeat(64);
 
@@ -247,5 +247,88 @@ describe('listProjectedOperations', () => {
         ['a graph with no driver', {}],
     ])('returns an empty list for %s rather than throwing', async (_label, db) => {
         expect(await listProjectedOperations(db, 50)).toEqual([]);
+    });
+});
+
+describe('mergeVotes', () => {
+    // Neither source is complete. The chain holds `weight` —
+    // respect-at-vote-time, which no action trace carries. The projection holds
+    // `memo` — the curator's reason, which the contract validates and never
+    // stores, so votes cost no extra RAM. Picking one wholesale loses half the
+    // record, and loses it silently.
+
+    test('a chain vote keeps its weight and gains its memo', () => {
+        const [vote] = mergeVotes(
+            [{ voter: 'alice', val: -1, weight: 12, ts: '2026-05-05T00:00:00' }],
+            [{ voter: 'alice', val: -1, weight: null, ts: null, memo: 'track 7 credits the wrong Lennon' }]
+        );
+
+        expect(vote).toMatchObject({
+            voter: 'alice', val: -1, weight: 12,
+            memo: 'track 7 credits the wrong Lennon',
+        });
+    });
+
+    test('the memo survives while the anchor still exists', () => {
+        // The regression this exists for: the route used to take chain rows
+        // wholesale whenever any existed, which is the entire period during
+        // which anyone is curating.
+        const merged = mergeVotes(
+            [{ voter: 'bob', val: 1, weight: 3 }],
+            [{ voter: 'bob', val: 1, memo: 'verified against the liner notes' }]
+        );
+
+        expect(merged[0].memo).toBe('verified against the liner notes');
+    });
+
+    test('a chain vote with no projected counterpart has a null memo', () => {
+        // Not undefined: the field should be present and empty, so the UI can
+        // distinguish "no comment given" from "field missing".
+        const [vote] = mergeVotes([{ voter: 'carol', val: 1, weight: 5 }], []);
+        expect(vote.memo).toBeNull();
+        expect('memo' in vote).toBe(true);
+    });
+
+    test('a chain vote with no weight reports null rather than undefined', () => {
+        const [vote] = mergeVotes([{ voter: 'dave', val: 1 }], []);
+        expect(vote.weight).toBeNull();
+    });
+
+    test('projected votes with no chain row are still included', () => {
+        // What reclaim() leaves behind: the vote rows are erased on chain and
+        // the projection is all that remains.
+        const merged = mergeVotes([], [
+            { voter: 'erin', val: 1, memo: 'looks right' },
+            { voter: 'frank', val: -1, memo: null },
+        ]);
+
+        expect(merged.map(v => v.voter).sort()).toEqual(['erin', 'frank']);
+        expect(merged.find(v => v.voter === 'erin').memo).toBe('looks right');
+    });
+
+    test('a voter present in both sources appears once', () => {
+        const merged = mergeVotes(
+            [{ voter: 'alice', val: 1, weight: 2 }],
+            [{ voter: 'alice', val: 1, memo: 'ok' }]
+        );
+        expect(merged).toHaveLength(1);
+    });
+
+    test('the chain wins on disagreement about the vote itself', () => {
+        // While the rows exist they are authoritative about who voted and how;
+        // the projection can lag by a block.
+        const [vote] = mergeVotes(
+            [{ voter: 'alice', val: 1, weight: 2 }],
+            [{ voter: 'alice', val: -1, memo: 'changed my mind' }]
+        );
+        expect(vote.val).toBe(1);
+        expect(vote.memo).toBe('changed my mind');
+    });
+
+    test.each([
+        ['both empty', [], []],
+        ['no arguments at all', undefined, undefined],
+    ])('%s yields an empty list', (_label, chain, projected) => {
+        expect(mergeVotes(chain, projected)).toEqual([]);
     });
 });

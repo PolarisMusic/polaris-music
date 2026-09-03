@@ -1074,7 +1074,10 @@ export class IngestionHandler {
                     voter: actionData.voter,
                     val: actionData.val,
                     blockNum: meta.block_num,
-                    ts: this.blockTimeToMillis(meta)
+                    ts: this.blockTimeToMillis(meta),
+                    // The contract validates the memo and drops it, so this
+                    // trace is the only place a curator's reason exists.
+                    memo: actionData.memo
                 });
             } else {
                 await graph.recordFinalization({
