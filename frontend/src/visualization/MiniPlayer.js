@@ -367,47 +367,23 @@ export class MiniPlayer {
         // Rebuild rather than reuse: assigning src on an existing iframe leaves
         // a history entry, so Back inside the page would step through tracks.
         this._embedEl.innerHTML = '';
-
-        // The tile wraps the iframe so the transport can be positioned over its
-        // edges without the iframe itself needing to know about them.
-        const tile = document.createElement('div');
-        tile.className = 'mp-embed-tile';
-
         const frame = document.createElement('iframe');
         frame.src = src;
-        // Square. Spotify picks its layout from the aspect ratio it is given:
-        // a wide box gets the horizontal card, a square one gets the cover-art
-        // tile with a play button over it — which is the shape asked for, and
-        // it comes from Spotify rather than from us faking a transport we
-        // cannot drive. The size lives in --mp-embed-size so it can be tuned,
-        // or reverted to the wide card, without touching this.
+        // Spotify renders its horizontal card whatever box it is handed — a
+        // square container does not produce a cover-art tile, it just clips the
+        // card, and the play button is among the parts clipped away. So the
+        // compact card at its documented size, which is both the smallest
+        // footprint on offer and the only layout with a working play control.
         frame.width = '100%';
-        frame.height = '100%';
+        frame.height = '80';
         frame.frameBorder = '0';
         frame.loading = 'lazy';
         frame.allow = 'encrypted-media; clipboard-write; picture-in-picture';
         frame.title = 'Spotify player';
-        tile.appendChild(frame);
-
-        // Prev / next over the artwork. Disabled at the ends of the queue
-        // rather than hidden, so the tile does not reflow on hover.
-        for (const [dir, cls, glyph, label] of [
-            [-1, 'prev', '\u25C0', 'Previous track'],
-            [1, 'next', '\u25B6', 'Next track'],
-        ]) {
-            const btn = document.createElement('button');
-            btn.className = `mp-embed-nav mp-embed-nav--${cls}`;
-            btn.title = label;
-            btn.setAttribute('aria-label', label);
-            btn.textContent = glyph;
-            btn.disabled = dir < 0
-                ? this.currentIndex <= 0
-                : this.currentIndex >= this.queue.length - 1;
-            btn.addEventListener('click', () => (dir < 0 ? this._prev() : this._next()));
-            tile.appendChild(btn);
-        }
-
-        this._embedEl.appendChild(tile);
+        // No transport of our own over the card: the player's bar already has
+        // prev/next (see _controlsEl), and a second pair overlapping Spotify's
+        // own controls competed with them for the same clicks.
+        this._embedEl.appendChild(frame);
     }
 
     /**
