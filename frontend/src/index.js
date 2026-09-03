@@ -11,8 +11,8 @@ import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
 import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
-import { canonicalizeListenLink, sameTarget } from './utils/listenLinks.js';
-import { diffTracklists, describeDifference } from './utils/tracklistDiff.js';
+import { canonicalizeListenLink, normalizeListenLink, sameTarget } from './utils/listenLinks.js';
+import { diffTracklists, describeDifference, matchSpotifyTracks } from './utils/tracklistDiff.js';
 
 class PolarisApp {
     constructor() {
@@ -639,21 +639,29 @@ class PolarisApp {
             return;
         }
 
+        // The release-level album link is a lookup key in its own right, and
+        // the more useful direction of travel: it can fill in every track's
+        // link, where track links can only ever be gathered up. Entering twelve
+        // Spotify URLs by hand is exactly the work this should remove.
+        const albumLink = this.parseCommaSeparated(target.value)
+            .map(normalizeListenLink)
+            .find(link => link?.service === 'spotify' && link.type === 'album');
+
         // Import the links regardless of whether the check can run: pulling
         // them up to the release is useful on its own.
         const imported = this.mergeTrackLinksIntoRelease(links, target);
 
-        if (links.length === 0) {
+        if (links.length === 0 && !albumLink) {
             report.textContent =
-                'No track links to import. Add a Spotify link to a track to check the tracklist.';
+                'No links to work from. Add a Spotify album link above, or a link to a track.';
             return;
         }
 
-        report.textContent = `Imported ${imported} link(s). Checking against Spotify…`;
+        report.textContent = 'Checking against Spotify…';
 
         let result;
         try {
-            result = await api.getSpotifyAlbum(links);
+            result = await api.getSpotifyAlbum(albumLink ? [albumLink.url, ...links] : links);
         } catch (error) {
             console.warn('Spotify check failed:', error);
             report.textContent =
@@ -667,8 +675,53 @@ class PolarisApp {
             return;
         }
 
+        const filled = this.fillTrackLinksFromAlbum(tracks, result.album.tracks);
+
         this.renderListenLinkReport(report, imported, result.album,
-            diffTracklists(tracks, result.album.tracks));
+            diffTracklists(tracks, result.album.tracks), filled);
+    }
+
+    /**
+     * Write Spotify track links onto the matching track rows.
+     *
+     * Only ever fills an empty field. Something typed by hand is the more
+     * considered entry — it may point at a specific pressing or a different
+     * service — and silently replacing it would be the worst outcome here.
+     *
+     * @param {{position?: string, title: string}[]} tracks - In form order,
+     *   matching the order they were collected in.
+     * @param {{id: string, name: string, track_number?: number}[]} spotifyTracks
+     * @returns {{filled: number, unmatched: number}}
+     */
+    fillTrackLinksFromAlbum(tracks, spotifyTracks) {
+        const items = [...document.querySelectorAll('.track-item')]
+            .filter(item => this.getInputValue(item, `track-title-${item.dataset.index}`));
+
+        let filled = 0;
+        let unmatched = 0;
+
+        for (const match of matchSpotifyTracks(tracks, spotifyTracks)) {
+            const item = items[match.index];
+            if (!item) continue;
+
+            if (!match.spotify) {
+                unmatched++;
+                continue;
+            }
+
+            // Selected by name, not id: the track row template gives these
+            // inputs a name only (FormBuilder.js:351), which is also how
+            // getInputValue reads them.
+            const input = item.querySelector(
+                `[name="track-listen-link-${item.dataset.index}"]`);
+            if (!input) continue;
+            if (input.value.trim()) continue;
+
+            input.value = `https://open.spotify.com/track/${match.spotify.id}`;
+            filled++;
+        }
+
+        return { filled, unmatched };
     }
 
     /**
@@ -707,13 +760,24 @@ class PolarisApp {
      * @param {{name: string, total_tracks: number}} album
      * @param {{kind: string}[]} differences
      */
-    renderListenLinkReport(report, importedCount, album, differences) {
+    renderListenLinkReport(report, importedCount, album, differences, filled = null) {
         report.innerHTML = '';
 
         const summary = document.createElement('p');
         summary.textContent = `Imported ${importedCount} link(s). `
             + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks).`;
         report.appendChild(summary);
+
+        if (filled && (filled.filled > 0 || filled.unmatched > 0)) {
+            const line = document.createElement('p');
+            // Unmatched rows are the ones the difference list below is already
+            // complaining about, so the two read together rather than repeating.
+            line.textContent = filled.unmatched > 0
+                ? `Filled ${filled.filled} track link(s). `
+                    + `${filled.unmatched} track(s) had no confident match — left blank.`
+                : `Filled ${filled.filled} track link(s).`;
+            report.appendChild(line);
+        }
 
         if (differences.length === 0) {
             const clean = document.createElement('p');

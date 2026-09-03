@@ -1364,6 +1364,41 @@ body.mini-player-visible.mini-player-embed {
     display: none;
 }
 
+/* The curate panel had no responsive rules at all, so a phone got the desktop
+   layout: a 340px feed column beside a detail column inside a panel capped at
+   90vw. At 390px that leaves the detail about 11px wide — the vote memo box
+   measured 18px — which reads as the curation area being cut off rather than as
+   a column squeezed to nothing.
+
+   Stacked instead. The feed keeps enough height to pick from and the detail
+   takes the rest, which is the reading pane and needs the room. Both already
+   scroll internally, so the panel needs a definite height for them to scroll
+   inside rather than a content-derived one. */
+@media (max-width: 768px) {
+    #curate-panel {
+        flex-direction: column;
+        width: 100%;
+        max-width: 100%;
+        height: calc(100vh - 120px);
+        border-right: none;
+    }
+
+    .curate-feed-column {
+        width: auto;
+        min-width: 0;
+        /* Enough for a few rows; the detail is what you came to read. */
+        flex: 0 0 38%;
+        border-right: none;
+        border-bottom: 1px solid #333;
+    }
+
+    .curate-detail-column {
+        /* Required for a flex item to scroll rather than grow to fit its
+           content — without it the column stretches and the panel clips. */
+        min-height: 0;
+    }
+}
+
 /* ==========================================================================
    Phones (<=768px)
    ==========================================================================

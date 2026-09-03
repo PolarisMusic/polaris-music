@@ -153,3 +153,89 @@ export function describeDifference(difference) {
             return `${where}${difference.discogs ?? ''}`;
     }
 }
+
+/**
+ * Pair the form's tracks with Spotify's, for filling in per-track listen links.
+ *
+ * Matching is by normalized title, never by list position. Position is the least
+ * trustworthy signal available here — this module exists because Discogs and
+ * Spotify tracklists routinely disagree by an offset — and a link written
+ * against the wrong track is bad data of precisely the kind the registry is
+ * meant to prevent. An unfilled field is visible and costs a moment; a
+ * confidently wrong one is invisible and permanent.
+ *
+ * Duplicate titles (a reprise, two "Untitled") are the one place ordering is
+ * consulted, and only to choose between candidates already known to share a
+ * title: equal counts on both sides pair in order, otherwise a track number
+ * matching the row's ordinal decides. Getting that wrong swaps two identically
+ * named tracks, which is a far smaller error than mismatching a title.
+ *
+ * @param {{position?: string, title: string}[]} formTracks - In form order.
+ * @param {{id: string, name: string, track_number?: number}[]} spotifyTracks
+ * @returns {{index: number, spotify: Object|null, reason: string}[]}
+ *   One entry per form track. `reason` is 'matched', 'ambiguous' when several
+ *   candidates shared the title and none could be chosen, or 'no_match'.
+ */
+export function matchSpotifyTracks(formTracks = [], spotifyTracks = []) {
+    const ours = Array.isArray(formTracks) ? formTracks : [];
+    const theirs = Array.isArray(spotifyTracks) ? spotifyTracks : [];
+
+    /** @type {Map<string, {rows: number[], tracks: Object[]}>} */
+    const groups = new Map();
+    const group = (key) => {
+        if (!groups.has(key)) groups.set(key, { rows: [], tracks: [] });
+        return groups.get(key);
+    };
+
+    ours.forEach((track, index) => {
+        const key = normalizeTitle(track?.title);
+        // An untitled row cannot be matched on title, and normalizeTitle
+        // collapses every such row to the same empty key — so they are skipped
+        // rather than grouped together.
+        if (key) group(key).rows.push(index);
+    });
+    for (const track of theirs) {
+        const key = normalizeTitle(track?.name);
+        if (key) group(key).tracks.push(track);
+    }
+
+    const results = ours.map((_, index) => ({ index, spotify: null, reason: 'no_match' }));
+
+    for (const { rows, tracks } of groups.values()) {
+        if (rows.length === 0 || tracks.length === 0) continue;
+
+        if (rows.length === 1 && tracks.length === 1) {
+            results[rows[0]] = { index: rows[0], spotify: tracks[0], reason: 'matched' };
+            continue;
+        }
+
+        if (rows.length === tracks.length) {
+            rows.forEach((row, i) => {
+                results[row] = { index: row, spotify: tracks[i], reason: 'matched' };
+            });
+            continue;
+        }
+
+        if (rows.length > tracks.length) {
+            // More rows carry this title than Spotify has recordings of it, so
+            // at least one row has no counterpart and nothing says which. An
+            // ordinal here would be a coin toss dressed up as a match.
+            for (const row of rows) {
+                results[row] = { index: row, spotify: null, reason: 'ambiguous' };
+            }
+            continue;
+        }
+
+        // Spotify lists more than the form does — an extra version, say. Every
+        // row does have a counterpart; a track number landing exactly on the
+        // row's ordinal picks it, and anything less certain stays unmatched.
+        for (const row of rows) {
+            const byNumber = tracks.find(t => Number(t?.track_number) === row + 1);
+            results[row] = byNumber
+                ? { index: row, spotify: byNumber, reason: 'matched' }
+                : { index: row, spotify: null, reason: 'ambiguous' };
+        }
+    }
+
+    return results;
+}
