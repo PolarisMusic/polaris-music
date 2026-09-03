@@ -478,13 +478,24 @@ services:
       # absolute block number would silently go stale.
       #
       # To index your own history instead, set this to the block where your
-      # contract was deployed. If you ever hit the cap anyway, nudge the value
-      # down (e.g. -9000) — -10000 sits exactly at the limit, and head can
-      # advance while the request is being set up.
+      # contract was deployed.
+      #
+      # Why -9000 and not -10000: the sink runs in production mode, which
+      # accounts in whole 1,000-block segments, so a relative start landing
+      # mid-segment rounds the request out past the cap. -10000 sat exactly at
+      # the limit and asked for 10,006 blocks, which the provider refused — the
+      # container then sat in a restart loop and nothing was indexed live at all:
+      #
+      #   FailedPrecondition: request needs to process a total of 10006 blocks
+      #   but only 10000 are allowed according to 'limit-processed-blocks'
+      #
+      # The 1,000 blocks of headroom also cover head advancing while the request
+      # is set up. These two values interact: raising this back toward the cap
+      # only works if production mode is off (SUBSTREAMS_DEV_MODE=true).
       #
       # Note there is no cursor persistence yet: the sink restarts from
       # START_BLOCK every time, rather than resuming where it left off.
-      - START_BLOCK=${START_BLOCK:--10000}
+      - START_BLOCK=${START_BLOCK:--9000}
 
       # STOP_BLOCK: 0 follows the chain head indefinitely (normal operation).
       #

@@ -532,8 +532,15 @@ export class InfoPanelRenderer {
                     `${tally.down_weight} (${tally.down_voter_count})`)));
 
         // The curator's reason, sent with the vote. Declared before the buttons
-        // so their handlers can read it, and prefilled with whatever the viewer
-        // said last time — the memo comes back on viewer_vote.
+        // so their handlers can read it.
+        //
+        // Deliberately NOT prefilled from viewer_vote.memo. That was meant to
+        // stop a reason being dropped when a vote is changed, but with the
+        // comment shown directly below it put the same sentence on screen twice
+        // and the copy in the editable box read as stray example text. An empty
+        // box says "write a comment"; the existing one stays visible underneath,
+        // attributed. Voting again without retyping produces a vote with no
+        // reason, which is accurate — the old vote is being replaced regardless.
         let memoInput = null;
 
         if (!operation.finalized) {
@@ -543,7 +550,6 @@ export class InfoPanelRenderer {
                 maxlength: '280',
                 placeholder: 'Why? (optional, 280 chars) — e.g. "track 7 credits the wrong Lennon"',
             });
-            memoInput.value = viewerVote?.memo ?? '';
 
             // Clicking the vote you already hold clears it. The contract erases
             // the row on val === 0 (polaris.music.cpp:667), but these buttons
