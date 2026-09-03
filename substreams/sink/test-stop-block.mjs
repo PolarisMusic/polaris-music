@@ -126,6 +126,28 @@ check('no filter params are added for the Pinax fallback module',
     }), 'antelope:filtered_actions'),
     undefined);
 
+// Production mode is what actually enables index-based block skipping; without
+// it the provider streams every block regardless of any filter, which is how
+// three separate filtering changes produced no measurable saving.
+check('requests production mode by default',
+    buildSubstreamsArgs(base).includes('--production-mode'), true);
+
+check('SUBSTREAMS_DEV_MODE=true opts out',
+    (() => {
+        process.env.SUBSTREAMS_DEV_MODE = 'true';
+        const has = buildSubstreamsArgs(base).includes('--production-mode');
+        delete process.env.SUBSTREAMS_DEV_MODE;
+        return has;
+    })(), false);
+
+check('any other value of SUBSTREAMS_DEV_MODE keeps production mode',
+    (() => {
+        process.env.SUBSTREAMS_DEV_MODE = 'false';
+        const has = buildSubstreamsArgs(base).includes('--production-mode');
+        delete process.env.SUBSTREAMS_DEV_MODE;
+        return has;
+    })(), true);
+
 // Shape of the command itself.
 const args = buildSubstreamsArgs(base);
 check('invokes `substreams run`', args[0], 'run');
