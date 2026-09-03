@@ -64,7 +64,11 @@ const config = {
 
     maxRetries: 5,
     retryDelayMs: 1000,
-    requestTimeoutMs: 10000, // 10 second timeout
+    // Ingest is synchronous: the api runs the whole pipeline — storage
+    // retrieval, signature checks, the graph writes for a full release bundle —
+    // before it answers. 10s was below that floor, so every event of a replay
+    // aborted mid-ingest and retried into the same wall five times over.
+    requestTimeoutMs: Number(process.env.INGEST_REQUEST_TIMEOUT_MS) || 30000,
 };
 
 // Utility: Sanitize backend URL (strip trailing /api if present)
@@ -130,8 +134,11 @@ config.backendUrl = sanitizeBackendUrl(config.backendUrl);
 if (!config.substreamsParams) {
     // Format depends on which module is being used
     if (config.substreamsModule === 'map_anchored_events') {
-        // Local module format: map_anchored_events=<contract_account>
-        config.substreamsParams = `map_anchored_events=${config.contractAccount}`;
+        // Index-query form: these params double as the module's blockFilter
+        // query (substreams.yaml), which is what lets the provider skip blocks
+        // holding no action for the contract instead of streaming all of them.
+        // map_anchored_events reads the account back out of the `code:` term.
+        config.substreamsParams = `map_anchored_events=code:${config.contractAccount}`;
     } else if (config.substreamsModule === 'filtered_actions') {
         // Pinax module format: filtered_actions=code:<contract_account> && action:put
         config.substreamsParams = `filtered_actions=code:${config.contractAccount} && action:put`;

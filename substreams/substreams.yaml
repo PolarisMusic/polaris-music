@@ -100,6 +100,21 @@ modules:
   # Extract anchored events for chain ingestion (T5 primary output)
   - name: map_anchored_events
     kind: map
+    # Let the provider skip blocks that hold no action for our contract.
+    #
+    # Without this, every block is streamed here in full and filtered in WASM —
+    # a flat 4.3 MiB per 10,000 blocks whether or not anything matched, which is
+    # most of what a historical replay costs.
+    #
+    # `query: params: true` means this module's params ARE the index query, so
+    # they now read `code:polarismusic` rather than a bare account name.
+    # map_anchored_events pulls the account back out of the `code:` term
+    # (contract_account_from_params in src/lib.rs) instead of the manifest
+    # naming it a second time, where it would drift from CONTRACT_ACCOUNT.
+    blockFilter:
+      module: antelope:index_actions
+      query:
+        params: true
     inputs:
       - params: string
       - source: sf.antelope.type.v1.Block
@@ -123,7 +138,9 @@ modules:
 
 params:
   map_events: polaris
-  map_anchored_events: polaris
+  # Index-query form, required by the blockFilter above. A bare account name is
+  # still parsed correctly, so an older override keeps working.
+  map_anchored_events: code:polaris
 
 # Network configuration
 # Options: eos-mainnet | jungle4-testnet
