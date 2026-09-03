@@ -452,3 +452,91 @@ test('the master release field searches the registry', async ({ page }) => {
     // It was a bare text input asking for a hash, which nobody can supply.
     await expect(page.locator('#master-release-id')).toHaveValue('rel:sftd');
 });
+
+test.describe('filling track links from the release album link', () => {
+    /**
+     * The Listen Links block only ever read upward — it gathered links from
+     * individual tracks into the release field, so an album link alone produced
+     * "No track links to import" and never reached the API. Entering a Spotify
+     * URL per track by hand is exactly the work worth removing.
+     *
+     * The backend already resolved an album link and returned its full
+     * tracklist; only the form declined to send it.
+     */
+    const ALBUM = {
+        success: true,
+        album: {
+            id: '2OMdsA2I4RxrHCyogwKGvF',
+            name: 'Songs For The Deaf',
+            total_tracks: 3,
+            tracks: [
+                { id: 'trk1', name: 'You Think I Ain\'t Worth a Dollar', track_number: 1 },
+                { id: 'trk2', name: 'No One Knows - Remastered', track_number: 2 },
+                { id: 'trk3', name: 'A Song Only Spotify Has', track_number: 3 },
+            ],
+        },
+    };
+
+    /** Fill a track's title, which is what matching keys on. */
+    async function addTitledTrack(page, index, title) {
+        await addOpenTrack(page, index);
+        await page.fill(`[name="track-title-${index}"]`, title);
+    }
+
+    test('an album link alone fills every matching track', async ({ page }) => {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        await addTitledTrack(page, 0, 'You Think I Ain\'t Worth a Dollar');
+        await addTitledTrack(page, 1, 'No One Knows');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/2OMdsA2I4RxrHCyogwKGvF');
+
+        await page.click('#import-track-links');
+
+        // Matched despite the "- Remastered" suffix, which is why matching runs
+        // through normalizeTitle rather than comparing strings.
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('[name="track-listen-link-1"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+    });
+
+    test('a link typed by hand is never overwritten', async ({ page }) => {
+        // The submitter's own entry is the more considered one — it may point at
+        // a particular pressing, or another service entirely.
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        await addTitledTrack(page, 0, 'You Think I Ain\'t Worth a Dollar');
+        await page.fill('[name="track-listen-link-0"]', 'https://tidal.com/track/999');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/2OMdsA2I4RxrHCyogwKGvF');
+
+        await page.click('#import-track-links');
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://tidal.com/track/999');
+    });
+
+    test('a track Spotify does not have is left blank and reported', async ({ page }) => {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        await addTitledTrack(page, 0, 'You Think I Ain\'t Worth a Dollar');
+        await addTitledTrack(page, 1, 'A Vinyl-Only Bonus');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/2OMdsA2I4RxrHCyogwKGvF');
+
+        await page.click('#import-track-links');
+
+        await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
+        await expect(page.locator('#listen-link-report')).toContainText('no confident match');
+    });
+
+    test('with neither an album nor a track link it says so', async ({ page }) => {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        await addTitledTrack(page, 0, 'You Think I Ain\'t Worth a Dollar');
+        await page.click('#import-track-links');
+
+        await expect(page.locator('#listen-link-report')).toContainText('No links to work from');
+    });
+});
