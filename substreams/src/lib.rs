@@ -116,6 +116,100 @@ fn contract_account_from_params(params: &str) -> &str {
     trimmed
 }
 
+/// Build the backend's JSON payload for an action, decoding it from raw_data.
+///
+/// Used when Firehose supplies no `json_data` — its decoding depends on the ABI
+/// it has cached for the account, and a redeploy that changes an action's
+/// arguments can leave that stale. The package embeds its own ABI, so the
+/// actions we have bindings for can always be read here regardless.
+///
+/// The field names match what the backend already destructures off the action
+/// payload: processPutAction reads author/type/hash/event_cid/parent/ts/tags,
+/// processCurationAction reads voter/tx_hash/val/memo, and processLikeAction
+/// reads account/node_id/node_path (ingestion.js).
+///
+/// @returns the payload JSON and the content hash to key it by, or None when
+/// the action cannot be decoded or is not one we ingest.
+fn decode_action_payload(
+    action_trace: &substreams_antelope::pb::ActionTrace,
+    name: &str,
+) -> Option<(String, String)> {
+    use abi::polaris_music::actions;
+
+    match name {
+        "put" => Some(put_payload(&actions::Put::decode(action_trace).ok()?)),
+        "vote" => Some(vote_payload(&actions::Vote::decode(action_trace).ok()?)),
+        "finalize" => Some(finalize_payload(&actions::Finalize::decode(action_trace).ok()?)),
+        "like" => Some(like_payload(&actions::Like::decode(action_trace).ok()?)),
+        "unlike" => Some(unlike_payload(&actions::Unlike::decode(action_trace).ok()?)),
+        _ => None,
+    }
+}
+
+/// Hash a payload to key it by.
+///
+/// Everything except `put` is keyed this way: those actions carry no content
+/// hash of their own, and the backend dedups on this value rather than reading
+/// it.
+fn hashed(payload: serde_json::Value) -> (String, String) {
+    use sha2::{Digest, Sha256};
+
+    let json = payload.to_string();
+    let mut hasher = Sha256::new();
+    hasher.update(json.as_bytes());
+    (json, hex::encode(hasher.finalize()))
+}
+
+/// @see processPutAction, which destructures these exact names.
+fn put_payload(a: &abi::polaris_music::actions::Put) -> (String, String) {
+    let payload = serde_json::json!({
+        "author": a.author,
+        "type": a.type_,
+        "hash": &a.hash,
+        "event_cid": a.event_cid,
+        "parent": a.parent,
+        "ts": a.ts,
+        "tags": a.tags,
+    });
+    // In 0.6, Checksum256 fields are already hex strings, and put carries the
+    // content hash the whole system keys on — so it is used rather than derived.
+    (payload.to_string(), a.hash.clone())
+}
+
+/// @see processCurationAction.
+fn vote_payload(a: &abi::polaris_music::actions::Vote) -> (String, String) {
+    hashed(serde_json::json!({
+        "voter": a.voter,
+        "tx_hash": a.tx_hash,
+        "val": a.val,
+        // The curator's reason. The contract validates it and stores nothing,
+        // so this trace is the only record there will ever be of it.
+        "memo": a.memo,
+    }))
+}
+
+/// @see processCurationAction.
+fn finalize_payload(a: &abi::polaris_music::actions::Finalize) -> (String, String) {
+    hashed(serde_json::json!({ "tx_hash": a.tx_hash }))
+}
+
+/// @see processLikeAction.
+fn like_payload(a: &abi::polaris_music::actions::Like) -> (String, String) {
+    hashed(serde_json::json!({
+        "account": a.account,
+        "node_id": a.node_id,
+        "node_path": a.node_path,
+    }))
+}
+
+/// @see processLikeAction.
+fn unlike_payload(a: &abi::polaris_music::actions::Unlike) -> (String, String) {
+    hashed(serde_json::json!({
+        "account": a.account,
+        "node_id": a.node_id,
+    }))
+}
+
 #[substreams::handlers::map]
 fn map_anchored_events(params: String, actions: ActionTraces) -> Result<AnchoredEvents, Error> {
     use sha2::{Digest, Sha256};
@@ -189,47 +283,36 @@ fn map_anchored_events(params: String, actions: ActionTraces) -> Result<Anchored
 
                 (json_str.clone(), content_hash)
             } else {
-                // Path 2: json_data missing - use raw_data with embedded ABI
-                if action.name != "put" {
+                // Path 2: json_data missing — decode raw_data with the embedded ABI.
+                //
+                // json_data is Firehose's decoding, done with whatever ABI it
+                // has cached for the account. Every other action used to be
+                // dropped here with only an info log, which meant an ABI cache
+                // that had not caught up with a redeploy silently lost votes:
+                // the action is real and irreversible on chain, and invisible
+                // to the indexer. Adding the `memo` argument to vote() is
+                // exactly the kind of change that opens such a gap.
+                //
+                // The package embeds its own ABI, so there is no reason to
+                // depend on Firehose's for actions we already have bindings for.
+                let decoded = decode_action_payload(action_trace, &action.name);
+
+                let Some((json_str, content_hash)) = decoded else {
+                    // substreams::log offers info and debug only, so this is as
+                    // loud as it gets — but it now names the action and says it
+                    // was dropped, where the old line said "non-put" and read
+                    // like a deliberate skip rather than a loss.
                     log::info!(
-                        "Skipping non-put action without json_data: {}",
+                        "Could not decode {} from raw_data; skipping",
                         action.name
                     );
                     return None;
-                }
-
-                // Decode Put action from raw bytes using ABI bindings
-                let put_action = match abi::polaris_music::actions::Put::decode(action_trace) {
-                    Ok(put) => put,
-                    Err(e) => {
-                        log::info!(
-                            "Failed to decode put action: {:?}",
-                            e
-                        );
-                        return None;
-                    }
                 };
 
-                // In 0.6, hash is already a hex string (Checksum256 = String)
-                let content_hash = put_action.hash.clone();
-
-                // Construct canonical JSON payload for backend ingestion
-                let json_payload = serde_json::json!({
-                    "author": put_action.author,
-                    "type": put_action.type_,
-                    "hash": &put_action.hash,
-                    "event_cid": put_action.event_cid,
-                    "parent": put_action.parent,
-                    "ts": put_action.ts,
-                    "tags": put_action.tags,
-                });
-
-                let json_str = json_payload.to_string();
-
                 log::info!(
-                    "Decoded put from raw bytes: hash={}, author={}",
-                    &content_hash[..content_hash.len().min(12)],
-                    put_action.author
+                    "Decoded {} from raw bytes: hash={}",
+                    action.name,
+                    &content_hash[..content_hash.len().min(12)]
                 );
 
                 (json_str, content_hash)
@@ -596,6 +679,135 @@ fn extract_update_respect_event(
             )),
         }),
     })
+}
+
+#[cfg(test)]
+mod payload_tests {
+    use super::*;
+    use abi::polaris_music::actions;
+
+    /// These payloads are what the backend destructures by name, so a renamed
+    /// or dropped field is a silent data loss rather than an error: ingestion.js
+    /// reads `actionData.memo` and gets undefined, and the curator's reason is
+    /// gone with nothing to show for it.
+    ///
+    /// The path they cover exists because Firehose's json_data is decoded with
+    /// whatever ABI it has cached for the account. A redeploy that changes an
+    /// action's arguments — adding `memo` to vote(), say — can leave that stale,
+    /// and every non-put action used to be dropped outright in that case.
+
+    fn parse(json: &str) -> serde_json::Value {
+        serde_json::from_str(json).expect("payload is valid JSON")
+    }
+
+    #[test]
+    fn a_vote_carries_its_memo() {
+        let (json, _) = vote_payload(&actions::Vote {
+            voter: "polaristest2".into(),
+            tx_hash: "d1df34de".into(),
+            val: -1,
+            memo: "Track Listing is incorrect".into(),
+        });
+
+        let v = parse(&json);
+        assert_eq!(v["voter"], "polaristest2");
+        assert_eq!(v["tx_hash"], "d1df34de");
+        assert_eq!(v["val"], -1);
+        assert_eq!(v["memo"], "Track Listing is incorrect");
+    }
+
+    #[test]
+    fn an_empty_memo_is_still_present() {
+        // Absent and empty must stay distinguishable downstream: recordVote
+        // stores null for an empty string, which is how "no comment given"
+        // is told from "commented".
+        let (json, _) = vote_payload(&actions::Vote {
+            voter: "alice".into(),
+            tx_hash: "abc".into(),
+            val: 1,
+            memo: String::new(),
+        });
+
+        assert_eq!(parse(&json)["memo"], "");
+    }
+
+    #[test]
+    fn a_cleared_vote_keeps_its_value() {
+        // val 0 withdraws a vote. A payload that dropped it would read as an
+        // upvote or as nothing at all.
+        let (json, _) = vote_payload(&actions::Vote {
+            voter: "alice".into(), tx_hash: "abc".into(), val: 0, memo: "changed my mind".into(),
+        });
+
+        assert_eq!(parse(&json)["val"], 0);
+    }
+
+    #[test]
+    fn finalize_carries_the_hash_it_finalizes() {
+        let (json, _) = finalize_payload(&actions::Finalize { tx_hash: "36407f14".into() });
+        assert_eq!(parse(&json)["tx_hash"], "36407f14");
+    }
+
+    #[test]
+    fn a_like_carries_its_path() {
+        // The path is the whole point of a like — it is what the graph walks.
+        let (json, _) = like_payload(&actions::Like {
+            account: "alice".into(),
+            node_id: "node1".into(),
+            node_path: vec!["a".into(), "b".into()],
+        });
+
+        let v = parse(&json);
+        assert_eq!(v["account"], "alice");
+        assert_eq!(v["node_id"], "node1");
+        assert_eq!(v["node_path"][1], "b");
+    }
+
+    #[test]
+    fn an_unlike_needs_no_path() {
+        let (json, _) = unlike_payload(&actions::Unlike {
+            account: "alice".into(), node_id: "node1".into(),
+        });
+
+        let v = parse(&json);
+        assert_eq!(v["account"], "alice");
+        assert!(v.get("node_path").is_none());
+    }
+
+    #[test]
+    fn put_is_keyed_by_its_own_hash_not_a_digest() {
+        // put carries the content hash the whole system keys on; hashing the
+        // payload instead would produce an id nothing else recognizes.
+        let a = actions::Put {
+            author: "polaristests".into(),
+            type_: 21,
+            hash: "36407f14383b".into(),
+            event_cid: "bafk".into(),
+            parent: String::new(),
+            ts: 1787608853,
+            tags: vec![],
+        };
+        let (json, content_hash) = put_payload(&a);
+
+        assert_eq!(content_hash, "36407f14383b");
+        assert_eq!(parse(&json)["type"], 21);
+    }
+
+    #[test]
+    fn hashing_is_stable_and_content_dependent() {
+        // The backend dedups on this, so identical actions must agree and
+        // different ones must not.
+        let one = vote_payload(&actions::Vote {
+            voter: "a".into(), tx_hash: "h".into(), val: 1, memo: "x".into() }).1;
+        let same = vote_payload(&actions::Vote {
+            voter: "a".into(), tx_hash: "h".into(), val: 1, memo: "x".into() }).1;
+        let other = vote_payload(&actions::Vote {
+            voter: "a".into(), tx_hash: "h".into(), val: 1, memo: "y".into() }).1;
+
+        assert_eq!(one, same);
+        assert_ne!(one, other);
+        assert_eq!(one.len(), 64);
+    }
 }
 
 #[cfg(test)]
