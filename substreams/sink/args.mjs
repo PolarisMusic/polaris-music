@@ -94,6 +94,21 @@ export function buildSubstreamsArgs(config) {
         args.push('--params', `antelope:filtered_actions=${query}`);
     }
 
+    // Index-based block skipping only happens in production mode. Development
+    // mode — the default — streams every block to the client so you can debug,
+    // which is why three successive filtering changes left egress flat at
+    // 3.8 MiB per empty 10,000-block window and `Received Blocks: 10,000`.
+    // Production mode also caches module output server-side, so a repeated
+    // range stops being recomputed from raw blocks.
+    //
+    // Opt-out exists because it changes streaming shape: production mode
+    // backprocesses in parallel and emits once segments complete, rather than
+    // strictly block-by-block. That is what you want for both a replay and a
+    // deployed tail, but a debugging session may want the old behaviour.
+    if (process.env.SUBSTREAMS_DEV_MODE !== 'true') {
+        args.push('--production-mode');
+    }
+
     args.push(
         '--start-block',
         String(config.startBlock),
