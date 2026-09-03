@@ -349,11 +349,13 @@ describe('Stage H · _renderCurateDetail', () => {
                 expect.anything(), -1, 'track 7 credits the wrong Lennon');
         });
 
-        test('the box is prefilled with the comment already left', () => {
-            // viewer_vote carries the memo back, so editing a vote does not
-            // silently wipe the reason attached to it.
+        test('the box is empty even when the viewer has already commented', () => {
+            // Prefilling it from viewer_vote.memo put the same sentence on
+            // screen twice — once here, once in the comment list below — and
+            // the copy in the editable box read as example text rather than as
+            // something the viewer had written.
             const { memo } = renderVoting({ val: -1, memo: 'wrong Lennon' });
-            expect(memo.value).toBe('wrong Lennon');
+            expect(memo.value).toBe('');
         });
 
         test('a viewer with no prior vote gets an empty box', () => {
@@ -649,6 +651,20 @@ describe('Stage H · curation comments', () => {
             tally: { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
             viewer_vote: null, event: {}, detail: { type: 'claim' }
         }, { hash: 'opHash', type: 30 })).not.toThrow();
+    });
+
+    test("the viewer's own comment is still visible below the empty box", () => {
+        // This is what makes dropping the prefill safe rather than lossy: the
+        // reason you gave is on screen, attributed, even though the box you
+        // would type a new one into is empty.
+        const el = renderWithVotes([
+            { voter: 'polaristest2', val: -1, memo: 'Track Listing is incorrect' },
+        ]);
+
+        expect(el.querySelector('.curate-comment').textContent)
+            .toContain('Track Listing is incorrect');
+        expect(el.querySelector('.curate-comment__voter').textContent)
+            .toContain('polaristest2');
     });
 
     test('comment text is escaped, not injected', () => {
