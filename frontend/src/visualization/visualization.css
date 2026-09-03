@@ -1142,6 +1142,7 @@ body.mini-player-visible.mini-player-embed {
 .curate-detail-header {
     padding: 16px;
     border-bottom: 1px solid #333;
+    flex-shrink: 0;
 }
 
 .curate-detail-header h3 {
@@ -1164,6 +1165,7 @@ body.mini-player-visible.mini-player-embed {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-shrink: 0;
 }
 
 .curate-detail-voting .curate-score {
@@ -1175,6 +1177,13 @@ body.mini-player-visible.mini-player-embed {
    the screen minus a square canvas. */
 .curate-memo-input {
     display: block;
+    /* The column is a flex container that scrolls, so its children must not be
+       compressed to fit — overflowing into the scroll is the point of
+       overflow-y: auto. A textarea's automatic minimum height is about one line
+       regardless of `rows`, which makes it the most compressible thing here: it
+       rendered 18px against a natural 48px, placeholder clipped mid-line, and
+       took the comment list below it with it. */
+    flex-shrink: 0;
     width: calc(100% - 32px);
     margin: 0 16px 12px;
     padding: 8px;
@@ -1202,6 +1211,7 @@ body.mini-player-visible.mini-player-embed {
 .curate-comments {
     padding: 0 16px 12px;
     border-bottom: 1px solid #333;
+    flex-shrink: 0;
 }
 
 .curate-comments h4 {
