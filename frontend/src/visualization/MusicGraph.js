@@ -70,6 +70,7 @@ export class MusicGraph {
                 navigateToRelease: (releaseId) => this._navigateToRelease(releaseId),
                 selectCurateOperation: (op) => this._selectCurateOperation(op),
                 voteFromDetail: (op, val, memo) => this._curateVoteFromDetail(op, val, memo),
+                playTrack: (releaseId, trackId) => this._playTrack(releaseId, trackId),
             },
         });
         this.overlayPositioner = new OverlayPositioner({
@@ -1574,6 +1575,22 @@ export class MusicGraph {
      *   discards it, so it survives only in the action trace and the off-chain
      *   projection built from it — which is what makes it free of RAM cost.
      */
+    /**
+     * Point the player at one track of a release.
+     *
+     * @param {string} releaseId
+     * @param {string} trackId
+     */
+    async _playTrack(releaseId, trackId) {
+        if (!this.miniPlayer) return;
+        try {
+            await this.miniPlayer.playTrackById('release', releaseId, trackId);
+        } catch (e) {
+            // A track that will not load is not worth an alert over the graph.
+            console.warn('Could not load track in player:', e);
+        }
+    }
+
     async _curateVoteFromDetail(op, val, memo = '') {
         if (!this.walletManager?.isConnected()) {
             alert('Please connect your wallet to vote.');
