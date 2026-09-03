@@ -44,7 +44,12 @@ WORKDIR /build
 
 # Full project — `build` needs the manifest, protos, ABI, and Rust sources
 # together, since it regenerates bindings and then compiles against them.
-COPY Cargo.toml build.rs substreams.yaml ./
+# Cargo.lock is copied deliberately. Without it cargo re-resolves to "latest
+# compatible" on every build, which is how a working image build started failing
+# with 23 type errors and no source change: substreams-antelope-core 0.7.0 was
+# published, abigen resolved to it while substreams-antelope stayed on 0.6.0,
+# and the generated ABI bindings cannot compile against two versions of one crate.
+COPY Cargo.toml Cargo.lock build.rs substreams.yaml ./
 COPY src/ ./src/
 COPY proto/ ./proto/
 COPY abi/ ./abi/
@@ -60,6 +65,10 @@ COPY abi/ ./abi/
 # The *.tmp.spkg exclusion skips the intermediate file that the protobuf
 # codegen step leaves behind.
 #
+# `cargo fetch --locked` first: it errors if the lockfile disagrees with
+# Cargo.toml instead of silently re-resolving, so a dependency drift shows up
+# here as a build failure rather than as mismatched types further down.
+#
 # Cache mounts: without them, editing one line of lib.rs recompiles the whole
 # dependency graph from nothing — 10+ minutes on the deploy host. The registry
 # holds downloaded crate sources; /build/target holds compiled artifacts.
@@ -72,6 +81,7 @@ COPY abi/ ./abi/
 # `substreams build` chooses to write the package.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
+    cargo fetch --locked && \
     substreams build && \
     mkdir -p /out && \
     spkg="$(find /build -path /build/target -prune -o -name '*.spkg' ! -name '*.tmp.spkg' -print | head -n 1)" && \
