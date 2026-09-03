@@ -77,6 +77,45 @@ export class MiniPlayer {
     }
 
     /**
+     * Load a context and go straight to one track in it.
+     *
+     * Deliberately does NOT defer the way loadQueue() does. Deferring exists so
+     * that browsing the graph cannot interrupt what someone is listening to —
+     * selecting a node is navigation, not a request to change the music. This
+     * is the opposite: pressing play on a specific track IS the request, so it
+     * takes effect immediately even if something is already sounding.
+     *
+     * What it cannot do is start the audio. Spotify's embed is a plain iframe
+     * with no controller (see _showEmbed), so this points the embed at the
+     * track and reveals the player; the visitor presses play once inside it.
+     * The control that calls this is labelled accordingly.
+     *
+     * @param {string} contextType - e.g. 'release'
+     * @param {string} contextId
+     * @param {string} trackId - Which track in that context to select.
+     * @returns {Promise<boolean>} Whether the track was found and selected.
+     */
+    async playTrackById(contextType, contextId, trackId) {
+        const sameContext = this.context?.id === contextId && this.queue.length > 0;
+
+        if (!sameContext) {
+            const data = await this.api.fetchPlaybackQueue(contextType, contextId);
+            if (!data.success || !data.queue?.length) return false;
+            this._applyQueue(data.context, data.queue);
+        }
+
+        const index = this.queue.findIndex(t => t.track_id === trackId);
+        if (index === -1) return false;
+
+        this.currentIndex = index;
+        this._loadCurrentTrack(false);
+
+        // Pointless to load a track into a player the visitor cannot see.
+        this.expand();
+        return true;
+    }
+
+    /**
      * Whether audio is actually coming out.
      *
      * `_isPlaying` only tracks the <audio> element. In embed mode Spotify plays
@@ -328,15 +367,47 @@ export class MiniPlayer {
         // Rebuild rather than reuse: assigning src on an existing iframe leaves
         // a history entry, so Back inside the page would step through tracks.
         this._embedEl.innerHTML = '';
+
+        // The tile wraps the iframe so the transport can be positioned over its
+        // edges without the iframe itself needing to know about them.
+        const tile = document.createElement('div');
+        tile.className = 'mp-embed-tile';
+
         const frame = document.createElement('iframe');
         frame.src = src;
+        // Square. Spotify picks its layout from the aspect ratio it is given:
+        // a wide box gets the horizontal card, a square one gets the cover-art
+        // tile with a play button over it — which is the shape asked for, and
+        // it comes from Spotify rather than from us faking a transport we
+        // cannot drive. The size lives in --mp-embed-size so it can be tuned,
+        // or reverted to the wide card, without touching this.
         frame.width = '100%';
-        frame.height = '80';
+        frame.height = '100%';
         frame.frameBorder = '0';
         frame.loading = 'lazy';
         frame.allow = 'encrypted-media; clipboard-write; picture-in-picture';
         frame.title = 'Spotify player';
-        this._embedEl.appendChild(frame);
+        tile.appendChild(frame);
+
+        // Prev / next over the artwork. Disabled at the ends of the queue
+        // rather than hidden, so the tile does not reflow on hover.
+        for (const [dir, cls, glyph, label] of [
+            [-1, 'prev', '\u25C0', 'Previous track'],
+            [1, 'next', '\u25B6', 'Next track'],
+        ]) {
+            const btn = document.createElement('button');
+            btn.className = `mp-embed-nav mp-embed-nav--${cls}`;
+            btn.title = label;
+            btn.setAttribute('aria-label', label);
+            btn.textContent = glyph;
+            btn.disabled = dir < 0
+                ? this.currentIndex <= 0
+                : this.currentIndex >= this.queue.length - 1;
+            btn.addEventListener('click', () => (dir < 0 ? this._prev() : this._next()));
+            tile.appendChild(btn);
+        }
+
+        this._embedEl.appendChild(tile);
     }
 
     /**
@@ -513,6 +584,20 @@ export class MiniPlayer {
      * --mini-player-height, which is republished here once the new height has
      * rendered.
      */
+    /**
+     * Open the player if it is hidden.
+     *
+     * Distinct from _toggleCollapsed so callers that want it *shown* cannot
+     * accidentally hide it — playTrackById() would otherwise close the player
+     * for anyone who already had it open.
+     */
+    expand() {
+        if (!this._collapsed) return;
+        this._collapsed = false;
+        this._applyCollapsedState();
+        this._notifyHeightChange();
+    }
+
     _toggleCollapsed() {
         this._collapsed = !this._collapsed;
         this._applyCollapsedState();

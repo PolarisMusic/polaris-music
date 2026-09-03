@@ -51,6 +51,9 @@ export class InfoPanelRenderer {
      * @param {(releaseId: string) => void} deps.callbacks.navigateToRelease
      * @param {(op: Object) => void} deps.callbacks.selectCurateOperation
      * @param {(op: Object, val: number) => void} deps.callbacks.voteFromDetail
+     * @param {(releaseId: string, trackId: string) => void} deps.callbacks.playTrack
+     *   Point the player at one track of a release. Lives on MusicGraph because
+     *   the player instance does.
      */
     constructor({ inlineEditor, callbacks }) {
         this.inlineEditor = inlineEditor;
@@ -420,7 +423,29 @@ export class InfoPanelRenderer {
             for (const t of sorted) {
                 const side = t.side ? `${t.side}-` : '';
                 const num = t.track_number ? `${side}${t.track_number}. ` : '';
-                list.appendChild(this._el('li', null, `${num}${t.track || t.title || 'Untitled'}`));
+                const label = `${num}${t.track || t.title || 'Untitled'}`;
+                const row = this._el('li', { className: 'info-track' });
+
+                // Only tracks we can identify get a control. A button that
+                // loads nothing is worse than no button.
+                if (t.track_id && release.release_id) {
+                    row.appendChild(this._el('button', {
+                        className: 'info-track__play',
+                        // Says what it does. Spotify's embed is a plain iframe
+                        // with no controller, so this points the player at the
+                        // track and the visitor presses play inside it —
+                        // claiming to play it would be a lie.
+                        title: 'Load in player',
+                        'aria-label': `Load ${label} in player`,
+                        onClick: (e) => {
+                            e.stopPropagation();
+                            this.callbacks.playTrack(release.release_id, t.track_id);
+                        },
+                    }, '\u25B6'));
+                }
+
+                row.appendChild(this._el('span', { className: 'info-track__label' }, label));
+                list.appendChild(row);
             }
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Tracks'), list));

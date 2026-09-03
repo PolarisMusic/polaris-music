@@ -105,6 +105,7 @@ function makeStub() {
         },
         callbacks: {
             attachNavLinkListeners: jest.fn(),
+            playTrack: jest.fn(),
         },
         // Visible inspection points for tests that don't snapshot.
         _editorCalls: editorCalls,
@@ -480,5 +481,90 @@ describe('Stage K · escape behavior (round-trip)', () => {
         // " is escaped to &quot; in the source HTML so the attribute parses
         // correctly; jsdom round-trips that as itself.
         expect(contentElement.innerHTML).toContain('value="&quot;#aabbcc&quot;"');
+    });
+});
+
+describe('Stage K · per-track play controls', () => {
+    /**
+     * Clicking a track points the player at it. The control is labelled "Load
+     * in player" rather than "Play" on purpose: Spotify's embed is a plain
+     * iframe with no controller, so nothing we draw can start the audio — the
+     * visitor presses play inside the embed. A button that claims to play and
+     * does not is worse than one that says what it does.
+     */
+    const releaseWith = (tracks) => ({
+        name: 'Songs For The Deaf',
+        release_id: 'rel:sftd',
+        tracks,
+    });
+
+    function render(release) {
+        const stub = makeStub();
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderReleaseDetails').call(stub, release, titleElement, contentElement);
+        return { stub, contentElement };
+    }
+
+    test('a track with an id gets a control that calls through', () => {
+        const { stub, contentElement } = render(releaseWith([
+            { track_id: 'trk:1', track: 'No One Knows', track_number: 2 },
+        ]));
+
+        const button = contentElement.querySelector('.info-track__play');
+        expect(button).not.toBeNull();
+
+        button.click();
+        expect(stub.callbacks.playTrack).toHaveBeenCalledWith('rel:sftd', 'trk:1');
+    });
+
+    test('the control says what it actually does', () => {
+        const { contentElement } = render(releaseWith([
+            { track_id: 'trk:1', track: 'No One Knows' },
+        ]));
+
+        expect(contentElement.querySelector('.info-track__play').title)
+            .toBe('Load in player');
+    });
+
+    test('a track with no id gets no control', () => {
+        // A button that loads nothing is worse than no button.
+        const { contentElement } = render(releaseWith([
+            { track: 'An Unidentified Track' },
+        ]));
+
+        expect(contentElement.querySelector('.info-track__play')).toBeNull();
+        expect(contentElement.textContent).toContain('An Unidentified Track');
+    });
+
+    test('a release with no id gets no controls at all', () => {
+        const { contentElement } = render({
+            name: 'Nameless',
+            tracks: [{ track_id: 'trk:1', track: 'Something' }],
+        });
+
+        expect(contentElement.querySelector('.info-track__play')).toBeNull();
+    });
+
+    test('the track title is still readable alongside the control', () => {
+        const { contentElement } = render(releaseWith([
+            { track_id: 'trk:1', track: 'No One Knows', track_number: 2, side: 'A' },
+        ]));
+
+        expect(contentElement.querySelector('.info-track__label').textContent)
+            .toBe('A-2. No One Knows');
+    });
+
+    test('every identified track in a list gets its own control', () => {
+        const { stub, contentElement } = render(releaseWith([
+            { track_id: 'trk:1', track: 'One', track_number: 1 },
+            { track: 'Two', track_number: 2 },
+            { track_id: 'trk:3', track: 'Three', track_number: 3 },
+        ]));
+
+        const buttons = contentElement.querySelectorAll('.info-track__play');
+        expect(buttons).toHaveLength(2);
+
+        buttons[1].click();
+        expect(stub.callbacks.playTrack).toHaveBeenCalledWith('rel:sftd', 'trk:3');
     });
 });
