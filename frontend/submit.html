@@ -147,18 +147,23 @@
                         <section class="form-section">
                             <h3>Listen Links</h3>
                             <p class="section-note">
-                                Where this release can be heard. <strong>Import &amp; check</strong> pulls up
-                                the links entered on individual tracks, then asks Spotify what that album
-                                contains and reports anything that disagrees with the tracklist here.
-                                Discogs is community-edited and often differs from the streaming release,
-                                so differences are reported rather than corrected — neither source is
-                                authoritative.
+                                Where this release can be heard. Paste a Spotify <strong>album</strong> link
+                                below and <strong>Import &amp; check</strong> will fill in each track's own
+                                Spotify link for you, matching by title. Tracks it cannot match confidently
+                                are left blank rather than guessed, and reported underneath.
+                            </p>
+                            <p class="section-note">
+                                It also compares Spotify's tracklist against the one entered here, and pulls
+                                any links already on individual tracks up to this field. Discogs is
+                                community-edited and often differs from the streaming release, so differences
+                                are reported rather than corrected — neither source is authoritative.
                             </p>
                             <div class="form-group">
                                 <label for="release-listen-links">Release Links</label>
                                 <input type="text" id="release-listen-links" name="release_listen_links"
                                        placeholder="https://open.spotify.com/album/... (comma-separated)">
-                                <small>Share tokens and locale prefixes are stripped before submission.</small>
+                                <small>An album link here is what lets the button fill in the tracks.
+                                       Share tokens and locale prefixes are stripped before submission.</small>
                             </div>
                             <button type="button" class="btn-secondary" id="import-track-links">Import &amp; check against Spotify</button>
                             <div id="listen-link-report" class="listen-link-report"></div>
