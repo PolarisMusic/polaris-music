@@ -385,6 +385,56 @@ body.mini-player-visible.mini-player-embed {
     border-bottom: none;
 }
 
+/* Track rows carrying a play control.
+   
+   flex-start rather than centre so the control stays level with the FIRST line
+   of a title that wraps — several of these run to two lines in a narrow panel,
+   and a vertically centred button drifts away from the number it belongs to. */
+.info-track {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.info-track__label {
+    flex: 1;
+    min-width: 0;
+}
+
+.info-track__play {
+    flex: 0 0 auto;
+    /* Matches the 14px line so the row height does not change for tracks that
+       have a control versus those that do not. */
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #3a3a3a;
+    border-radius: 50%;
+    background: transparent;
+    /* Optically centred: a triangle's visual mass sits left of its box. */
+    text-indent: 1px;
+    color: #888;
+    font-size: 9px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.info-track__play:hover {
+    color: #fff;
+    border-color: #5c9cef;
+    background: #5c9cef;
+}
+
+.info-track__play:focus-visible {
+    outline: 2px solid #5c9cef;
+    outline-offset: 2px;
+}
+
 .info-nav-link {
     color: #4A90E2;
     text-decoration: none;
@@ -1923,8 +1973,9 @@ body.mini-player-visible.mini-player-embed {
    hide the embed with the rest of the player. */
 .mp-embed {
     display: none;
+    height: 84px;
     box-sizing: border-box;
-    padding: 8px 12px;
+    padding: 2px 12px;
     background: #1a1a1a;
     border-top: 1px solid #333;
 }
@@ -1933,77 +1984,17 @@ body.mini-player-embed .mp-embed {
     display: block;
 }
 
-/* Square tile.
-   
-   Spotify picks its embed layout from the aspect ratio it is handed: a wide box
-   gets the horizontal card, a square one gets cover art with a play button over
-   it. That play button is Spotify's own, which matters — the embed is a plain
-   iframe with no controller (MiniPlayer._showEmbed explains why), so a play
-   control we drew ourselves could not start anything.
-   
-   One custom property sizes it. If the square renders badly, set
-   --mp-embed-size to `none` and the wide card comes back with the fallback
-   below, without touching any JS. */
-.mp-embed {
-    --mp-embed-size: 232px;
-}
-
-.mp-embed-tile {
-    position: relative;
-    width: var(--mp-embed-size);
-    height: var(--mp-embed-size);
-    max-width: 100%;
-    margin: 0 auto;
-}
-
+/* Spotify renders its horizontal card whatever box it is given. A square
+   container does not produce a cover-art tile — it clips the card, and the play
+   button is among the parts clipped away, which is how the player ended up
+   232px tall with nothing to press. This is the compact card at its own size. */
 .mp-embed iframe {
     display: block;
     width: 100%;
-    height: 100%;
+    height: 80px;
     border: 0;
     border-radius: 12px;
 }
-
-/* Transport over the tile's edges, revealed on hover.
-   
-   Overlaid rather than placed below so the tile stays square and the player
-   does not grow a row of chrome. These swap which track the embed points at;
-   they cannot start it. */
-.mp-embed-nav {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.65);
-    color: #fff;
-    font-size: 13px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 120ms ease;
-}
-
-.mp-embed-nav--prev { left: 6px; }
-.mp-embed-nav--next { right: 6px; }
-
-.mp-embed-tile:hover .mp-embed-nav,
-.mp-embed-nav:focus-visible {
-    opacity: 1;
-}
-
-/* Touch has no hover, so the controls would never appear. */
-@media (hover: none) {
-    .mp-embed-nav { opacity: 1; }
-}
-
-.mp-embed-nav:hover { background: rgba(0, 0, 0, 0.85); }
-.mp-embed-nav:disabled { opacity: 0; pointer-events: none; }
 
 .mp-drawer {
     max-height: 260px;
@@ -2239,11 +2230,8 @@ body.mini-player-embed .mp-embed {
         min-height: 0;
     }
 
-    /* The tile is square, so it sizes itself off the viewport rather than a
-       fixed 232px that would overflow a narrow phone. Capped so it cannot eat
-       the sheet, whose height is derived from --mini-player-height. */
     body.mini-player-embed .mp-embed {
-        --mp-embed-size: min(232px, 60vw);
-        padding: 6px 8px;
+        height: 82px;
+        padding: 1px 8px;
     }
 }
