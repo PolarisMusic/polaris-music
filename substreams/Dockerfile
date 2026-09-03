@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Dockerfile for Polaris Substreams HTTP Sink
 # Two stages: `substreams build` (protos → wasm → .spkg) → Node.js runtime
 # Builds local custom module with embedded contract ABI to avoid Pinax ABI dependency
@@ -43,7 +44,12 @@ WORKDIR /build
 
 # Full project — `build` needs the manifest, protos, ABI, and Rust sources
 # together, since it regenerates bindings and then compiles against them.
-COPY Cargo.toml build.rs substreams.yaml ./
+# Cargo.lock is copied deliberately. Without it cargo re-resolves to "latest
+# compatible" on every build, which is how a working image build started failing
+# with 23 type errors and no source change: substreams-antelope-core 0.7.0 was
+# published, abigen resolved to it while substreams-antelope stayed on 0.6.0,
+# and the generated ABI bindings cannot compile against two versions of one crate.
+COPY Cargo.toml Cargo.lock build.rs substreams.yaml ./
 COPY src/ ./src/
 COPY proto/ ./proto/
 COPY abi/ ./abi/
@@ -58,12 +64,30 @@ COPY abi/ ./abi/
 #
 # The *.tmp.spkg exclusion skips the intermediate file that the protobuf
 # codegen step leaves behind.
-RUN substreams build && \
+#
+# `cargo fetch --locked` first: it errors if the lockfile disagrees with
+# Cargo.toml instead of silently re-resolving, so a dependency drift shows up
+# here as a build failure rather than as mismatched types further down.
+#
+# Cache mounts: without them, editing one line of lib.rs recompiles the whole
+# dependency graph from nothing — 10+ minutes on the deploy host. The registry
+# holds downloaded crate sources; /build/target holds compiled artifacts.
+# CARGO_HOME is /usr/local/cargo on rust:1.85-bookworm, and /build is WORKDIR.
+#
+# Pruning target/ from the find is load-bearing now. A cache-mounted target/
+# persists between builds and is NOT part of the image, so an unrestricted find
+# could turn up a stale .spkg from an earlier run and ship a package built from
+# older source. Pruning rather than -maxdepth so this keeps working wherever
+# `substreams build` chooses to write the package.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    cargo fetch --locked && \
+    substreams build && \
     mkdir -p /out && \
-    spkg="$(find /build -name '*.spkg' ! -name '*.tmp.spkg' | head -n 1)" && \
+    spkg="$(find /build -path /build/target -prune -o -name '*.spkg' ! -name '*.tmp.spkg' -print | head -n 1)" && \
     if [ -z "$spkg" ]; then \
         echo "ERROR: substreams build produced no .spkg" >&2; \
-        find /build -name '*.spkg' >&2; \
+        find /build -path /build/target -prune -o -name '*.spkg' -print >&2; \
         exit 1; \
     fi && \
     cp "$spkg" /out/polaris_music_substreams.spkg && \
