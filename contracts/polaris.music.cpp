@@ -642,9 +642,24 @@ public:
      * @param tx_hash - Hash of the event being voted on
      * @param val - Vote value: +1 (approve), -1 (reject), 0 (unvote/neutral)
      */
-    ACTION vote(name voter, checksum256 tx_hash, int8_t val) {
+    // `memo` is the curator's reason, and it is deliberately never stored.
+    //
+    // Curation is only auditable if a reviewer can see *why* something was
+    // downvoted, but a string on every vote row would be the single largest
+    // thing this contract keeps in RAM — and RAM is the ongoing cost. The action
+    // trace is already permanent chain history, the substreams sink already
+    // forwards every vote action, and the backend already projects those into
+    // the graph. So the memo rides that path and the votes table stays exactly
+    // the size it is. Same reasoning that stopped likes being stored.
+    ACTION vote(name voter, checksum256 tx_hash, int8_t val, std::string memo) {
         require_auth(voter);
         check(val >= -1 && val <= 1, "Invalid vote value (must be -1, 0, or 1)");
+        // Bandwidth and permanent history still cost something, even when RAM
+        // does not. Optional, and accepted on any value including a clearing
+        // vote — though note the off-chain projection deletes the edge a memo
+        // would hang off when val == 0, so a withdrawal's reason survives in
+        // chain history without appearing in the curation feed.
+        check(memo.size() <= MAX_VOTE_MEMO, "Vote memo too long (max 280 chars)");
 
         // Check if contract is paused
         auto g = get_globals();
@@ -1403,6 +1418,10 @@ private:
     // accounts with no Respect record — so an author could pass their own
     // submission at 100% with a single unopposed self-vote.
     static constexpr uint32_t MIN_QUORUM_VOTERS = 3;
+
+    // Longest curator comment accepted on a vote. Never stored on chain — see
+    // the note on vote() — so this bounds bandwidth and history, not RAM.
+    static constexpr size_t MAX_VOTE_MEMO = 280;
 
     // Upper bound on vote rows erased per reclaim() call. Keeps a single
     // transaction inside the CPU limit regardless of how many people voted;

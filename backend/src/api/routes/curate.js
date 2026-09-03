@@ -274,7 +274,8 @@ export async function loadProjectedOperation(db, hash) {
             OPTIONAL MATCH (a:Account)-[v:VOTED]->(o)
             RETURN o,
                    collect(CASE WHEN a IS NULL THEN NULL
-                                ELSE {voter: a.account_id, val: v.val, ts: v.voted_at} END) AS votes
+                                ELSE {voter: a.account_id, val: v.val, ts: v.voted_at,
+                                      memo: v.memo} END) AS votes
         `, { hash });
 
         if (result.records.length === 0) return null;
@@ -310,6 +311,11 @@ export async function loadProjectedOperation(db, hash) {
                 .map(v => ({
                     voter: v.voter,
                     val: toInt(v.val),
+                    // The curator's stated reason. Exists only here — the
+                    // contract never stores it — so the detail route has to
+                    // merge it onto the chain's vote rows rather than choosing
+                    // between the two sources.
+                    memo: v.memo ?? null,
                     // Respect-at-vote-time is not in any action trace, so a
                     // per-vote weight cannot be projected. The aggregate above
                     // is exact; this is honestly null rather than a guess.
@@ -396,6 +402,45 @@ export async function listProjectedOperations(db, limit = 50, type = null) {
     } finally {
         await session.close();
     }
+}
+
+/**
+ * Combine the chain's vote rows with the off-chain projection's.
+ *
+ * Neither source is complete on its own. The chain holds `weight` —
+ * respect-at-vote-time, which appears in no action trace and so cannot be
+ * projected. The projection holds `memo` — the curator's reason, which the
+ * contract validates and deliberately never stores, precisely so that votes
+ * cost no extra RAM.
+ *
+ * The detail route used to pick one wholesale (`votes.length > 0 ? votes :
+ * projected`), which would have dropped every comment for as long as the anchor
+ * existed — that is, throughout the entire period anyone is actually curating.
+ *
+ * Chain rows lead: while they exist they are authoritative about who voted and
+ * how. A projected vote with no chain row is still included, which is what
+ * happens once reclaim() erases them.
+ *
+ * @param {Array<Object>} chainVotes - Rows from the contract's votes table.
+ * @param {Array<Object>} projectedVotes - Rows from loadProjectedOperation.
+ * @returns {Array<{voter: string, val: number, weight: number|null, ts: *, memo: string|null}>}
+ */
+export function mergeVotes(chainVotes = [], projectedVotes = []) {
+    const memos = new Map(projectedVotes.map(v => [v.voter, v.memo ?? null]));
+    const merged = chainVotes.map(v => ({
+        voter: v.voter,
+        val: v.val,
+        weight: v.weight ?? null,
+        ts: v.ts,
+        memo: memos.get(v.voter) ?? null
+    }));
+
+    const seen = new Set(merged.map(v => v.voter));
+    for (const v of projectedVotes) {
+        if (!seen.has(v.voter)) merged.push({ ...v, memo: v.memo ?? null });
+    }
+
+    return merged;
 }
 
 export function createCurateRoutes({ store, config, db }) {
@@ -587,12 +632,17 @@ export function createCurateRoutes({ store, config, db }) {
             // A missing anchor row is the expected steady state for a settled
             // operation, not an error: reclaim() erases it precisely because
             // nothing on chain needs it any more. Fall back to the projection.
-            let projected = null;
-            if (!anchorsData.rows || anchorsData.rows.length === 0) {
-                projected = await loadProjectedOperation(db, hash);
-                if (!projected) {
-                    return res.status(404).json({ success: false, error: 'Anchor not found' });
-                }
+            // Always read the projection, not only when the anchor is gone.
+            //
+            // It used to be a fallback for a reclaimed anchor, but vote memos
+            // live there and nowhere else — the contract validates them and
+            // drops them — so loading it only after reclamation would hide
+            // every curator's comment for exactly as long as the anchor exists,
+            // which is the whole period anyone is curating.
+            const projected = await loadProjectedOperation(db, hash);
+            const anchorMissing = !anchorsData.rows || anchorsData.rows.length === 0;
+            if (anchorMissing && !projected) {
+                return res.status(404).json({ success: false, error: 'Anchor not found' });
             }
 
             const anchor = anchorsData.rows?.[0] ?? {
@@ -680,14 +730,18 @@ export function createCurateRoutes({ store, config, db }) {
                 ?? toTypeCode(projected?.type)
                 ?? toTypeCode(eventPayload?.type);
 
+            const mergedVotes = mergeVotes(votes, projected?.votes ?? []);
+
             // Check viewer's vote if account provided
             const viewerAccount = req.query.viewer;
             let viewerVote = null;
-            if (viewerAccount && votes.length > 0) {
-                const searchable = votes.length > 0 ? votes : (projected?.votes ?? []);
-                const found = searchable.find(v => v.voter === viewerAccount);
+            if (viewerAccount) {
+                // Read from the merged view so the viewer's own comment comes
+                // back with their vote — the detail pane prefills the memo box
+                // with it, and it is only ever in the projection.
+                const found = mergedVotes.find(v => v.voter === viewerAccount);
                 if (found) {
-                    viewerVote = { val: found.val, weight: found.weight ?? null };
+                    viewerVote = { val: found.val, weight: found.weight ?? null, memo: found.memo ?? null };
                 }
             }
 
@@ -718,12 +772,7 @@ export function createCurateRoutes({ store, config, db }) {
                 } : (projected?.tally
                     ?? { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 }),
                 viewer_vote: viewerVote,
-                votes: (votes.length > 0 ? votes : (projected?.votes ?? [])).map(v => ({
-                    voter: v.voter,
-                    val: v.val,
-                    weight: v.weight ?? null,
-                    ts: v.ts
-                })),
+                votes: mergedVotes,
                 event: eventPayload,
                 detail
             });

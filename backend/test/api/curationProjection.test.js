@@ -54,6 +54,43 @@ function anchoredAction(actionName, data) {
     };
 }
 
+describe('the curator memo reaches the projection', () => {
+    // The contract validates the memo and deliberately drops it, so votes cost
+    // no extra RAM. That makes the action trace the ONLY record of why a vote
+    // was cast, and this the only place it can be captured.
+    let graph;
+    beforeEach(() => { graph = graphSpy(); });
+
+    test('a memo on a vote action is recorded', async () => {
+        await handlerWith(graph).processAnchoredEvent(anchoredAction('vote', {
+            voter: 'alice', tx_hash: HASH, val: -1,
+            memo: 'track 7 credits the wrong Lennon',
+        }));
+
+        expect(graph.recordVote).toHaveBeenCalledWith(expect.objectContaining({
+            voter: 'alice', val: -1, memo: 'track 7 credits the wrong Lennon',
+        }));
+    });
+
+    test('a vote with no memo passes undefined rather than inventing one', async () => {
+        await handlerWith(graph).processAnchoredEvent(anchoredAction('vote', {
+            voter: 'alice', tx_hash: HASH, val: 1,
+        }));
+
+        expect(graph.recordVote.mock.calls[0][0].memo).toBeUndefined();
+    });
+
+    test('an empty memo is not mistaken for a comment', async () => {
+        // The contract accepts an empty string; recordVote stores null for it,
+        // so the UI can tell "no comment" from "commented".
+        await handlerWith(graph).processAnchoredEvent(anchoredAction('vote', {
+            voter: 'alice', tx_hash: HASH, val: 1, memo: '',
+        }));
+
+        expect(graph.recordVote.mock.calls[0][0].memo).toBe('');
+    });
+});
+
 describe('vote and finalize traces are projected, not discarded', () => {
     let graph;
     beforeEach(() => { graph = graphSpy(); });

@@ -2440,9 +2440,12 @@ constructor(config = {}) {
      * @param {number} vote.val - +1, -1, or 0 to clear.
      * @param {number} vote.blockNum - Block height, used for last-write-wins.
      * @param {number} [vote.ts] - Block time in epoch millis.
+     * @param {string} [vote.memo] - The curator's stated reason. Lives only
+     *   here: the contract validates it and drops it, so the action trace and
+     *   this projection are the sole record of why a vote was cast.
      * @returns {Promise<{status: string}>}
      */
-    async recordVote({ eventHash, voter, val, blockNum, ts }) {
+    async recordVote({ eventHash, voter, val, blockNum, ts, memo }) {
         if (!eventHash || !voter) {
             throw new Error('recordVote requires eventHash and voter');
         }
@@ -2461,6 +2464,9 @@ constructor(config = {}) {
                 return { status: 'cleared' };
             }
 
+            // The memo is replaced wholesale rather than coalesced: changing a
+            // vote replaces its reasoning too, and an absent memo means the
+            // curator chose not to give one this time.
             await session.run(`
                 MERGE (o:Operation {event_hash: $eventHash})
                 MERGE (a:Account {account_id: $voter})
@@ -2470,13 +2476,15 @@ constructor(config = {}) {
                 WITH v WHERE v.block_num IS NULL OR v.block_num <= $blockNum
                 SET v.val = $val,
                     v.block_num = $blockNum,
-                    v.voted_at = ${tsExpr}
+                    v.voted_at = ${tsExpr},
+                    v.memo = $memo
             `, {
                 eventHash,
                 voter,
                 val: neo4j.int(Number(val)),
                 blockNum: neo4j.int(blockNum ?? 0),
-                ts: ts ?? null
+                ts: ts ?? null,
+                memo: memo || null
             });
 
             return { status: 'recorded' };

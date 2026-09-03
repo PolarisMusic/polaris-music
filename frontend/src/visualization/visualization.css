@@ -1170,6 +1170,69 @@ body.mini-player-visible.mini-player-embed {
     font-size: 18px;
 }
 
+/* Curator comment box, below the vote buttons rather than beside them: the
+   voting row is already crowded on a phone, where the sheet is only as tall as
+   the screen minus a square canvas. */
+.curate-memo-input {
+    display: block;
+    width: calc(100% - 32px);
+    margin: 0 16px 12px;
+    padding: 8px;
+    box-sizing: border-box;
+    background: #1a1a1a;
+    color: #ddd;
+    border: 1px solid #333;
+    border-radius: 4px;
+    font: inherit;
+    font-size: 13px;
+    resize: vertical;
+}
+
+.curate-memo-input::placeholder {
+    color: #666;
+}
+
+.curate-memo-input:focus {
+    outline: none;
+    border-color: #5c9cef;
+}
+
+/* Comments left with votes. The whole point of the memo is that a reviewer can
+   see why something was downvoted without re-deriving it. */
+.curate-comments {
+    padding: 0 16px 12px;
+    border-bottom: 1px solid #333;
+}
+
+.curate-comments h4 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+}
+
+.curate-comment {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.curate-comment__voter {
+    flex: 0 0 auto;
+    font-weight: 600;
+    color: #888;
+}
+
+.curate-comment__text {
+    color: #ccc;
+    /* Comments are user-entered and unbroken input should not widen the sheet;
+       the graph beside it is sized off the viewport width. */
+    overflow-wrap: anywhere;
+}
+
 .curate-detail-body {
     padding: 16px;
     flex: 1;

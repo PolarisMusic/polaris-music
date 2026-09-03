@@ -531,7 +531,20 @@ export class InfoPanelRenderer {
                 this._el('span', { className: 'curate-down' },
                     `${tally.down_weight} (${tally.down_voter_count})`)));
 
+        // The curator's reason, sent with the vote. Declared before the buttons
+        // so their handlers can read it, and prefilled with whatever the viewer
+        // said last time — the memo comes back on viewer_vote.
+        let memoInput = null;
+
         if (!operation.finalized) {
+            memoInput = this._el('textarea', {
+                className: 'curate-memo-input',
+                rows: '2',
+                maxlength: '280',
+                placeholder: 'Why? (optional, 280 chars) — e.g. "track 7 credits the wrong Lennon"',
+            });
+            memoInput.value = viewerVote?.memo ?? '';
+
             // Clicking the vote you already hold clears it. The contract erases
             // the row on val === 0 (polaris.music.cpp:667), but these buttons
             // always re-sent the same value, so a vote could be changed and
@@ -542,7 +555,7 @@ export class InfoPanelRenderer {
                 title: viewerVote?.val === 1 ? 'Click to remove your upvote' : 'Upvote',
                 onClick: (e) => {
                     e.stopPropagation();
-                    this.callbacks.voteFromDetail(op, viewerVote?.val === 1 ? 0 : 1);
+                    this.callbacks.voteFromDetail(op, viewerVote?.val === 1 ? 0 : 1, memoInput.value);
                 },
             }, viewerVote?.val === 1 ? 'Upvoted' : 'Upvote'));
 
@@ -551,11 +564,31 @@ export class InfoPanelRenderer {
                 title: viewerVote?.val === -1 ? 'Click to remove your downvote' : 'Downvote',
                 onClick: (e) => {
                     e.stopPropagation();
-                    this.callbacks.voteFromDetail(op, viewerVote?.val === -1 ? 0 : -1);
+                    this.callbacks.voteFromDetail(op, viewerVote?.val === -1 ? 0 : -1, memoInput.value);
                 },
             }, viewerVote?.val === -1 ? 'Downvoted' : 'Downvote'));
         }
         container.appendChild(votingDiv);
+        if (memoInput) container.appendChild(memoInput);
+
+        // Comments, which are the point of the memo: a reviewer should be able
+        // to see why something was downvoted without re-deriving it. Votes
+        // without a comment are left out — a list of bare names says nothing.
+        const commented = (resp.votes ?? []).filter(v => v.memo);
+        if (commented.length) {
+            const comments = this._el('div', { className: 'curate-comments' },
+                this._el('h4', null, `Comments (${commented.length})`));
+
+            for (const v of commented) {
+                comments.appendChild(this._el('div', { className: 'curate-comment' },
+                    this._el('span', {
+                        className: 'curate-comment__voter'
+                            + (v.val > 0 ? ' curate-up' : v.val < 0 ? ' curate-down' : ''),
+                    }, `${v.voter} ${v.val > 0 ? '▲' : v.val < 0 ? '▼' : '—'}`),
+                    this._el('span', { className: 'curate-comment__text' }, v.memo)));
+            }
+            container.appendChild(comments);
+        }
 
         // Body: type-specific rendering
         const body = this._el('div', { className: 'curate-detail-body' });

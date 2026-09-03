@@ -69,7 +69,7 @@ export class MusicGraph {
                 attachNavLinkListeners: (container) => this._attachNavLinkListeners(container),
                 navigateToRelease: (releaseId) => this._navigateToRelease(releaseId),
                 selectCurateOperation: (op) => this._selectCurateOperation(op),
-                voteFromDetail: (op, val) => this._curateVoteFromDetail(op, val),
+                voteFromDetail: (op, val, memo) => this._curateVoteFromDetail(op, val, memo),
             },
         });
         this.overlayPositioner = new OverlayPositioner({
@@ -1567,7 +1567,14 @@ export class MusicGraph {
         }
     }
 
-    async _curateVoteFromDetail(op, val) {
+    /**
+     * @param {Object} op - The operation being voted on.
+     * @param {number} val - +1, -1, or 0 to withdraw.
+     * @param {string} [memo] - The curator's reason. The contract validates and
+     *   discards it, so it survives only in the action trace and the off-chain
+     *   projection built from it — which is what makes it free of RAM cost.
+     */
+    async _curateVoteFromDetail(op, val, memo = '') {
         if (!this.walletManager?.isConnected()) {
             alert('Please connect your wallet to vote.');
             return;
@@ -1587,7 +1594,11 @@ export class MusicGraph {
                 data: {
                     voter: session.accountName,
                     tx_hash: op.hash,
-                    val: val
+                    val: val,
+                    // Always present: the ABI field is not optional, so an
+                    // absent comment is an empty string rather than a missing
+                    // argument, which would fail on arity.
+                    memo: (memo ?? '').slice(0, 280)
                 }
             });
 
