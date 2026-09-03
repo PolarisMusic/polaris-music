@@ -100,24 +100,25 @@ modules:
   # Extract anchored events for chain ingestion (T5 primary output)
   - name: map_anchored_events
     kind: map
-    # Let the provider skip blocks that hold no action for our contract.
+    # Consume the foundational `filtered_actions` module rather than raw blocks.
     #
-    # Without this, every block is streamed here in full and filtered in WASM —
-    # a flat 4.3 MiB per 10,000 blocks whether or not anything matched, which is
-    # most of what a historical replay costs.
+    # A blockFilter over `source: Block` was measurably not enough: empty
+    # 10,000-block windows still cost 3.8 MiB against 4.3 MiB unfiltered, and a
+    # second pass over the same range showed `0 already cached` — the block data
+    # crosses to the module either way. Pinax's own guidance is that the
+    # `filtered-*` modules are the ones that "skip large chunks of empty blocks",
+    # while `index-*` and `all-*` are utility modules not meant to be consumed
+    # directly. What arrives here is now extracted ActionTraces, not blocks.
     #
-    # `query: params: true` means this module's params ARE the index query, so
-    # they now read `code:polarismusic` rather than a bare account name.
-    # map_anchored_events pulls the account back out of the `code:` term
-    # (contract_account_from_params in src/lib.rs) instead of the manifest
-    # naming it a second time, where it would drift from CONTRACT_ACCOUNT.
-    blockFilter:
-      module: antelope:index_actions
-      query:
-        params: true
+    # filtered_actions takes its query from its own params, which is why the
+    # sink passes `antelope:filtered_actions=code:<account>` alongside this
+    # module's params. map_anchored_events reads the account back out of that
+    # `code:` term (contract_account_from_params in src/lib.rs) rather than the
+    # manifest naming it a second time, where it would drift from
+    # CONTRACT_ACCOUNT.
     inputs:
       - params: string
-      - source: sf.antelope.type.v1.Block
+      - map: antelope:filtered_actions
     output:
       type: proto:polaris.v1.AnchoredEvents
     doc: |
@@ -138,9 +139,11 @@ modules:
 
 params:
   map_events: polaris
-  # Index-query form, required by the blockFilter above. A bare account name is
-  # still parsed correctly, so an older override keeps working.
+  # Query form, shared with the filtered_actions module below. A bare account
+  # name is still parsed correctly by map_anchored_events, so an older override
+  # keeps working.
   map_anchored_events: code:polaris
+  antelope:filtered_actions: code:polaris
 
 # Network configuration
 # Options: eos-mainnet | jungle4-testnet

@@ -70,7 +70,7 @@ export function buildSubstreamsArgs(config) {
 
     const normalizedParams = normalizeModuleParams(rawParams);
 
-    return [
+    const args = [
         'run',
         '-e',
         config.substreamsEndpoint,
@@ -78,11 +78,30 @@ export function buildSubstreamsArgs(config) {
         config.substreamsModule,
         '--params',
         normalizedParams,
+    ];
+
+    // map_anchored_events consumes antelope:filtered_actions, which applies the
+    // query from ITS OWN params — the whole point of the foundational module is
+    // that the provider filters before anything crosses the wire. Params are
+    // per-module, so passing only map_anchored_events' would leave the filter
+    // unset and stream every block, which is the state we just measured at
+    // 3.8 MiB per empty 10,000-block window.
+    //
+    // Only for the local module: the Pinax-module fallback path already targets
+    // filtered_actions directly and carries its own query.
+    if (config.substreamsModule === 'map_anchored_events') {
+        const query = normalizedParams.slice(normalizedParams.indexOf('=') + 1);
+        args.push('--params', `antelope:filtered_actions=${query}`);
+    }
+
+    args.push(
         '--start-block',
         String(config.startBlock),
         '--stop-block',
         String(config.stopBlock ?? '0'),
         '--output',
         'jsonl',
-    ];
+    );
+
+    return args;
 }

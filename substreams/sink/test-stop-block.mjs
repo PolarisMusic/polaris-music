@@ -42,6 +42,16 @@ function valueOf(args, flag) {
     return i === -1 ? undefined : args[i + 1];
 }
 
+/** Every value following a repeated flag, in order. */
+function valuesOf(args, flag) {
+    return args.reduce((acc, a, i) => (a === flag ? [...acc, args[i + 1]] : acc), []);
+}
+
+/** The params entry for one module, or undefined. */
+function paramsFor(args, moduleName) {
+    return valuesOf(args, '--params').find(v => v.startsWith(`${moduleName}=`));
+}
+
 console.log('buildSubstreamsArgs — stop block\n');
 
 // Default: unchanged live-streaming behaviour.
@@ -76,6 +86,45 @@ check('normalizes module-keyed params',
 check('prefixes the module name when params are not module-keyed',
     valueOf(buildSubstreamsArgs({ ...base, substreamsParams: 'polarismusic' }), '--params'),
     'map_anchored_events=polarismusic');
+
+// filtered_actions applies the query from ITS OWN params. Params are per-module,
+// so passing only map_anchored_events' leaves the provider-side filter unset and
+// every block is streamed — measurably 3.8 MiB per empty 10,000-block window,
+// which is what this whole change exists to stop. Nothing errors in that state;
+// the data just arrives the expensive way, so it needs pinning here.
+check('passes a query to the filtered_actions module it consumes',
+    paramsFor(buildSubstreamsArgs({ ...base, substreamsParams: 'map_anchored_events=code:polarismusic' }),
+        'antelope:filtered_actions'),
+    'antelope:filtered_actions=code:polarismusic');
+
+check('the filter query matches the module query exactly',
+    (() => {
+        const a = buildSubstreamsArgs({ ...base, substreamsParams: 'map_anchored_events=code:polarismusic' });
+        // Optional-chained: when the filter params are missing entirely this
+        // must report a failure, not throw and abort the rest of the suite.
+        return paramsFor(a, 'antelope:filtered_actions')?.split('=')[1]
+            === paramsFor(a, 'map_anchored_events')?.split('=')[1];
+    })(), true);
+
+check('quote stripping applies to the filter query too',
+    paramsFor(buildSubstreamsArgs({ ...base, substreamsParams: 'map_anchored_events="code:polarismusic"' }),
+        'antelope:filtered_actions'),
+    'antelope:filtered_actions=code:polarismusic');
+
+check('a bare account name still reaches the filter as a query',
+    paramsFor(buildSubstreamsArgs({ ...base, substreamsParams: 'polarismusic' }),
+        'antelope:filtered_actions'),
+    'antelope:filtered_actions=polarismusic');
+
+// The Pinax-module fallback targets filtered_actions directly and carries its
+// own query, so a second one would be redundant at best.
+check('no filter params are added for the Pinax fallback module',
+    paramsFor(buildSubstreamsArgs({
+        ...base,
+        substreamsModule: 'filtered_actions',
+        substreamsParams: 'filtered_actions=code:polarismusic && action:put',
+    }), 'antelope:filtered_actions'),
+    undefined);
 
 // Shape of the command itself.
 const args = buildSubstreamsArgs(base);
