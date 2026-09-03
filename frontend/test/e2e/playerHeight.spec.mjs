@@ -70,9 +70,26 @@ test.describe('the embed region', () => {
         expect(height).toBeLessThan(100);
     });
 
-    test('the iframe fills the width rather than a fixed square', async ({ page }) => {
-        // A fixed width is what clipped the card. It should track its container.
-        await page.setViewportSize({ width: 1280, height: 800 });
+    test('the card is bounded above, not stretched across the window', async ({ page }) => {
+        // Both bounds on purpose. Unbounded, the card spanned ~2000px and
+        // Spotify's controls ended up an arm's length from the artwork. Fixed,
+        // it clipped — which is the bug the earlier version of this test caught.
+        await page.setViewportSize({ width: 1600, height: 900 });
+        await showEmbed(page);
+
+        const { frame, container } = await page.evaluate(() => ({
+            frame: document.querySelector('.mp-embed iframe').getBoundingClientRect().width,
+            container: document.querySelector('.mp-embed').clientWidth,
+        }));
+
+        expect(frame).toBeLessThan(container);
+        expect(frame).toBeLessThanOrEqual(560);
+        // Still wide enough that Spotify's own title and controls do not collide.
+        expect(frame).toBeGreaterThan(300);
+    });
+
+    test('the card still fills a container narrower than the cap', async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
         await showEmbed(page);
 
         const { frame, container } = await page.evaluate(() => ({
@@ -82,5 +99,50 @@ test.describe('the embed region', () => {
 
         // Within the container's horizontal padding.
         expect(container - frame).toBeLessThanOrEqual(24);
+    });
+});
+
+test.describe('the player and the info viewer column', () => {
+    /**
+     * The player was pinned `left: 0; right: 0`, so it ran underneath the info
+     * viewer — a full-height column — and covered its last rows. With something
+     * playing, the tracklist visibly stopped partway down.
+     *
+     * Geometry, so it is measurable, unlike anything about Spotify's own
+     * rendering inside the iframe.
+     *
+     * Both widths are checked because the column is 400px and narrows to 320px
+     * at the 1024px breakpoint, and the player reads that width from a shared
+     * custom property. If the two ever desynchronise, one of these fails.
+     */
+    for (const [label, width] of [
+        ['where the column is 400px', 1280],
+        ['where the breakpoint narrows it to 320px', 1024],
+    ]) {
+        test(`the player stops at the column, ${label}`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 800 });
+            await showEmbed(page);
+
+            const { playerRight, columnLeft } = await page.evaluate(() => ({
+                playerRight: document.getElementById('mini-player-container')
+                    .getBoundingClientRect().right,
+                columnLeft: document.getElementById('info-viewer')
+                    .getBoundingClientRect().left,
+            }));
+
+            expect(playerRight).toBeLessThanOrEqual(columnLeft + 1);
+        });
+    }
+
+    test('on a phone it still spans the full width', async ({ page }) => {
+        // There the sheet is full width and there is no column to avoid, so the
+        // desktop rule must not leak in.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await showEmbed(page);
+
+        const right = await page.evaluate(() =>
+            document.getElementById('mini-player-container').getBoundingClientRect().right);
+
+        expect(right).toBeGreaterThanOrEqual(389);
     });
 });
