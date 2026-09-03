@@ -123,6 +123,85 @@ test.describe('curate detail pane', () => {
     });
 });
 
+test.describe('the column must not compress its children', () => {
+    /**
+     * `.curate-detail-column` is a column flex container, so every child is a
+     * flex item with the default `flex-shrink: 1`. Once the detail is taller
+     * than the column — true of any release bundle — the browser compresses
+     * whatever it can before allowing overflow, and a <textarea>'s automatic
+     * minimum height is about one line regardless of `rows`. The memo box is
+     * therefore the most compressible thing present and absorbs the shrinkage:
+     * it rendered roughly ten pixels tall with its placeholder clipped through
+     * the middle of the line, and the comment list directly below it was
+     * squeezed out of existence.
+     *
+     * The earlier assertions in this file checked POSITION — that the box sat
+     * inside the panel — and a crushed box does. Measuring height is what
+     * catches this.
+     */
+    test.beforeEach(async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await openPanelWithTallDetail(page);
+    });
+
+    test('the memo box keeps its natural height', async ({ page }) => {
+        const { inColumn, natural } = await page.evaluate(() => {
+            const memo = document.getElementById('memo');
+            const inColumn = memo.getBoundingClientRect().height;
+
+            // Same element, same styles, outside the flex column — so the
+            // comparison is against whatever two rows actually measure rather
+            // than a hard-coded pixel count that a font change would break.
+            const probe = memo.cloneNode(true);
+            probe.removeAttribute('id');
+            document.body.appendChild(probe);
+            const natural = probe.getBoundingClientRect().height;
+            probe.remove();
+
+            return { inColumn, natural };
+        });
+
+        expect(natural).toBeGreaterThan(30);
+        expect(inColumn).toBeGreaterThanOrEqual(natural - 1);
+    });
+
+    test('the comment list is not squeezed away', async ({ page }) => {
+        const { listHeight, rowsHeight } = await page.evaluate(() => {
+            const list = document.querySelector('.curate-comments');
+            const rows = [...list.querySelectorAll('.curate-comment')];
+            return {
+                listHeight: list.getBoundingClientRect().height,
+                rowsHeight: rows.reduce((sum, r) => sum + r.getBoundingClientRect().height, 0),
+            };
+        });
+
+        // The block must be at least as tall as the rows it contains.
+        expect(listHeight).toBeGreaterThanOrEqual(rowsHeight);
+    });
+
+    test('every comment row has real height', async ({ page }) => {
+        const heights = await page.evaluate(() =>
+            [...document.querySelectorAll('.curate-comment')]
+                .map(r => r.getBoundingClientRect().height));
+
+        expect(heights).toHaveLength(3);
+        for (const height of heights) expect(height).toBeGreaterThan(10);
+    });
+
+    test('the header and voting row are not compressed either', async ({ page }) => {
+        // Same class of failure, less visible: these are short and text-based,
+        // so their min-content height is close to their natural one and the
+        // squeeze never showed.
+        const { header, voting } = await page.evaluate(() => ({
+            header: document.querySelector('.curate-detail-header').getBoundingClientRect().height,
+            voting: document.querySelector('.curate-detail-voting').getBoundingClientRect().height,
+        }));
+
+        expect(header).toBeGreaterThan(40);
+        expect(voting).toBeGreaterThan(30);
+    });
+});
+
 test.describe('curate panel on a phone', () => {
     // The panel had no responsive rules at all: a 340px feed column inside a
     // panel capped at 90vw leaves roughly 11px for the detail, so the memo box
