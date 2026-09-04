@@ -18,7 +18,19 @@
 
 import { test, expect } from '@playwright/test';
 
-/** Put the player into embed mode with a card in it, as _showEmbed does. */
+/**
+ * Put the player into embed mode with a card in it, as _showEmbed does, then
+ * publish the resulting height the way MiniPlayer._notifyHeightChange() does.
+ *
+ * Publishing matters: --mini-player-height is how the layout learns what the
+ * player occupies, and every assertion about who gives up height for it is
+ * vacuous while the property sits at its 0px default. Measuring rather than
+ * passing a constant is what the real code does — and it has to be, because
+ * the player renders 137px on a desktop and 24px collapsed on a phone, so any
+ * fixed number would describe one viewport and lie about the other.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
 async function showEmbed(page) {
     await page.goto('/');
     await page.evaluate(() => {
@@ -45,6 +57,14 @@ async function showEmbed(page) {
         frame.height = '80';
         frame.title = 'Spotify player';
         embed.appendChild(frame);
+    });
+
+    // Second evaluate for the same reason _notifyHeightChange defers a frame:
+    // the class that grows the player is applied above, and measuring in the
+    // same tick returns the old height.
+    await page.evaluate(() => {
+        const height = document.getElementById('mini-player-container').offsetHeight;
+        document.body.style.setProperty('--mini-player-height', `${height}px`);
     });
 }
 
@@ -144,5 +164,64 @@ test.describe('the player and the info viewer column', () => {
             document.getElementById('mini-player-container').getBoundingClientRect().right);
 
         expect(right).toBeGreaterThanOrEqual(389);
+    });
+});
+
+test.describe('who gives up height for the player', () => {
+    /**
+     * The player is fixed above the bottom bar, so something has to shorten
+     * itself or the player covers it. Which column that is became a real
+     * question once the player stopped spanning the window.
+     *
+     * #main-container holds both columns and used to subtract the player's
+     * height from itself. That shortened the info viewer as well, for a player
+     * no longer underneath it: a band of page background appeared below the
+     * panel, exactly as tall as the player, and the tracklist still stopped
+     * partway down. The inset now sits on #viz-container alone.
+     *
+     * Both edges are asserted because moving an inset is exactly the kind of
+     * change that fixes one column by breaking the other.
+     */
+    test('the info viewer runs down to the bottom bar', async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await showEmbed(page);
+
+        const { columnBottom, barTop } = await page.evaluate(() => ({
+            columnBottom: document.getElementById('info-viewer')
+                .getBoundingClientRect().bottom,
+            barTop: document.getElementById('bottom-bar')
+                .getBoundingClientRect().top,
+        }));
+
+        // They meet. A gap here is the black band; an overlap would put the
+        // bar over the panel's last rows.
+        expect(Math.abs(columnBottom - barTop)).toBeLessThanOrEqual(1);
+    });
+
+    test.describe('the graph never runs under the player', () => {
+        // True on both layouts, by different routes — the desktop takes the
+        // inset off this column, the phone off the container — which is what
+        // makes it worth asserting on both.
+        for (const [label, size] of [
+            ['desktop', { width: 1280, height: 800 }],
+            ['phone', { width: 390, height: 844 }],
+        ]) {
+            test(label, async ({ page }) => {
+                await page.setViewportSize(size);
+                await showEmbed(page);
+
+                const { vizBottom, playerTop } = await page.evaluate(() => ({
+                    vizBottom: document.getElementById('viz-container')
+                        .getBoundingClientRect().bottom,
+                    playerTop: document.getElementById('mini-player-container')
+                        .getBoundingClientRect().top,
+                }));
+
+                // Meeting, not merely clearing: a one-sided assertion would
+                // let both columns subtract the player and call the wasted
+                // canvas a pass.
+                expect(Math.abs(vizBottom - playerTop)).toBeLessThanOrEqual(1);
+            });
+        }
     });
 });

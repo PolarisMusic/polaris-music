@@ -16,11 +16,14 @@ html, body {
        across it, so a value set on the column would be invisible to the
        player and it would silently fall back to spanning the window. */
     --info-viewer-width: 400px;
-    /* Kept in step with the player's real rendered height by
-       MiniPlayer._notifyHeightChange(). On desktop the player is still a bar in
-       the vertical stack and this is its measured height; on phones it is an
-       overlay inside the visualization and this stays 0, because an overlay
-       costs no layout height. */
+    /* The player's real rendered height, measured and republished on every
+       viewport by MiniPlayer._notifyHeightChange(). Who gives up that height
+       differs: on desktop the graph column does, because the player is fixed
+       over that column only; on a phone the player spans the full width and
+       --info-sheet-height subtracts it from the sheet, so that the canvas can
+       stay a 100vw square. Non-zero in both cases — an earlier version of this
+       comment said it stayed 0 on phones, which the sheet's own calc below
+       disproves. */
     --mini-player-height: 0px;
     /* Desktop only. The phone value is derived from the viewport — see the
        media query. */
@@ -217,11 +220,18 @@ body.mini-player-visible.mini-player-embed {
 
 /* Main Container — pinned between fixed top-bar and bottom-bar.
    Uses position:fixed so its children get a real pixel height
-   and the info-viewer flex column can scroll properly. */
+   and the info-viewer flex column can scroll properly.
+
+   It runs to the bottom bar, NOT to the top of the player: the player is fixed
+   over the graph column only — it stops at the info viewer's edge — so only
+   that column owes it any height (see #viz-container). Subtracting the player
+   here shortened the info viewer too, leaving a band of page background below
+   it exactly as tall as the player, and the tracklist still stopped partway
+   down the panel. */
 #main-container {
     position: fixed;
     top: var(--top-bar-height);
-    bottom: calc(var(--bottom-bar-height) + var(--mini-player-height));
+    bottom: var(--bottom-bar-height);
     left: 0;
     right: 0;
     display: flex;
@@ -231,6 +241,11 @@ body.mini-player-visible.mini-player-embed {
 /* Visualization Canvas */
 #viz-container {
     flex: 1;
+    /* The graph's share of the bottom inset. As a stretched item in a row flex
+       container this shortens the column, so the canvas ends exactly at the
+       player's top edge — where it has always ended. The phone zeroes it and
+       takes the height off #main-container instead. */
+    margin-bottom: var(--mini-player-height);
     min-width: 0;
     min-height: 0;
     position: relative;
@@ -1556,6 +1571,19 @@ body.mini-player-visible.mini-player-embed {
 
     .btn-info-close:hover {
         color: #fff;
+    }
+
+    /* The phone keeps the desktop's previous arrangement, and needs it spelled
+       out now that the desktop has moved on. Here the player spans the full
+       width beneath the sheet rather than sitting beside a column, so the whole
+       container clears it and the graph owes nothing — which is what holds the
+       canvas at a 100vw square. */
+    #main-container {
+        bottom: calc(var(--bottom-bar-height) + var(--mini-player-height));
+    }
+
+    #viz-container {
+        margin-bottom: 0;
     }
 
     /* The sheet is non-modal: with the graph resized to the space above it,
