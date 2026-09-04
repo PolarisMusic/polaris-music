@@ -9,6 +9,13 @@
 html, body {
     --top-bar-height: 60px;
     --bottom-bar-height: 60px;
+    /* Width of the info viewer column, read by BOTH that column and
+       #mini-player-container, which stops at its edge instead of running
+       underneath it. Declared here rather than on #info-viewer because the
+       player is a sibling: custom properties inherit down the tree, not
+       across it, so a value set on the column would be invisible to the
+       player and it would silently fall back to spanning the window. */
+    --info-viewer-width: 400px;
     /* Kept in step with the player's real rendered height by
        MiniPlayer._notifyHeightChange(). On desktop the player is still a bar in
        the vertical stack and this is its measured height; on phones it is an
@@ -259,8 +266,8 @@ body.mini-player-visible.mini-player-embed {
 
 /* Info Viewer Panel */
 #info-viewer {
-    width: 400px;
-    flex: 0 0 400px;
+    width: var(--info-viewer-width);
+    flex: 0 0 var(--info-viewer-width);
     min-width: 0;
     min-height: 0;
     height: 100%;
@@ -1407,8 +1414,8 @@ body.mini-player-visible.mini-player-embed {
 
 /* Responsive Design */
 @media (max-width: 1024px) {
-    #info-viewer {
-        width: 320px;
+    html, body {
+        --info-viewer-width: 320px;
     }
 
     .stats {
@@ -1742,7 +1749,12 @@ body.mini-player-visible.mini-player-embed {
     position: fixed;
     bottom: var(--bottom-bar-height); /* above #bottom-bar */
     left: 0;
-    right: 0;
+    /* Stop at the info viewer rather than running under it. Spanning the whole
+       viewport clipped the bottom of the tracklist — that panel is a full-height
+       column, so anything fixed across the window covers its last rows. The
+       phone layout overrides this back to 0, where the sheet is full width and
+       there is no column to avoid. */
+    right: var(--info-viewer-width);
     z-index: 800;
 }
 
@@ -1991,6 +2003,12 @@ body.mini-player-embed .mp-embed {
 .mp-embed iframe {
     display: block;
     width: 100%;
+    /* Bounded so it reads as a card rather than a band across the screen.
+       Spotify lays the card out as art, then text, then controls pushed to the
+       right edge — at full width those controls end up an arm's length from the
+       artwork they belong to. Kept well above the ~300px where its own title
+       and controls start colliding. */
+    max-width: 560px;
     height: 80px;
     border: 0;
     border-radius: 12px;
