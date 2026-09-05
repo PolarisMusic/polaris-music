@@ -2938,8 +2938,13 @@ constructor(config = {}) {
                 OPTIONAL MATCH path = (n)-[:MERGED_INTO*1..10]->(survivor:${label})
                 WITH n, survivor, length(path) AS hops
                 ORDER BY hops DESC
-                WITH n, collect(survivor)[0] AS survivor
-                RETURN coalesce(survivor.${idField}, n.${idField}) AS resolvedId
+                // collect() drops nulls, so an unmerged node yields an empty
+                // list and [0] is null — coalesce then falls back to n. The
+                // ORDER BY picks the furthest survivor when a chain of merges
+                // has stacked up. Aliased to winner rather than reusing
+                // survivor, which would shadow the variable being aggregated.
+                WITH n, collect(survivor)[0] AS winner
+                RETURN coalesce(winner.${idField}, n.${idField}) AS resolvedId
             `, { provisionalId });
 
             if (result.records.length === 0) return null;

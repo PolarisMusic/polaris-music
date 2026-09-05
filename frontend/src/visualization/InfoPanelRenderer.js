@@ -24,6 +24,7 @@
  *   renderGroupDetails(group, titleElement, contentElement, nodeId)
  *   renderPersonDetails(person, titleElement, contentElement, nodeId)
  *   renderReleaseDetails(release, titleElement, contentElement)
+ *   _renderEditionSwitcher(release)                 → HTMLElement | null
  *   showReleaseDetailsInInfoPanel(release)              entry from overlay
  *   renderCurateRow(op)                             → HTMLElement
  *   renderCurateDetail(container, resp, op)
@@ -54,6 +55,11 @@ export class InfoPanelRenderer {
      * @param {(releaseId: string, trackId: string) => void} deps.callbacks.playTrack
      *   Point the player at one track of a release. Lives on MusicGraph because
      *   the player instance does.
+     * @param {(releaseId: string) => void} deps.callbacks.switchToEdition
+     *   Swap the panel to a sibling edition of the release it is showing.
+     *   Distinct from navigateToRelease: editions share a performing group, so
+     *   graph navigation would re-centre on the node already centred and reset
+     *   the orbit overlay under the reader.
      */
     constructor({ inlineEditor, callbacks }) {
         this.inlineEditor = inlineEditor;

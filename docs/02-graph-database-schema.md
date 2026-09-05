@@ -966,7 +966,25 @@ Two consequences worth stating, because both were violated in code:
    (`IdentityService.releaseFingerprint`). Drop any of those and two editions
    MERGE onto one node, the second silently overwriting the first's properties.
    Catalogue number is the strongest discriminator; the submit form collects it.
-2. **`IN_MASTER` is exclusive.** Reassigning a release to a different master
+
+   This deliberately trades false merges for false splits. Including `format`
+   means a submitter who types "Compact Disc" where another typed "CD" creates
+   a second node for one edition. That is the better failure: a false split
+   leaves two nodes that `MERGE_ENTITY` (60) can join and
+   `findPotentialDuplicates()` can surface, whereas a false merge is **lossy** —
+   the Release SET clause overwrites the earlier edition's format, country and
+   catalogue number, and nothing records what was there before. Splits are
+   recoverable; merges are not.
+2. **`is_master_release` means "this Release *is* its group's Master node"** —
+   that its `master_id` equals its own `release_id` — not "the submitter ticked
+   the master box". The two usually agree, but a submitter who says "this is a
+   reissue" without naming a master still self-links, because there is no other
+   master to point at; the release is provisionally its own until a curator
+   joins the two with `MERGE_ENTITY`. The flag's only consumer is edition
+   ordering, where it breaks a date tie toward the original, and for that the
+   graph fact is the one that matters.
+
+3. **`IN_MASTER` is exclusive.** Reassigning a release to a different master
    deletes the previous edge rather than adding a second, or a sibling query
    returns the union of two unrelated edition sets. Reassignment can leave an
    orphaned self-Master behind; that is harmless (Masters carry no other edges
@@ -976,6 +994,33 @@ Two consequences worth stating, because both were violated in code:
 oldest first, each with an `edition_label` naming what distinguishes it. Note
 that `label` on an edition row is the **record label**; the edition's own
 descriptor is `edition_label`.
+
+### Migration note: existing releases need a replay
+
+Both changes are retroactive in intent but not in effect.
+
+- **Release ids change.** The date was previously dropped from the release
+  fingerprint (the caller passed `date`, the fingerprint read `release_date`),
+  so every release already in the graph carries an id minted from its title
+  alone. With the date, format and country now included, the same release
+  fingerprints to a *different* provisional id. Nothing rewrites the old nodes.
+- **Existing releases have no Master.** `IN_MASTER` is written at ingest, so
+  releases already in the graph have no edge and no `master_id`, and the
+  switcher will not appear for them however many editions exist.
+
+The coherent fix for both is the same one the deployment runbook already
+documents: **replay the anchored events and let the graph rebuild.** The events
+are immutable on chain and the ids are deterministic, so a replay reconstructs
+every node under the corrected identity rules. See "Three things to know first"
+in `docs/deployment/testnet-deployment-plan.md` — in particular that the sink's
+`START_BLOCK` defaults to a short recent window, that resubmitting is not an
+option because the contract rejects a duplicate event hash, and that the API
+must be restarted before the replay or it answers `duplicate` and rebuilds
+nothing.
+
+Until a replay happens, old releases keep their old ids and no Master; new
+submissions get the corrected behaviour. The two coexist without error, they
+simply do not group together.
 
 ## Relationship Types Summary
 
