@@ -78,6 +78,10 @@ class PolarisApp {
             this.lookupManager = new FormLookupManager(formEl);
         }
 
+        // Wire the wallet bar before restoring, so the first render of the
+        // restored session lands in it rather than only in a toast.
+        this.initWalletBar();
+
         // Try to restore wallet session
         try {
             const sessionInfo = await this.walletManager.restore();
@@ -90,6 +94,7 @@ class PolarisApp {
         } catch (error) {
             console.error('Failed to restore wallet session:', error);
         }
+        this.renderWalletBar();
 
         // Check API health
         this.checkAPIHealth();
@@ -1448,6 +1453,77 @@ class PolarisApp {
         }
 
         return positions;
+    }
+
+    /**
+     * Wire the wallet bar's buttons and keep it in step with the session.
+     *
+     * Submitting a release signs a `put` action, so a visitor who reaches
+     * /submit without a wallet cannot finish — but the page used to say
+     * nothing about it, and the requirement surfaced only as a failure after
+     * the form was filled in. The bar states the requirement up front.
+     */
+    initWalletBar() {
+        const connectBtn = document.getElementById('wallet-connect');
+        const disconnectBtn = document.getElementById('wallet-disconnect');
+        if (!connectBtn && !disconnectBtn) return;
+
+        if (connectBtn) {
+            connectBtn.addEventListener('click', async () => {
+                connectBtn.disabled = true;
+                try {
+                    const info = await this.walletManager.connect();
+                    this.showToast('Wallet connected: ' + info.accountName, 'success');
+                } catch (error) {
+                    this.showToast(error.message || 'Wallet connection failed', 'error');
+                } finally {
+                    connectBtn.disabled = false;
+                    this.renderWalletBar();
+                }
+            });
+        }
+
+        if (disconnectBtn) {
+            disconnectBtn.addEventListener('click', async () => {
+                try {
+                    await this.walletManager.disconnect();
+                    this.showToast('Wallet disconnected', 'success');
+                } catch (error) {
+                    this.showToast(error.message || 'Disconnect failed', 'error');
+                } finally {
+                    this.renderWalletBar();
+                }
+            });
+        }
+
+        // Also follow connections made anywhere else on the page.
+        this.walletManager.on('onConnect', () => this.renderWalletBar());
+        this.walletManager.on('onDisconnect', () => this.renderWalletBar());
+    }
+
+    /**
+     * Redraw the wallet bar from the current session.
+     */
+    renderWalletBar() {
+        const status = document.getElementById('wallet-status');
+        const connectBtn = document.getElementById('wallet-connect');
+        const disconnectBtn = document.getElementById('wallet-disconnect');
+        if (!status) return;
+
+        const connected = this.walletManager.isConnected();
+        const session = connected ? this.walletManager.getSession() : null;
+
+        if (connected && session) {
+            status.textContent =
+                `Signed in as ${session.actor.toString()}@${session.permission.toString()}`;
+            status.className = 'wallet-bar__status wallet-bar__status--connected';
+        } else {
+            status.textContent = 'Not connected — you need a wallet to submit a release.';
+            status.className = 'wallet-bar__status wallet-bar__status--disconnected';
+        }
+
+        if (connectBtn) connectBtn.hidden = connected;
+        if (disconnectBtn) disconnectBtn.hidden = !connected;
     }
 
     /**

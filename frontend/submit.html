@@ -23,6 +23,20 @@
             <p>Decentralized Music Credits & Attribution</p>
         </header>
 
+        <!-- Wallet state. This page signs the submission, but carried no wallet
+             UI at all: it relied on restore() plus a toast, so anyone arriving
+             here by link saw no account, no sign-in button, and discovered the
+             requirement only when submitting failed. -->
+        <div id="wallet-bar" class="wallet-bar">
+            <span id="wallet-status" class="wallet-bar__status">Checking wallet…</span>
+            <button type="button" id="wallet-connect" class="btn-secondary" hidden>
+                Connect Wallet
+            </button>
+            <button type="button" id="wallet-disconnect" class="btn-secondary" hidden>
+                Disconnect
+            </button>
+        </div>
+
         <nav class="tabs">
             <button class="tab active" data-tab="submit">Submit Release</button>
             <button class="tab" data-tab="browse">Browse Registry</button>

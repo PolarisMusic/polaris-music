@@ -132,4 +132,18 @@ describe('editionLabel', () => {
         const set = [{ name: 'Album', release_date: '2002', format: 'CD' }];
         expect(editionLabel(set[0], set)).toBe('Album');
     });
+
+    it('does not claim the `label` key, which holds the record label', () => {
+        // Regression: the computed edition label was first assigned to
+        // `label`, overwriting the record label on every edition row —
+        // "Apple Records" became "1969-09-26 · LP". It belongs under
+        // edition_label, and this asserts the two stay separate.
+        const set = [
+            { name: 'Abbey Road', release_date: '1969', label: 'Apple Records' },
+            { name: 'Abbey Road', release_date: '2019', label: 'Apple Records' }
+        ];
+        const decorated = set.map(e => ({ ...e, edition_label: editionLabel(e, set) }));
+        expect(decorated[0].label).toBe('Apple Records');
+        expect(decorated[0].edition_label).toBe('1969');
+    });
 });

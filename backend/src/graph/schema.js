@@ -2836,6 +2836,31 @@ constructor(config = {}) {
                 return data[explicitIdField];
             }
 
+            // If it's provisional, honour it when it names a node that is
+            // really there. Without this branch a provisional id fell through
+            // to step 3 and was *regenerated from the fingerprint of the
+            // submitted name* — so a submitter who picked the right "John
+            // Williams" out of the typeahead still got a different node the
+            // moment the typed name diverged from the stored one by a stray
+            // space, an accent or a Discogs "(2)" suffix. Showing richer
+            // metadata in the picker only makes that failure easier to see;
+            // it does not stop it.
+            if (parsedId.kind === 'provisional') {
+                const existingId = await this.resolveProvisionalId(
+                    session, type, data[explicitIdField]
+                );
+                if (existingId) {
+                    this.log.debug('provisional_id_honoured', {
+                        submitted: data[explicitIdField], resolved: existingId
+                    });
+                    return existingId;
+                }
+                // Nothing by that id: fall through and mint from the
+                // fingerprint. A provisional id the registry has never seen is
+                // a claim about a node, not evidence of one.
+                this.log.debug('provisional_id_unknown', { id: data[explicitIdField] });
+            }
+
             // If it's external, check IdentityMap
             if (parsedId.kind === 'external') {
                 const canonicalId = await MergeOperations.resolveExternalId(
@@ -2883,6 +2908,50 @@ constructor(config = {}) {
 
         // 3. No external ID mapping found, generate provisional ID
         return this.generateProvisionalIdNew(type, data);
+    }
+
+    /**
+     * Resolve a provisional id the submitter picked from the typeahead to the
+     * id of the node it actually names.
+     *
+     * Returns null when no such node exists, so the caller can fall back to
+     * minting one from the fingerprint. Follows MERGED_INTO so that picking an
+     * entity a curator has since deduplicated lands on the survivor rather
+     * than writing to a tombstone — the same convention
+     * MergeOperations.resolveToCanonical uses.
+     *
+     * @param {Object} session - Neo4j session or transaction
+     * @param {string} type - Entity type (person, group, release, …)
+     * @param {string} provisionalId - Id of the form prov:{type}:{hash}
+     * @returns {Promise<string|null>} resolved id, or null if unknown
+     */
+    async resolveProvisionalId(session, type, provisionalId) {
+        // Label and id field come from the SAFE_NODE_TYPES allowlist; nothing
+        // caller-supplied is interpolated into the query.
+        const nodeType = SAFE_NODE_TYPES[String(type).toLowerCase()];
+        if (!nodeType) return null;
+        const { label, idField } = nodeType;
+
+        try {
+            const result = await session.run(`
+                MATCH (n:${label} {${idField}: $provisionalId})
+                OPTIONAL MATCH path = (n)-[:MERGED_INTO*1..10]->(survivor:${label})
+                WITH n, survivor, length(path) AS hops
+                ORDER BY hops DESC
+                WITH n, collect(survivor)[0] AS survivor
+                RETURN coalesce(survivor.${idField}, n.${idField}) AS resolvedId
+            `, { provisionalId });
+
+            if (result.records.length === 0) return null;
+            return result.records[0].get('resolvedId') || null;
+        } catch (error) {
+            // A lookup failure must not fabricate a binding. Fall back to
+            // minting, which is the behaviour that existed before.
+            this.log.warn('provisional_id_lookup_failed', {
+                id: provisionalId, error: error.message
+            });
+            return null;
+        }
     }
 
     /**

@@ -937,8 +937,8 @@ CONSIDER THIS SECTION CANONICAL
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
 | Song | Musical composition | song_id, title, iswc, writers |
 | Track | Recording of a song | track_id, title, isrc, duration, listen_links, lyrics, trivia |
-| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, listen_links |
-| Master | Canonical album grouping | master_id, name |
+| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, country, catalog_number, listen_links, master_id, is_master_release |
+| Master | Canonical album grouping | master_id, name, status |
 | Label | Record label | label_id, name |
 | Account | Blockchain account | account_id |
 | City | Geographic location | city_id, name, lat, lon |
@@ -947,6 +947,35 @@ CONSIDER THIS SECTION CANONICAL
 <!-- Media should link to a URL and then fetches the media from the URL to produce an IPFS address for the media -->
 | Media | Associated Media | url, media_id |
 
+
+## Editions and the Master node
+
+A **Release is one edition**, not a work: the original pressing, the CD
+remaster and the deluxe reissue are three Release nodes with three tracklists.
+A **Master** is the node that groups them, and every Release has exactly one
+`IN_MASTER` edge to it — including an original that nothing reissues yet, which
+self-links with `master_id` equal to its own `release_id`. That convention is
+what makes the reissue flow work: the submit form's master field searches
+**Releases**, so picking the original supplies its `release_id` and both
+editions land on the same Master.
+
+Two consequences worth stating, because both were violated in code:
+
+1. **Editions must fingerprint apart.** The provisional id for a Release is
+   built from normalized title + date + catalogue number + format + country
+   (`IdentityService.releaseFingerprint`). Drop any of those and two editions
+   MERGE onto one node, the second silently overwriting the first's properties.
+   Catalogue number is the strongest discriminator; the submit form collects it.
+2. **`IN_MASTER` is exclusive.** Reassigning a release to a different master
+   deletes the previous edge rather than adding a second, or a sibling query
+   returns the union of two unrelated edition sets. Reassignment can leave an
+   orphaned self-Master behind; that is harmless (Masters carry no other edges
+   and are not searchable) and is a curation cleanup, not an ingest concern.
+
+`GET /api/release/:releaseId` returns the siblings under `versions`, ordered
+oldest first, each with an `edition_label` naming what distinguishes it. Note
+that `label` on an edition row is the **record label**; the edition's own
+descriptor is `edition_label`.
 
 ## Relationship Types Summary
 
@@ -962,7 +991,7 @@ CONSIDER THIS SECTION CANONICAL
 | COVER_OF | Track → Song | Cover version |
 | SAMPLES | Track → Track | Sampling relationship |
 | IN_RELEASE | Track → Release | Track appears on release |
-| IN_MASTER | Release → Master | Release variant of master |
+| IN_MASTER | Release → Master | Release variant of master (**exactly one per Release**) |
 | RELEASED | Label → Release | Released by label |
 | ORIGIN | Person|Group|Release|Label → City | Geographic origin |
 | SUBMITTED | Account → Any | Who submitted data |

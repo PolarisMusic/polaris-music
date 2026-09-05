@@ -342,7 +342,10 @@ export function createEntityRoutes({ db, config }) {
                     // siblings. Computed here, with the whole set in hand, so
                     // the client renders a string rather than re-deriving the
                     // comparison against data it would have to hold anyway.
-                    versions = versions.map(v => ({ ...v, label: editionLabel(v, versions) }));
+                    // Named edition_label, not label: `label` on an edition row
+                    // already carries the record label (Apple Records), and
+                    // reusing the key silently overwrote it.
+                    versions = versions.map(v => ({ ...v, edition_label: editionLabel(v, versions) }));
                 }
 
                 res.json({

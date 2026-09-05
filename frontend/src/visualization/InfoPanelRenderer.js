@@ -379,8 +379,8 @@ export class InfoPanelRenderer {
      * Editions of one album — original pressing, CD remaster, deluxe reissue —
      * are separate Release nodes with separate tracklists, joined by IN_MASTER.
      * The backend returns them ordered oldest-first in `release.versions`, each
-     * already carrying a `label` naming what makes it different, so this only
-     * has to render position and wire the arrows.
+     * already carrying an `edition_label` naming what makes it different, so
+     * this only has to render position and wire the arrows.
      *
      * @param {Object} release
      * @returns {HTMLElement|null}
@@ -405,8 +405,8 @@ export class InfoPanelRenderer {
                 className: 'info-edition__arrow',
                 type: 'button',
                 disabled: !target,
-                title: target ? `${label}: ${target.label}` : `No ${label.toLowerCase()}`,
-                'aria-label': target ? `${label}: ${target.label}` : `No ${label.toLowerCase()}`,
+                title: target ? `${label}: ${target.edition_label}` : `No ${label.toLowerCase()}`,
+                'aria-label': target ? `${label}: ${target.edition_label}` : `No ${label.toLowerCase()}`,
                 onClick: (e) => { e.stopPropagation(); go(delta); }
             }, glyph);
         };
@@ -421,8 +421,8 @@ export class InfoPanelRenderer {
             this._el('span', { className: 'info-edition__label' },
                 this._el('span', { className: 'info-edition__count' },
                     `Edition ${index + 1} of ${versions.length}`),
-                current.label
-                    ? this._el('span', { className: 'info-edition__detail' }, current.label)
+                current.edition_label
+                    ? this._el('span', { className: 'info-edition__detail' }, current.edition_label)
                     : null),
             arrow(1, '\u203A', 'Later edition')
         );

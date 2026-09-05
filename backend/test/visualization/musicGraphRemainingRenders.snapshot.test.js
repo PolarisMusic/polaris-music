@@ -580,9 +580,9 @@ describe('Stage K · edition switcher', () => {
      * only responsible for position, disabled ends, and calling through.
      */
     const EDITIONS = [
-        { release_id: 'rel:orig', name: 'Songs For The Deaf', label: '2002 · CD' },
-        { release_id: 'rel:remaster', name: 'Songs For The Deaf', label: '2010 · CD' },
-        { release_id: 'rel:deluxe', name: 'Songs For The Deaf', label: '2019 · LP' },
+        { release_id: 'rel:orig', name: 'Songs For The Deaf', edition_label: '2002 · CD' },
+        { release_id: 'rel:remaster', name: 'Songs For The Deaf', edition_label: '2010 · CD' },
+        { release_id: 'rel:deluxe', name: 'Songs For The Deaf', edition_label: '2019 · LP' },
     ];
 
     const releaseAt = (index, versions = EDITIONS) => ({
@@ -648,10 +648,10 @@ describe('Stage K · edition switcher', () => {
         // from the ends. With only three the two are indistinguishable, and an
         // implementation that jumped straight to the ends would pass.
         const four = [
-            { release_id: 'rel:a', label: '2002' },
-            { release_id: 'rel:b', label: '2004' },
-            { release_id: 'rel:c', label: '2010' },
-            { release_id: 'rel:d', label: '2019' },
+            { release_id: 'rel:a', edition_label: '2002' },
+            { release_id: 'rel:b', edition_label: '2004' },
+            { release_id: 'rel:c', edition_label: '2010' },
+            { release_id: 'rel:d', edition_label: '2019' },
         ];
         const { stub, contentElement } = render(releaseAt(1, four));
         const [back, forward] = arrows(contentElement);
