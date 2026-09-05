@@ -176,7 +176,7 @@ export function createResolvers({ db, store }) {
                     WHERE r.status = 'ACTIVE'
                     OPTIONAL MATCH (t:Track)-[ir:IN_RELEASE]->(r)
                     WHERE t.status = 'ACTIVE'
-                    OPTIONAL MATCH (r)-[:RELEASED]->(l:Label)
+                    OPTIONAL MATCH (r)<-[:RELEASED]-(l:Label)
                     WHERE l.status = 'ACTIVE'
                     OPTIONAL MATCH (r)-[:IN_MASTER]->(m:Master)
                     WHERE m.status = 'ACTIVE'

@@ -9,7 +9,7 @@
  *   GET /api/group/:groupId/releases
  *   GET /api/person/:personId
  *   GET /api/track/:trackId
- *   GET /api/release/:releaseId
+ *   GET /api/release/:releaseId   (includes sibling editions via IN_MASTER)
  *   GET /api/song/:songId
  *   GET /api/label/:labelId
  *
@@ -19,6 +19,7 @@
 import express from 'express';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
 import { safeClose } from '../../graph/safeTx.js';
+import { orderEditions, normalizeFormat, toInt, editionLabel } from '../editionOrder.js';
 
 /**
  * @param {Object} ctx
@@ -241,7 +242,7 @@ export function createEntityRoutes({ db, config }) {
                 const result = await session.run(`
                     MATCH (r:Release {release_id: $releaseId})
                     OPTIONAL MATCH (t:Track)-[ir:IN_RELEASE]->(r)
-                    OPTIONAL MATCH (r)-[:RELEASED]->(l:Label)
+                    OPTIONAL MATCH (r)<-[:RELEASED]-(l:Label)
 
                     RETURN r,
                            collect(DISTINCT {
@@ -297,14 +298,64 @@ export function createEntityRoutes({ db, config }) {
                     roles: r.get('roles').filter(Boolean)
                 }));
 
+                // Sibling editions: every Release sharing this one's Master.
+                // The original pressing, the CD remaster and the deluxe
+                // reissue are separate Release nodes with separate tracklists,
+                // joined only by IN_MASTER. Returned here rather than from a
+                // second endpoint because the client already fetches and
+                // caches this response per release.
+                const versionResult = await session.run(`
+                    MATCH (:Release {release_id: $releaseId})-[:IN_MASTER]->(m:Master)
+                    MATCH (sib:Release)-[:IN_MASTER]->(m)
+                    WHERE coalesce(sib.status, 'ACTIVE') = 'ACTIVE'
+                    OPTIONAL MATCH (sib)<-[:RELEASED]-(l:Label)
+                    WITH m, sib, collect(DISTINCT l.name)[0] as labelName
+                    OPTIONAL MATCH (t:Track)-[:IN_RELEASE]->(sib)
+                    WITH m, sib, labelName, count(DISTINCT t) as trackCount
+                    RETURN m.master_id as master_id,
+                           m.name as master_name,
+                           collect({
+                               release_id: sib.release_id,
+                               name: sib.name,
+                               release_date: sib.release_date,
+                               format: sib.format,
+                               country: sib.country,
+                               catalog_number: sib.catalog_number,
+                               album_art: sib.album_art,
+                               is_master_release: coalesce(sib.is_master_release, false),
+                               label: labelName,
+                               track_count: trackCount
+                           }) as versions
+                `, { releaseId: req.params.releaseId });
+
+                let master = null;
+                let versions = [];
+                if (versionResult.records.length > 0) {
+                    const vr = versionResult.records[0];
+                    master = { master_id: vr.get('master_id'), name: vr.get('master_name') };
+                    versions = orderEditions(vr.get('versions').map(v => ({
+                        ...v,
+                        format: normalizeFormat(v.format),
+                        track_count: toInt(v.track_count)
+                    })));
+                    // Label each edition by what distinguishes it from its
+                    // siblings. Computed here, with the whole set in hand, so
+                    // the client renders a string rather than re-deriving the
+                    // comparison against data it would have to hold anyway.
+                    versions = versions.map(v => ({ ...v, label: editionLabel(v, versions) }));
+                }
+
                 res.json({
                     success: true,
                     data: {
                         ...release,
+                        format: normalizeFormat(release.format),
                         tracks: record.get('tracks').filter(t => t.track !== null),
                         labels: record.get('labels').filter(l => l.label !== null),
                         groups,
-                        guests
+                        guests,
+                        master,
+                        versions
                     }
                 });
             } finally {
@@ -446,7 +497,7 @@ export function createEntityRoutes({ db, config }) {
             try {
                 const result = await session.run(`
                     MATCH (l:Label {label_id: $labelId})
-                    OPTIONAL MATCH (l)<-[:RELEASED]-(r:Release)
+                    OPTIONAL MATCH (l)-[:RELEASED]->(r:Release)
 
                     RETURN l,
                            collect(DISTINCT {

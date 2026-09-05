@@ -105,6 +105,28 @@
                                 </div>
                             </div>
 
+                            <!-- Catalogue number and country are what separate one
+                                 edition of an album from another, and both are part of
+                                 the release fingerprint. The form collected neither, so
+                                 a CD remaster fingerprinted identically to the original
+                                 pressing and MERGEd onto the same node, overwriting it. -->
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="release-catalog-number">Catalogue Number</label>
+                                    <input type="text" id="release-catalog-number" name="release_catalog_number"
+                                           placeholder="e.g. INT 493 425-2">
+                                    <small>From the spine or disc. This is the strongest way to
+                                           tell two editions apart &mdash; add it if you have it.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="release-country">Country</label>
+                                    <input type="text" id="release-country" name="release_country"
+                                           placeholder="e.g. US, UK, Europe, Japan">
+                                    <small>Country of this pressing, not of the band.</small>
+                                </div>
+                            </div>
+
                             <div class="form-group">
                                 <label for="liner-notes">Liner Notes</label>
                                 <textarea id="liner-notes" name="liner_notes" rows="4"

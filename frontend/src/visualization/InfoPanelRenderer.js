@@ -373,11 +373,75 @@ export class InfoPanelRenderer {
     }
 
     /**
+     * Build the edition switcher for a release, or null when there is nothing
+     * to switch between.
+     *
+     * Editions of one album — original pressing, CD remaster, deluxe reissue —
+     * are separate Release nodes with separate tracklists, joined by IN_MASTER.
+     * The backend returns them ordered oldest-first in `release.versions`, each
+     * already carrying a `label` naming what makes it different, so this only
+     * has to render position and wire the arrows.
+     *
+     * @param {Object} release
+     * @returns {HTMLElement|null}
+     */
+    _renderEditionSwitcher(release) {
+        const versions = Array.isArray(release.versions) ? release.versions : [];
+        // One edition is not a set. Showing "1 of 1" with two dead arrows is
+        // worse than showing nothing.
+        if (versions.length < 2) return null;
+
+        const index = versions.findIndex(v => v.release_id === release.release_id);
+        if (index === -1) return null;
+
+        const go = (delta) => {
+            const target = versions[index + delta];
+            if (target) this.callbacks.switchToEdition(target.release_id);
+        };
+
+        const arrow = (delta, glyph, label) => {
+            const target = versions[index + delta];
+            return this._el('button', {
+                className: 'info-edition__arrow',
+                type: 'button',
+                disabled: !target,
+                title: target ? `${label}: ${target.label}` : `No ${label.toLowerCase()}`,
+                'aria-label': target ? `${label}: ${target.label}` : `No ${label.toLowerCase()}`,
+                onClick: (e) => { e.stopPropagation(); go(delta); }
+            }, glyph);
+        };
+
+        const current = versions[index];
+        return this._el('div', {
+            className: 'info-edition',
+            role: 'group',
+            'aria-label': 'Release edition'
+        },
+            arrow(-1, '\u2039', 'Earlier edition'),
+            this._el('span', { className: 'info-edition__label' },
+                this._el('span', { className: 'info-edition__count' },
+                    `Edition ${index + 1} of ${versions.length}`),
+                current.label
+                    ? this._el('span', { className: 'info-edition__detail' }, current.label)
+                    : null),
+            arrow(1, '\u203A', 'Later edition')
+        );
+    }
+
+    /**
      * Render Release details in info panel.
      */
     renderReleaseDetails(release, titleElement, contentElement) {
         titleElement.textContent = release.name || 'Unknown Release';
         contentElement.replaceChildren();
+
+        // Edition switcher, before the artwork so it reads as a control over
+        // everything below it — the whole body is re-rendered when it moves.
+        // Built inside the rendered body rather than into the static
+        // .info-header, so it is torn down automatically when a non-release
+        // node is selected next.
+        const switcher = this._renderEditionSwitcher(release);
+        if (switcher) contentElement.appendChild(switcher);
 
         if (release.album_art) {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },

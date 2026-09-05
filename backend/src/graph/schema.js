@@ -1630,19 +1630,56 @@ constructor(config = {}) {
 
             // ========== 6. LINK MASTER AND LABELS ==========
 
-            if (normalizedBundle.release.master_id) {
+            // Every Release belongs to a Master, including an original that
+            // nothing reissues yet. Creating the Master only for reissues left
+            // originals with no IN_MASTER edge, so the grouping node blinked
+            // into existence only once somebody submitted a second edition —
+            // and until then there was nothing for a reissue to point at.
+            // docs/graph-example-spec-sheet.md counts 1 Master for a bundle
+            // with `master_release: [true, null]`, i.e. the original
+            // self-links, with the Master carrying the release's own id.
+            //
+            // A submitter who named a master without picking one from the
+            // registry still self-links; the typed name is kept on the Master
+            // so a curator can join the two with MERGE_ENTITY later. Guessing
+            // an id from a free-text name would fabricate a link.
+            {
+                const masterId = normalizedBundle.release.master_id || releaseId;
+                const isSelfMaster = masterId === releaseId;
+
                 await tx.run(`
                     MERGE (m:Master {master_id: $masterId})
                     ON CREATE SET m.id = $masterId,
-                                 m.name = $masterName,
                                  m.created_at = datetime({epochMillis: $eventTs})
+                    SET m.name = coalesce(m.name, $masterName),
+                        m.status = coalesce(m.status, $status)
                     WITH m
                     MATCH (r:Release {release_id: $releaseId})
+                    // r.master_id is read by /api/group/:groupId/releases,
+                    // which selected it long before anything wrote it.
+                    SET r.master_id = $masterId,
+                        r.is_master_release = $isSelfMaster
+
+                    // A Release belongs to exactly one Master. Without this a
+                    // release that self-linked and is later reassigned to a
+                    // real master keeps both edges, and the sibling query
+                    // returns the union of two unrelated edition sets.
+                    WITH m, r
+                    OPTIONAL MATCH (r)-[stale:IN_MASTER]->(other:Master)
+                    WHERE other.master_id <> $masterId
+                    DELETE stale
+
+                    WITH DISTINCT m, r
                     MERGE (r)-[:IN_MASTER]->(m)
                 `, {
                     eventTs,
-                    masterId: normalizedBundle.release.master_id,
+                    masterId,
                     masterName: normalizedBundle.release.master_name || normalizedBundle.release.name,
+                    // The GraphQL release resolver filters masters on
+                    // `status = 'ACTIVE'`. Creation never set the property, so
+                    // that lookup matched nothing and always returned null.
+                    status: 'ACTIVE',
+                    isSelfMaster,
                     releaseId
                 });
             }
@@ -2889,10 +2926,15 @@ constructor(config = {}) {
                 break;
 
             case 'release':
+                // Editions of one album differ by date, catalogue number,
+                // format and country — all four are passed so that a CD
+                // remaster does not MERGE into the original pressing.
                 fingerprint = IdentityService.releaseFingerprint({
                     title: data.name || data.release_name,
-                    date: data.release_date || data.year,
-                    catalog_number: data.catalog_number
+                    release_date: data.release_date || data.year,
+                    catalog_number: data.catalog_number,
+                    format: data.format,
+                    country: data.country
                 });
                 break;
 

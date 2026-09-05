@@ -269,6 +269,16 @@ class PolarisApp {
         const format = formData.get('release_format');
         if (format) release.format = format; // string, not array
 
+        // Edition discriminators. Both are in releaseBundle.schema.json and
+        // both are SET on the Release node, but nothing collected them, so
+        // every edition of an album fingerprinted the same and collapsed into
+        // one node. Trimmed because a trailing space would fork the id.
+        const catalogNumber = (formData.get('release_catalog_number') || '').trim();
+        if (catalogNumber) release.catalog_number = catalogNumber;
+
+        const country = (formData.get('release_country') || '').trim();
+        if (country) release.country = country;
+
         const linerNotes = formData.get('liner_notes');
         if (linerNotes) release.liner_notes = linerNotes;
 

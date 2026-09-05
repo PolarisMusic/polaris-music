@@ -106,6 +106,7 @@ function makeStub() {
         callbacks: {
             attachNavLinkListeners: jest.fn(),
             playTrack: jest.fn(),
+            switchToEdition: jest.fn(),
         },
         // Visible inspection points for tests that don't snapshot.
         _editorCalls: editorCalls,
@@ -114,6 +115,7 @@ function makeStub() {
     // _el / _appendEditableRow flows through to the snapshot layer.
     stub._el = compileMethod('_el').bind(stub);
     stub._appendEditableRow = compileMethod('_appendEditableRow').bind(stub);
+    stub._renderEditionSwitcher = compileMethod('_renderEditionSwitcher').bind(stub);
     return stub;
 }
 
@@ -566,5 +568,128 @@ describe('Stage K · per-track play controls', () => {
 
         buttons[1].click();
         expect(stub.callbacks.playTrack).toHaveBeenCalledWith('rel:sftd', 'trk:3');
+    });
+});
+
+describe('Stage K · edition switcher', () => {
+    /**
+     * Editions of one album — original pressing, CD remaster, deluxe reissue —
+     * are separate Release nodes sharing a Master. The switcher steps between
+     * them. The backend supplies `versions` already ordered oldest-first, each
+     * carrying the `label` that names what makes it different, so this layer is
+     * only responsible for position, disabled ends, and calling through.
+     */
+    const EDITIONS = [
+        { release_id: 'rel:orig', name: 'Songs For The Deaf', label: '2002 · CD' },
+        { release_id: 'rel:remaster', name: 'Songs For The Deaf', label: '2010 · CD' },
+        { release_id: 'rel:deluxe', name: 'Songs For The Deaf', label: '2019 · LP' },
+    ];
+
+    const releaseAt = (index, versions = EDITIONS) => ({
+        name: 'Songs For The Deaf',
+        release_id: versions[index].release_id,
+        versions,
+    });
+
+    function render(release) {
+        const stub = makeStub();
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderReleaseDetails').call(stub, release, titleElement, contentElement);
+        return { stub, contentElement };
+    }
+
+    const arrows = (el) => el.querySelectorAll('.info-edition__arrow');
+
+    test('no switcher at all when the release is the only edition', () => {
+        // "1 of 1" beside two dead arrows is noise, not information.
+        const { contentElement } = render({
+            name: 'Rated R', release_id: 'rel:r', versions: [{ release_id: 'rel:r' }],
+        });
+        expect(contentElement.querySelector('.info-edition')).toBeNull();
+    });
+
+    test('no switcher when the endpoint returned no versions at all', () => {
+        const { contentElement } = render({ name: 'Rated R', release_id: 'rel:r' });
+        expect(contentElement.querySelector('.info-edition')).toBeNull();
+    });
+
+    test('reports position within the edition run', () => {
+        const { contentElement } = render(releaseAt(1));
+        expect(contentElement.querySelector('.info-edition__count').textContent)
+            .toBe('Edition 2 of 3');
+    });
+
+    test('names the current edition by what distinguishes it', () => {
+        const { contentElement } = render(releaseAt(2));
+        expect(contentElement.querySelector('.info-edition__detail').textContent)
+            .toBe('2019 · LP');
+    });
+
+    test('the earlier arrow is disabled on the first edition, the later one is not', () => {
+        const [back, forward] = arrows(render(releaseAt(0)).contentElement);
+        expect(back.disabled).toBe(true);
+        expect(forward.disabled).toBe(false);
+    });
+
+    test('the later arrow is disabled on the last edition', () => {
+        const [back, forward] = arrows(render(releaseAt(2)).contentElement);
+        expect(back.disabled).toBe(false);
+        expect(forward.disabled).toBe(true);
+    });
+
+    test('both arrows are live in the middle of the run', () => {
+        const [back, forward] = arrows(render(releaseAt(1)).contentElement);
+        expect(back.disabled).toBe(false);
+        expect(forward.disabled).toBe(false);
+    });
+
+    test('the arrows move to the adjacent editions, not to the ends', () => {
+        // Four editions, viewed from the second: the neighbours are distinct
+        // from the ends. With only three the two are indistinguishable, and an
+        // implementation that jumped straight to the ends would pass.
+        const four = [
+            { release_id: 'rel:a', label: '2002' },
+            { release_id: 'rel:b', label: '2004' },
+            { release_id: 'rel:c', label: '2010' },
+            { release_id: 'rel:d', label: '2019' },
+        ];
+        const { stub, contentElement } = render(releaseAt(1, four));
+        const [back, forward] = arrows(contentElement);
+
+        back.click();
+        expect(stub.callbacks.switchToEdition).toHaveBeenLastCalledWith('rel:a');
+
+        forward.click();
+        expect(stub.callbacks.switchToEdition).toHaveBeenLastCalledWith('rel:c');
+        expect(stub.callbacks.switchToEdition).not.toHaveBeenCalledWith('rel:d');
+    });
+
+    test('a disabled end arrow does not call through when clicked', () => {
+        const { stub, contentElement } = render(releaseAt(0));
+        arrows(contentElement)[0].click();
+        expect(stub.callbacks.switchToEdition).not.toHaveBeenCalled();
+    });
+
+    test('each arrow says where it goes, so the target is knowable before clicking', () => {
+        const [back, forward] = arrows(render(releaseAt(1)).contentElement);
+        expect(back.getAttribute('title')).toBe('Earlier edition: 2002 · CD');
+        expect(forward.getAttribute('aria-label')).toBe('Later edition: 2019 · LP');
+    });
+
+    test('renders nothing when the shown release is not in its own version list', () => {
+        // A stale cached response should not produce arrows that jump the
+        // reader somewhere unrelated.
+        const { contentElement } = render({
+            name: 'Songs For The Deaf', release_id: 'rel:ghost', versions: EDITIONS,
+        });
+        expect(contentElement.querySelector('.info-edition')).toBeNull();
+    });
+
+    test('the switcher precedes the release body it controls', () => {
+        const { contentElement } = render({
+            ...releaseAt(1),
+            album_art: 'http://example.test/art.jpg',
+        });
+        expect(contentElement.firstElementChild.className).toBe('info-edition');
     });
 });

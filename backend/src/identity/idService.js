@@ -269,7 +269,18 @@ export class IdentityService {
     }
 
     /**
-     * Generate release fingerprint
+     * Generate release fingerprint.
+     *
+     * A Release is one *edition* of a work, not the work itself — the original
+     * pressing, the CD remaster and the deluxe reissue are three Releases that
+     * share one Master. So everything that distinguishes an edition belongs in
+     * the fingerprint, or the editions collide into a single node and the
+     * second submission overwrites the first's properties.
+     *
+     * `date` is accepted alongside `release_date`/`year` deliberately: callers
+     * in this repo pass all three spellings, and reading only two of them
+     * silently dropped the date from every fingerprint, which made every
+     * same-titled release in the registry one node.
      *
      * @param {Object} data - Release data
      * @returns {Object} Fingerprint
@@ -278,9 +289,13 @@ export class IdentityService {
         return {
             type: 'release',
             title: this.normalizeName(data.title || data.release_name),
-            date: data.release_date || data.year,
-            // Optional: catalog number if available
-            ...(data.catalog_number && { catalog: data.catalog_number })
+            date: data.release_date || data.year || data.date,
+            // Optional edition discriminators. Each is included only when
+            // present so that adding one later to an existing record does not
+            // retroactively change ids for releases that never had it.
+            ...(data.catalog_number && { catalog: data.catalog_number }),
+            ...(data.format && { format: this.normalizeName(data.format) }),
+            ...(data.country && { country: this.normalizeName(data.country) })
         };
     }
 
