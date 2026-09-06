@@ -245,6 +245,31 @@ Default: `http://localhost:3000/api`
 
 ## Testing the Form
 
+### Running the end-to-end suite
+
+```bash
+cd frontend
+npm install
+VITE_CHAIN_PROFILE=jungle4 npm run build
+PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome \
+  CI=true npx playwright test
+```
+
+**`VITE_CHAIN_PROFILE` is not optional.** Chain config is baked in at build
+time, and a production build without it throws
+`VITE_CHAIN_PROFILE is required in production builds` from
+`resolveChainConfig()` — at *module load*, before
+`index.html`'s DOMContentLoaded handler reaches `new MusicGraph()`. Playwright
+then reports "The app never finished booting", which reads like a code
+regression and is not one: it is the build, not the app. `.github/workflows/
+frontend-ci.yml` sets `jungle4`; match it locally. Nothing about this is
+visible from the build output, which succeeds either way.
+
+Chromium is preinstalled in the dev container — do **not** run
+`npx playwright install`. Point `PLAYWRIGHT_CHROMIUM_PATH` at the existing
+binary instead; the version there may not match the revision this Playwright
+expects, and the mismatch surfaces as "Executable doesn't exist".
+
 ### Manual Testing Checklist
 
 - [ ] Basic release info saves correctly

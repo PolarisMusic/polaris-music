@@ -12,6 +12,7 @@
 
 import neo4j from 'neo4j-driver';
 import { safeClose } from '../graph/safeTx.js';
+import { enrichResults } from './searchContext.js';
 
 // Labels eligible for search
 const SEARCHABLE_LABELS = ['Person', 'Group', 'Release', 'Track', 'Song', 'Label', 'City'];
@@ -38,7 +39,10 @@ function normalizeResult(properties, label, score) {
                 id: p.person_id || p.id,
                 type: 'Person',
                 display_name: p.name || 'Unknown Person',
-                subtitle: p.city || null,
+                // Ingestion writes origin_city_name (there is even an index on
+                // it); nothing in backend/src has ever written p.city, so this
+                // subtitle was unconditionally null.
+                subtitle: p.origin_city_name || p.city || null,
                 image: p.photo || null,
                 color: p.color || null,
                 score
@@ -149,7 +153,10 @@ export class NodeSearchService {
                 this._idSearch(session, query, types, limit)
             ]);
 
-            return this._mergeResults(idResults, textResults, limit);
+            const merged = this._mergeResults(idResults, textResults, limit);
+            // Enrich only the page being returned, so the cost is bounded by
+            // `limit` rather than by how many nodes matched.
+            return await enrichResults(session, merged);
         } finally {
             await safeClose(session);
         }

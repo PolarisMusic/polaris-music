@@ -150,6 +150,24 @@ export class EntityLookupField {
                 item.appendChild(idSpan);
             }
 
+            // Disambiguating context on its own line: the groups a person
+            // played in, a group's roster and active years, a release's
+            // pressing details. Two musicians with the same name are
+            // indistinguishable from the name alone, and picking the wrong one
+            // attaches a credit to the wrong person silently.
+            const context = Array.isArray(result.context) ? result.context.filter(Boolean) : [];
+            if (context.length > 0) {
+                const ctx = document.createElement('span');
+                ctx.className = 'entity-lookup-context';
+                context.forEach((chip) => {
+                    const el = document.createElement('span');
+                    el.className = 'entity-lookup-chip';
+                    el.textContent = chip;
+                    ctx.appendChild(el);
+                });
+                item.appendChild(ctx);
+            }
+
             item.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 this._select(result);

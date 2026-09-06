@@ -177,7 +177,7 @@ down. It is the page that talks to wallets and the API.
 | Topology | Single VPS, docker-compose, no K8s |
 | Frontend domain | `polaris.mu` |
 | API domain | `api.polaris.mu` |
-| Wallet for testers | CloudWallet (no install) |
+| Wallet for testers | Anchor (CloudWallet does not support Jungle4 — see Phase 7) |
 
 ---
 
@@ -537,11 +537,28 @@ key-compromise scenario.
 
 1. Open `https://polaris.mu` in an incognito window.
 
-2. Click "Connect Wallet" → **CloudWallet**.
+2. Click "Connect Wallet" → **Anchor**.
 
-3. Create or sign into CloudWallet. Choose Jungle4 network when prompted.
+   > **Anchor is the only wallet that works on Jungle4.** CloudWallet is
+   > registered as a plugin in `frontend/src/wallet/WalletManager.js`, but its
+   > `supportedChains` list holds WAX mainnet
+   > (`1064487b3cd1a897ce03ae5b6a865651747e2e152090f99c1d19d44e01aea5a4`) and
+   > nothing else, so WharfKit filters it out of the modal on Jungle4
+   > (`73e4385a2708e6d7048834fbc1079f2fabb17b3c125b146af438971e90716c4d`) — it
+   > will not be offered. Even if it were, `mycloudwallet.com` is absent from
+   > the `connect-src` of both `frontend/index.html` and `frontend/submit.html`,
+   > so its calls would be blocked by CSP. Enabling it needs both changes, plus
+   > a chain it actually supports. Earlier revisions of this runbook told you to
+   > click CloudWallet here; that step could never have worked.
 
-4. If it's a new account, get it funded from the Jungle4 faucet.
+3. Install Anchor (desktop or phone) and create a Jungle4 account in it, or
+   import one you already have.
+
+4. If it's a new account, get it funded from the Jungle4 faucet. It also needs
+   RAM of its own: `put()` bills the `anchors` and `tallies` rows to the
+   submitting account, so a zero-RAM account can browse, like and vote but
+   cannot submit. Measure what a submission actually costs with
+   `node backend/scripts/measureRam.js <account> --watch`.
 
 5. Fill in a test release:
    - Release: `Smoke Test EP`

@@ -24,6 +24,7 @@
  *   renderGroupDetails(group, titleElement, contentElement, nodeId)
  *   renderPersonDetails(person, titleElement, contentElement, nodeId)
  *   renderReleaseDetails(release, titleElement, contentElement)
+ *   _renderEditionSwitcher(release)                 → HTMLElement | null
  *   showReleaseDetailsInInfoPanel(release)              entry from overlay
  *   renderCurateRow(op)                             → HTMLElement
  *   renderCurateDetail(container, resp, op)
@@ -54,6 +55,11 @@ export class InfoPanelRenderer {
      * @param {(releaseId: string, trackId: string) => void} deps.callbacks.playTrack
      *   Point the player at one track of a release. Lives on MusicGraph because
      *   the player instance does.
+     * @param {(releaseId: string) => void} deps.callbacks.switchToEdition
+     *   Swap the panel to a sibling edition of the release it is showing.
+     *   Distinct from navigateToRelease: editions share a performing group, so
+     *   graph navigation would re-centre on the node already centred and reset
+     *   the orbit overlay under the reader.
      */
     constructor({ inlineEditor, callbacks }) {
         this.inlineEditor = inlineEditor;
@@ -373,11 +379,75 @@ export class InfoPanelRenderer {
     }
 
     /**
+     * Build the edition switcher for a release, or null when there is nothing
+     * to switch between.
+     *
+     * Editions of one album — original pressing, CD remaster, deluxe reissue —
+     * are separate Release nodes with separate tracklists, joined by IN_MASTER.
+     * The backend returns them ordered oldest-first in `release.versions`, each
+     * already carrying an `edition_label` naming what makes it different, so
+     * this only has to render position and wire the arrows.
+     *
+     * @param {Object} release
+     * @returns {HTMLElement|null}
+     */
+    _renderEditionSwitcher(release) {
+        const versions = Array.isArray(release.versions) ? release.versions : [];
+        // One edition is not a set. Showing "1 of 1" with two dead arrows is
+        // worse than showing nothing.
+        if (versions.length < 2) return null;
+
+        const index = versions.findIndex(v => v.release_id === release.release_id);
+        if (index === -1) return null;
+
+        const go = (delta) => {
+            const target = versions[index + delta];
+            if (target) this.callbacks.switchToEdition(target.release_id);
+        };
+
+        const arrow = (delta, glyph, label) => {
+            const target = versions[index + delta];
+            return this._el('button', {
+                className: 'info-edition__arrow',
+                type: 'button',
+                disabled: !target,
+                title: target ? `${label}: ${target.edition_label}` : `No ${label.toLowerCase()}`,
+                'aria-label': target ? `${label}: ${target.edition_label}` : `No ${label.toLowerCase()}`,
+                onClick: (e) => { e.stopPropagation(); go(delta); }
+            }, glyph);
+        };
+
+        const current = versions[index];
+        return this._el('div', {
+            className: 'info-edition',
+            role: 'group',
+            'aria-label': 'Release edition'
+        },
+            arrow(-1, '\u2039', 'Earlier edition'),
+            this._el('span', { className: 'info-edition__label' },
+                this._el('span', { className: 'info-edition__count' },
+                    `Edition ${index + 1} of ${versions.length}`),
+                current.edition_label
+                    ? this._el('span', { className: 'info-edition__detail' }, current.edition_label)
+                    : null),
+            arrow(1, '\u203A', 'Later edition')
+        );
+    }
+
+    /**
      * Render Release details in info panel.
      */
     renderReleaseDetails(release, titleElement, contentElement) {
         titleElement.textContent = release.name || 'Unknown Release';
         contentElement.replaceChildren();
+
+        // Edition switcher, before the artwork so it reads as a control over
+        // everything below it — the whole body is re-rendered when it moves.
+        // Built inside the rendered body rather than into the static
+        // .info-header, so it is torn down automatically when a non-release
+        // node is selected next.
+        const switcher = this._renderEditionSwitcher(release);
+        if (switcher) contentElement.appendChild(switcher);
 
         if (release.album_art) {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },
@@ -396,9 +466,19 @@ export class InfoPanelRenderer {
 
         // Labels
         if (release.labels && release.labels.length > 0) {
-            const labelText = release.labels.map(l => l.label || l.name).join(', ');
+            // Each label is named with its own catalogue number, because a
+            // co-issued record carries a different number from each issuer and
+            // flattening them to one list loses which number came from whom.
+            const labelText = release.labels
+                .map((l) => {
+                    const name = l.label || l.name;
+                    return l.catalog_number ? `${name} (${l.catalog_number})` : name;
+                })
+                .filter(Boolean)
+                .join(', ');
             contentElement.appendChild(this._el('p', { className: 'info-meta' },
-                this._el('strong', null, 'Label:'), ' ', labelText));
+                this._el('strong', null,
+                    release.labels.length > 1 ? 'Labels:' : 'Label:'), ' ', labelText));
         }
 
         // Groups

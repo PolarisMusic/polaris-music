@@ -1630,24 +1630,62 @@ constructor(config = {}) {
 
             // ========== 6. LINK MASTER AND LABELS ==========
 
-            if (normalizedBundle.release.master_id) {
+            // Every Release belongs to a Master, including an original that
+            // nothing reissues yet. Creating the Master only for reissues left
+            // originals with no IN_MASTER edge, so the grouping node blinked
+            // into existence only once somebody submitted a second edition —
+            // and until then there was nothing for a reissue to point at.
+            // docs/graph-example-spec-sheet.md counts 1 Master for a bundle
+            // with `master_release: [true, null]`, i.e. the original
+            // self-links, with the Master carrying the release's own id.
+            //
+            // A submitter who named a master without picking one from the
+            // registry still self-links; the typed name is kept on the Master
+            // so a curator can join the two with MERGE_ENTITY later. Guessing
+            // an id from a free-text name would fabricate a link.
+            {
+                const masterId = normalizedBundle.release.master_id || releaseId;
+                const isSelfMaster = masterId === releaseId;
+
                 await tx.run(`
                     MERGE (m:Master {master_id: $masterId})
                     ON CREATE SET m.id = $masterId,
-                                 m.name = $masterName,
                                  m.created_at = datetime({epochMillis: $eventTs})
+                    SET m.name = coalesce(m.name, $masterName),
+                        m.status = coalesce(m.status, $status)
                     WITH m
                     MATCH (r:Release {release_id: $releaseId})
+                    // r.master_id is read by /api/group/:groupId/releases,
+                    // which selected it long before anything wrote it.
+                    SET r.master_id = $masterId,
+                        r.is_master_release = $isSelfMaster
+
+                    // A Release belongs to exactly one Master. Without this a
+                    // release that self-linked and is later reassigned to a
+                    // real master keeps both edges, and the sibling query
+                    // returns the union of two unrelated edition sets.
+                    WITH m, r
+                    OPTIONAL MATCH (r)-[stale:IN_MASTER]->(other:Master)
+                    WHERE other.master_id <> $masterId
+                    DELETE stale
+
+                    WITH DISTINCT m, r
                     MERGE (r)-[:IN_MASTER]->(m)
                 `, {
                     eventTs,
-                    masterId: normalizedBundle.release.master_id,
+                    masterId,
                     masterName: normalizedBundle.release.master_name || normalizedBundle.release.name,
+                    // The GraphQL release resolver filters masters on
+                    // `status = 'ACTIVE'`. Creation never set the property, so
+                    // that lookup matched nothing and always returned null.
+                    status: 'ACTIVE',
+                    isSelfMaster,
                     releaseId
                 });
             }
 
             // Link labels
+            const labelCount = (normalizedBundle.release.labels || []).length;
             for (const label of normalizedBundle.release.labels || []) {
                 const labelId = await this.resolveEntityId(tx, 'label', label);
                 recordResolved('label', label.label_id, labelId);
@@ -1664,7 +1702,15 @@ constructor(config = {}) {
 
                     WITH l
                     MATCH (r:Release {release_id: $releaseId})
-                    MERGE (l)-[:RELEASED]->(r)
+                    // The catalogue number belongs to the pairing, not to
+                    // either end: a record co-issued by two labels carries a
+                    // different number from each, so one scalar on the Release
+                    // can only ever record one of them.
+                    MERGE (l)-[rel:RELEASED]->(r)
+                    // coalesce so a later submission that says nothing about
+                    // the catalogue number does not wipe one already recorded;
+                    // a submission that names one still wins.
+                    SET rel.catalog_number = coalesce($catalogNumber, rel.catalog_number)
                 `, {
                     labelId,
                     labelName: label.name,
@@ -1673,6 +1719,14 @@ constructor(config = {}) {
                     altNames: label.alt_names || [],
                     parentLabelName: label.parent_label?.name || null,
                     parentLabelId: label.parent_label?.label_id || null,
+                    // The release-wide number is inherited only by a lone
+                    // label. On a co-issue it belongs to one of the issuers and
+                    // we do not know which, so stamping it on every edge would
+                    // assert that each of them used the same number — which is
+                    // exactly what a co-issue does not do.
+                    catalogNumber: label.catalog_number
+                        || (labelCount === 1 ? normalizedBundle.release.catalog_number : null)
+                        || null,
                     releaseId
                 });
 
@@ -2799,6 +2853,31 @@ constructor(config = {}) {
                 return data[explicitIdField];
             }
 
+            // If it's provisional, honour it when it names a node that is
+            // really there. Without this branch a provisional id fell through
+            // to step 3 and was *regenerated from the fingerprint of the
+            // submitted name* — so a submitter who picked the right "John
+            // Williams" out of the typeahead still got a different node the
+            // moment the typed name diverged from the stored one by a stray
+            // space, an accent or a Discogs "(2)" suffix. Showing richer
+            // metadata in the picker only makes that failure easier to see;
+            // it does not stop it.
+            if (parsedId.kind === 'provisional') {
+                const existingId = await this.resolveProvisionalId(
+                    session, type, data[explicitIdField]
+                );
+                if (existingId) {
+                    this.log.debug('provisional_id_honoured', {
+                        submitted: data[explicitIdField], resolved: existingId
+                    });
+                    return existingId;
+                }
+                // Nothing by that id: fall through and mint from the
+                // fingerprint. A provisional id the registry has never seen is
+                // a claim about a node, not evidence of one.
+                this.log.debug('provisional_id_unknown', { id: data[explicitIdField] });
+            }
+
             // If it's external, check IdentityMap
             if (parsedId.kind === 'external') {
                 const canonicalId = await MergeOperations.resolveExternalId(
@@ -2849,6 +2928,55 @@ constructor(config = {}) {
     }
 
     /**
+     * Resolve a provisional id the submitter picked from the typeahead to the
+     * id of the node it actually names.
+     *
+     * Returns null when no such node exists, so the caller can fall back to
+     * minting one from the fingerprint. Follows MERGED_INTO so that picking an
+     * entity a curator has since deduplicated lands on the survivor rather
+     * than writing to a tombstone — the same convention
+     * MergeOperations.resolveToCanonical uses.
+     *
+     * @param {Object} session - Neo4j session or transaction
+     * @param {string} type - Entity type (person, group, release, …)
+     * @param {string} provisionalId - Id of the form prov:{type}:{hash}
+     * @returns {Promise<string|null>} resolved id, or null if unknown
+     */
+    async resolveProvisionalId(session, type, provisionalId) {
+        // Label and id field come from the SAFE_NODE_TYPES allowlist; nothing
+        // caller-supplied is interpolated into the query.
+        const nodeType = SAFE_NODE_TYPES[String(type).toLowerCase()];
+        if (!nodeType) return null;
+        const { label, idField } = nodeType;
+
+        try {
+            const result = await session.run(`
+                MATCH (n:${label} {${idField}: $provisionalId})
+                OPTIONAL MATCH path = (n)-[:MERGED_INTO*1..10]->(survivor:${label})
+                WITH n, survivor, length(path) AS hops
+                ORDER BY hops DESC
+                // collect() drops nulls, so an unmerged node yields an empty
+                // list and [0] is null — coalesce then falls back to n. The
+                // ORDER BY picks the furthest survivor when a chain of merges
+                // has stacked up. Aliased to winner rather than reusing
+                // survivor, which would shadow the variable being aggregated.
+                WITH n, collect(survivor)[0] AS winner
+                RETURN coalesce(winner.${idField}, n.${idField}) AS resolvedId
+            `, { provisionalId });
+
+            if (result.records.length === 0) return null;
+            return result.records[0].get('resolvedId') || null;
+        } catch (error) {
+            // A lookup failure must not fabricate a binding. Fall back to
+            // minting, which is the behaviour that existed before.
+            this.log.warn('provisional_id_lookup_failed', {
+                id: provisionalId, error: error.message
+            });
+            return null;
+        }
+    }
+
+    /**
      * Generate deterministic provisional ID using IdentityService.
      * This replaces the old hash-based method with the new fingerprint approach.
      *
@@ -2889,10 +3017,16 @@ constructor(config = {}) {
                 break;
 
             case 'release':
+                // Editions of one album differ by date, catalogue number,
+                // format and country — all four are passed so that a CD
+                // remaster does not MERGE into the original pressing.
                 fingerprint = IdentityService.releaseFingerprint({
                     title: data.name || data.release_name,
-                    date: data.release_date || data.year,
-                    catalog_number: data.catalog_number
+                    release_date: data.release_date || data.year,
+                    catalog_number: data.catalog_number,
+                    format: data.format,
+                    country: data.country,
+                    labels: data.labels
                 });
                 break;
 

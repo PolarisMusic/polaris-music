@@ -71,6 +71,7 @@ export class MusicGraph {
                 selectCurateOperation: (op) => this._selectCurateOperation(op),
                 voteFromDetail: (op, val, memo) => this._curateVoteFromDetail(op, val, memo),
                 playTrack: (releaseId, trackId) => this._playTrack(releaseId, trackId),
+                switchToEdition: (releaseId) => this._switchToEdition(releaseId),
             },
         });
         this.overlayPositioner = new OverlayPositioner({
@@ -1329,6 +1330,30 @@ export class MusicGraph {
             await this._navigateToGroupAndSelectRelease(groupId, releaseId, release);
         } catch (error) {
             console.error('Failed to navigate to release:', releaseId, error);
+        }
+    }
+
+    /**
+     * Swap the info panel to a sibling edition of the release it is showing.
+     *
+     * Deliberately not _navigateToRelease: the editions of an album share a
+     * performing group, so moving the hypertree would re-centre on the node it
+     * is already centred on and reset the orbit overlay under the reader. The
+     * switcher changes what the panel shows, nothing else.
+     *
+     * @param {string} releaseId
+     */
+    async _switchToEdition(releaseId) {
+        try {
+            const resp = await this.api.fetchReleaseDetails(releaseId);
+            const release = resp && resp.data ? resp.data : null;
+            if (!release) {
+                console.warn('Edition not found:', releaseId);
+                return;
+            }
+            this.infoPanel.showReleaseDetailsInInfoPanel(release);
+        } catch (error) {
+            console.error('Failed to switch edition:', releaseId, error);
         }
     }
 

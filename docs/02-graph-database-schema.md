@@ -937,8 +937,8 @@ CONSIDER THIS SECTION CANONICAL
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
 | Song | Musical composition | song_id, title, iswc, writers |
 | Track | Recording of a song | track_id, title, isrc, duration, listen_links, lyrics, trivia |
-| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, listen_links |
-| Master | Canonical album grouping | master_id, name |
+| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, country, catalog_number *(release-wide fallback; see below)*, listen_links, master_id, is_master_release |
+| Master | Canonical album grouping | master_id, name, status |
 | Label | Record label | label_id, name |
 | Account | Blockchain account | account_id |
 | City | Geographic location | city_id, name, lat, lon |
@@ -947,6 +947,120 @@ CONSIDER THIS SECTION CANONICAL
 <!-- Media should link to a URL and then fetches the media from the URL to produce an IPFS address for the media -->
 | Media | Associated Media | url, media_id |
 
+
+## Editions and the Master node
+
+A **Release is one edition**, not a work: the original pressing, the CD
+remaster and the deluxe reissue are three Release nodes with three tracklists.
+A **Master** is the node that groups them, and every Release has exactly one
+`IN_MASTER` edge to it — including an original that nothing reissues yet, which
+self-links with `master_id` equal to its own `release_id`. That convention is
+what makes the reissue flow work: the submit form's master field searches
+**Releases**, so picking the original supplies its `release_id` and both
+editions land on the same Master.
+
+Two consequences worth stating, because both were violated in code:
+
+1. **Editions must fingerprint apart.** The provisional id for a Release is
+   built from normalized title + date + catalogue number + format + country
+   (`IdentityService.releaseFingerprint`). Drop any of those and two editions
+   MERGE onto one node, the second silently overwriting the first's properties.
+   Catalogue number is the strongest discriminator; the submit form collects it.
+
+   This deliberately trades false merges for false splits, and that trade is a
+   settled decision rather than an oversight. Including `format` means a
+   submitter who types "Compact Disc" where another typed "CD" creates a second
+   node for one edition. That is the better failure: a false split leaves two
+   nodes that `MERGE_ENTITY` (60) can join and `findPotentialDuplicates()` can
+   surface, whereas a false merge is **lossy** — the Release SET clause
+   overwrites the earlier edition's format, country and catalogue number, and
+   nothing records what was there before. Splits are recoverable; merges are
+   not.
+2. **`is_master_release` means "this Release *is* its group's Master node"** —
+   that its `master_id` equals its own `release_id` — not "the submitter ticked
+   the master box". The two usually agree, but a submitter who says "this is a
+   reissue" without naming a master still self-links, because there is no other
+   master to point at; the release is provisionally its own until a curator
+   joins the two with `MERGE_ENTITY`. The flag's only consumer is edition
+   ordering, where it breaks a date tie toward the original, and for that the
+   graph fact is the one that matters.
+
+3. **`IN_MASTER` is exclusive.** Reassigning a release to a different master
+   deletes the previous edge rather than adding a second, or a sibling query
+   returns the union of two unrelated edition sets. Reassignment can leave an
+   orphaned self-Master behind; that is harmless (Masters carry no other edges
+   and are not searchable) and is a curation cleanup, not an ingest concern.
+
+`GET /api/release/:releaseId` returns the siblings under `versions`, ordered
+oldest first, each with an `edition_label` naming what distinguishes it. Note
+that `label` on an edition row is the **record label**; the edition's own
+descriptor is `edition_label`.
+
+### Migration note: existing releases need a replay
+
+Both changes are retroactive in intent but not in effect.
+
+- **Release ids change.** The date was previously dropped from the release
+  fingerprint (the caller passed `date`, the fingerprint read `release_date`),
+  so every release already in the graph carries an id minted from its title
+  alone. With the date, format, country and issuing labels now included, the
+  same release fingerprints to a *different* provisional id. Nothing rewrites
+  the old nodes.
+- **Catalogue numbers move onto the `RELEASED` edge.** Existing edges carry no
+  `catalog_number`, so readers fall back to the release-level scalar until a
+  replay writes the edges.
+- **Existing releases have no Master.** `IN_MASTER` is written at ingest, so
+  releases already in the graph have no edge and no `master_id`, and the
+  switcher will not appear for them however many editions exist.
+
+The coherent fix for both is the same one the deployment runbook already
+documents: **replay the anchored events and let the graph rebuild.** The events
+are immutable on chain and the ids are deterministic, so a replay reconstructs
+every node under the corrected identity rules. See "Three things to know first"
+in `docs/deployment/testnet-deployment-plan.md` — in particular that the sink's
+`START_BLOCK` defaults to a short recent window, that resubmitting is not an
+option because the contract rejects a duplicate event hash, and that the API
+must be restarted before the replay or it answers `duplicate` and rebuilds
+nothing.
+
+Until a replay happens, old releases keep their old ids and no Master; new
+submissions get the corrected behaviour. The two coexist without error, they
+simply do not group together.
+
+## Labels are many, and the catalogue number belongs to the pairing
+
+A release is issued **by one or more labels**, and each issuer stamps its own
+catalogue number on it. A co-issue (two labels sharing a release), a licensed
+reissue (a different label putting out the same record years later) and a
+territorial split (one label in the US, another in the UK) are all ordinary,
+and all three break a model that assumes one label and one number.
+
+So:
+
+- `RELEASED` is a **Label → Release** edge and there may be several per release.
+  Every reader must return the whole set. Taking the first — which the sibling
+  editions query originally did with `collect(DISTINCT l.name)[0]` — silently
+  picks one issuer at random and discards the rest.
+- **`catalog_number` lives on the `RELEASED` edge**, not on either node,
+  because it is a fact about the pairing rather than about the label (which
+  issues thousands) or the release (which may have several). The submit form
+  collects it per label.
+- `Release.catalog_number` is retained as a release-wide fallback: it is what
+  the release-level form field writes, it is copied onto the edge when a label
+  supplies no number of its own, and it is what readers fall back to for rows
+  written before the number moved. When both exist, **the edge wins** — it is
+  the more specific claim.
+- The issuing labels participate in **release identity**. Sorted
+  `name|catalog` pairs go into the fingerprint via
+  `IdentityService.labelFingerprintPart`, so a Sub Pop original and a Geffen
+  reissue of the same album, same year, same format are two Releases rather
+  than one overwriting the other. Sorted because a release is co-issued *by a
+  set*: the order two names happen to be typed must not fork the node. A
+  release with no labels contributes nothing to the fingerprint, so it keeps
+  the id it would have had before labels counted.
+
+`editionLabel` names the issuing label whenever it is what differs across a
+master's editions — frequently it is the only thing that does.
 
 ## Relationship Types Summary
 
@@ -962,8 +1076,8 @@ CONSIDER THIS SECTION CANONICAL
 | COVER_OF | Track → Song | Cover version |
 | SAMPLES | Track → Track | Sampling relationship |
 | IN_RELEASE | Track → Release | Track appears on release |
-| IN_MASTER | Release → Master | Release variant of master |
-| RELEASED | Label → Release | Released by label |
+| IN_MASTER | Release → Master | Release variant of master (**exactly one per Release**) |
+| RELEASED | Label → Release | Released by label. Carries `catalog_number` — the number **this** label issued |
 | ORIGIN | Person|Group|Release|Label → City | Geographic origin |
 | SUBMITTED | Account → Any | Who submitted data |
 | REPRESENTS | Media → Any | What is represented in the linked media |

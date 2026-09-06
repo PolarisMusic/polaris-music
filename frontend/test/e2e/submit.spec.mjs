@@ -540,3 +540,76 @@ test.describe('filling track links from the release album link', () => {
         await expect(page.locator('#listen-link-report')).toContainText('No links to work from');
     });
 });
+
+test.describe('labels and their catalogue numbers', () => {
+    /**
+     * A release is issued by one or more labels, and each issuer stamps its own
+     * catalogue number on it. The number therefore belongs to the label-release
+     * pairing, and the form collects it per label.
+     *
+     * These drive the real form and read the real bundle, because the failure
+     * this guards against is invisible to unit tests: FormBuilder writes the
+     * input as `label-catalog-${index}` and PolarisApp reads it back by the
+     * same name. Nothing checks that those two strings agree, so a rename on
+     * either side silently drops the field — which is precisely how the release
+     * date came to be missing from every fingerprint (written as `date`, read
+     * as `release_date`).
+     */
+    async function addLabel(page, index, { name, catalog }) {
+        await page.click('#add-label');
+        await page.fill(`[name="label-name-${index}"]`, name);
+        if (catalog !== undefined) {
+            await page.fill(`[name="label-catalog-${index}"]`, catalog);
+        }
+    }
+
+    test('a catalogue number typed against a label reaches the bundle', async ({ page }) => {
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+        await addLabel(page, 0, { name: 'Sub Pop', catalog: 'SP 34' });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.labels).toHaveLength(1);
+        expect(bundle.release.labels[0]).toMatchObject({
+            name: 'Sub Pop',
+            catalog_number: 'SP 34',
+        });
+    });
+
+    test('a co-issue keeps both labels and both numbers, each with its own', async ({ page }) => {
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+        await addLabel(page, 0, { name: 'Sub Pop', catalog: 'SP 34' });
+        await addLabel(page, 1, { name: 'Tupelo', catalog: 'TUP 8' });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.labels).toHaveLength(2);
+        // Pairwise: the numbers must not be swapped or shared between issuers.
+        expect(bundle.release.labels.map(l => [l.name, l.catalog_number])).toEqual([
+            ['Sub Pop', 'SP 34'],
+            ['Tupelo', 'TUP 8'],
+        ]);
+    });
+
+    test('a label with no catalogue number omits the field rather than sending empty', async ({ page }) => {
+        // An empty string would be a claim that the catalogue number is "",
+        // and it would enter the release fingerprint as one.
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+        await addLabel(page, 0, { name: 'Unknown Label', catalog: '   ' });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.labels[0]).not.toHaveProperty('catalog_number');
+    });
+
+    test('the release-level catalogue number stays separate from the label ones', async ({ page }) => {
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+        await page.fill('[name="release_catalog_number"]', 'RELEASE-WIDE');
+        await addLabel(page, 0, { name: 'Sub Pop', catalog: 'SP 34' });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.catalog_number).toBe('RELEASE-WIDE');
+        expect(bundle.release.labels[0].catalog_number).toBe('SP 34');
+    });
+});

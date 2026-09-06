@@ -252,7 +252,7 @@ describe('Stage H · REST endpoint snapshots', () => {
     });
 
     test('GET /api/release/:releaseId → 200 envelope shape', async () => {
-        // Three sequential session.run() calls: main, groups, guests
+        // Four sequential session.run() calls: main, groups, guests, editions
         sharedRun
             .mockResolvedValueOnce({
                 records: [makeRecord({
@@ -261,7 +261,10 @@ describe('Stage H · REST endpoint snapshots', () => {
                         { track: 'Come Together', track_id: 'track:abbey', disc_number: 1, track_number: 1, side: 'A' },
                         { track: null, track_id: null, disc_number: null, track_number: null, side: null }
                     ],
-                    labels: [{ label: 'Apple Records', label_id: 'label:apple' }]
+                    labels: [{
+                        label: 'Apple Records', label_id: 'label:apple',
+                        catalog_number: 'PCS 7088'
+                    }]
                 })]
             })
             .mockResolvedValueOnce({
@@ -283,6 +286,44 @@ describe('Stage H · REST endpoint snapshots', () => {
                         throw new Error(`unexpected key: ${key}`);
                     }
                 }]
+            })
+            // Sibling editions via IN_MASTER. Two are returned deliberately:
+            // the switcher only appears for a release that has somewhere to go,
+            // so the snapshot has to lock the populated shape.
+            .mockResolvedValueOnce({
+                records: [makeRecord({
+                    master_id: 'master:abbey-road',
+                    master_name: 'Abbey Road',
+                    versions: [
+                        {
+                            release_id: 'release:abbey-road-2019',
+                            name: 'Abbey Road (Anniversary Edition)',
+                            release_date: '2019-09-27', format: 'CD', country: 'UK',
+                            catalog_number: '0602508007443', album_art: null,
+                            is_master_release: false,
+                            labels: [{
+                                label_id: 'label:apple', name: 'Apple Records',
+                                catalog_number: '0602508007443'
+                            }],
+                            track_count: { low: 40, high: 0 }
+                        },
+                        {
+                            release_id: 'release:abbey-road',
+                            name: 'Abbey Road',
+                            release_date: '1969-09-26', format: 'LP', country: 'UK',
+                            catalog_number: 'PCS 7088', album_art: null,
+                            is_master_release: true,
+                            // A co-issue: two labels, each with its own
+                            // catalogue number. Taking only the first used to
+                            // discard the second silently.
+                            labels: [
+                                { label_id: 'label:apple', name: 'Apple Records', catalog_number: 'PCS 7088' },
+                                { label_id: 'label:emi', name: 'EMI', catalog_number: 'YEX 749' }
+                            ],
+                            track_count: { low: 17, high: 0 }
+                        }
+                    ]
+                })]
             });
         const res = await request(app).get('/api/release/release:abbey-road');
         expect(res.status).toBe(200);

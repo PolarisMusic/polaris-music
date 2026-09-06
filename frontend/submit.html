@@ -23,6 +23,20 @@
             <p>Decentralized Music Credits & Attribution</p>
         </header>
 
+        <!-- Wallet state. This page signs the submission, but carried no wallet
+             UI at all: it relied on restore() plus a toast, so anyone arriving
+             here by link saw no account, no sign-in button, and discovered the
+             requirement only when submitting failed. -->
+        <div id="wallet-bar" class="wallet-bar">
+            <span id="wallet-status" class="wallet-bar__status">Checking wallet…</span>
+            <button type="button" id="wallet-connect" class="btn-secondary" hidden>
+                Connect Wallet
+            </button>
+            <button type="button" id="wallet-disconnect" class="btn-secondary" hidden>
+                Disconnect
+            </button>
+        </div>
+
         <nav class="tabs">
             <button class="tab active" data-tab="submit">Submit Release</button>
             <button class="tab" data-tab="browse">Browse Registry</button>
@@ -102,6 +116,28 @@
                                         <option value="Cassette">Cassette</option>
                                         <option value="Other">Other</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            <!-- Catalogue number and country are what separate one
+                                 edition of an album from another, and both are part of
+                                 the release fingerprint. The form collected neither, so
+                                 a CD remaster fingerprinted identically to the original
+                                 pressing and MERGEd onto the same node, overwriting it. -->
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="release-catalog-number">Catalogue Number</label>
+                                    <input type="text" id="release-catalog-number" name="release_catalog_number"
+                                           placeholder="e.g. INT 493 425-2">
+                                    <small>From the spine or disc. This is the strongest way to
+                                           tell two editions apart &mdash; add it if you have it.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="release-country">Country</label>
+                                    <input type="text" id="release-country" name="release_country"
+                                           placeholder="e.g. US, UK, Europe, Japan">
+                                    <small>Country of this pressing, not of the band.</small>
                                 </div>
                             </div>
 

@@ -269,7 +269,18 @@ export class IdentityService {
     }
 
     /**
-     * Generate release fingerprint
+     * Generate release fingerprint.
+     *
+     * A Release is one *edition* of a work, not the work itself — the original
+     * pressing, the CD remaster and the deluxe reissue are three Releases that
+     * share one Master. So everything that distinguishes an edition belongs in
+     * the fingerprint, or the editions collide into a single node and the
+     * second submission overwrites the first's properties.
+     *
+     * `date` is accepted alongside `release_date`/`year` deliberately: callers
+     * in this repo pass all three spellings, and reading only two of them
+     * silently dropped the date from every fingerprint, which made every
+     * same-titled release in the registry one node.
      *
      * @param {Object} data - Release data
      * @returns {Object} Fingerprint
@@ -278,10 +289,51 @@ export class IdentityService {
         return {
             type: 'release',
             title: this.normalizeName(data.title || data.release_name),
-            date: data.release_date || data.year,
-            // Optional: catalog number if available
-            ...(data.catalog_number && { catalog: data.catalog_number })
+            date: data.release_date || data.year || data.date,
+            // Optional edition discriminators. Each is included only when
+            // present so that adding one later to an existing record does not
+            // retroactively change ids for releases that never had it.
+            ...(data.catalog_number && { catalog: data.catalog_number }),
+            ...(data.format && { format: this.normalizeName(data.format) }),
+            ...(data.country && { country: this.normalizeName(data.country) }),
+            ...this.labelFingerprintPart(data.labels)
         };
+    }
+
+    /**
+     * The issuing labels, as a fingerprint fragment.
+     *
+     * A record put out by one label is not the same edition as the reissue put
+     * out by another, even at the same title, date and format — the licensed
+     * reissue is exactly the case the registry has to keep apart. So the
+     * issuers participate in identity.
+     *
+     * Sorted, because a release is co-issued *by a set* of labels: the order
+     * two names happen to arrive in is an artefact of how the form was filled
+     * in, and letting it change the id would fork a node for no reason.
+     * Each label carries its own catalogue number, so the pairs go in together.
+     *
+     * Returns {} rather than a null field when there are no labels, so a
+     * release submitted without one keeps the id it would have had before
+     * labels entered the fingerprint at all.
+     *
+     * @param {Array<Object>|undefined} labels
+     * @returns {Object} `{}` or `{ labels: string[] }`
+     */
+    static labelFingerprintPart(labels) {
+        if (!Array.isArray(labels) || labels.length === 0) return {};
+
+        const parts = labels
+            .filter(l => l && (l.name || l.label_name))
+            .map(l => {
+                const name = this.normalizeName(l.name || l.label_name);
+                const catalog = (l.catalog_number || '').trim();
+                return catalog ? `${name}|${catalog}` : name;
+            })
+            .filter(Boolean)
+            .sort();
+
+        return parts.length > 0 ? { labels: parts } : {};
     }
 
     /**

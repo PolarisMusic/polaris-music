@@ -457,6 +457,83 @@ body.mini-player-visible.mini-player-embed {
     outline-offset: 2px;
 }
 
+/* Edition switcher — steps between the Releases sharing one Master (original
+   pressing, CD remaster, deluxe reissue). Sits at the top of the rendered
+   release body, above the artwork, because moving it re-renders everything
+   below. */
+.info-edition {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 6px 8px;
+    border: 1px solid #2f2f2f;
+    border-radius: 4px;
+    background: #1c1c1c;
+}
+
+.info-edition__arrow {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    background: transparent;
+    color: #888;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.info-edition__arrow:hover:not(:disabled) {
+    color: #fff;
+    border-color: #5c9cef;
+    background: #5c9cef;
+}
+
+.info-edition__arrow:focus-visible {
+    outline: 2px solid #5c9cef;
+    outline-offset: 2px;
+}
+
+/* Kept visible rather than hidden at the ends of the run: the reader needs to
+   see that there is nothing further in that direction. */
+.info-edition__arrow:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.info-edition__label {
+    /* min-width:0 so a long edition detail can ellipsize instead of pushing
+       the trailing arrow out of the panel. */
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    text-align: center;
+}
+
+.info-edition__count {
+    color: #888;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.info-edition__detail {
+    color: #ddd;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .info-nav-link {
     color: #4A90E2;
     text-decoration: none;

@@ -687,7 +687,8 @@ input[type="checkbox"] {
     border: 1px solid var(--border-color);
     border-top: none;
     border-radius: 0 0 6px 6px;
-    max-height: 280px;
+    /* Raised alongside the two-line rows so a comparable number stay visible. */
+    max-height: 360px;
     overflow-y: auto;
     z-index: 200;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -696,6 +697,9 @@ input[type="checkbox"] {
 .entity-lookup-item {
     display: flex;
     align-items: center;
+    /* Wraps so the disambiguating context drops to its own line beneath the
+       badge/name/id row rather than competing with it for width. */
+    flex-wrap: wrap;
     gap: 0.5rem;
     padding: 0.6rem 0.75rem;
     cursor: pointer;
@@ -742,6 +746,36 @@ input[type="checkbox"] {
     font-size: 0.7rem;
     font-family: monospace;
     flex-shrink: 0;
+}
+
+/* Second line of a result: what separates this entity from a same-named one.
+   flex-basis 100% forces the wrap; without it the chips would try to sit
+   beside the name and squeeze it. */
+.entity-lookup-context {
+    flex: 0 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: -0.15rem;
+}
+
+.entity-lookup-chip {
+    max-width: 100%;
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    background-color: var(--bg-gray);
+    color: var(--text-light);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The chip's own background must stay legible against the row highlight. */
+.entity-lookup-item:hover .entity-lookup-chip,
+.entity-lookup-item--active .entity-lookup-chip {
+    background-color: rgba(0, 0, 0, 0.06);
 }
 
 /* Entity binding badge (shown when existing entity selected) */
@@ -817,4 +851,33 @@ input[type="checkbox"] {
 
 .samples-chip-remove:hover {
     color: var(--error-color);
+}
+
+/* Wallet state on the submission page. Submitting signs a `put` action, so the
+   requirement is stated before the form rather than discovered on failure. */
+.wallet-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--bg-gray);
+    font-size: 0.9rem;
+}
+
+.wallet-bar__status {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wallet-bar__status--connected {
+    color: #166534;
+    font-family: monospace;
+}
+
+.wallet-bar__status--disconnected {
+    color: #92400e;
 }
