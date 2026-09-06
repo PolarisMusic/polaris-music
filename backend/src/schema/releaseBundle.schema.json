@@ -198,6 +198,10 @@
       "required": ["name"],
       "additionalProperties": false,
       "properties": {
+        "catalog_number": {
+          "description": "Catalogue number this label issued for this release. A co-issue carries a different number per label, which is why it sits here and not on the release.",
+          "type": "string"
+        },
         "label_id": { "type": "string" },
         "name": { "type": "string", "minLength": 1 },
         "alt_names": { "type": "array", "items": { "type": "string" } },
