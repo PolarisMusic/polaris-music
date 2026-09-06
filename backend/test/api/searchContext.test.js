@@ -115,6 +115,35 @@ describe('buildContext', () => {
         expect(chips).toContain('INT 493 425-2');
     });
 
+    it('prefers the per-label catalogue numbers over the release-level scalar', () => {
+        // A co-issue has one number per issuer; the release-level field can
+        // hold only one of them.
+        const chips = buildContext('Release', {
+            date: '1989', format: 'LP', country: 'US',
+            catalog: 'SP 34', edgeCatalogs: ['SP 34', 'TUP 8'],
+            labelNames: ['Sub Pop', 'Tupelo'], groupNames: ['Nirvana']
+        });
+        expect(chips).toContain('SP 34, TUP 8');
+        expect(chips).not.toContain('SP 34');
+    });
+
+    it('falls back to the release-level catalogue number when no edge carries one', () => {
+        const chips = buildContext('Release', {
+            date: '1969', format: 'LP', country: null,
+            catalog: 'PCS 7088', edgeCatalogs: [],
+            labelNames: [], groupNames: []
+        });
+        expect(chips).toContain('PCS 7088');
+    });
+
+    it('names both issuers of a co-issue', () => {
+        const chips = buildContext('Release', {
+            date: '1989', format: null, country: null, catalog: null,
+            edgeCatalogs: [], labelNames: ['Sub Pop', 'Tupelo'], groupNames: []
+        });
+        expect(chips).toContain('Sub Pop, Tupelo');
+    });
+
     it('handles the empty list a formatless release is stored with', () => {
         const chips = buildContext('Release', {
             date: '2002', format: [], country: null,

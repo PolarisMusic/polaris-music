@@ -88,11 +88,50 @@ export function orderEditions(editions) {
         if (a.is_master_release !== b.is_master_release) {
             return a.is_master_release ? -1 : 1;
         }
-        const ca = a.catalog_number || '';
-        const cb = b.catalog_number || '';
+        const ca = catalogNumbers(a);
+        const cb = catalogNumbers(b);
         if (ca !== cb) return ca < cb ? -1 : 1;
         return String(a.release_id || '') < String(b.release_id || '') ? -1 : 1;
     });
+}
+
+/**
+ * The issuing labels of one edition, as a stable display string.
+ *
+ * Sorted so that two editions sharing the same co-issuers compare equal
+ * regardless of the order the graph happened to return them in — otherwise
+ * every edition would look like it "varies" from every other and the label
+ * would be printed on all of them uselessly.
+ *
+ * @param {Object} edition
+ * @returns {string} e.g. "Sub Pop, Tupelo", or '' when unlabelled
+ */
+export function labelNames(edition) {
+    return ((edition && edition.labels) || [])
+        .map(l => l && l.name)
+        .filter(Boolean)
+        .sort()
+        .join(', ');
+}
+
+/**
+ * The catalogue numbers of one edition, as a stable display string.
+ *
+ * Catalogue numbers hang off the label-release pairing, because a co-issue
+ * carries a different number from each issuer. The release-level
+ * `catalog_number` is consulted as a fallback for rows written before the
+ * number moved onto the edge.
+ *
+ * @param {Object} edition
+ * @returns {string}
+ */
+export function catalogNumbers(edition) {
+    const fromLabels = ((edition && edition.labels) || [])
+        .map(l => l && l.catalog_number)
+        .filter(Boolean)
+        .sort()
+        .join(', ');
+    return fromLabels || (edition && edition.catalog_number) || '';
 }
 
 /**
@@ -103,20 +142,29 @@ export function orderEditions(editions) {
  * to say what makes this one different. Falls back to the release name when
  * nothing distinguishes it.
  *
+ * The issuing label earns a place here because it is frequently the *only*
+ * thing that differs: a licensed reissue can share the original's title, year
+ * and format and be a different edition purely by virtue of who put it out.
+ *
  * @param {Object} edition
  * @param {Object[]} allEditions
  * @returns {string}
  */
 export function editionLabel(edition, allEditions) {
     const set = allEditions || [];
-    const varies = (field) => new Set(set.map(e => e[field] || '')).size > 1;
+    const varies = (derive) => new Set(set.map(e => derive(e) || '')).size > 1;
+    const field = (name) => (e) => e[name];
     const parts = [];
 
-    if (varies('release_date') && edition.release_date) parts.push(edition.release_date);
-    if (varies('format') && edition.format) parts.push(edition.format);
-    if (varies('country') && edition.country) parts.push(edition.country);
-    if (parts.length === 0 && varies('catalog_number') && edition.catalog_number) {
-        parts.push(edition.catalog_number);
+    if (varies(field('release_date')) && edition.release_date) parts.push(edition.release_date);
+    if (varies(field('format')) && edition.format) parts.push(edition.format);
+    if (varies(field('country')) && edition.country) parts.push(edition.country);
+    if (varies(labelNames) && labelNames(edition)) parts.push(labelNames(edition));
+
+    // Catalogue number last: it is the definitive discriminator but means
+    // nothing to a reader until the softer fields have failed to separate.
+    if (parts.length === 0 && varies(catalogNumbers) && catalogNumbers(edition)) {
+        parts.push(catalogNumbers(edition));
     }
     if (parts.length === 0) return edition.name || 'Edition';
     return parts.join(' · ');

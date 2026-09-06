@@ -1685,6 +1685,7 @@ constructor(config = {}) {
             }
 
             // Link labels
+            const labelCount = (normalizedBundle.release.labels || []).length;
             for (const label of normalizedBundle.release.labels || []) {
                 const labelId = await this.resolveEntityId(tx, 'label', label);
                 recordResolved('label', label.label_id, labelId);
@@ -1701,7 +1702,15 @@ constructor(config = {}) {
 
                     WITH l
                     MATCH (r:Release {release_id: $releaseId})
-                    MERGE (l)-[:RELEASED]->(r)
+                    // The catalogue number belongs to the pairing, not to
+                    // either end: a record co-issued by two labels carries a
+                    // different number from each, so one scalar on the Release
+                    // can only ever record one of them.
+                    MERGE (l)-[rel:RELEASED]->(r)
+                    // coalesce so a later submission that says nothing about
+                    // the catalogue number does not wipe one already recorded;
+                    // a submission that names one still wins.
+                    SET rel.catalog_number = coalesce($catalogNumber, rel.catalog_number)
                 `, {
                     labelId,
                     labelName: label.name,
@@ -1710,6 +1719,14 @@ constructor(config = {}) {
                     altNames: label.alt_names || [],
                     parentLabelName: label.parent_label?.name || null,
                     parentLabelId: label.parent_label?.label_id || null,
+                    // The release-wide number is inherited only by a lone
+                    // label. On a co-issue it belongs to one of the issuers and
+                    // we do not know which, so stamping it on every edge would
+                    // assert that each of them used the same number — which is
+                    // exactly what a co-issue does not do.
+                    catalogNumber: label.catalog_number
+                        || (labelCount === 1 ? normalizedBundle.release.catalog_number : null)
+                        || null,
                     releaseId
                 });
 
@@ -3008,7 +3025,8 @@ constructor(config = {}) {
                     release_date: data.release_date || data.year,
                     catalog_number: data.catalog_number,
                     format: data.format,
-                    country: data.country
+                    country: data.country,
+                    labels: data.labels
                 });
                 break;
 

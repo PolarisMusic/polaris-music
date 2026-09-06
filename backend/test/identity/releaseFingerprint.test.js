@@ -66,6 +66,57 @@ describe('IdentityService.releaseFingerprint', () => {
     });
 });
 
+describe('IdentityService.releaseFingerprint — issuing labels', () => {
+    const base = { title: 'Bleach', release_date: '1989', format: 'LP' };
+
+    it('separates a licensed reissue from the original pressing', () => {
+        // Same title, same year, same format — a different label is the whole
+        // of the difference, and it is a real one.
+        const subpop = { ...base, labels: [{ name: 'Sub Pop', catalog_number: 'SP 34' }] };
+        const geffen = { ...base, labels: [{ name: 'Geffen', catalog_number: 'GEF 24433' }] };
+        expect(idFor(subpop)).not.toBe(idFor(geffen));
+    });
+
+    it('is independent of the order the labels arrive in', () => {
+        // A release is co-issued *by a set* of labels; the order two names
+        // happen to be typed in must not fork the node.
+        const a = { ...base, labels: [{ name: 'Sub Pop' }, { name: 'Tupelo' }] };
+        const b = { ...base, labels: [{ name: 'Tupelo' }, { name: 'Sub Pop' }] };
+        expect(idFor(a)).toBe(idFor(b));
+    });
+
+    it('separates a co-issue from a single-label issue', () => {
+        const single = { ...base, labels: [{ name: 'Sub Pop' }] };
+        const coissue = { ...base, labels: [{ name: 'Sub Pop' }, { name: 'Tupelo' }] };
+        expect(idFor(single)).not.toBe(idFor(coissue));
+    });
+
+    it('separates two issues by one label under different catalogue numbers', () => {
+        const a = { ...base, labels: [{ name: 'Apple', catalog_number: 'PCS 7088' }] };
+        const b = { ...base, labels: [{ name: 'Apple', catalog_number: 'PMC 7088' }] };
+        expect(idFor(a)).not.toBe(idFor(b));
+    });
+
+    it('leaves an unlabelled release with the id it had before labels counted', () => {
+        // An empty or missing list must contribute nothing, or every release
+        // submitted without a label would have been re-identified.
+        expect(idFor({ ...base, labels: [] })).toBe(idFor(base));
+        expect(idFor({ ...base, labels: undefined })).toBe(idFor(base));
+        expect(idFor({ ...base, labels: [{ name: '' }] })).toBe(idFor(base));
+    });
+
+    it('normalizes label names the way it normalizes every other name', () => {
+        const a = { ...base, labels: [{ name: 'The Sub Pop' }] };
+        const b = { ...base, labels: [{ name: 'sub pop' }] };
+        expect(idFor(a)).toBe(idFor(b));
+    });
+
+    it('ignores a non-array labels value rather than throwing', () => {
+        expect(() => idFor({ ...base, labels: 'Sub Pop' })).not.toThrow();
+        expect(idFor({ ...base, labels: 'Sub Pop' })).toBe(idFor(base));
+    });
+});
+
 describe('MusicGraphDatabase.generateProvisionalIdNew (release)', () => {
     // Exercises the real call site, which is where the key-name mismatch lived.
     // A fingerprint fix that the caller does not feed is no fix at all.
@@ -89,6 +140,17 @@ describe('MusicGraphDatabase.generateProvisionalIdNew (release)', () => {
         for (const v of variants) {
             expect(db.generateProvisionalIdNew('release', v)).not.toBe(baseId);
         }
+    });
+
+    it('threads the issuing labels through to the id', () => {
+        const base = { name: 'Bleach', release_date: '1989', format: 'LP' };
+        const subpop = { ...base, labels: [{ name: 'Sub Pop', catalog_number: 'SP 34' }] };
+        const geffen = { ...base, labels: [{ name: 'Geffen', catalog_number: 'GEF 24433' }] };
+
+        expect(db.generateProvisionalIdNew('release', subpop))
+            .not.toBe(db.generateProvisionalIdNew('release', geffen));
+        expect(db.generateProvisionalIdNew('release', subpop))
+            .not.toBe(db.generateProvisionalIdNew('release', base));
     });
 
     it('stays idempotent, so replaying a bundle does not fork the node', () => {

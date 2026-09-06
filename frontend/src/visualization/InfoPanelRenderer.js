@@ -466,9 +466,19 @@ export class InfoPanelRenderer {
 
         // Labels
         if (release.labels && release.labels.length > 0) {
-            const labelText = release.labels.map(l => l.label || l.name).join(', ');
+            // Each label is named with its own catalogue number, because a
+            // co-issued record carries a different number from each issuer and
+            // flattening them to one list loses which number came from whom.
+            const labelText = release.labels
+                .map((l) => {
+                    const name = l.label || l.name;
+                    return l.catalog_number ? `${name} (${l.catalog_number})` : name;
+                })
+                .filter(Boolean)
+                .join(', ');
             contentElement.appendChild(this._el('p', { className: 'info-meta' },
-                this._el('strong', null, 'Label:'), ' ', labelText));
+                this._el('strong', null,
+                    release.labels.length > 1 ? 'Labels:' : 'Label:'), ' ', labelText));
         }
 
         // Groups

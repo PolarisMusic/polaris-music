@@ -743,6 +743,13 @@ function normalizeLabel(label) {
 
     if (label.label_id) normalized.label_id = label.label_id;
 
+    // Catalogue number as issued *by this label*. A record co-issued by two
+    // labels carries a different number from each, so it belongs to the
+    // label-release pairing rather than to the release alone.
+    if (typeof label.catalog_number === 'string' && label.catalog_number.trim()) {
+        normalized.catalog_number = label.catalog_number.trim();
+    }
+
     // Alt names
     if (Array.isArray(label.alt_names)) {
         normalized.alt_names = label.alt_names

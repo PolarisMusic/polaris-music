@@ -57,14 +57,20 @@ export const CONTEXT_QUERIES = {
     Release: `
         UNWIND $ids AS id
         MATCH (r:Release {release_id: id})
-        OPTIONAL MATCH (r)<-[:RELEASED]-(l:Label)
-        WITH id, r, collect(DISTINCT l.name) AS labelNames
+        OPTIONAL MATCH (r)<-[rel:RELEASED]-(l:Label)
+        // Catalogue numbers come off the label-release edges: a co-issue has
+        // one per issuer, and the release-level scalar can hold only one of
+        // them (and is absent entirely once the form collects them per label).
+        WITH id, r,
+             collect(DISTINCT l.name) AS labelNames,
+             collect(DISTINCT rel.catalog_number) AS edgeCatalogs
         OPTIONAL MATCH (g:Group)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r)
         RETURN id,
                r.release_date AS date,
                r.format AS format,
                r.country AS country,
                r.catalog_number AS catalog,
+               edgeCatalogs,
                labelNames,
                collect(DISTINCT g.name) AS groupNames
     `,
@@ -190,7 +196,10 @@ export function buildContext(label, row) {
             if (labels) chips.push(labels);
             // Catalogue number last: it is the definitive discriminator but
             // means nothing to a reader until the softer fields have tied.
-            if (row.catalog) chips.push(row.catalog);
+            // Prefer the per-label numbers; the release-level scalar is the
+            // fallback for rows written before they moved onto the edge.
+            const catalog = summarizeNames(row.edgeCatalogs, 2) || row.catalog;
+            if (catalog) chips.push(catalog);
             break;
         }
         case 'Label': {

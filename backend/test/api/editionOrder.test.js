@@ -5,7 +5,8 @@
  */
 
 import {
-    dateSortKey, toInt, normalizeFormat, orderEditions, editionLabel
+    dateSortKey, toInt, normalizeFormat, orderEditions, editionLabel,
+    labelNames, catalogNumbers
 } from '../../src/api/editionOrder.js';
 
 describe('dateSortKey', () => {
@@ -145,5 +146,96 @@ describe('editionLabel', () => {
         const decorated = set.map(e => ({ ...e, edition_label: editionLabel(e, set) }));
         expect(decorated[0].label).toBe('Apple Records');
         expect(decorated[0].edition_label).toBe('1969');
+    });
+});
+
+describe('labelNames / catalogNumbers', () => {
+    const coissue = {
+        labels: [
+            { name: 'Tupelo', catalog_number: 'TUP 8' },
+            { name: 'Sub Pop', catalog_number: 'SP 34' }
+        ]
+    };
+
+    it('names every issuing label, not just the first', () => {
+        // The sibling-editions query used to take collect(...)[0] and throw
+        // the rest away, so a co-issued record showed one arbitrary label.
+        expect(labelNames(coissue)).toBe('Sub Pop, Tupelo');
+    });
+
+    it('sorts, so the same co-issuers compare equal whatever order they arrive in', () => {
+        const reversed = { labels: [...coissue.labels].reverse() };
+        expect(labelNames(reversed)).toBe(labelNames(coissue));
+    });
+
+    it('collects a catalogue number from each issuer', () => {
+        expect(catalogNumbers(coissue)).toBe('SP 34, TUP 8');
+    });
+
+    it('falls back to the release-level number for rows written before the move', () => {
+        expect(catalogNumbers({ labels: [], catalog_number: 'PCS 7088' })).toBe('PCS 7088');
+        expect(catalogNumbers({ catalog_number: 'PCS 7088' })).toBe('PCS 7088');
+    });
+
+    it('is empty, not undefined, for an unlabelled edition', () => {
+        expect(labelNames({})).toBe('');
+        expect(catalogNumbers({})).toBe('');
+        expect(labelNames(null)).toBe('');
+    });
+
+    it('ignores label rows with no name, as an OPTIONAL MATCH miss produces', () => {
+        expect(labelNames({ labels: [{ name: null }, { name: 'Stax' }] })).toBe('Stax');
+    });
+});
+
+describe('editionLabel with labels', () => {
+    it('names the issuing label when that is the only difference', () => {
+        // A licensed reissue can share the original's title, year and format
+        // and be a different edition purely by who put it out.
+        const set = [
+            { name: 'Bleach', release_date: '1989', format: 'LP',
+              labels: [{ name: 'Sub Pop' }] },
+            { name: 'Bleach', release_date: '1989', format: 'LP',
+              labels: [{ name: 'Tupelo' }] }
+        ];
+        expect(editionLabel(set[0], set)).toBe('Sub Pop');
+        expect(editionLabel(set[1], set)).toBe('Tupelo');
+    });
+
+    it('stays quiet about a label every edition shares', () => {
+        const set = [
+            { name: 'A', release_date: '1969', labels: [{ name: 'Apple' }] },
+            { name: 'A', release_date: '2019', labels: [{ name: 'Apple' }] }
+        ];
+        expect(editionLabel(set[0], set)).toBe('1969');
+    });
+
+    it('names both issuers of a co-issue', () => {
+        const set = [
+            { name: 'A', release_date: '1969',
+              labels: [{ name: 'Apple' }, { name: 'EMI' }] },
+            { name: 'A', release_date: '1969', labels: [{ name: 'Apple' }] }
+        ];
+        expect(editionLabel(set[0], set)).toBe('Apple, EMI');
+    });
+
+    it('falls back to per-label catalogue numbers when the labels match too', () => {
+        const set = [
+            { name: 'A', release_date: '1969',
+              labels: [{ name: 'Apple', catalog_number: 'PCS 7088' }] },
+            { name: 'A', release_date: '1969',
+              labels: [{ name: 'Apple', catalog_number: 'PMC 7088' }] }
+        ];
+        expect(editionLabel(set[0], set)).toBe('PCS 7088');
+    });
+});
+
+describe('orderEditions with per-label catalogue numbers', () => {
+    it('breaks a tie on the label catalogue number, not just the release one', () => {
+        const a = { release_id: 'r2', release_date: '1969', is_master_release: false,
+                    labels: [{ name: 'Apple', catalog_number: 'ZZZ' }] };
+        const b = { release_id: 'r1', release_date: '1969', is_master_release: false,
+                    labels: [{ name: 'Apple', catalog_number: 'AAA' }] };
+        expect(orderEditions([a, b]).map(e => e.release_id)).toEqual(['r1', 'r2']);
     });
 });

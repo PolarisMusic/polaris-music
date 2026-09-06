@@ -442,6 +442,11 @@ class PolarisApp {
             const labelId = this.getInputValue(item, `label-id-${index}`);
             if (labelId) label.label_id = labelId;
 
+            // Catalogue number for this label's issue of the release. Kept per
+            // label because a co-issue carries a different number from each.
+            const labelCatalog = (this.getInputValue(item, `label-catalog-${index}`) || '').trim();
+            if (labelCatalog) label.catalog_number = labelCatalog;
+
             // Alt names
             const altNames = this.parseCommaSeparated(this.getInputValue(item, `label-altnames-${index}`));
             if (altNames.length > 0) label.alt_names = altNames;

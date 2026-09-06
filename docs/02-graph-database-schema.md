@@ -937,7 +937,7 @@ CONSIDER THIS SECTION CANONICAL
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
 | Song | Musical composition | song_id, title, iswc, writers |
 | Track | Recording of a song | track_id, title, isrc, duration, listen_links, lyrics, trivia |
-| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, country, catalog_number, listen_links, master_id, is_master_release |
+| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, country, catalog_number *(release-wide fallback; see below)*, listen_links, master_id, is_master_release |
 | Master | Canonical album grouping | master_id, name, status |
 | Label | Record label | label_id, name |
 | Account | Blockchain account | account_id |
@@ -967,14 +967,15 @@ Two consequences worth stating, because both were violated in code:
    MERGE onto one node, the second silently overwriting the first's properties.
    Catalogue number is the strongest discriminator; the submit form collects it.
 
-   This deliberately trades false merges for false splits. Including `format`
-   means a submitter who types "Compact Disc" where another typed "CD" creates
-   a second node for one edition. That is the better failure: a false split
-   leaves two nodes that `MERGE_ENTITY` (60) can join and
-   `findPotentialDuplicates()` can surface, whereas a false merge is **lossy** —
-   the Release SET clause overwrites the earlier edition's format, country and
-   catalogue number, and nothing records what was there before. Splits are
-   recoverable; merges are not.
+   This deliberately trades false merges for false splits, and that trade is a
+   settled decision rather than an oversight. Including `format` means a
+   submitter who types "Compact Disc" where another typed "CD" creates a second
+   node for one edition. That is the better failure: a false split leaves two
+   nodes that `MERGE_ENTITY` (60) can join and `findPotentialDuplicates()` can
+   surface, whereas a false merge is **lossy** — the Release SET clause
+   overwrites the earlier edition's format, country and catalogue number, and
+   nothing records what was there before. Splits are recoverable; merges are
+   not.
 2. **`is_master_release` means "this Release *is* its group's Master node"** —
    that its `master_id` equals its own `release_id` — not "the submitter ticked
    the master box". The two usually agree, but a submitter who says "this is a
@@ -1002,8 +1003,12 @@ Both changes are retroactive in intent but not in effect.
 - **Release ids change.** The date was previously dropped from the release
   fingerprint (the caller passed `date`, the fingerprint read `release_date`),
   so every release already in the graph carries an id minted from its title
-  alone. With the date, format and country now included, the same release
-  fingerprints to a *different* provisional id. Nothing rewrites the old nodes.
+  alone. With the date, format, country and issuing labels now included, the
+  same release fingerprints to a *different* provisional id. Nothing rewrites
+  the old nodes.
+- **Catalogue numbers move onto the `RELEASED` edge.** Existing edges carry no
+  `catalog_number`, so readers fall back to the release-level scalar until a
+  replay writes the edges.
 - **Existing releases have no Master.** `IN_MASTER` is written at ingest, so
   releases already in the graph have no edge and no `master_id`, and the
   switcher will not appear for them however many editions exist.
@@ -1022,6 +1027,41 @@ Until a replay happens, old releases keep their old ids and no Master; new
 submissions get the corrected behaviour. The two coexist without error, they
 simply do not group together.
 
+## Labels are many, and the catalogue number belongs to the pairing
+
+A release is issued **by one or more labels**, and each issuer stamps its own
+catalogue number on it. A co-issue (two labels sharing a release), a licensed
+reissue (a different label putting out the same record years later) and a
+territorial split (one label in the US, another in the UK) are all ordinary,
+and all three break a model that assumes one label and one number.
+
+So:
+
+- `RELEASED` is a **Label → Release** edge and there may be several per release.
+  Every reader must return the whole set. Taking the first — which the sibling
+  editions query originally did with `collect(DISTINCT l.name)[0]` — silently
+  picks one issuer at random and discards the rest.
+- **`catalog_number` lives on the `RELEASED` edge**, not on either node,
+  because it is a fact about the pairing rather than about the label (which
+  issues thousands) or the release (which may have several). The submit form
+  collects it per label.
+- `Release.catalog_number` is retained as a release-wide fallback: it is what
+  the release-level form field writes, it is copied onto the edge when a label
+  supplies no number of its own, and it is what readers fall back to for rows
+  written before the number moved. When both exist, **the edge wins** — it is
+  the more specific claim.
+- The issuing labels participate in **release identity**. Sorted
+  `name|catalog` pairs go into the fingerprint via
+  `IdentityService.labelFingerprintPart`, so a Sub Pop original and a Geffen
+  reissue of the same album, same year, same format are two Releases rather
+  than one overwriting the other. Sorted because a release is co-issued *by a
+  set*: the order two names happen to be typed must not fork the node. A
+  release with no labels contributes nothing to the fingerprint, so it keeps
+  the id it would have had before labels counted.
+
+`editionLabel` names the issuing label whenever it is what differs across a
+master's editions — frequently it is the only thing that does.
+
 ## Relationship Types Summary
 
 | Relationship | From → To | Purpose |
@@ -1037,7 +1077,7 @@ simply do not group together.
 | SAMPLES | Track → Track | Sampling relationship |
 | IN_RELEASE | Track → Release | Track appears on release |
 | IN_MASTER | Release → Master | Release variant of master (**exactly one per Release**) |
-| RELEASED | Label → Release | Released by label |
+| RELEASED | Label → Release | Released by label. Carries `catalog_number` — the number **this** label issued |
 | ORIGIN | Person|Group|Release|Label → City | Geographic origin |
 | SUBMITTED | Account → Any | Who submitted data |
 | REPRESENTS | Media → Any | What is represented in the linked media |

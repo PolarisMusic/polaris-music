@@ -40,6 +40,14 @@ export class FormBuilder {
             </div>
 
             <div class="form-group">
+                <label>Catalogue Number</label>
+                <input type="text" name="label-catalog-${index}" placeholder="e.g. SP 34">
+                <small>The number <em>this</em> label gave the release. A record
+                       co-issued by two labels carries a different number from
+                       each, so it belongs here rather than to the release.</small>
+            </div>
+
+            <div class="form-group">
                 <label>Alternative Names</label>
                 <input type="text" name="label-altnames-${index}" placeholder="Alternative names, comma-separated">
             </div>

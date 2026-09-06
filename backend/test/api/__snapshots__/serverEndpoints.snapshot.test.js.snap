@@ -207,6 +207,7 @@ exports[`Stage H · REST endpoint snapshots GET /api/release/:releaseId → 200 
     ],
     "labels": [
       {
+        "catalog_number": "PCS 7088",
         "label": "Apple Records",
         "label_id": "label:apple",
       },
@@ -232,10 +233,21 @@ exports[`Stage H · REST endpoint snapshots GET /api/release/:releaseId → 200 
         "album_art": null,
         "catalog_number": "PCS 7088",
         "country": "UK",
-        "edition_label": "1969-09-26 · LP",
+        "edition_label": "1969-09-26 · LP · Apple Records, EMI",
         "format": "LP",
         "is_master_release": true,
-        "label": "Apple Records",
+        "labels": [
+          {
+            "catalog_number": "PCS 7088",
+            "label_id": "label:apple",
+            "name": "Apple Records",
+          },
+          {
+            "catalog_number": "YEX 749",
+            "label_id": "label:emi",
+            "name": "EMI",
+          },
+        ],
         "name": "Abbey Road",
         "release_date": "1969-09-26",
         "release_id": "release:abbey-road",
@@ -245,10 +257,16 @@ exports[`Stage H · REST endpoint snapshots GET /api/release/:releaseId → 200 
         "album_art": null,
         "catalog_number": "0602508007443",
         "country": "UK",
-        "edition_label": "2019-09-27 · CD",
+        "edition_label": "2019-09-27 · CD · Apple Records",
         "format": "CD",
         "is_master_release": false,
-        "label": "Apple Records",
+        "labels": [
+          {
+            "catalog_number": "0602508007443",
+            "label_id": "label:apple",
+            "name": "Apple Records",
+          },
+        ],
         "name": "Abbey Road (Anniversary Edition)",
         "release_date": "2019-09-27",
         "release_id": "release:abbey-road-2019",
