@@ -31,11 +31,19 @@ data:
   POLL_INTERVAL: "5000"
 
   # Neo4j Configuration
-  NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
-  NEO4J_dbms_security_procedures_unrestricted: "apoc.*,gds.*"
-  NEO4J_dbms_memory_heap_initial__size: "1G"
-  NEO4J_dbms_memory_heap_max__size: "4G"
-  NEO4J_dbms_memory_pagecache_size: "2G"
+  # graph-data-science is not called anywhere in backend/src; dropped rather
+  # than carried to mainnet.
+  NEO4J_PLUGINS: '["apoc"]'
+  # Still dbms.* in Neo4j 5 — the security namespace did not move.
+  NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+  # server.*, not dbms.*. The statefulset runs neo4j:5.15-community, which
+  # ignores the Neo4j 4 spelling outright — on the testnet VPS that meant no
+  # cap was applied and the OOM killer took Neo4j out eleven times in nine
+  # days. Sizes here assume a node with room for them; check them against the
+  # pod's actual limits before mainnet.
+  NEO4J_server_memory_heap_initial__size: "1G"
+  NEO4J_server_memory_heap_max__size: "4G"
+  NEO4J_server_memory_pagecache_size: "2G"
 
   # IPFS Configuration
   IPFS_PROFILE: "server"

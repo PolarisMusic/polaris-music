@@ -84,21 +84,21 @@ spec:
             configMapKeyRef:
               name: polaris-config
               key: NEO4J_dbms_security_procedures_unrestricted
-        - name: NEO4J_dbms_memory_heap_initial__size
+        - name: NEO4J_server_memory_heap_initial__size
           valueFrom:
             configMapKeyRef:
               name: polaris-config
-              key: NEO4J_dbms_memory_heap_initial__size
-        - name: NEO4J_dbms_memory_heap_max__size
+              key: NEO4J_server_memory_heap_initial__size
+        - name: NEO4J_server_memory_heap_max__size
           valueFrom:
             configMapKeyRef:
               name: polaris-config
-              key: NEO4J_dbms_memory_heap_max__size
-        - name: NEO4J_dbms_memory_pagecache_size
+              key: NEO4J_server_memory_heap_max__size
+        - name: NEO4J_server_memory_pagecache_size
           valueFrom:
             configMapKeyRef:
               name: polaris-config
-              key: NEO4J_dbms_memory_pagecache_size
+              key: NEO4J_server_memory_pagecache_size
         volumeMounts:
         - name: neo4j-data
           mountPath: /data
