@@ -771,6 +771,26 @@ async function main() {
 
     // Log the normalized params for debugging
     console.log(`Normalized params: ${normalizedParams}`);
+
+    // ...and then the whole argv, because the line above is not the whole
+    // story. indexOf finds the FIRST --params, which is the module's own; the
+    // second one carries `antelope:filtered_actions=<query>`, the thing that
+    // makes the provider filter before data crosses the wire. --production-mode
+    // was invisible here too. Both are the settings that decide what this costs
+    // to run, and neither could be confirmed from the logs — the operator had
+    // to read the source to find out what their own deployment was doing.
+    //
+    // Safe to print: the API token is passed through the child's environment,
+    // never in argv.
+    console.log(`Substreams argv: substreams ${substreamsArgs.join(' ')}`);
+
+    // State the conclusion rather than leaving it to be inferred from argv.
+    const filterParam = substreamsArgs.find(a => a.startsWith('antelope:filtered_actions='))
+        || (config.substreamsModule === 'filtered_actions' ? normalizedParams : null);
+    console.log(`Block filter:    ${filterParam || 'NONE — streaming unfiltered blocks'}`);
+    console.log(`Production mode: ${substreamsArgs.includes('--production-mode')
+        ? 'on (index-based block skipping enabled)'
+        : 'OFF — every block is streamed to the client regardless of filtering'}`);
     console.log('');
 
     // Set environment variable for API token
