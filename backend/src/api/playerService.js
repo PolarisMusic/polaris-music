@@ -229,7 +229,19 @@ export class PlayerService {
     }
 
     /**
-     * Build queue for a release: tracks ordered by disc_number, track_number.
+     * Build queue for a release: tracks ordered by disc, side, track number.
+     *
+     * Side has to be in the sort or a four-sided LP plays interleaved —
+     * A-1, B-1, C-1, D-1, A-2 … — because every side restarts its own
+     * numbering. coalesce(ir.side, '') rather than a bare ir.side: Neo4j
+     * orders NULL last on ASC, which would put an unannotated track after
+     * every sided one, while the client comparator in InfoPanelRenderer
+     * puts it first. The queue and the visible tracklist must agree.
+     *
+     * A plain string sort is enough for the rest: deriveTrackPlacement only
+     * ever captures a single letter for the side (schema.js:185, :208), so
+     * there is no multi-character case where Cypher's lexicographic order and
+     * the client's numeric-aware one could diverge.
      */
     async _buildReleaseQueue(releaseId) {
         const session = this.driver.session();
@@ -243,7 +255,7 @@ export class PlayerService {
                 WHERE g.status = 'ACTIVE'
                 RETURN r, t, ir,
                        collect(DISTINCT g.name) as groupNames
-                ORDER BY ir.disc_number, ir.track_number, t.title
+                ORDER BY ir.disc_number, coalesce(ir.side, ''), ir.track_number, t.title
             `, { releaseId });
 
             if (result.records.length === 0) {
@@ -271,7 +283,7 @@ export class PlayerService {
 
     /**
      * Build queue for a group: tracks from all releases performed by this group,
-     * ordered by release_date, release_name, disc_number, track_number.
+     * ordered by release_date, release_name, disc, side, track number.
      */
     async _buildGroupQueue(groupId) {
         const session = this.driver.session();
@@ -284,7 +296,7 @@ export class PlayerService {
                 MATCH (t)-[ir:IN_RELEASE]->(r:Release)
                 WHERE r.status = 'ACTIVE'
                 RETURN g, t, ir, r
-                ORDER BY r.release_date, r.name, ir.disc_number, ir.track_number, t.title
+                ORDER BY r.release_date, r.name, ir.disc_number, coalesce(ir.side, ''), ir.track_number, t.title
             `, { groupId });
 
             if (result.records.length === 0) {
@@ -323,7 +335,7 @@ export class PlayerService {
     /**
      * Build queue for a person: tracks from releases they contributed to
      * (via MEMBER_OF->Group->PERFORMED_ON or GUEST_ON or WROTE->Song->RECORDING_OF),
-     * ordered by release_date, release_name, disc_number, track_number.
+     * ordered by release_date, release_name, disc, side, track number.
      */
     async _buildPersonQueue(personId) {
         const session = this.driver.session();
@@ -351,7 +363,7 @@ export class PlayerService {
                 MATCH (t)-[ir:IN_RELEASE]->(r:Release)
                 WHERE r.status = 'ACTIVE'
                 RETURN p, t, ir, r
-                ORDER BY r.release_date, r.name, ir.disc_number, ir.track_number, t.title
+                ORDER BY r.release_date, r.name, ir.disc_number, coalesce(ir.side, ''), ir.track_number, t.title
             `, { personId });
 
             if (result.records.length === 0) {
