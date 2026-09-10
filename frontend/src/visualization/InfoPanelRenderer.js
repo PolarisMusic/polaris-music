@@ -379,6 +379,46 @@ export class InfoPanelRenderer {
     }
 
     /**
+     * Order two tracks by where they physically sit on the release.
+     *
+     * Disc, then side, then track number — in that order, because that is how
+     * a record is laid out. Side was the missing term: the comparator sorted
+     * on disc and track number alone, so an LP with sides A-D came out
+     * interleaved by track number (C-1, D-1, A-1, B-1, C-2, B-2, A-2 …) while
+     * each row still *displayed* its side correctly. The data was right and
+     * had been since sides stopped being scrubbed at ingest; only the ordering
+     * never learned about them.
+     *
+     * Sides are compared numerically when both look numeric, so a format that
+     * numbers its sides does not put "10" before "9", and otherwise
+     * case-insensitively as text. A track with no side sorts before one that
+     * has a side, which keeps a partly-annotated tracklist stable rather than
+     * scattering the unannotated rows through it.
+     *
+     * @param {Object} a
+     * @param {Object} b
+     * @returns {number}
+     */
+    _compareTrackPlacement(a, b) {
+        const discA = Number(a.disc_number) || 1;
+        const discB = Number(b.disc_number) || 1;
+        if (discA !== discB) return discA - discB;
+
+        const sideA = a.side == null ? '' : String(a.side).trim().toUpperCase();
+        const sideB = b.side == null ? '' : String(b.side).trim().toUpperCase();
+        if (sideA !== sideB) {
+            if (sideA === '') return -1;
+            if (sideB === '') return 1;
+            const numA = Number(sideA);
+            const numB = Number(sideB);
+            if (Number.isFinite(numA) && Number.isFinite(numB)) return numA - numB;
+            return sideA < sideB ? -1 : 1;
+        }
+
+        return (Number(a.track_number) || 0) - (Number(b.track_number) || 0);
+    }
+
+    /**
      * Build the edition switcher for a release, or null when there is nothing
      * to switch between.
      *
@@ -494,12 +534,7 @@ export class InfoPanelRenderer {
         // Tracks
         if (release.tracks && release.tracks.length > 0) {
             const list = this._el('ol', { className: 'info-list info-tracklist' });
-            const sorted = [...release.tracks].sort((a, b) => {
-                const da = (a.disc_number || 1);
-                const db = (b.disc_number || 1);
-                if (da !== db) return da - db;
-                return (a.track_number || 0) - (b.track_number || 0);
-            });
+            const sorted = [...release.tracks].sort((a, b) => this._compareTrackPlacement(a, b));
             for (const t of sorted) {
                 const side = t.side ? `${t.side}-` : '';
                 const num = t.track_number ? `${side}${t.track_number}. ` : '';

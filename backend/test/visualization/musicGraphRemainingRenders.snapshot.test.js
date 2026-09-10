@@ -116,6 +116,7 @@ function makeStub() {
     stub._el = compileMethod('_el').bind(stub);
     stub._appendEditableRow = compileMethod('_appendEditableRow').bind(stub);
     stub._renderEditionSwitcher = compileMethod('_renderEditionSwitcher').bind(stub);
+    stub._compareTrackPlacement = compileMethod('_compareTrackPlacement').bind(stub);
     return stub;
 }
 
@@ -691,5 +692,116 @@ describe('Stage K · edition switcher', () => {
             album_art: 'http://example.test/art.jpg',
         });
         expect(contentElement.firstElementChild.className).toBe('info-edition');
+    });
+});
+
+describe('Stage K · tracklist ordering', () => {
+    /**
+     * A record is laid out disc, then side, then track. The comparator used to
+     * sort on disc and track number only, so an LP with sides A-D came out
+     * interleaved by track number — C-1, D-1, A-1, B-1, C-2, B-2, A-2 … —
+     * while every row still displayed its own side correctly, which made it
+     * look like a rendering fault rather than an ordering one.
+     *
+     * The data was never the problem: deriveTrackPlacement has parsed "A1"
+     * into side='A', track=1 since sides stopped being scrubbed at ingest.
+     * Only the sort never learned about them.
+     */
+    const render = (tracks) => {
+        const stub = makeStub();
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderReleaseDetails').call(
+            stub, { name: 'R', release_id: 'rel:1', tracks }, titleElement, contentElement
+        );
+        return [...contentElement.querySelectorAll('.info-track__label')]
+            .map(el => el.textContent);
+    };
+
+    test('a four-sided LP comes out A, B, C, D — the reported bug', () => {
+        // Deliberately supplied in the jumbled order the panel displayed.
+        const labels = render([
+            { track: 'Sicily', side: 'C', track_number: 1 },
+            { track: 'Untitled', side: 'D', track_number: 1 },
+            { track: 'Obscenery', side: 'A', track_number: 1 },
+            { track: 'Made To Parade', side: 'B', track_number: 1 },
+            { track: 'Emotion Sickness', side: 'C', track_number: 2 },
+            { track: 'Carnavoyeur', side: 'B', track_number: 2 },
+            { track: 'Paper Machete', side: 'A', track_number: 2 },
+            { track: 'Negative Space', side: 'A', track_number: 3 },
+            { track: 'What The Peephole Say', side: 'B', track_number: 3 },
+            { track: 'Straight Jacket Fitting', side: 'C', track_number: 3 },
+            { track: 'Time & Place', side: 'A', track_number: 4 },
+        ]);
+
+        expect(labels).toEqual([
+            'A-1. Obscenery',
+            'A-2. Paper Machete',
+            'A-3. Negative Space',
+            'A-4. Time & Place',
+            'B-1. Made To Parade',
+            'B-2. Carnavoyeur',
+            'B-3. What The Peephole Say',
+            'C-1. Sicily',
+            'C-2. Emotion Sickness',
+            'C-3. Straight Jacket Fitting',
+            'D-1. Untitled',
+        ]);
+    });
+
+    test('disc still outranks side', () => {
+        // A 2LP numbers its sides A/B on disc one and C/D on disc two, but a
+        // mis-entered side must not pull a track onto the wrong disc.
+        const labels = render([
+            { track: 'Disc two, side A', disc_number: 2, side: 'A', track_number: 1 },
+            { track: 'Disc one, side B', disc_number: 1, side: 'B', track_number: 1 },
+        ]);
+        expect(labels).toEqual(['B-1. Disc one, side B', 'A-1. Disc two, side A']);
+    });
+
+    test('sides are compared case-insensitively', () => {
+        const labels = render([
+            { track: 'lower b', side: 'b', track_number: 1 },
+            { track: 'upper A', side: 'A', track_number: 1 },
+        ]);
+        expect(labels).toEqual(['A-1. upper A', 'b-1. lower b']);
+    });
+
+    test('numeric sides sort numerically, not as text', () => {
+        // '10' precedes '9' under a string comparison.
+        const labels = render([
+            { track: 'ten', side: '10', track_number: 1 },
+            { track: 'nine', side: '9', track_number: 1 },
+        ]);
+        expect(labels).toEqual(['9-1. nine', '10-1. ten']);
+    });
+
+    test('a track with no side sorts before the sided ones, not scattered among them', () => {
+        // A missing side in an otherwise annotated tracklist is a data gap;
+        // surfacing it at the top beats hiding it in the middle.
+        const labels = render([
+            { track: 'has B', side: 'B', track_number: 1 },
+            { track: 'no side', track_number: 2 },
+            { track: 'has A', side: 'A', track_number: 1 },
+        ]);
+        expect(labels).toEqual(['2. no side', 'A-1. has A', 'B-1. has B']);
+    });
+
+    test('a tracklist with no sides at all still orders by track number', () => {
+        const labels = render([
+            { track: 'third', track_number: 3 },
+            { track: 'first', track_number: 1 },
+            { track: 'second', track_number: 2 },
+        ]);
+        expect(labels).toEqual(['1. first', '2. second', '3. third']);
+    });
+
+    test('ordering does not mutate the caller\'s array', () => {
+        const tracks = [
+            { track: 'B side', side: 'B', track_number: 1, track_id: 't1' },
+            { track: 'A side', side: 'A', track_number: 1, track_id: 't2' },
+        ];
+        const before = tracks.map(t => t.track_id);
+        render(tracks);
+        expect(tracks.map(t => t.track_id)).toEqual(before);
     });
 });
