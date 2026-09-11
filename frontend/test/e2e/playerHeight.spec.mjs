@@ -35,6 +35,14 @@ async function showEmbed(page) {
     await page.goto('/');
     await page.evaluate(() => {
         document.body.classList.add('mini-player-embed');
+        // MiniPlayer constructs with _collapsed = true and applies the class at
+        // render, so the page arrives here already collapsed. These assertions
+        // are about the *expanded* card's width, and a collapsed embed is
+        // deliberately 1px — so say which state is under test rather than
+        // relying on the collapsed rules being unreachable at this viewport,
+        // which is how this passed before they were hoisted out of the phone
+        // media query.
+        document.body.classList.remove('mini-player-collapsed');
 
         const player = document.querySelector('.mini-player')
             ?? document.body.appendChild(Object.assign(

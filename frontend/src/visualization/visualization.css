@@ -2287,55 +2287,6 @@ body.mini-player-embed .mp-embed {
         flex: none;
     }
 
-    /* ---- Collapsed ----
-       A strip that still says what is playing and how to get back, rather than
-       vanishing entirely and leaving no affordance. */
-    /* Hidden is the default: a show button and nothing else. The track name
-       goes too — knowing what is playing is what expanding is for, and the
-       panel's height comes out of the sheet you are trying to read. */
-    body.mini-player-collapsed .mp-art-frame,
-    body.mini-player-collapsed .mp-controls,
-    body.mini-player-collapsed .mp-scrubber-area,
-    body.mini-player-collapsed .mp-info,
-    body.mini-player-collapsed .mp-drawer,
-    /* Not .mp-right itself — the toggle lives in it, and hiding the control
-       that brings the panel back is exactly the dead end this leaves room for. */
-    body.mini-player-collapsed .mp-external,
-    body.mini-player-collapsed .mp-queue-toggle {
-        display: none;
-    }
-
-    body.mini-player-collapsed .mp-bar {
-        padding: 2px 8px;
-        gap: 6px;
-        justify-content: flex-end;
-    }
-
-    body.mini-player-collapsed .mp-collapse-toggle {
-        font-size: 11px;
-        padding: 3px 10px;
-    }
-
-    /* Out of the layout, still in the page.
-    
-       display:none on an iframe stops its audio on iOS WebKit, and hiding the
-       panel to read the details is browsing — the same activity the queue was
-       taught not to interrupt. So the embed keeps playing from a pixel nobody
-       can see, and the show button brings it back.
-    
-       Declared after the embed-mode rule above and at equal specificity, so
-       collapsing wins. Swap this block for `display: none` if hiding should
-       stop the music instead. */
-    body.mini-player-collapsed.mini-player-embed .mp-embed {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        border: 0;
-        opacity: 0;
-        pointer-events: none;
-        overflow: hidden;
-    }
 
     /* Spotify's compact card is horizontal and needs roughly 300px of width
        before its own title and controls collide, so it spans the panel rather
@@ -2357,4 +2308,71 @@ body.mini-player-embed .mp-embed {
         height: 82px;
         padding: 1px 8px;
     }
+}
+
+/* ---- Collapsed player ---------------------------------------------------
+   These rules lived inside the `@media (max-width: 768px)` block, so above
+   768px the minimise button did nothing visible: the click toggled
+   `_collapsed`, added `body.mini-player-collapsed` and swapped the glyph to
+   "▴ Player" — and then no rule matched the class, so the bar stayed fully
+   expanded. The screen recording shows precisely that: a player captioned
+   "▴ Player" with its artwork, controls and track info still on screen.
+
+   Hoisted to global scope so the control works at every width. The values
+   were written for a phone but describe the collapsed state itself, not a
+   breakpoint, so they carry over unchanged. ---------------------------------*/
+/* ---- Collapsed ----
+   A strip that still says what is playing and how to get back, rather than
+   vanishing entirely and leaving no affordance. */
+/* Hidden is the default: a show button and nothing else. The track name
+   goes too — knowing what is playing is what expanding is for, and the
+   panel's height comes out of the sheet you are trying to read. */
+body.mini-player-collapsed .mp-art-frame,
+body.mini-player-collapsed .mp-controls,
+body.mini-player-collapsed .mp-scrubber-area,
+body.mini-player-collapsed .mp-info,
+body.mini-player-collapsed .mp-drawer,
+/* Not .mp-right itself — the toggle lives in it, and hiding the control
+   that brings the panel back is exactly the dead end this leaves room for. */
+body.mini-player-collapsed .mp-external,
+body.mini-player-collapsed .mp-queue-toggle {
+    display: none;
+}
+
+body.mini-player-collapsed .mp-bar {
+    padding: 2px 8px;
+    gap: 6px;
+    justify-content: flex-end;
+    /* .mp-bar carries `height: 52px; min-height: 52px` globally, so hiding its
+       children reclaimed nothing on its own — the bar kept its full height with
+       an empty space where the controls had been. Releasing both is what makes
+       collapsing actually give the graph its pixels back. */
+    height: auto;
+    min-height: 0;
+}
+
+body.mini-player-collapsed .mp-collapse-toggle {
+    font-size: 11px;
+    padding: 3px 10px;
+}
+
+/* Out of the layout, still in the page.
+
+   display:none on an iframe stops its audio on iOS WebKit, and hiding the
+   panel to read the details is browsing — the same activity the queue was
+   taught not to interrupt. So the embed keeps playing from a pixel nobody
+   can see, and the show button brings it back.
+
+   Declared after the embed-mode rule above and at equal specificity, so
+   collapsing wins. Swap this block for `display: none` if hiding should
+   stop the music instead. */
+body.mini-player-collapsed.mini-player-embed .mp-embed {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
 }

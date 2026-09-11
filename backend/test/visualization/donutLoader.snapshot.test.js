@@ -554,3 +554,86 @@ describe('prePopulateData', () => {
         expect(stub.callbacks.plot).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('slice order does not depend on arrival order', () => {
+    /**
+     * The reported symptom: "the donut graph around each group changes
+     * colours". It was not the colours — those are per-person and stable. The
+     * slices were being *rotated*, same sizes and same colours in different
+     * positions, which looks identical to a recolour.
+     *
+     * The tie-break was the member's index in the incoming array, i.e. the
+     * order the rows happened to arrive in. Two sources populate a donut — the
+     * bundled participation map from the initial graph load, and a per-group
+     * refetch — and neither query orders its results, so they disagree.
+     *
+     * Ties are the normal case, not an edge case: a four-piece that played
+     * every track has four members all weighted the same.
+     */
+    const BAND = [
+        { personId: 'p:drums', personName: 'Drummer', trackCount: 12, color: '#ff0000' },
+        { personId: 'p:bass',  personName: 'Bassist', trackCount: 12, color: '#00ff00' },
+        { personId: 'p:gtr',   personName: 'Guitar',  trackCount: 12, color: '#0000ff' },
+        { personId: 'p:vox',   personName: 'Singer',  trackCount: 12, color: '#ffff00' },
+    ];
+
+    const orderOf = (members) =>
+        compileMethod('computeSlices').call(makeStub(), members).map(s => s.personId);
+
+    test('a whole band on every track comes out in the same order either way', () => {
+        // Every weight ties, which is exactly when the old tie-break decided
+        // the result — and it decided it differently for each source.
+        expect(orderOf([...BAND].reverse())).toEqual(orderOf(BAND));
+    });
+
+    test('any shuffle of the same members yields the same ring', () => {
+        const baseline = orderOf(BAND);
+        const shuffles = [
+            [BAND[2], BAND[0], BAND[3], BAND[1]],
+            [BAND[3], BAND[2], BAND[1], BAND[0]],
+            [BAND[1], BAND[3], BAND[0], BAND[2]],
+        ];
+        for (const shuffle of shuffles) {
+            expect(orderOf(shuffle)).toEqual(baseline);
+        }
+    });
+
+    test('the colours land on the same people, not merely in the same sequence', () => {
+        const forward = compileMethod('computeSlices').call(makeStub(), BAND);
+        const reversed = compileMethod('computeSlices').call(makeStub(), [...BAND].reverse());
+
+        // Pairwise: slice i must be the same person AND the same colour.
+        expect(reversed.map(s => [s.personId, s.color]))
+            .toEqual(forward.map(s => [s.personId, s.color]));
+    });
+
+    test('slice angles are identical across arrival orders', () => {
+        const forward = compileMethod('computeSlices').call(makeStub(), BAND);
+        const reversed = compileMethod('computeSlices').call(makeStub(), [...BAND].reverse());
+        expect(reversed.map(s => [s.begin, s.end])).toEqual(forward.map(s => [s.begin, s.end]));
+    });
+
+    test('weight still outranks the id tie-break', () => {
+        // The id order here is the opposite of the weight order, so a sort that
+        // had started keying on id would show up.
+        const order = orderOf([
+            { personId: 'p:aaa', personName: 'Occasional', trackCount: 1 },
+            { personId: 'p:zzz', personName: 'Everywhere', trackCount: 9 },
+        ]);
+        expect(order).toEqual(['p:zzz', 'p:aaa']);
+    });
+
+    test('the equal-slices fallback is order-independent too', () => {
+        // All-zero weights take a different branch, and it had the same flaw.
+        const zeroed = BAND.map(m => ({ ...m, trackCount: 0 }));
+        expect(orderOf([...zeroed].reverse())).toEqual(orderOf(zeroed));
+    });
+
+    test('members with no id at all do not throw', () => {
+        const order = orderOf([
+            { personName: 'Nameless One', trackCount: 5 },
+            { personName: 'Nameless Two', trackCount: 5 },
+        ]);
+        expect(order).toHaveLength(2);
+    });
+});
