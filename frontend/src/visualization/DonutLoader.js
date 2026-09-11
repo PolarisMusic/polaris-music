@@ -118,9 +118,33 @@ export class DonutLoader {
             totalWeight = members.length; // each member gets weight = 1
         }
 
-        // Sort descending by weight (stable by index for equal slices)
+        // Sort descending by weight, breaking ties on person id.
+        //
+        // The tie-break used to be the member's index in the incoming array,
+        // which is the order the rows happened to arrive in. That is not a
+        // property of the band: the two sources disagree about it, because
+        // neither orders its results. The initial graph load collects
+        // participation rows with `collect(DISTINCT {...})` in
+        // api/routes/graph.js, and the per-group refetch runs a separate query
+        // in calculateGroupMemberParticipation; Cypher guarantees an order in
+        // neither case.
+        //
+        // Ties are the normal case, not an edge case: a four-piece that played
+        // every track has four members all weighted 12. So the same donut came
+        // out with its slices in a different rotation depending on which source
+        // last populated it — same sizes, same colours, different positions,
+        // which reads as the ring changing colour.
+        //
+        // person id is stable, unique, and independent of arrival order. The
+        // index remains as a last resort for rows with no id at all.
         const indexed = members.map((m, i) => ({ m, w: useEqualSlices ? 1 : weights[i], i }));
-        indexed.sort((a, b) => b.w - a.w || a.i - b.i);
+        indexed.sort((a, b) => {
+            if (b.w !== a.w) return b.w - a.w;
+            const idA = String(a.m.personId ?? '');
+            const idB = String(b.m.personId ?? '');
+            if (idA !== idB) return idA < idB ? -1 : 1;
+            return a.i - b.i;
+        });
 
         const slices = [];
         let angle = -Math.PI / 2; // Start at top
