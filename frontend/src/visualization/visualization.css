@@ -36,14 +36,18 @@ html, body {
        resized at each one, which reads as the layout thrashing rather than
        responding.
        
-       Reserving the standard bar height up front collapses the first three of
-       those into one stable size: the graph is laid out once and stays put
-       while the player appears, collapses and expands. It costs 54px of graph
+       Reserving the standard bar height up front collapses all four into one
+       stable size: the graph is laid out once and stays put while the player
+       appears, collapses, expands and opens its embed. It costs 54px of graph
        at first paint, before any player exists, which is the price of not
        moving afterwards.
        
-       The embed still changes it. That one is a deliberate, infrequent act by
-       the visitor, and clamping to this floor would crop the embed itself. */
+       The embed used to be exempt, on the reasoning that clamping would crop
+       it. It does not: the player is fixed and sits above the canvas in the
+       stacking order, so an embed taller than this floor overlaps the bottom
+       of the graph instead of pushing it. Overlapping an occasional 84px strip
+       beats rescaling the entire graph, and the visitor who wants those pixels
+       back can collapse the player. */
     --viz-player-floor: 54px;
     /* Desktop only. The phone value is derived from the viewport — see the
        media query. */
@@ -261,11 +265,16 @@ body.mini-player-visible.mini-player-embed {
 /* Visualization Canvas */
 #viz-container {
     flex: 1;
-    /* The graph's share of the bottom inset. As a stretched item in a row flex
-       container this shortens the column, so the canvas ends exactly at the
-       player's top edge — where it has always ended. The phone zeroes it and
-       takes the height off #main-container instead. */
-    margin-bottom: max(var(--mini-player-height), var(--viz-player-floor));
+    /* The graph's share of the bottom inset: a constant, never the player's
+       actual height. As a stretched item in a row flex container this shortens
+       the column, and a column that changes length rescales the whole
+       hypertree — so tying it to a height that moves four times a session is
+       what made the layout look like it was thrashing.
+       
+       The expanded player overlaps the canvas rather than displacing it. The
+       phone zeroes this and takes the height off #main-container instead,
+       where the sheet absorbs it and the canvas stays a 100vw square. */
+    margin-bottom: var(--viz-player-floor);
     min-width: 0;
     min-height: 0;
     position: relative;

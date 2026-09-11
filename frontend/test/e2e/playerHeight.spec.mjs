@@ -206,30 +206,53 @@ test.describe('who gives up height for the player', () => {
         expect(Math.abs(columnBottom - barTop)).toBeLessThanOrEqual(1);
     });
 
-    test.describe('the graph never runs under the player', () => {
-        // True on both layouts, by different routes — the desktop takes the
-        // inset off this column, the phone off the container — which is what
-        // makes it worth asserting on both.
-        for (const [label, size] of [
-            ['desktop', { width: 1280, height: 800 }],
-            ['phone', { width: 390, height: 844 }],
-        ]) {
-            test(label, async ({ page }) => {
-                await page.setViewportSize(size);
-                await showEmbed(page);
+    test('the phone graph stops at the player rather than running under it', async ({ page }) => {
+        // The phone takes the inset off #main-container, and the sheet — not
+        // the canvas — gives up the height, so the canvas can stay a 100vw
+        // square. Meeting, not merely clearing: a one-sided assertion would
+        // let the column subtract the player twice and call the wasted canvas
+        // a pass.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await showEmbed(page);
 
-                const { vizBottom, playerTop } = await page.evaluate(() => ({
-                    vizBottom: document.getElementById('viz-container')
-                        .getBoundingClientRect().bottom,
-                    playerTop: document.getElementById('mini-player-container')
-                        .getBoundingClientRect().top,
-                }));
+        const { vizBottom, playerTop } = await page.evaluate(() => ({
+            vizBottom: document.getElementById('viz-container')
+                .getBoundingClientRect().bottom,
+            playerTop: document.getElementById('mini-player-container')
+                .getBoundingClientRect().top,
+        }));
 
-                // Meeting, not merely clearing: a one-sided assertion would
-                // let both columns subtract the player and call the wasted
-                // canvas a pass.
-                expect(Math.abs(vizBottom - playerTop)).toBeLessThanOrEqual(1);
-            });
-        }
+        expect(Math.abs(vizBottom - playerTop)).toBeLessThanOrEqual(1);
+    });
+
+    test('the desktop graph keeps one size while the embed opens over it', async ({ page }) => {
+        // Deliberately the opposite of the phone assertion above, and of what
+        // this file asserted for the desktop before: the desktop column used
+        // to end exactly at the player's top edge, which meant the entire
+        // hypertree rescaled every time the player changed height. The graph
+        // is now pinned to the collapsed-player floor and the embed overlaps
+        // it — the visitor who wants those pixels back collapses the player.
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto('/');
+
+        const vizHeight = () => page.evaluate(() =>
+            document.getElementById('viz-container').getBoundingClientRect().height);
+
+        const before = await vizHeight();
+        await showEmbed(page);
+        const after = await vizHeight();
+
+        expect(after).toBe(before);
+
+        // And the overlap is real, not an embed that happened to fit inside
+        // the floor — without this the assertion above passes on any build
+        // where the embed is small enough not to matter.
+        const { vizBottom, playerTop } = await page.evaluate(() => ({
+            vizBottom: document.getElementById('viz-container')
+                .getBoundingClientRect().bottom,
+            playerTop: document.getElementById('mini-player-container')
+                .getBoundingClientRect().top,
+        }));
+        expect(playerTop).toBeLessThan(vizBottom - 1);
     });
 });
