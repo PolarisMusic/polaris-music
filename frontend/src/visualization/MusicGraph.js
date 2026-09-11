@@ -27,43 +27,23 @@ import { InlineEditor } from './InlineEditor.js';
 import { api as backendApi } from '../utils/api.js';
 
 /**
- * How far the hypertree pulls every node in toward the origin.
+ * Radius of the Poincare disk inside which a node shows its full name. Past
+ * it, the name waits for a hover. Persons and groups get different bounds.
  *
- * jit.js:17887 describes it as "a number in the range [0, 1) that will be
- * substracted to each node position to make a more compact Hypertree. This
- * will avoid placing nodes too far from each other when there's a selected
- * node." Left at its default of 0, focusing a node at the edge of the graph
- * put every other node between 0.99 and 1.00 of the disk radius: the rest of
- * the graph smeared along the rim, effectively unreachable.
+ * A group is a landmark -- it is what the graph is organised around, and its
+ * name is how you tell where you are -- so groups keep their names almost all
+ * the way out. Persons are the bulk of the node count and the source of the
+ * overlapping pile-up at the rim, so they thin out early.
  *
- * Measured on a five-level fixture, focusing a leaf: 0 gives a median of
- * 0.995, 0.2 gives 0.884, 0.3 gives 0.773. 0.3 was tried first and read as
- * cramped -- the whole tree shrank into the middle of the canvas -- so this
- * sits between the two.
- *
- * The ceiling is the edge length the solver at jit.js:17988 picks: it bottoms
- * out near 0.50 on deep trees, and an offset at or above that drives the
- * shallowest ring's radius negative and folds the layout through the origin.
- *
- * Tune it live, without a rebuild:
- *     window.musicGraph.setGeometryOffset(0.25)
+ * These are absolute positions on the disk, which only holds while the layout
+ * spans the whole disk. Anything that pulls the tree inward -- JIT's `offset`
+ * being the obvious one -- moves every node under these bounds at once and
+ * turns the gate off without changing a line of this file. That is not
+ * hypothetical: it is exactly what a non-zero offset did, and every name in
+ * the graph drew at once. Move these with it, or leave the offset at 0.
  */
-const HYPERTREE_OFFSET = 0.2;
-
-/**
- * Full names are shown only for nodes inside this radius of the Poincare disk.
- * Everything further out waits for a hover.
- *
- * Read it against the *compacted* layout. HYPERTREE_OFFSET moves every node
- * inward by that constant, so the old 0.8 -- two thirds of the way out on an
- * uncompacted tree -- now sits past where any node lands, and every label in
- * the graph draws at once. That is what made the first compactness build look
- * busier than the one it replaced, not the geometry.
- *
- * 0.5 keeps the focused node and the ring immediately around it (which lands
- * near `a - offset`, about 0.3) and drops the rest to hover.
- */
-const LABEL_PROXIMITY_RADIUS = 0.5;
+const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
+const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 
 /**
  * Edge weight multipliers, by viewport. See ColorPalette.edgeWidthScale.
@@ -171,11 +151,12 @@ export class MusicGraph {
         // Image cache for node photos (keyed by URL)
         this._imageCache = new Map();
 
-        // Poincaré distance threshold for showing the full-name tooltip.
+        // Poincaré distance thresholds for showing the full-name tooltip.
         // Squared, because pos.squaredNorm() is what the render loop already
         // has and a sqrt per node per frame buys nothing. See
-        // LABEL_PROXIMITY_RADIUS for why the number moves with the offset.
-        this.labelProximityThreshold = LABEL_PROXIMITY_RADIUS ** 2;
+        // PERSON_LABEL_PROXIMITY_RADIUS for why groups reach further.
+        this.labelProximityThreshold = PERSON_LABEL_PROXIMITY_RADIUS ** 2;
+        this.groupLabelProximityThreshold = GROUP_LABEL_PROXIMITY_RADIUS ** 2;
 
         // Hover tooltip timer (500ms delay before showing label on edge nodes)
         this._hoverTooltipTimer = null;
@@ -523,10 +504,19 @@ export class MusicGraph {
             // at infinity. Subtracting a constant pulls the whole tree inward
             // and brings that back into view.
             //
-            // The value, the measurements behind it and the ceiling are all
-            // documented on HYPERTREE_OFFSET at the top of this file, next to
-            // the label threshold that has to move with it.
-            offset: HYPERTREE_OFFSET,
+            // Left at JIT's default, deliberately, and stated rather than
+            // omitted so the next person does not re-derive it.
+            //
+            // jit.js:17887 offers `offset` as the cure for nodes sitting too
+            // far apart when one is selected, and on the numbers it works:
+            // focusing a leaf of a five-level graph puts every other node at a
+            // median 0.995 of the disk radius at 0, 0.884 at 0.2, 0.773 at
+            // 0.3. It was tried at both and looks worse at both -- it shrinks
+            // the whole tree into the middle of the canvas, and what it buys
+            // at the rim it takes from everywhere else. The reachability
+            // problem it was meant to solve is real and still open; this is
+            // not its answer.
+            offset: 0,
 
             // Navigation – panning disabled; replaced by long-press pan
             Navigation: {
@@ -838,7 +828,7 @@ export class MusicGraph {
         // Show tooltip when: selected, near center, or after 500ms hover delay.
         const isSelected = node.getData('isSelected');
         const sqNorm = node.pos.getc().squaredNorm();
-        const isNearCenter = sqNorm < this.labelProximityThreshold;
+        const isNearCenter = sqNorm < this.labelThresholdFor(node);
         const hoverTooltip = node.getData('hoverTooltip');
 
         if (isSelected || isNearCenter || hoverTooltip) {
@@ -846,6 +836,20 @@ export class MusicGraph {
         } else {
             style.display = 'none';
         }
+    }
+
+    /**
+     * The squared Poincaré radius inside which this node keeps its full name.
+     *
+     * Groups reach nearly to the rim; everything else thins out early. See
+     * PERSON_LABEL_PROXIMITY_RADIUS.
+     *
+     * @param {object} node - JIT graph node
+     * @returns {number} Squared radius to compare pos.squaredNorm() against
+     */
+    labelThresholdFor(node) {
+        const isGroup = (node.data?.type || '').toLowerCase() === 'group';
+        return isGroup ? this.groupLabelProximityThreshold : this.labelProximityThreshold;
     }
 
     /**
@@ -1225,28 +1229,6 @@ export class MusicGraph {
         // Clamp in case wheel zoom exceeds slider range
         const clamped = Math.max(min, Math.min(max, z));
         slider.value = String(clamped);
-    }
-
-    /**
-     * Set Hypertree geometry offset (controls hyperbolic compactness).
-     * @param {number} value - Offset in [0, 1)
-     */
-    setGeometryOffset(value) {
-        if (!this.ht) return;
-        this.ht.config.offset = value;
-
-        // The console hook is reachable as soon as the page boots, which is
-        // before the first graph fetch resolves -- and refresh() walks from
-        // the root to recompute depths, so on an empty graph it throws on an
-        // undefined node (jit.js:5028). The new offset is already stored and
-        // takes effect when data arrives.
-        const focusId = this.selectedNode?.id || this.ht.root;
-        if (!focusId || !this.ht.graph.getNode(focusId)) return;
-
-        this.ht.refresh();
-        this.ht.onClick(focusId, {
-            onComplete: () => this.updateInfoPanel(this.ht.graph.getNode(focusId))
-        });
     }
 
     /**
