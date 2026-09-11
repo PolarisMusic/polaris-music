@@ -446,6 +446,34 @@ export class MusicGraph {
 
             levelDistance: 100,
 
+            // Hyperbolic compactness. jit.js:17887 describes it exactly:
+            // "A number in the range [0, 1) that will be substracted to each
+            // node position to make a more compact Hypertree. This will avoid
+            // placing nodes too far from each other when there's a selected
+            // node."
+            //
+            // It had been left at the default 0, which is why selecting a node
+            // out at the edge left the rest of the graph unreachably far away:
+            // each node sits at a + a^2 + ... + a^(depth+1) from the origin
+            // (jit.js:17976), and hyperbolic distance grows exponentially
+            // toward the rim, so anything a few tree-steps away is effectively
+            // at infinity. Subtracting a constant pulls the whole tree inward
+            // and brings that back into view.
+            //
+            // 0.3 is measured, not guessed. Focusing a leaf of a five-deep
+            // graph put every other node at 0.99-1.00 of the disk radius --
+            // all of it smeared along the rim. The same focus at 0.3 puts the
+            // median node at 0.77 and the farthest at 0.93.
+            //
+            // The ceiling is the `a` that jit.js:17988 solves for: it bottoms
+            // out near 0.50 on deep trees, and an offset above that drives the
+            // shallowest ring's radius negative, folding the layout through
+            // the origin. 0.3 keeps ~0.2 of headroom.
+            //
+            // Tune it live without a rebuild:
+            //     window.musicGraph.setGeometryOffset(0.35)
+            offset: 0.3,
+
             // Navigation – panning disabled; replaced by long-press pan
             Navigation: {
                 enable: true,
@@ -1106,15 +1134,18 @@ export class MusicGraph {
         if (!this.ht) return;
         this.ht.config.offset = value;
 
+        // The console hook is reachable as soon as the page boots, which is
+        // before the first graph fetch resolves -- and refresh() walks from
+        // the root to recompute depths, so on an empty graph it throws on an
+        // undefined node (jit.js:5028). The new offset is already stored and
+        // takes effect when data arrives.
         const focusId = this.selectedNode?.id || this.ht.root;
+        if (!focusId || !this.ht.graph.getNode(focusId)) return;
+
         this.ht.refresh();
-        if (focusId) {
-            this.ht.onClick(focusId, {
-                onComplete: () => this.updateInfoPanel(this.ht.graph.getNode(focusId))
-            });
-        } else {
-            this.ht.plot();
-        }
+        this.ht.onClick(focusId, {
+            onComplete: () => this.updateInfoPanel(this.ht.graph.getNode(focusId))
+        });
     }
 
     /**
