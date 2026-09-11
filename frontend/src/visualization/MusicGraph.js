@@ -26,6 +26,59 @@ import { PanController } from './PanController.js';
 import { InlineEditor } from './InlineEditor.js';
 import { api as backendApi } from '../utils/api.js';
 
+/**
+ * How far the hypertree pulls every node in toward the origin.
+ *
+ * jit.js:17887 describes it as "a number in the range [0, 1) that will be
+ * substracted to each node position to make a more compact Hypertree. This
+ * will avoid placing nodes too far from each other when there's a selected
+ * node." Left at its default of 0, focusing a node at the edge of the graph
+ * put every other node between 0.99 and 1.00 of the disk radius: the rest of
+ * the graph smeared along the rim, effectively unreachable.
+ *
+ * Measured on a five-level fixture, focusing a leaf: 0 gives a median of
+ * 0.995, 0.2 gives 0.884, 0.3 gives 0.773. 0.3 was tried first and read as
+ * cramped -- the whole tree shrank into the middle of the canvas -- so this
+ * sits between the two.
+ *
+ * The ceiling is the edge length the solver at jit.js:17988 picks: it bottoms
+ * out near 0.50 on deep trees, and an offset at or above that drives the
+ * shallowest ring's radius negative and folds the layout through the origin.
+ *
+ * Tune it live, without a rebuild:
+ *     window.musicGraph.setGeometryOffset(0.25)
+ */
+const HYPERTREE_OFFSET = 0.2;
+
+/**
+ * Full names are shown only for nodes inside this radius of the Poincare disk.
+ * Everything further out waits for a hover.
+ *
+ * Read it against the *compacted* layout. HYPERTREE_OFFSET moves every node
+ * inward by that constant, so the old 0.8 -- two thirds of the way out on an
+ * uncompacted tree -- now sits past where any node lands, and every label in
+ * the graph draws at once. That is what made the first compactness build look
+ * busier than the one it replaced, not the geometry.
+ *
+ * 0.5 keeps the focused node and the ring immediately around it (which lands
+ * near `a - offset`, about 0.3) and drops the rest to hover.
+ */
+const LABEL_PROXIMITY_RADIUS = 0.5;
+
+/**
+ * Edge weight multipliers, by viewport. See ColorPalette.edgeWidthScale.
+ *
+ * The phone gets much less than the desktop rather than the same reduction:
+ * the node count does not shrink with the screen, so the same edges are drawn
+ * into roughly a third of the width and any weight that reads as "a line" on
+ * a monitor reads as a blot there.
+ */
+const EDGE_WIDTH_SCALE_DESKTOP = 0.7;
+const EDGE_WIDTH_SCALE_PHONE = 0.35;
+
+/** Matches the phone breakpoint in visualization.css. */
+const PHONE_MEDIA_QUERY = '(max-width: 768px)';
+
 export class MusicGraph {
     constructor(containerId, walletManager) {
         this.container = document.getElementById(containerId);
@@ -118,8 +171,11 @@ export class MusicGraph {
         // Image cache for node photos (keyed by URL)
         this._imageCache = new Map();
 
-        // Poincaré distance threshold for showing full-name tooltip
-        this.labelProximityThreshold = 0.64;
+        // Poincaré distance threshold for showing the full-name tooltip.
+        // Squared, because pos.squaredNorm() is what the render loop already
+        // has and a sqrt per node per frame buys nothing. See
+        // LABEL_PROXIMITY_RADIUS for why the number moves with the offset.
+        this.labelProximityThreshold = LABEL_PROXIMITY_RADIUS ** 2;
 
         // Hover tooltip timer (500ms delay before showing label on edge nodes)
         this._hoverTooltipTimer = null;
@@ -368,6 +424,10 @@ export class MusicGraph {
             return;
         }
 
+        // Before the config below reads colorPalette.edgeWidthScale.
+        this._applyEdgeWidthScale();
+        this._watchEdgeWidthBreakpoint();
+
         // Register custom node types before creating the Hypertree
         this.registerNodeTypes();
 
@@ -386,11 +446,14 @@ export class MusicGraph {
                 transform: true   // distance-based scaling in Poincaré disk
             },
 
-            // Edge configuration
+            // Edge configuration. lineWidth is the fallback for edges
+            // styleEdge() does not recognise; it is scaled here at
+            // construction and again by _applyEdgeWidthScale() on a viewport
+            // change, so it never drifts from the palette's widths.
             Edge: {
                 overridable: true,
                 type: 'hyperline',
-                lineWidth: 2,
+                lineWidth: 2 * this.colorPalette.edgeWidthScale,
                 color: '#088'
             },
 
@@ -460,19 +523,10 @@ export class MusicGraph {
             // at infinity. Subtracting a constant pulls the whole tree inward
             // and brings that back into view.
             //
-            // 0.3 is measured, not guessed. Focusing a leaf of a five-deep
-            // graph put every other node at 0.99-1.00 of the disk radius --
-            // all of it smeared along the rim. The same focus at 0.3 puts the
-            // median node at 0.77 and the farthest at 0.93.
-            //
-            // The ceiling is the `a` that jit.js:17988 solves for: it bottoms
-            // out near 0.50 on deep trees, and an offset above that drives the
-            // shallowest ring's radius negative, folding the layout through
-            // the origin. 0.3 keeps ~0.2 of headroom.
-            //
-            // Tune it live without a rebuild:
-            //     window.musicGraph.setGeometryOffset(0.35)
-            offset: 0.3,
+            // The value, the measurements behind it and the ceiling are all
+            // documented on HYPERTREE_OFFSET at the top of this file, next to
+            // the label threshold that has to move with it.
+            offset: HYPERTREE_OFFSET,
 
             // Navigation – panning disabled; replaced by long-press pan
             Navigation: {
@@ -661,6 +715,53 @@ export class MusicGraph {
         }
 
         this.overlayPositioner.updateOverlayPosition();
+    }
+
+    /**
+     * Set the edge weight multiplier from the current viewport.
+     *
+     * Safe to call before the Hypertree exists: the config reads the palette
+     * at construction, and this only touches the live instance if there is
+     * one.
+     */
+    _applyEdgeWidthScale() {
+        const isPhone = typeof window.matchMedia === 'function'
+            ? window.matchMedia(PHONE_MEDIA_QUERY).matches
+            : false;
+
+        const scale = isPhone ? EDGE_WIDTH_SCALE_PHONE : EDGE_WIDTH_SCALE_DESKTOP;
+        if (this.colorPalette.edgeWidthScale === scale) return false;
+
+        this.colorPalette.edgeWidthScale = scale;
+        if (this.ht?.config?.Edge) {
+            this.ht.config.Edge.lineWidth = 2 * scale;
+        }
+        return true;
+    }
+
+    /**
+     * Re-scale the edges when the viewport crosses the phone breakpoint.
+     *
+     * Deliberately not folded into _handleCanvasResize(): that one bails when
+     * the canvas dimensions are unchanged, which is the common case on a
+     * rotation into a layout that has the same box but a different breakpoint.
+     */
+    _watchEdgeWidthBreakpoint() {
+        if (typeof window.matchMedia !== 'function') return;
+
+        const query = window.matchMedia(PHONE_MEDIA_QUERY);
+        const onChange = () => {
+            // Widths live on the adjacency data, written by styleEdge() during
+            // a plot, so a plot is what republishes them.
+            if (this._applyEdgeWidthScale()) this.ht?.plot();
+        };
+
+        // Safari below 14 has no addEventListener on MediaQueryList.
+        if (typeof query.addEventListener === 'function') {
+            query.addEventListener('change', onChange);
+        } else if (typeof query.addListener === 'function') {
+            query.addListener(onChange);
+        }
     }
 
     /**

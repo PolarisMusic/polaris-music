@@ -30,6 +30,21 @@ export class ColorPalette {
         // Track assigned colors
         this.assignments = new Map(); // person_id -> color
         this.nextColorIndex = 0;
+
+        /**
+         * Multiplier applied to every edge width, set by the viewport.
+         *
+         * The base weights below were picked for a handful of edges. A real
+         * group pulls in dozens, and hyperline edges are drawn at full weight
+         * however far the view is zoomed out, so the graph reads as a thicket
+         * rather than a set of relationships. MusicGraph lowers this on
+         * desktop and lowers it much further on a phone, where the same edges
+         * are packed into a third of the width.
+         *
+         * 1 leaves the base weights untouched, which is what a consumer that
+         * never sets it gets.
+         */
+        this.edgeWidthScale = 1;
     }
 
     /**
@@ -153,6 +168,20 @@ export class ColorPalette {
      * @returns {number} Width in pixels
      */
     getEdgeWidth(relType) {
+        return this.getBaseEdgeWidth(relType) * this.edgeWidthScale;
+    }
+
+    /**
+     * Edge width before the viewport's scale is applied, in pixels.
+     *
+     * Split out so the relative weights — which carry meaning, a membership
+     * edge being heavier than a credit — stay in one place, and thinning the
+     * whole graph is one number rather than six.
+     *
+     * @param {string} relType - Relationship type
+     * @returns {number} Unscaled width in pixels
+     */
+    getBaseEdgeWidth(relType) {
         switch (relType) {
             case 'MEMBER_OF':
                 return 3;

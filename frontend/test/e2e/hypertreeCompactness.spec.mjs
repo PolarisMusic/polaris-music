@@ -114,15 +114,26 @@ async function spreadAround(page, focusId) {
 
 test.describe('hypertree compactness', () => {
     test('focusing an edge node leaves the rest of the graph off the rim', async ({ page }) => {
+        // Stated against the uncompacted layout rather than a fixed number.
+        // An absolute threshold has to be re-tuned every time the offset moves
+        // -- it was, once, and the retune is indistinguishable in a diff from
+        // quietly widening a test to fit a regression. This compares the
+        // shipped configuration with offset 0 in the same page instead, so it
+        // keeps its meaning at any value worth shipping.
         await bootedGraph(page);
         await centreNode(page, EDGE_NODE);
-        const { median, max } = await spreadAround(page, EDGE_NODE);
+        const compacted = await spreadAround(page, EDGE_NODE);
 
-        // Measured at offset 0: median 0.995, max 1.000 -- every node crushed
-        // into the outermost half-percent of the disk, which is the bug.
-        // Measured at offset 0.3: median 0.773, max 0.925.
-        expect(median).toBeLessThan(0.85);
-        expect(max).toBeLessThan(0.96);
+        await page.evaluate(() => window.musicGraph.setGeometryOffset(0));
+        await page.waitForTimeout(SETTLE_MS);
+        const uncompacted = await spreadAround(page, EDGE_NODE);
+
+        // Measured: offset 0 puts the median at 0.995 and the farthest at
+        // 1.000 -- the whole graph crushed into the outermost half-percent of
+        // the disk, which is the bug. 0.2 gives 0.884, 0.3 gives 0.773.
+        expect(uncompacted.median).toBeGreaterThan(0.98);
+        expect(compacted.median).toBeLessThan(uncompacted.median - 0.05);
+        expect(compacted.max).toBeLessThan(uncompacted.max);
     });
 
     test('the offset reaches the live Hypertree config, not just the source', async ({ page }) => {
