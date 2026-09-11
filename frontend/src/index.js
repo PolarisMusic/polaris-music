@@ -1461,6 +1461,48 @@ class PolarisApp {
     }
 
     /**
+     * Fetch the performing group's roster from Discogs, or null if there
+     * isn't one to be had.
+     *
+     * `/artists/{id}` carries a `members` array for a group, which is the only
+     * authoritative statement Discogs makes about who was in the band. A solo
+     * artist has none, and neither does a group nobody has filled in — the two
+     * are indistinguishable from the payload, so both come back null and
+     * parseCredits keeps its older instrument-based behaviour rather than
+     * declaring the whole credit list guests.
+     *
+     * Never throws. An import that works slightly worse beats an import that
+     * fails outright because a second API call timed out.
+     *
+     * @param {Object} discogsRelease
+     * @returns {Promise<Array<{id: number, name: string}>|null>}
+     */
+    async fetchDiscogsRoster(discogsRelease) {
+        const mainArtist = discogsRelease?.artists?.[0];
+        if (!mainArtist || mainArtist.id == null) return null;
+
+        // "Various" is Discogs' catch-all for compilations, id 194. It has a
+        // membership list in the sense that everyone is on it, which is no use.
+        if (mainArtist.id === 194) return null;
+
+        try {
+            const artist = await discogsClient.fetchArtist(mainArtist.id);
+            const members = Array.isArray(artist?.members) ? artist.members : null;
+            if (members && members.length > 0) {
+                console.log(`Discogs roster for ${mainArtist.name}: ${members.length} members`);
+                return members;
+            }
+            console.log(`Discogs has no roster for ${mainArtist.name}; ` +
+                        'falling back to instrument credits');
+            return null;
+        } catch (error) {
+            console.warn('Could not fetch Discogs roster, falling back to instrument credits:',
+                         error.message);
+            return null;
+        }
+    }
+
+    /**
      * Wire the wallet bar's buttons and keep it in step with the session.
      *
      * Submitting a release signs a `put` action, so a visitor who reaches
@@ -1653,7 +1695,14 @@ class PolarisApp {
         // is a member, and someone credited three ways is one row rather than
         // three. The old code did this inline with a keyword list and a
         // "performer"-substring id set, and filed whole bands as guests.
-        const credits = discogsClient.parseCredits(discogsRelease.extraartists);
+        //
+        // The roster is fetched separately and passed in. Without it an
+        // instrument credit is the only signal available, and it cannot tell a
+        // founding member from a session cellist — which is how session players
+        // ended up in bands and how members credited only as producers ended up
+        // outside them.
+        const rosterMembers = await this.fetchDiscogsRoster(discogsRelease);
+        const credits = discogsClient.parseCredits(discogsRelease.extraartists, { rosterMembers });
         const performers = credits.members;
 
         // ===== RELEASE-LEVEL GROUPS =====
