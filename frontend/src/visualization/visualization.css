@@ -25,6 +25,26 @@ html, body {
        comment said it stayed 0 on phones, which the sheet's own calc below
        disproves. */
     --mini-player-height: 0px;
+    /* The floor the graph reserves for the player at the bottom of its column,
+       whether or not a player is currently there.
+       
+       The hypertree sizes its disk as min(width, height) / 2, and this column
+       is wider than it is tall, so *height* is the binding dimension: every
+       pixel the player takes rescales the entire graph. The player passes
+       through four heights in an ordinary session — absent, collapsed,
+       expanded, and expanded-with-the-Spotify-embed — and the graph visibly
+       resized at each one, which reads as the layout thrashing rather than
+       responding.
+       
+       Reserving the standard bar height up front collapses the first three of
+       those into one stable size: the graph is laid out once and stays put
+       while the player appears, collapses and expands. It costs 54px of graph
+       at first paint, before any player exists, which is the price of not
+       moving afterwards.
+       
+       The embed still changes it. That one is a deliberate, infrequent act by
+       the visitor, and clamping to this floor would crop the embed itself. */
+    --viz-player-floor: 54px;
     /* Desktop only. The phone value is derived from the viewport — see the
        media query. */
     --info-sheet-height: 33vh;
@@ -245,7 +265,7 @@ body.mini-player-visible.mini-player-embed {
        container this shortens the column, so the canvas ends exactly at the
        player's top edge — where it has always ended. The phone zeroes it and
        takes the height off #main-container instead. */
-    margin-bottom: var(--mini-player-height);
+    margin-bottom: max(var(--mini-player-height), var(--viz-player-floor));
     min-width: 0;
     min-height: 0;
     position: relative;
