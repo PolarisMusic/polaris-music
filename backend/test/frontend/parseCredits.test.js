@@ -161,3 +161,128 @@ describe('edge cases', () => {
         expect(credits.members).toEqual([]);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Roster-based classification.
+//
+// An instrument credit cannot tell a founding member from a session player —
+// Discogs credits them identically. That ambiguity is why importing a release
+// put session musicians in the band, and sometimes put band members credited
+// only as producers outside it.
+//
+// `/artists/{id}` answers the question directly: a group's `members` array is
+// the roster. These cover using it, and the conservative fallback for when
+// Discogs has no roster to give.
+// ---------------------------------------------------------------------------
+
+const NIRVANA_ROSTER = [
+    { id: 1, name: 'Kurt Cobain' },
+    { id: 2, name: 'Krist Novoselic' },
+    { id: 3, name: 'Dave Grohl' },
+];
+
+describe('roster decides membership', () => {
+    test('a session player who plays an instrument is a guest, not a member', () => {
+        // The complaint that started this: everyone who played became a member.
+        const credits = [
+            ...NEVERMIND_CREDITS,
+            { id: 99, name: 'Kirk Canning', role: 'Cello' },
+        ];
+        const { members, guests } = client.parseCredits(credits, { rosterMembers: NIRVANA_ROSTER });
+
+        expect(members.map(m => m.name).sort())
+            .toEqual(['Dave Grohl', 'Krist Novoselic', 'Kurt Cobain']);
+        expect(guests.map(g => g.name)).toContain('Kirk Canning');
+    });
+
+    test('a guest keeps their instrument roles rather than being blanked', () => {
+        const { guests } = client.parseCredits(
+            [{ id: 99, name: 'Kirk Canning', role: 'Cello' }],
+            { rosterMembers: NIRVANA_ROSTER }
+        );
+        expect(guests[0].roles).toEqual(['Cello']);
+    });
+
+    test('a band member credited only as producer is still a member', () => {
+        // The other half of the complaint: real members filed as guests
+        // because their credit carried no instrument.
+        const { members, producers } = client.parseCredits(
+            [{ id: 1, name: 'Kurt Cobain', role: 'Producer' }],
+            { rosterMembers: NIRVANA_ROSTER }
+        );
+        expect(members.map(m => m.name)).toEqual(['Kurt Cobain']);
+        expect(producers).toHaveLength(0);
+    });
+
+    test('roster matching falls back to the name when there is no id', () => {
+        const { members } = client.parseCredits(
+            [{ name: 'Dave Grohl', role: 'Drums' }],
+            { rosterMembers: [{ name: 'Dave Grohl' }] }
+        );
+        expect(members.map(m => m.name)).toEqual(['Dave Grohl']);
+    });
+
+    test('roster matching ignores the Discogs "(2)" suffix on either side', () => {
+        const { members } = client.parseCredits(
+            [{ name: 'John Smith (2)', role: 'Guitar' }],
+            { rosterMembers: [{ name: 'John Smith' }] }
+        );
+        expect(members.map(m => m.name)).toEqual(['John Smith']);
+    });
+
+    test('an ANV printed on the sleeve still matches the roster', () => {
+        // Credited as "Chris Novoselic" on the record, "Krist" on the roster.
+        const { members, guests } = client.parseCredits(
+            [{ id: 2, name: 'Krist Novoselic', anv: 'Chris Novoselic', role: 'Bass' }],
+            { rosterMembers: [{ name: 'Chris Novoselic' }] }
+        );
+        expect(members.map(m => m.name)).toEqual(['Krist Novoselic']);
+        expect(guests).toHaveLength(0);
+    });
+
+    test('production people stay in their own buckets, not swept into guests', () => {
+        const { producers, mixedBy, masteredBy, guests } =
+            client.parseCredits(NEVERMIND_CREDITS, { rosterMembers: NIRVANA_ROSTER });
+
+        expect(producers.map(p => p.name)).toEqual(['Butch Vig']);
+        expect(mixedBy.map(p => p.name)).toEqual(['Andy Wallace']);
+        expect(masteredBy.map(p => p.name)).toEqual(['Howie Weinberg']);
+        expect(guests).toHaveLength(0);
+    });
+
+    test('members are flagged as roster-derived so the form can say why', () => {
+        const { members } = client.parseCredits(NEVERMIND_CREDITS, { rosterMembers: NIRVANA_ROSTER });
+        expect(members.every(m => m.fromRoster === true)).toBe(true);
+    });
+
+    test('a performer excluded by the roster is flagged for review', () => {
+        const { guests } = client.parseCredits(
+            [{ id: 99, name: 'Kirk Canning', role: 'Cello' }],
+            { rosterMembers: NIRVANA_ROSTER }
+        );
+        expect(guests[0].excludedByRoster).toBe(true);
+    });
+});
+
+describe('no roster means no downgrade', () => {
+    // Absence of a roster is "unknown", not "empty". Treating it as empty would
+    // make every credited musician a guest — a worse failure than the one being
+    // fixed, and it would hit every solo artist and every group Discogs has not
+    // filled in.
+    test.each([
+        ['null', null],
+        ['undefined', undefined],
+        ['an empty array', []],
+        ['an array of junk', [null, {}, { name: '  ' }]],
+    ])('%s leaves the instrument-credit behaviour intact', (_label, rosterMembers) => {
+        const { members, guests } = client.parseCredits(NEVERMIND_CREDITS, { rosterMembers });
+        expect(members.map(m => m.name).sort())
+            .toEqual(['Dave Grohl', 'Krist Novoselic', 'Kurt Cobain']);
+        expect(guests).toHaveLength(0);
+    });
+
+    test('called with no second argument at all, nothing changes', () => {
+        const { members } = client.parseCredits(NEVERMIND_CREDITS);
+        expect(members).toHaveLength(3);
+    });
+});

@@ -225,6 +225,57 @@ export class DiscogsClient {
     }
 
     /**
+     * Build a lookup of the group's roster from Discogs' `members` array.
+     *
+     * Returns null when Discogs gave us nothing usable — an artist with no
+     * `members` is either a solo act or a group Discogs has not filled in, and
+     * the two are indistinguishable from the payload. Treating an absent roster
+     * as an empty one would make every credited musician a guest, so absence
+     * means "unknown" and the caller keeps its previous behaviour.
+     *
+     * @param {Array<{id?: number, name: string}>|null} rosterMembers
+     * @returns {{ids: Set<number>, names: Set<string>}|null}
+     */
+    buildRoster(rosterMembers) {
+        if (!Array.isArray(rosterMembers) || rosterMembers.length === 0) return null;
+
+        const ids = new Set();
+        const names = new Set();
+        for (const member of rosterMembers) {
+            if (!member) continue;
+            if (member.id != null) ids.add(member.id);
+            const name = String(member.name || '').replace(/\s*\(\d+\)$/, '').trim();
+            if (name) names.add(this.normalizeName(name));
+        }
+
+        return (ids.size > 0 || names.size > 0) ? { ids, names } : null;
+    }
+
+    /**
+     * Is this credited person on the roster?
+     *
+     * Discogs ids match exactly when both sides have one. Names are the
+     * fallback, normalized the same way everywhere else in this class, because
+     * a roster entry and a credit line can disagree on the "(2)" suffix or on
+     * spacing while naming the same person.
+     *
+     * @param {{ids: Set<number>, names: Set<string>}} roster
+     * @param {{id: ?number, name: string, altNames: Set<string>}} person
+     * @returns {boolean}
+     */
+    isInRoster(roster, person) {
+        if (person.id != null && roster.ids.has(person.id)) return true;
+        if (roster.names.has(this.normalizeName(person.name))) return true;
+
+        // The name printed on the sleeve can differ from the canonical one;
+        // check the ANV aliases too before concluding they are not in the band.
+        for (const alt of person.altNames) {
+            if (roster.names.has(this.normalizeName(alt))) return true;
+        }
+        return false;
+    }
+
+    /**
      * Parse Discogs credits into members, and the production people who are not.
      *
      * Rewritten because the previous version misfiled a whole band as guests.
@@ -252,7 +303,12 @@ export class DiscogsClient {
      * @returns {{members: Array, producers: Array, engineers: Array,
      *            mixedBy: Array, masteredBy: Array, guests: Array}}
      */
-    parseCredits(extraArtists) {
+    parseCredits(extraArtists, { rosterMembers = null } = {}) {
+        // The band's actual roster, when Discogs knows it. `/artists/{id}`
+        // returns `members` for a group, and it is the only authoritative
+        // answer to "was this person in the band" that Discogs offers.
+        const roster = this.buildRoster(rosterMembers);
+
         const credits = {
             members: [], producers: [], engineers: [],
             mixedBy: [], masteredBy: [], guests: []
@@ -305,11 +361,37 @@ export class DiscogsClient {
             const performanceRoles = roles.filter(r =>
                 DiscogsClient.PERFORMANCE_ROLES.some(k => r.toLowerCase().includes(k)));
 
+            // With a roster, membership is a fact rather than an inference.
+            // Being in the band makes you a member whatever you were credited
+            // for — a member who only produced this record is still in it.
+            if (roster && this.isInRoster(roster, person)) {
+                const memberRoles = performanceRoles.length > 0 ? performanceRoles : roles;
+                credits.members.push({
+                    ...entry, roles: memberRoles, role: memberRoles.join(', '), fromRoster: true
+                });
+                continue;
+            }
+
             if (performanceRoles.length > 0) {
-                // Played on the record: a member of the performing group. Keep
-                // only the instrument roles here — "Producer" is not something
-                // a MEMBER_OF edge should claim they played.
-                credits.members.push({ ...entry, roles: performanceRoles, role: performanceRoles.join(', ') });
+                // Played on the record. Whether that makes them a *member* is
+                // the whole question, and an instrument credit does not answer
+                // it: a session player and a founding member are credited
+                // identically. So when the roster is known and does not list
+                // them, they are a guest — which is what the domain model asks
+                // for ("If unclear, default to guest").
+                //
+                // Without a roster there is nothing better to go on, so the
+                // older behaviour stands: an instrument credit is taken as
+                // membership. That is wrong for session players and right for
+                // the whole-band-filed-as-guests case this replaced, and it
+                // only applies when Discogs gave us no members list at all.
+                const bucket = roster ? credits.guests : credits.members;
+                bucket.push({
+                    ...entry,
+                    roles: performanceRoles,
+                    role: performanceRoles.join(', '),
+                    ...(roster ? { excludedByRoster: true } : {})
+                });
                 continue;
             }
 
