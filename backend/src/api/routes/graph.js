@@ -5,6 +5,7 @@
  *
  *   GET /api/graph/initial
  *   GET /api/graph/neighborhood/:nodeId
+ *   GET /api/graph/sponsored
  *
  * @module api/routes/graph
  */
@@ -20,8 +21,37 @@ import { safeClose } from '../../graph/safeTx.js';
  * @param {Object} ctx.config
  * @returns {express.Router}
  */
-export function createGraphRoutes({ db, config }) {
+export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
     const router = express.Router();
+
+    /**
+     * GET /api/graph/sponsored
+     *
+     * The node the visualization should open on this period, drawn by the
+     * weighted lottery, with the inputs it was drawn from.
+     *
+     * Always 200. A missing draw is `{ node: null }`, not an error: the
+     * chain being unreachable or the contract being unconfigured is a reason
+     * for the front page to fall back to its own default, not a reason for the
+     * frontend to show a failure to a visitor who never asked for this.
+     */
+    router.get('/sponsored', async (req, res) => {
+        if (!sponsoredNodes) {
+            return res.json({ success: true, node: null, reason: 'not_configured' });
+        }
+
+        try {
+            const result = await sponsoredNodes.getSponsoredNode();
+            if (!result) {
+                return res.json({ success: true, node: null, reason: 'no_draw' });
+            }
+            return res.json({ success: true, ...result });
+        } catch (error) {
+            // The service already swallows its own failures; reaching here
+            // means something unanticipated, and the same reasoning applies.
+            return res.json({ success: true, node: null, reason: 'error' });
+        }
+    });
 
     /**
      * GET /api/graph/initial

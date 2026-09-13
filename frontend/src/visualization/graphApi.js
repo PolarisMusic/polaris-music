@@ -60,6 +60,40 @@ export class GraphAPI {
     }
 
     /**
+     * The node the visualization should open on this period.
+     *
+     * Drawn by the contract-parameterised lottery: nodes with more MUS staked
+     * win more often, nodes with none still win sometimes. The draw changes
+     * once per period and nothing about it is stored in the browser — a
+     * visitor returning within the period lands on the same node because the
+     * draw is the same, not because anything was remembered about them.
+     *
+     * Never throws and never rejects. An opening node is a nicety; the graph
+     * rendering is not, and a visitor who never asked for this should not see
+     * it fail.
+     *
+     * @returns {Promise<{id: string, name: string, type: string}|null>}
+     */
+    async fetchSponsoredNode() {
+        try {
+            const response = await fetch(`${this.baseUrl}/graph/sponsored`);
+            if (!response.ok) return null;
+
+            const data = await response.json();
+            if (!data?.node?.id) return null;
+
+            // Logged because the draw is meant to be checkable, and the
+            // console is where someone will look first to see which node they
+            // were given and why.
+            console.log('Sponsored node:', data.node.id, data.draw);
+            return data.node;
+        } catch (error) {
+            console.warn('Sponsored node unavailable:', error.message);
+            return null;
+        }
+    }
+
+    /**
      * Fetch initial graph as raw {nodes, edges} (not JIT-transformed).
      * Used when the caller needs to merge subgraphs before transforming.
      * Also returns participation data if available.

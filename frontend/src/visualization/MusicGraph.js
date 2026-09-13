@@ -187,6 +187,13 @@ export class MusicGraph {
                 syncZoomSlider: () => this.syncZoomSlider(),
                 updateHistoryCount: () => this.updateHistoryCount(),
                 prePopulateDonutData: () => this.donut.prePopulateData(this.loader._initialParticipation),
+                // For the sponsored-node draw. selectNode goes through
+                // handleNodeClick rather than ht.onClick so the opening node
+                // arrives in exactly the state a tapped one would: centred,
+                // marked selected, details populated, and — on a phone — named
+                // in the collapsed sheet row.
+                getNode: (id) => this.ht?.graph?.getNode?.(id) ?? null,
+                selectNode: (node) => this.handleNodeClick(node),
             },
         });
     }

@@ -3184,6 +3184,54 @@ constructor(config = {}) {
      *
      * @returns {Promise<Object>} Node and relationship counts
      */
+    /**
+     * Every node eligible for the sponsored-node lottery, in canonical order.
+     *
+     * Eligible means a Group, or a Person who is a member of one. A Person who
+     * only ever appears as a guest is not: the rule is that the front page
+     * opens on an artist or a band, not on a session player credited once.
+     * Nothing else — Release, Track, Song, Label, Master — is eligible at all.
+     *
+     * `ORDER BY` is not cosmetic here. The draw assigns each candidate a
+     * contiguous slice of a number line, so the order decides the outcome, and
+     * Neo4j promises no row order without one. Ordering happens again in
+     * `sponsoredNode.js` against the on-chain id, which is the value that
+     * actually has to match what a verifier computes — this ORDER BY makes the
+     * query itself reproducible, which matters when someone is comparing two
+     * runs by eye.
+     *
+     * @returns {Promise<Array<{nodeId: string, name: string, type: string}>>}
+     */
+    async getLotteryCandidates() {
+        const session = this.driver.session();
+        try {
+            const result = await session.run(`
+                MATCH (g:Group)
+                WHERE g.group_id IS NOT NULL
+                RETURN g.group_id AS nodeId, g.name AS name, 'group' AS type
+
+                UNION
+
+                MATCH (p:Person)-[:MEMBER_OF]->(:Group)
+                WHERE p.person_id IS NOT NULL
+                RETURN p.person_id AS nodeId, p.name AS name, 'person' AS type
+            `);
+
+            return result.records
+                .map((record) => ({
+                    nodeId: record.get('nodeId'),
+                    name: record.get('name'),
+                    type: record.get('type'),
+                }))
+                .sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
+        } catch (error) {
+            this.log?.error?.('lottery_candidates_failed', { error: error.message });
+            throw error;
+        } finally {
+            await session.close();
+        }
+    }
+
     async getStats() {
         const session = this.driver.session();
         try {

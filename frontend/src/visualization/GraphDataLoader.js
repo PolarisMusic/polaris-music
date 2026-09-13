@@ -58,6 +58,36 @@ export class GraphDataLoader {
         this._initialParticipation = undefined;
     }
 
+    /**
+     * Centre the view on this period's drawn node, if there is one.
+     *
+     * Runs on every fresh load rather than only the first visit: the draw is
+     * the same for everyone in the period, so there is nothing to remember
+     * about a returning visitor and no cookie to set.
+     *
+     * Silent on every failure path. A node that is not in the loaded subgraph
+     * is treated the same as no node at all — the initial graph holds groups
+     * and their members, which is exactly the eligible set, but a draw taken
+     * against a newer graph than the one this client fetched could still name
+     * something absent.
+     */
+    async openOnSponsoredNode() {
+        try {
+            const sponsored = await this.api.fetchSponsoredNode();
+            if (!sponsored?.id) return;
+
+            const node = this.callbacks.getNode?.(sponsored.id);
+            if (!node) {
+                console.log('Sponsored node is not in the loaded graph, keeping the default root');
+                return;
+            }
+
+            this.callbacks.selectNode?.(node);
+        } catch (error) {
+            console.warn('Could not open on the sponsored node:', error.message);
+        }
+    }
+
     async loadGraphData() {
         try {
             console.log('Loading graph data...');
@@ -81,6 +111,12 @@ export class GraphDataLoader {
             this.callbacks.prePopulateDonutData();
 
             console.log('Graph rendered');
+
+            // Last, and deliberately not awaited above: the graph is already
+            // drawn and usable by now, so a slow or unreachable chain delays
+            // nothing. If the draw comes back, the view moves to it; if not,
+            // the hypertree keeps the root it chose for itself.
+            await this.openOnSponsoredNode();
         } catch (error) {
             console.error('Failed to load graph data:', error);
         }
