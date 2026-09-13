@@ -515,6 +515,11 @@ constructor(config = {}) {
 
                 // Date-based queries
                 { name: 'release_date', query: 'CREATE INDEX release_date IF NOT EXISTS FOR (r:Release) ON (r.release_date)' },
+                // The lottery sums stake deltas up to a block, so both of
+                // these are on the hot path of every draw.
+                { name: 'stake_entry_node', query: 'CREATE INDEX stake_entry_node IF NOT EXISTS FOR (e:StakeEntry) ON (e.node_id)' },
+                { name: 'stake_entry_block', query: 'CREATE INDEX stake_entry_block IF NOT EXISTS FOR (e:StakeEntry) ON (e.block_num)' },
+                { name: 'stake_entry_account', query: 'CREATE INDEX stake_entry_account IF NOT EXISTS FOR (e:StakeEntry) ON (e.account)' },
                 { name: 'group_formed', query: 'CREATE INDEX group_formed IF NOT EXISTS FOR (g:Group) ON (g.formed_date)' },
 
                 // Geographic queries
@@ -3184,6 +3189,153 @@ constructor(config = {}) {
      *
      * @returns {Promise<Object>} Node and relationship counts
      */
+    /**
+     * Project a stake or unstake onto the graph as an append-only ledger entry.
+     *
+     * An entry, not a running total. The sponsored-node lottery has to answer
+     * "what was staked at block B" — stakes are fixed at the period's snapshot
+     * block, a minute before the seed block exists, so that nobody can read
+     * the random number and then buy the win. A running total only ever
+     * answers "what is staked now", which is a read taken *after* the seed is
+     * public. Summing deltas up to a block answers both questions from one
+     * structure.
+     *
+     * `delta_units` is signed: positive to stake, negative to unstake, in the
+     * token's smallest units. Never a float — these are summed and compared
+     * against a draw that must be reproducible exactly.
+     *
+     * Idempotent on (trx_id, node, account, block). Replaying a block must not
+     * double a stake, and the indexer replays.
+     *
+     * @param {Object} entry
+     * @param {string} entry.account
+     * @param {string} entry.nodeId - the contract's checksum256 node id
+     * @param {bigint|number|string} entry.deltaUnits - signed, smallest units
+     * @param {number} entry.blockNum
+     * @param {string} [entry.trxId]
+     * @param {number} [entry.ts]
+     * @returns {Promise<{status: string}>}
+     */
+    async recordStakeDelta({ account, nodeId, deltaUnits, blockNum, trxId = null, ts = null }) {
+        if (!account || !nodeId) throw new Error('recordStakeDelta requires account and nodeId');
+        if (blockNum == null) throw new Error('recordStakeDelta requires blockNum');
+
+        const delta = String(deltaUnits ?? '0');
+        if (!/^-?\d+$/.test(delta)) {
+            throw new Error(`recordStakeDelta needs integer units, got ${JSON.stringify(deltaUnits)}`);
+        }
+
+        // Without trx_id two legitimate identical stakes in one block would
+        // collapse into one. Falling back to the block alone is the lesser
+        // evil than keying on nothing and double-counting a replay.
+        const entryId = `${trxId ?? `blk:${blockNum}`}:${nodeId}:${account}:${delta}`;
+
+        // Same shape recordLike() uses: the timestamp expression is chosen
+        // here rather than passed as a parameter, because Cypher cannot take a
+        // function call as one.
+        const tsExpr = ts == null ? 'datetime()' : 'datetime({epochMillis: $ts})';
+
+        const session = this.driver.session();
+        try {
+            await session.run(`
+                MERGE (e:StakeEntry {entry_id: $entryId})
+                ON CREATE SET
+                    e.account = $account,
+                    e.node_id = $nodeId,
+                    e.delta_units = $delta,
+                    e.block_num = $blockNum,
+                    e.trx_id = $trxId,
+                    e.recorded_at = ${tsExpr}
+            `, {
+                entryId, account, nodeId, delta,
+                blockNum: neo4j.int(blockNum),
+                trxId,
+                ...(ts == null ? {} : { ts: toNeo4jEpochMillis(ts) })
+            });
+
+            return { status: 'recorded' };
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * Total staked per node as of a block, from the ledger.
+     *
+     * This is the read the lottery's snapshot ordering depends on. Pass the
+     * period's snapshot block and the answer is what was staked a minute
+     * before the seed block existed — which is the whole point, and is not
+     * something `get_table_rows` can tell you, because it only ever returns
+     * current state.
+     *
+     * Amounts are returned as decimal strings rather than numbers: they are
+     * summed in the draw as BigInt, and a stake large enough to matter is a
+     * stake large enough to lose precision as a double.
+     *
+     * @param {number|null} blockNum - inclusive upper bound; null for current
+     * @returns {Promise<Map<string, string>>} chain node id -> units
+     */
+    async getStakesAsOfBlock(blockNum = null) {
+        const session = this.driver.session();
+        try {
+            const bounded = blockNum != null;
+            const result = await session.run(`
+                MATCH (e:StakeEntry)
+                ${bounded ? 'WHERE e.block_num <= $blockNum' : ''}
+                WITH e.node_id AS nodeId, collect(e.delta_units) AS deltas
+                RETURN nodeId, deltas
+            `, bounded ? { blockNum: neo4j.int(blockNum) } : {});
+
+            const stakes = new Map();
+            for (const record of result.records) {
+                // Summed in JS as BigInt rather than in Cypher, because the
+                // deltas are stored as strings precisely to avoid Neo4j
+                // integer/float coercion on the way through.
+                const total = (record.get('deltas') || [])
+                    .reduce((sum, d) => sum + BigInt(d), 0n);
+                if (total > 0n) stakes.set(record.get('nodeId'), total.toString());
+            }
+            return stakes;
+        } finally {
+            await session.close();
+        }
+    }
+
+    /**
+     * What one account has staked, and where.
+     *
+     * @param {string} account
+     * @returns {Promise<{totalUnits: string, positions: Array<{nodeId: string, units: string}>}>}
+     */
+    async getAccountStakes(account) {
+        if (!account) throw new Error('getAccountStakes requires an account');
+
+        const session = this.driver.session();
+        try {
+            const result = await session.run(`
+                MATCH (e:StakeEntry {account: $account})
+                WITH e.node_id AS nodeId, collect(e.delta_units) AS deltas
+                RETURN nodeId, deltas
+            `, { account });
+
+            const positions = [];
+            let totalUnits = 0n;
+            for (const record of result.records) {
+                const units = (record.get('deltas') || [])
+                    .reduce((sum, d) => sum + BigInt(d), 0n);
+                // A fully unstaked position nets to zero and is not a position.
+                if (units <= 0n) continue;
+                positions.push({ nodeId: record.get('nodeId'), units: units.toString() });
+                totalUnits += units;
+            }
+
+            positions.sort((a, b) => (BigInt(b.units) > BigInt(a.units) ? 1 : -1));
+            return { totalUnits: totalUnits.toString(), positions };
+        } finally {
+            await session.close();
+        }
+    }
+
     /**
      * Every node eligible for the sponsored-node lottery, with the identities
      * that have merged into it.

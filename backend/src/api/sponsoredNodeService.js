@@ -121,13 +121,48 @@ export class SponsoredNodeService {
     }
 
     /**
+     * Stakes as they stood at the snapshot block, or the best available
+     * substitute.
+     *
+     * The ledger is the right answer: it sums indexed stake and unstake
+     * actions up to a block, so it reports what was staked a minute before the
+     * seed block existed. Nobody can read the random number and then buy the
+     * win.
+     *
+     * The fallback exists because the ledger only knows what the indexer has
+     * seen. Before stake actions have been indexed — a fresh deployment, or
+     * history not yet backfilled — it is legitimately empty, and an empty
+     * ledger is indistinguishable from "nothing is staked". Falling back to
+     * the contract's running total keeps the draw weighted in that window;
+     * falling back *silently* would be the problem, so the caller is told
+     * which one it got.
+     *
+     * @private
+     * @param {number} snapshotBlock
+     * @returns {Promise<{stakes: Map<string, unknown>, stakeSource: string}>}
+     */
+    async _readStakes(snapshotBlock) {
+        if (this.graph?.getStakesAsOfBlock) {
+            try {
+                const stakes = await this.graph.getStakesAsOfBlock(snapshotBlock);
+                if (stakes && stakes.size > 0) return { stakes, stakeSource: 'snapshot' };
+            } catch (error) {
+                log.warn('stake_snapshot_failed', { error: error.message });
+            }
+        }
+
+        const stakes = await this.chain.getNodeStakes();
+        return { stakes, stakeSource: 'current_state' };
+    }
+
+    /**
      * @private
      */
     async _draw(period, config) {
-        const [candidates, seedHex, stakes] = await Promise.all([
+        const [candidates, seedHex, { stakes, stakeSource }] = await Promise.all([
             this.graph.getLotteryCandidates(),
             this.chain.getBlockId(period.seedBlock),
-            this.chain.getNodeStakes(),
+            this._readStakes(period.snapshotBlock),
         ]);
 
         if (!candidates?.length) {
@@ -177,12 +212,15 @@ export class SponsoredNodeService {
                 offset: draw.offset.toString(),
                 candidates: withStakes.length,
                 staked_candidates: staked,
-                // Named rather than implied: these stakes were read now, not
-                // as of snapshot_block, because get_table_rows cannot read
-                // past state. See §7.1 of the spec. A verifier reading this
-                // field knows the snapshot-before-seed ordering is not yet
-                // what it will be.
-                stake_source: 'current_state',
+                // Which read produced these stakes, because the two carry
+                // different guarantees. "snapshot" means they were summed from
+                // the indexed ledger as of snapshot_block — fixed a minute
+                // before the seed existed, which is the property the design
+                // claims. "current_state" means the ledger was empty and the
+                // contract's running total was read instead, which happens
+                // after the seed is public and is therefore weaker. A verifier
+                // should not have to guess which they got.
+                stake_source: stakeSource,
             },
         };
     }

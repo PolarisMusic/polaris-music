@@ -6,7 +6,9 @@
 20 tests), `sponsoredNodeService.js` (assembly, 15 tests),
 `getLotteryCandidates()` (eligibility), `GET /api/graph/sponsored`.
 **Frontend:** opens on the drawn node, 6 e2e tests.
-**Gap:** stakes are read as current state, not as of the snapshot block — §7.1.
+**Stake snapshot:** closed — stake and unstake are projected into a ledger and
+summed as of the snapshot block (§7.1). Falls back to the contract's running
+total, and labels which it used, while the ledger is still empty.
 
 **Settled:** 24h period; base weight lives on chain and is governable; the node
 changes on every fresh load with nothing remembered between visits; no paid-
@@ -244,7 +246,7 @@ Done, except the stake snapshot:
 | Eligibility + identity aliases | `MusicGraphDatabase.getLotteryCandidates()` |
 | Seed | `ChainReaderService.getChainInfo()` + `.getBlockId()` |
 | Rules | `.getLotteryConfig()` → `lotteryConfigFromRow()` |
-| Stakes | `.getNodeStakes()` — **current state, see §7.1** |
+| Stakes | `getStakesAsOfBlock()` from the ledger; `.getNodeStakes()` as fallback |
 | Assembly + per-period cache | `SponsoredNodeService` |
 | Endpoint | `GET /api/graph/sponsored` |
 | Frontend | `GraphAPI.fetchSponsoredNode()` → `GraphDataLoader.openOnSponsoredNode()` |
@@ -259,47 +261,34 @@ The draw runs through the app's own click path rather than centring the view
 directly, so the opening node arrives exactly as a tapped one would — centred,
 selected, details populated, and named in the collapsed sheet row on a phone.
 
-### 7.1 Reading stakes as of a past block
+### 7.1 Reading stakes as of a past block — closed
 
 `get_table_rows` returns *current* state. A plain nodeos cannot answer "what
-did `nodeagg` hold at block B", so the snapshot cannot simply be read after the
-fact — which matters, because the design says stakes are fixed at the snapshot
-block and the seed arrives a minute later.
+did `nodeagg` hold at block B", and `nodeagg` only stores a running total
+anyway — so the snapshot the design depends on was not readable at all.
 
-Three ways out, in order of preference:
+Closed by projecting stake and unstake into an append-only ledger. Substreams
+already decoded the actions (`substreams/src/lib.rs:562,588`); nothing in the
+backend consumed them. Now `processStakeAction()` writes a signed
+`StakeEntry` per action — positive to stake, negative to unstake, in integer
+units — and `getStakesAsOfBlock(B)` sums the deltas up to a block.
 
-1. **Record the snapshot when the block passes.** The backend reads `nodeagg`
-   once, at the snapshot block, and stores it against the period. Current-state
-   reads are enough because the read happens *now*, at the right moment. Needs
-   something running continuously and a place to keep the snapshot.
-2. **Reconstruct from indexed stake events.** The substreams pipeline already
-   carries stake and unstake events, so stakes-as-of-a-block can be replayed
-   from the projection, which also makes the snapshot independently checkable
-   rather than operator-asserted.
-3. **Read current stakes at draw time.** Simplest, and wrong in a specific way
-   worth naming rather than hiding: it reopens a window between the seed block
-   appearing and the read, in which someone watching the chain could stake
-   against a known seed. The window is seconds and they would have to win the
-   race every period, but it is not the property §3.1 claims.
+That answers the question the draw is defined on: stakes as they stood at the
+snapshot block, a minute before the seed block existed. It also answers "what
+has this account staked, and where", which is what the balance view needs, out
+of the same structure.
 
-**(3) is what currently ships**, and it says so in its own output: every draw
-carries `stake_source: "current_state"`, so a verifier reading the response
-knows which guarantee they are getting rather than assuming the stronger one.
+Entries are idempotent on `(trx_id, node, account, delta)` because the indexer
+replays, and amounts are stored as decimal strings and summed as `BigInt` —
+never as floats, and never through Neo4j's integer/float coercion.
 
-(2) is the fix, and it is cheaper than it looks. The substreams pipeline
-already decodes `stake` and `unstake` into `StakeEvent` / `UnstakeEvent`
-(`substreams/src/lib.rs:562,588`); what is missing is a handler in the backend
-event processor to project them into the graph with block numbers. Nothing
-consumes those events today. Once it does, stakes-as-of-a-block become a
-query, and the snapshot stops being operator-asserted.
-
-### Failure behaviour
-
-The graph must still boot if the chain is unreachable, the draw returns
-nothing, or the endpoint errors. The fallback is today's behaviour — root on
-the busiest group — and it should be silent to the visitor.
-
----
+**The fallback, and why it is not silent.** The ledger only knows what the
+indexer has seen, so before stake history is backfilled it is legitimately
+empty — and empty is indistinguishable from "nothing is staked". In that
+window the contract's running total is read instead, which happens after the
+seed is public and is therefore the weaker guarantee. Every draw reports which
+read produced it: `stake_source` is `"snapshot"` or `"current_state"`. A
+verifier should not have to guess.
 
 ## 8. Settled
 
