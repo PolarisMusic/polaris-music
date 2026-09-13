@@ -322,6 +322,12 @@ body.mini-player-visible.mini-player-embed {
     overflow: hidden;
 }
 
+/* The collapsed mobile sheet. The phone layout turns this on; on a desktop
+   the panel is a permanent column and there is nothing to collapse. */
+.info-peek {
+    display: none;
+}
+
 .info-header {
     flex: 0 0 auto;
     padding: 20px;
@@ -1651,6 +1657,70 @@ body.mini-player-visible.mini-player-embed {
         transform: translateY(0);
     }
 
+    /* Collapsed: the sheet is on screen but clamped to one row. The panel is
+       already overflow:hidden, so the header and the scroller below the peek
+       bar are simply clipped rather than needing to be torn down and rebuilt
+       on every expand. */
+    #info-viewer.peek {
+        transform: translateY(0);
+        height: var(--info-peek-height);
+        max-height: var(--info-peek-height);
+    }
+
+    /* Height is animated as well as the transform so peek <-> open reads as
+       the same sheet moving, not two different panels swapping. */
+    #info-viewer {
+        transition: transform 0.28s ease, height 0.28s ease, max-height 0.28s ease;
+    }
+
+    .info-peek {
+        display: none;
+        width: 100%;
+        height: var(--info-peek-height);
+        flex: 0 0 var(--info-peek-height);
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 14px;
+        background: none;
+        border: none;
+        border-radius: 14px 14px 0 0;
+        color: #e0e0e0;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Shown only while collapsed: expanded, the sheet's own header already
+       carries the title, and two titles is one too many in a panel this
+       short. */
+    #info-viewer.peek .info-peek {
+        display: flex;
+    }
+
+    .info-peek-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    .info-peek-action {
+        flex: 0 0 auto;
+        font-size: 13px;
+        color: #9ad;
+    }
+
+    /* The grabber is a hint about a sheet that is already visible; while
+       collapsed it would eat 8px of a 44px row for nothing. */
+    #info-viewer.peek .info-sheet-handle {
+        display: none;
+    }
+
     /* A decorative grabber that cost 16px of a 295px sheet. It is not
        draggable — the X beside the title is the close control — so it is
        sized as the hint it is. */
@@ -1703,6 +1773,14 @@ body.mini-player-visible.mini-player-embed {
                      + var(--info-sheet-height));
     }
 
+    /* Collapsed, the graph gives up one row instead of the whole sheet. This
+       is the point of the state: a selected node still leaves the
+       visualization browsable. */
+    body.info-sheet-peek #main-container {
+        bottom: calc(var(--bottom-bar-height) + var(--mini-player-height)
+                     + var(--info-peek-height));
+    }
+
     /* The visualization is a SQUARE, and the sheet takes whatever is left.
     
        The hypertree is a disk sized by the smaller canvas dimension —
@@ -1729,6 +1807,12 @@ body.mini-player-visible.mini-player-embed {
         --info-sheet-height: calc(100vh - var(--top-bar-height)
                                         - var(--bottom-bar-height)
                                         - var(--mini-player-height) - 100vw);
+        /* What the sheet costs the graph while it is collapsed. Selecting a
+           node used to hand the whole --info-sheet-height to the panel, which
+           on a phone is most of what is left after a square canvas — so the
+           first tap on a node ended browsing. This is the height of one row:
+           the node's name and the control that opens the rest. */
+        --info-peek-height: 44px;
     }
 
     /* --- Density: the sheet's own furniture used 91px before any content --- */
@@ -2263,6 +2347,10 @@ body.mini-player-embed .mp-embed {
        two move together. */
     body.info-sheet-open #mini-player-container {
         bottom: calc(var(--bottom-bar-height) + var(--info-sheet-height));
+    }
+
+    body.info-sheet-peek #mini-player-container {
+        bottom: calc(var(--bottom-bar-height) + var(--info-peek-height));
     }
 
     .mini-player {

@@ -106,6 +106,16 @@
 
         <!-- Info Viewer Panel -->
         <div id="info-viewer">
+            <!-- Collapsed state of the mobile bottom sheet: the selected node's
+                 name and a control that expands the rest. First child, because
+                 the peek height clamps the sheet and everything below this is
+                 clipped. Hidden on desktop, where the panel is a column that is
+                 always open. -->
+            <button id="info-peek" class="info-peek" type="button"
+                    aria-expanded="false" aria-controls="info-scroll">
+                <span id="info-peek-title" class="info-peek-title">Select a node</span>
+                <span class="info-peek-action">Info <span aria-hidden="true">▲</span></span>
+            </button>
             <!-- Drag affordance for the mobile bottom sheet; hidden on desktop. -->
             <div id="info-sheet-handle" class="info-sheet-handle" aria-hidden="true"></div>
             <div class="info-header">

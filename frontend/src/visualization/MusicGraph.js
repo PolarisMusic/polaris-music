@@ -559,12 +559,17 @@ export class MusicGraph {
             requestAnimationFrame(() => this._handleCanvasResize());
         });
 
-        // Every way out of the info sheet routes through closeInfoPanel().
+        // Every way out of the info sheet routes through collapseInfoPanel(),
+        // which closes outright unless a phone has a node selected — there it
+        // falls back to the collapsed row rather than to nothing.
         document.getElementById('info-close')
-            ?.addEventListener('click', () => this.closeInfoPanel());
+            ?.addEventListener('click', () => this.collapseInfoPanel());
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.closeInfoPanel();
+            if (e.key === 'Escape') this.collapseInfoPanel();
         });
+        document.getElementById('info-peek')
+            ?.addEventListener('click', () => this.openInfoPanel());
+        this._watchInfoTitle();
         requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
     }
@@ -590,6 +595,10 @@ export class MusicGraph {
         const infoViewer = document.getElementById('info-viewer');
         if (!infoViewer) return;
 
+        infoViewer.classList.remove('peek');
+        document.body.classList.remove('info-sheet-peek');
+        document.getElementById('info-peek')?.setAttribute('aria-expanded', 'true');
+
         infoViewer.classList.add('open');
         // Non-modal by design. The sheet used to sit behind a backdrop, which
         // meant that while it was open the graph could not be tapped at all —
@@ -612,10 +621,107 @@ export class MusicGraph {
         const infoViewer = document.getElementById('info-viewer');
         if (!infoViewer) return;
 
+        infoViewer.classList.remove('open', 'peek');
+        document.body.classList.remove('info-sheet-open', 'info-sheet-peek');
+        document.getElementById('info-peek')?.setAttribute('aria-expanded', 'false');
+
+        this._notifyLayoutChange();
+    }
+
+    /**
+     * Show the info panel collapsed to a single row: the selected node's name
+     * and a control that opens the rest.
+     *
+     * This is what selecting a node does on a phone. Opening the full sheet
+     * there costs most of what is left of the screen after a square canvas, so
+     * the first tap on a node used to end browsing — you got one node's details
+     * and a graph you could no longer see. Collapsed, the graph gives up one
+     * row and stays usable, and the details are one tap away.
+     *
+     * There is no collapsed state on a desktop: the panel is a permanent column
+     * beside the graph and takes nothing from it, so this opens it outright.
+     */
+    peekInfoPanel() {
+        if (!this._isPhoneLayout()) {
+            this.openInfoPanel();
+            return;
+        }
+
+        const infoViewer = document.getElementById('info-viewer');
+        if (!infoViewer) return;
+
         infoViewer.classList.remove('open');
         document.body.classList.remove('info-sheet-open');
 
+        infoViewer.classList.add('peek');
+        document.body.classList.add('info-sheet-peek');
+        document.getElementById('info-peek')?.setAttribute('aria-expanded', 'false');
+
+        this._syncPeekTitle();
         this._notifyLayoutChange();
+    }
+
+    /**
+     * What the sheet's ✕ does.
+     *
+     * With a node selected on a phone, dismissing the details should return to
+     * the collapsed row rather than to nothing — the node is still selected and
+     * still centred, so hiding its name would leave the sheet's state and the
+     * graph's disagreeing. Everywhere else this is a plain close, which is what
+     * keeps the "sheet can be closed once opened" path intact for a panel
+     * opened without a selection.
+     */
+    collapseInfoPanel() {
+        if (this.selectedNode && this._isPhoneLayout()) {
+            this.peekInfoPanel();
+            return;
+        }
+        this.closeInfoPanel();
+    }
+
+    /**
+     * True when the phone layout is the one in force.
+     *
+     * Keyed off the same breakpoint the stylesheet uses, rather than off which
+     * rules happen to have applied: the collapsed state is a phone affordance
+     * and the class that drives it is set from here.
+     *
+     * @returns {boolean}
+     */
+    _isPhoneLayout() {
+        return typeof window.matchMedia === 'function'
+            && window.matchMedia(PHONE_MEDIA_QUERY).matches;
+    }
+
+    /**
+     * Mirror the sheet's title into the collapsed row.
+     *
+     * Read from #info-title rather than from a node, because the title has
+     * several writers — updateInfoPanel(), the release path, the song path, and
+     * InfoPanelRenderer — and a mirror that only knew about one of them would
+     * show a stale name on the others. _watchInfoTitle() keeps this current
+     * without every writer having to know the row exists.
+     */
+    _syncPeekTitle() {
+        const title = document.getElementById('info-title');
+        const peekTitle = document.getElementById('info-peek-title');
+        if (title && peekTitle) peekTitle.textContent = title.textContent;
+    }
+
+    /**
+     * Keep the collapsed row's name in step with the sheet's title.
+     *
+     * An observer rather than a call at each write site: the release and song
+     * paths set a placeholder title, open the panel, and replace the title when
+     * their fetch lands, so a one-shot copy would leave "Loading..." on the row
+     * for good.
+     */
+    _watchInfoTitle() {
+        const title = document.getElementById('info-title');
+        if (!title || typeof MutationObserver === 'undefined') return;
+
+        this._infoTitleObserver = new MutationObserver(() => this._syncPeekTitle());
+        this._infoTitleObserver.observe(title, { childList: true, characterData: true, subtree: true });
     }
 
     /**
@@ -1065,7 +1171,7 @@ export class MusicGraph {
 
         if (infoViewer) {
             infoViewer.style.removeProperty('display');
-            this.openInfoPanel();
+            this.peekInfoPanel();
         }
 
         try {
@@ -1147,9 +1253,9 @@ export class MusicGraph {
         this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
         // Populating the panel is not the same as showing it. On desktop the
         // panel is always present so this was invisible; on a phone the sheet
-        // has to be opened, and without this selecting an album filled a panel
+        // has to be shown, and without this selecting an album filled a panel
         // nobody could see.
-        this.openInfoPanel();
+        this.peekInfoPanel();
     }
 
     /**
@@ -1565,7 +1671,7 @@ export class MusicGraph {
         infoContent.innerHTML = '<p>Loading song details...</p>';
         if (infoViewer) {
             infoViewer.style.removeProperty('display');
-            this.openInfoPanel();
+            this.peekInfoPanel();
         }
 
         try {
