@@ -13,7 +13,7 @@
 
 import { createHash } from 'crypto';
 import { createLogger } from '../utils/logger.js';
-import { drawSponsoredNode } from './sponsoredNode.js';
+import { drawSponsoredNode, toUnits } from './sponsoredNode.js';
 import { lotteryConfigFromRow, resolvePeriod } from './lotteryPeriod.js';
 
 const log = createLogger('api.sponsoredNode');
@@ -33,6 +33,40 @@ export function toChainId(nodeId) {
     const text = String(nodeId);
     if (/^[a-f0-9]{64}$/i.test(text)) return text.toLowerCase();
     return createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * A candidate's stake, summed across every identity it has ever had.
+ *
+ * Stake is keyed on chain by sha256 of the graph id, and a graph id is not
+ * permanent: a provisional id becomes canonical when it resolves, and two
+ * nodes become one when they merge. Each of those changes the hash. Counting
+ * only the current id would quietly strand every token staked before the
+ * change — still in `nodeagg`, still the staker's, but attached to a hash no
+ * candidate maps to and therefore buying nothing.
+ *
+ * Summing instead means the stake follows the artist through a rename or a
+ * merge, which is the behaviour a staker would assume they were buying.
+ *
+ * @param {{nodeId: string, aliasIds?: string[]}} candidate
+ * @param {Map<string, unknown>} stakes - chain node id -> staked asset
+ * @returns {bigint} units
+ */
+export function sumStakeAcrossIdentities(candidate, stakes) {
+    const identities = [candidate.nodeId, ...(candidate.aliasIds ?? [])];
+
+    // Deduplicated: an alias list that repeated the canonical id, or listed the
+    // same merged node twice, would otherwise count its stake more than once.
+    const seen = new Set();
+    let total = 0n;
+    for (const id of identities) {
+        if (!id) continue;
+        const chainId = toChainId(id);
+        if (seen.has(chainId)) continue;
+        seen.add(chainId);
+        total += toUnits(stakes.get(chainId));
+    }
+    return total;
 }
 
 export class SponsoredNodeService {
@@ -103,13 +137,17 @@ export class SponsoredNodeService {
 
         const withStakes = candidates.map((candidate) => {
             const chainId = toChainId(candidate.nodeId);
-            return { ...candidate, chainId, stakeUnits: stakes.get(chainId) ?? 0n };
+            return {
+                ...candidate,
+                chainId,
+                stakeUnits: sumStakeAcrossIdentities(candidate, stakes),
+            };
         });
 
         const draw = drawSponsoredNode(withStakes, seedHex, { baseWeight: config.baseWeight });
         if (!draw) return null;
 
-        const staked = withStakes.filter((c) => stakes.has(c.chainId)).length;
+        const staked = withStakes.filter((c) => c.stakeUnits > 0n).length;
 
         log.info('sponsored_node_drawn', {
             period: period.index,

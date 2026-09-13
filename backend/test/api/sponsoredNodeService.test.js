@@ -9,7 +9,11 @@
  */
 
 import { createHash } from 'crypto';
-import { SponsoredNodeService, toChainId } from '../../src/api/sponsoredNodeService.js';
+import {
+    SponsoredNodeService,
+    sumStakeAcrossIdentities,
+    toChainId,
+} from '../../src/api/sponsoredNodeService.js';
 
 const CANDIDATES = [
     { nodeId: 'polaris:group:alpha', name: 'Alpha', type: 'group' },
@@ -101,6 +105,80 @@ describe('drawing', () => {
         const { service } = makeService();
         const { draw } = await service.getSponsoredNode();
         expect(draw.stake_source).toBe('current_state');
+    });
+});
+
+describe('stake follows the identity through a rename or a merge', () => {
+    // A graph id is not permanent. A provisional id becomes canonical when it
+    // resolves; two nodes become one when they merge. Both change the sha256
+    // the chain keys stake by, so counting only the current id would strand
+    // every token staked before the change.
+    const MUS = 10000n;
+
+    test('stake on a merged-away id still counts for the survivor', () => {
+        const stakes = new Map([[toChainId('prov:group:old'), '5.0000 MUS']]);
+        const candidate = { nodeId: 'polaris:group:new', aliasIds: ['prov:group:old'] };
+
+        expect(sumStakeAcrossIdentities(candidate, stakes)).toBe(5n * MUS);
+    });
+
+    test('stake on the current id and an old id are added together', () => {
+        const stakes = new Map([
+            [toChainId('polaris:group:new'), '2.0000 MUS'],
+            [toChainId('prov:group:old'), '3.0000 MUS'],
+        ]);
+        const candidate = { nodeId: 'polaris:group:new', aliasIds: ['prov:group:old'] };
+
+        expect(sumStakeAcrossIdentities(candidate, stakes)).toBe(5n * MUS);
+    });
+
+    test('a chain of merges is followed all the way', () => {
+        const stakes = new Map([
+            [toChainId('prov:group:first'), '1.0000 MUS'],
+            [toChainId('prov:group:second'), '2.0000 MUS'],
+        ]);
+        const candidate = {
+            nodeId: 'polaris:group:final',
+            aliasIds: ['prov:group:first', 'prov:group:second'],
+        };
+
+        expect(sumStakeAcrossIdentities(candidate, stakes)).toBe(3n * MUS);
+    });
+
+    test('a repeated alias cannot count its stake twice', () => {
+        // A malformed alias list — one repeating the canonical id, or the same
+        // merged node twice — would otherwise inflate a node's odds.
+        const stakes = new Map([[toChainId('polaris:group:new'), '4.0000 MUS']]);
+        const candidate = {
+            nodeId: 'polaris:group:new',
+            aliasIds: ['polaris:group:new', 'polaris:group:new'],
+        };
+
+        expect(sumStakeAcrossIdentities(candidate, stakes)).toBe(4n * MUS);
+    });
+
+    test('no aliases behaves exactly as before', () => {
+        const stakes = new Map([[toChainId('polaris:group:solo'), '7.0000 MUS']]);
+        expect(sumStakeAcrossIdentities({ nodeId: 'polaris:group:solo' }, stakes)).toBe(7n * MUS);
+        expect(sumStakeAcrossIdentities({ nodeId: 'polaris:group:solo', aliasIds: [] }, stakes))
+            .toBe(7n * MUS);
+    });
+
+    test('the merged stake reaches the draw, not just the helper', () => {
+        // The helper being right is not the claim; the odds changing is.
+        const stakes = new Map([[toChainId('prov:group:old'), '40.0000 MUS']]);
+        const { service } = makeService({
+            candidates: [
+                { nodeId: 'polaris:group:alpha', name: 'Alpha', type: 'group', aliasIds: ['prov:group:old'] },
+                { nodeId: 'polaris:group:beta', name: 'Beta', type: 'group', aliasIds: [] },
+            ],
+            stakes,
+        });
+
+        return service.getSponsoredNode().then(({ draw }) => {
+            expect(Number(draw.total_weight)).toBe(42);   // 41 + 1
+            expect(draw.staked_candidates).toBe(1);
+        });
     });
 });
 

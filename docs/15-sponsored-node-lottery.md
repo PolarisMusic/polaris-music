@@ -162,15 +162,32 @@ In this data model:
 - **Person** nodes with only `GUEST_ON` — **not** eligible (they are guests).
 - Everything else — Release, Track, Song, Label, Master — not eligible.
 
-```cypher
-MATCH (n)
-WHERE n:Group OR (n:Person AND (n)-[:MEMBER_OF]->(:Group))
-RETURN CASE WHEN n:Group THEN n.group_id ELSE n.person_id END AS node_id
-ORDER BY node_id
-```
-
 This happens to line up with what is already on screen: `/graph/initial`
 returns exactly groups and their members.
+
+### 4.1 Identity is not permanent, and stake must follow it
+
+The chain keys stake by `sha256(graph_node_id)`. A graph id is not stable: a
+provisional id becomes canonical when it resolves, and two nodes become one
+when they merge. Either changes the hash.
+
+Caught on the first live draw, which opened on
+`prov:group:76654456bc4b93a2` — a real, eligible group still on a provisional
+id. Had anyone staked on it before it resolved, those tokens would have sat in
+`nodeagg` under a hash no candidate mapped to any more: still theirs, still
+locked, buying nothing, with no way to notice.
+
+So `getLotteryCandidates()` excludes merged-away nodes and returns their ids as
+`aliasIds` on the survivor, and the service sums stake across the survivor and
+its aliases. Excluding them stops one artist drawing twice; returning them
+stops the tokens being stranded. The sum is deduplicated, so a malformed alias
+list cannot inflate a node's odds.
+
+What this does **not** do is migrate the `nodeagg` rows themselves — the stake
+is counted for the right node but still recorded against the old hash. That is
+fine for the draw and wrong for anything that later pays stakers out by node,
+so it is a decision left open rather than assumed: either `stake` refuses
+provisional ids, or a merge migrates the rows.
 
 **Be honest about what this costs.** Eligibility is evaluated off chain, so
 an operator who altered the predicate could change the outcome. The mitigation
@@ -224,7 +241,7 @@ Done, except the stake snapshot:
 
 | | |
 |---|---|
-| Eligibility | `MusicGraphDatabase.getLotteryCandidates()` |
+| Eligibility + identity aliases | `MusicGraphDatabase.getLotteryCandidates()` |
 | Seed | `ChainReaderService.getChainInfo()` + `.getBlockId()` |
 | Rules | `.getLotteryConfig()` → `lotteryConfigFromRow()` |
 | Stakes | `.getNodeStakes()` — **current state, see §7.1** |

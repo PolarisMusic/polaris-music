@@ -3185,36 +3185,56 @@ constructor(config = {}) {
      * @returns {Promise<Object>} Node and relationship counts
      */
     /**
-     * Every node eligible for the sponsored-node lottery, in canonical order.
+     * Every node eligible for the sponsored-node lottery, with the identities
+     * that have merged into it.
      *
      * Eligible means a Group, or a Person who is a member of one. A Person who
-     * only ever appears as a guest is not: the rule is that the front page
-     * opens on an artist or a band, not on a session player credited once.
-     * Nothing else — Release, Track, Song, Label, Master — is eligible at all.
+     * only ever appears as a guest is not: the front page opens on an artist
+     * or a band, not on a session player credited once. Nothing else —
+     * Release, Track, Song, Label, Master — is eligible at all.
      *
-     * `ORDER BY` is not cosmetic here. The draw assigns each candidate a
-     * contiguous slice of a number line, so the order decides the outcome, and
-     * Neo4j promises no row order without one. Ordering happens again in
-     * `sponsoredNode.js` against the on-chain id, which is the value that
-     * actually has to match what a verifier computes — this ORDER BY makes the
-     * query itself reproducible, which matters when someone is comparing two
-     * runs by eye.
+     * Merged-away nodes are excluded and their ids returned as `aliasIds` on
+     * the survivor instead. Both halves matter, for different reasons.
      *
-     * @returns {Promise<Array<{nodeId: string, name: string, type: string}>>}
+     * Excluding them stops one identity drawing twice: a node and the node it
+     * merged into are the same artist, and leaving both in would hand that
+     * artist two chunks of the number line.
+     *
+     * Returning the aliases is what keeps stake from being stranded. The chain
+     * keys stake by sha256 of the graph id, and a provisional id is not a
+     * stable identity — `prov:group:76654456bc4b93a2` becomes a canonical
+     * `polaris:group:...` once it resolves, and its hash changes with it. Any
+     * stake placed against the old id would otherwise sit in `nodeagg` under a
+     * hash no candidate maps to any more: locked to a node the draw no longer
+     * recognises, with nothing to show for it. The caller sums stake across
+     * the survivor and its aliases, so the tokens follow the identity.
+     *
+     * `MERGED_INTO*1..10` rather than a single hop because merges chain, and
+     * the same bound `resolveProvisionalId()` uses.
+     *
+     * @returns {Promise<Array<{nodeId: string, name: string, type: string, aliasIds: string[]}>>}
      */
     async getLotteryCandidates() {
         const session = this.driver.session();
         try {
             const result = await session.run(`
                 MATCH (g:Group)
-                WHERE g.group_id IS NOT NULL
-                RETURN g.group_id AS nodeId, g.name AS name, 'group' AS type
+                WHERE g.group_id IS NOT NULL AND NOT (g)-[:MERGED_INTO]->()
+                OPTIONAL MATCH (mergedGroup:Group)-[:MERGED_INTO*1..10]->(g)
+                RETURN g.group_id AS nodeId,
+                       g.name AS name,
+                       'group' AS type,
+                       collect(DISTINCT mergedGroup.group_id) AS aliasIds
 
                 UNION
 
                 MATCH (p:Person)-[:MEMBER_OF]->(:Group)
-                WHERE p.person_id IS NOT NULL
-                RETURN p.person_id AS nodeId, p.name AS name, 'person' AS type
+                WHERE p.person_id IS NOT NULL AND NOT (p)-[:MERGED_INTO]->()
+                OPTIONAL MATCH (mergedPerson:Person)-[:MERGED_INTO*1..10]->(p)
+                RETURN p.person_id AS nodeId,
+                       p.name AS name,
+                       'person' AS type,
+                       collect(DISTINCT mergedPerson.person_id) AS aliasIds
             `);
 
             return result.records
@@ -3222,7 +3242,12 @@ constructor(config = {}) {
                     nodeId: record.get('nodeId'),
                     name: record.get('name'),
                     type: record.get('type'),
+                    aliasIds: (record.get('aliasIds') || []).filter(Boolean),
                 }))
+                // Ordered here as well as in the draw. The draw's ordering is
+                // the one that decides the winner; this one only makes two
+                // runs of the query comparable by eye, which is what someone
+                // checking a result will actually do.
                 .sort((a, b) => (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
         } catch (error) {
             this.log?.error?.('lottery_candidates_failed', { error: error.message });
