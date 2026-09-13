@@ -108,8 +108,14 @@ services:
       retries: 3
 
   # MinIO (S3-compatible storage)
+  # Pulled from quay.io, not Docker Hub: MinIO removed minio/minio and
+  # minio/mc from Docker Hub (both now 404 from its registry API, while the
+  # rest of the minio namespace such as minio/operator is still there), which
+  # broke every CI run with "pull access denied ... repository does not
+  # exist". quay.io is MinIO's own registry and carries the same RELEASE.*
+  # tags, so this is a registry change only — same image, same interface.
   minio:
-    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    image: quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z
     container_name: polaris-minio
     ports:
       - "127.0.0.1:9000:9000"     # API
@@ -143,7 +149,7 @@ services:
 
   # MinIO Client - Create bucket on startup
   minio-init:
-    image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+    image: quay.io/minio/mc:RELEASE.2024-01-18T07-03-39Z
     container_name: polaris-minio-init
     depends_on:
       minio-health:

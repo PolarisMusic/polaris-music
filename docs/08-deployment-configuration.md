@@ -122,7 +122,7 @@ services:
   
   # MinIO (S3-compatible storage)
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: polaris-minio
     command: server /data --console-address ":9001"
     environment:
