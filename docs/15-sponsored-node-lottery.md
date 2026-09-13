@@ -1,8 +1,15 @@
 # Sponsored Node Lottery — Specification
 
-**Status:** design agreed, draw implemented, wiring outstanding.
-**Implemented:** `backend/src/api/sponsoredNode.js` + 21 tests.
-**Outstanding:** eligibility query, seed fetch, endpoint, cache, frontend.
+**Status:** design agreed and settled; draw and schedule implemented.
+**Implemented:** contract `lottery` singleton + `setlottery`;
+`backend/src/api/sponsoredNode.js` (21 tests); `backend/src/api/lotteryPeriod.js`
+(20 tests).
+**Outstanding:** eligibility query, seed fetch, stake snapshot, endpoint, frontend.
+
+**Settled:** 24h period; base weight lives on chain and is governable; the node
+changes on every fresh load with nothing remembered between visits; no paid-
+placement disclosure — most nodes drawn will have nothing staked on them, so a
+blanket "sponsored" label would misdescribe the majority of them.
 
 The visualization opens on a node chosen by a periodic weighted draw. Nodes
 with more MUS staked to them are picked more often; nodes with nothing staked
@@ -10,16 +17,23 @@ are still picked sometimes. Every visitor in a period sees the same node.
 
 ---
 
-## 1. What is already on chain
+## 1. What is on chain
 
-No contract change is needed for the first version. Everything the draw
-consumes already exists:
+The draw's inputs already existed; the only thing added is the rules table:
 
 | Input | Where it lives |
 |---|---|
 | Stake per node | `nodeagg` table — `node_id` (checksum256), `total` (asset), `staker_count` (`polaris.music.cpp:1550`) |
 | Entropy | Block ids, readable over RPC |
 | Node identity | `sha256(graph_node_id)`, the same derivation the `like` action already uses (`LikeManager.js:174`) |
+| Draw rules | `lottery` singleton — `base_weight`, `period_blocks`, `seed_delay_blocks`, written by `setlottery` |
+
+`lottery` is a singleton of its own rather than three more fields on
+`global_state`. That struct is already `set` on testnet, and eosio unpacks a
+singleton against the current struct definition: stored bytes shorter than the
+struct is a read failure, not a defaulted field. A new table has no stored rows
+to be short, so `get_or_default()` returns the defaults cleanly and there is
+nothing to migrate.
 
 The contract comment at `docs/01-smart-contract.md:283` already says staking
 "affects home node selection"; this is that mechanism. The architecture
@@ -103,16 +117,35 @@ two published values, and anyone can recompute it.
 
 ### 3.1 The ordering that makes it honest
 
-This sequence is the security property, not an implementation detail:
+Periods are counted in blocks, so the whole schedule falls out of a block
+number with no clock and no time zone:
 
-1. Period *P* begins at block *B*.
-2. *B* is produced. Its id becomes the seed — unknown to everyone until now.
-3. Stakes are read **as of block *B***, not as of now.
-4. The draw is computed.
+```
+period P       = floor(block / period_blocks)
+snapshot block = P * period_blocks           ← stakes are fixed here
+seed block     = snapshot + seed_delay       ← its id is the randomness
+```
 
-Read stakes *after* the seed is known and the design breaks: a staker watches
-the seed appear, computes which node would win, and stakes to become it. The
-snapshot must be pinned to the seed block.
+The gap between those last two is the security property, not a tuning knob:
+
+1. At the snapshot block, stakes are fixed. Anything staked later does not
+   count for this period.
+2. `seed_delay_blocks` later — about a minute — the seed block is produced. Its
+   id was unknowable at step 1.
+3. The draw is computed from the two.
+
+Collapse the gap to zero and a staker reads the seed at the instant stakes are
+fixed, computes which node would win, and buys it. `setlottery` refuses a zero
+delay for that reason, and refuses a delay at or beyond the period length,
+which would put the seed in the next period and make two periods share one
+seed.
+
+**The seed must also be irreversible.** A seed block a fork could replace would
+silently change the winner, so the schedule resolves against the last
+irreversible block rather than the head. In practice that costs another few
+minutes at each period boundary, during which the previous period's node stays
+up — which is also what happens during the seed delay itself. Neither is an
+error state and neither should be visible to a visitor.
 
 ---
 
@@ -161,7 +194,7 @@ and a caller; it is not needed to put a node on the front page.
 
 ---
 
-## 6. Choosing BASE_WEIGHT
+## 6. Choosing base_weight
 
 The base weight sets the exchange rate between tokens and attention. With base
 *B*, *N* eligible nodes and *S* tokens on one of them, that node wins
@@ -176,26 +209,52 @@ The base weight sets the exchange rate between tokens and attention. With base
 **The price of a given win probability scales with the size of the registry.**
 That is probably what you want — the long tail keeps a real collective
 chance, and sponsorship gets more valuable as the registry grows — but it
-should be a decision rather than a side effect. Ships at `1`. If it should
-ever be governable, the natural home is a `base_weight` field in the
-contract's `global_state`, which also moves one more input on chain.
+should be a decision rather than a side effect. Ships at `1`, and it is
+governable: `setlottery` writes it, so it can be retuned as the registry grows
+without redeploying anything, and it is one more input a verifier reads from
+the chain rather than taking on trust.
 
 ---
 
 ## 7. Remaining work
 
 1. **Eligibility query** — §4, in the graph layer, with the `ORDER BY`.
-2. **Seed fetch** — `get_info` / `get_block` through `ChainReaderService`,
-   which already proxies `get_table_rows` (`chainReaderService.js:25`).
-3. **Stake snapshot** — read `nodeagg` at the seed block; join to candidates
-   on `sha256(node_id)`.
+2. **Seed fetch** — `get_info` for the last irreversible block, `get_block_info`
+   for the seed block's id, through `ChainReaderService`, which already proxies
+   `get_table_rows` (`chainReaderService.js:25`).
+3. **Stake snapshot** — the open problem, see §7.1.
 4. **Endpoint** — `GET /api/graph/sponsored`, returning the winner plus the
-   inputs from §5.
-5. **Cache** — one draw per period, keyed by period id, in the Redis already
-   in the stack. Every visitor in a period must get the same node.
-6. **Frontend** — centre and select the node on first load, falling back to
-   today's behaviour if the endpoint fails. On a phone this lands in the
-   collapsed sheet row, which already names the selected node.
+   inputs from §5, cached for the period so every visitor sees the same node.
+5. **Frontend** — centre and select the node on every fresh load, falling back
+   to today's behaviour if the endpoint fails. Nothing is remembered between
+   visits. On a phone this lands in the collapsed sheet row, which already
+   names the selected node.
+
+### 7.1 Reading stakes as of a past block
+
+`get_table_rows` returns *current* state. A plain nodeos cannot answer "what
+did `nodeagg` hold at block B", so the snapshot cannot simply be read after the
+fact — which matters, because the design says stakes are fixed at the snapshot
+block and the seed arrives a minute later.
+
+Three ways out, in order of preference:
+
+1. **Record the snapshot when the block passes.** The backend reads `nodeagg`
+   once, at the snapshot block, and stores it against the period. Current-state
+   reads are enough because the read happens *now*, at the right moment. Needs
+   something running continuously and a place to keep the snapshot.
+2. **Reconstruct from indexed stake events.** The substreams pipeline already
+   carries stake and unstake events, so stakes-as-of-a-block can be replayed
+   from the projection, which also makes the snapshot independently checkable
+   rather than operator-asserted.
+3. **Read current stakes at draw time.** Simplest, and wrong in a specific way
+   worth naming rather than hiding: it reopens a window between the seed block
+   appearing and the read, in which someone watching the chain could stake
+   against a known seed. The window is seconds and they would have to win the
+   race every period, but it is not the property §3.1 claims.
+
+(2) is the one that matches the rest of the architecture, since the events are
+already being indexed.
 
 ### Failure behaviour
 
@@ -205,11 +264,25 @@ the busiest group — and it should be silent to the visitor.
 
 ---
 
-## 8. Open questions
+## 8. Settled
 
-1. **Period length.** 24h assumed. A shorter period churns the front page;
-   a longer one makes each slot more valuable.
-2. **Every load, or only the first visit?** Assumed: every fresh load within
-   the period, unless the visitor arrived by deep link or a restored session.
-3. **Does a sponsored slot need disclosure in the UI?** It is a paid placement
-   in all but name.
+- **Period length:** 24h — `period_blocks` 172800, retunable via `setlottery`.
+- **Base weight:** on chain and governable, default 1.
+- **When it applies:** every fresh load. Nothing is stored client-side; a
+  visitor returning within the period sees the same node because the draw is
+  the same, not because anything was remembered about them.
+- **Disclosure:** none. The slot is not a paid placement — with base weight 1
+  most nodes drawn will have nothing staked on them, so a blanket "sponsored"
+  label would misdescribe the majority of them.
+
+## 9. Not verifiable from this repository
+
+Two claims in this document cannot be checked by anything in CI, and should be
+checked before the contract is deployed:
+
+- **The contract compiles.** CI's "Smart Contract Check" greps for three action
+  names (`ci.yml:134-145`); it does not invoke a compiler. `contracts/build.sh`
+  does.
+- **`lottery` reads back as expected on a chain that already has `globals`
+  set.** The no-migration argument above is a claim about eosio's singleton
+  unpacking, and testnet is where it stops being a claim.

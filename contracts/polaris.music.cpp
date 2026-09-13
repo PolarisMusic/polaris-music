@@ -468,6 +468,46 @@ public:
     }
 
     /**
+     * @brief Set the sponsored-node lottery parameters
+     *
+     * @param base_weight - Chunks per eligible node before stake. 0 is legal
+     *                      and means only staked nodes can be drawn, which is
+     *                      a deliberate policy choice rather than the default.
+     * @param period_blocks - Blocks per draw period (172800 = 24h)
+     * @param seed_delay_blocks - Blocks between the stake snapshot and the seed
+     */
+    ACTION setlottery(uint64_t base_weight,
+                      uint32_t period_blocks,
+                      uint32_t seed_delay_blocks) {
+        require_auth(get_self());
+
+        // An overflowing base weight would swamp every stake and make the draw
+        // uniform without looking like it had.
+        check(base_weight <= 1000000, "Base weight must be 0-1000000");
+
+        // 120 blocks is a minute; 5184000 is thirty days. Outside that the
+        // front page either churns faster than anyone notices or stops
+        // changing.
+        check(period_blocks >= 120 && period_blocks <= 5184000,
+              "Period must be 120-5184000 blocks (1 minute to 30 days)");
+
+        // The invariant that keeps the draw honest AND well-defined. At zero
+        // the seed block is the snapshot block, so the seed is known at the
+        // instant stakes are fixed and can be staked against. At or beyond
+        // period_blocks the seed falls in the next period, and two periods
+        // would draw from the same seed.
+        check(seed_delay_blocks >= 1, "Seed delay must be at least 1 block, or the seed is knowable when stakes are fixed");
+        check(seed_delay_blocks < period_blocks, "Seed delay must fall inside the period");
+
+        lottery_singleton lottery(get_self(), get_self().value);
+        auto l = lottery.get_or_default(lottery_config{});
+        l.base_weight = base_weight;
+        l.period_blocks = period_blocks;
+        l.seed_delay_blocks = seed_delay_blocks;
+        lottery.set(l, get_self());
+    }
+
+    /**
      * @brief Set voting window durations for different event types
      *
      * Allows tuning review periods without contract redeployment.
@@ -1725,6 +1765,53 @@ private:
                         (rejected_voters_pct)(rejected_stakers_pct))
     };
 
+    /**
+     * @brief Parameters for the sponsored-node lottery
+     *
+     * The visualization opens on a node chosen by a periodic weighted draw:
+     * more stake, better odds; no stake, still a chance. The draw itself runs
+     * off chain — a contract cannot hash a block (there is no get_block_id,
+     * and tapos comes from the transaction header, so the submitter picks it),
+     * and holding every node in RAM to pick one would cost more than the
+     * feature is worth. What lives here is the part that must not be the
+     * operator's to choose: the rules.
+     *
+     * Deliberately a singleton of its own rather than three more fields on
+     * global_state. That struct is already `set` on testnet, and eosio
+     * unpacks a singleton against the current struct definition — stored bytes
+     * shorter than the struct is a read failure, not a defaulted field. A new
+     * table has no stored rows to be short, so get_or_default() returns these
+     * defaults cleanly on first read and there is nothing to migrate.
+     */
+    TABLE lottery_config {
+        // Chunks every eligible node carries before any stake is counted.
+        // This is what gives an unstaked node a chance, and it sets the
+        // exchange rate between tokens and attention: with base B, N eligible
+        // nodes and S tokens on one of them, that node wins S/(S + N*B) of
+        // periods. The price of a given probability therefore scales with the
+        // size of the registry.
+        uint64_t base_weight = 1;
+
+        // Length of a draw period, in blocks. 172800 is 24h at half-second
+        // blocks. Counted in blocks rather than seconds so the boundary is
+        // exactly reproducible by anyone: period = block_num / period_blocks.
+        // Missed rounds make a period slightly longer than 24h in wall-clock
+        // terms, which is the acceptable cost of that determinism.
+        uint32_t period_blocks = 172800;
+
+        // How far after the period's first block the seed block sits.
+        //
+        // This gap is the security property, not a tuning knob. Stakes are
+        // snapshotted at the period's first block; the seed is the id of a
+        // block that does not exist yet at that moment. Without the gap, a
+        // staker could read the seed, compute which node would win, and stake
+        // to become it before the draw was taken. 120 blocks is about a
+        // minute.
+        uint32_t seed_delay_blocks = 120;
+
+        EOSLIB_SERIALIZE(lottery_config, (base_weight)(period_blocks)(seed_delay_blocks))
+    };
+
     // Table type definitions
     typedef eosio::multi_index<"anchors"_n, anchor,
         indexed_by<"byhash"_n, const_mem_fun<anchor, checksum256, &anchor::by_hash>>,
@@ -1769,6 +1856,7 @@ private:
         indexed_by<"bynode"_n, const_mem_fun<pending_reward, checksum256, &pending_reward::by_node>>
     > pending_rewards_table;
     typedef eosio::singleton<"globals"_n, global_state> globals_singleton;
+    typedef eosio::singleton<"lottery"_n, lottery_config> lottery_singleton;
 
     // ============ HELPER FUNCTIONS ============
 
