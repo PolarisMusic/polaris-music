@@ -176,7 +176,7 @@ docker run -d \
   -p 9000:9000 -p 9001:9001 \
   -e MINIO_ROOT_USER=polaris \
   -e MINIO_ROOT_PASSWORD=polarisdev123 \
-  minio/minio server /data --console-address ":9001"
+  quay.io/minio/minio server /data --console-address ":9001"
 
 # Create bucket
 docker exec polaris-minio \

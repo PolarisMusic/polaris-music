@@ -36,6 +36,7 @@ spec:
     spec:
       # Stage G hardening: dedicated SA, no K8s API access.
       # minio/minio + minio/mc both run as uid/gid 1000.
+      # (Both now pulled from quay.io; see the image refs below.)
       serviceAccountName: minio-sa
       automountServiceAccountToken: false
       securityContext:
@@ -47,7 +48,8 @@ spec:
           type: RuntimeDefault
       initContainers:
       - name: create-bucket
-        image: minio/mc:RELEASE.2024-01-18T07-03-39Z
+        # quay.io, not Docker Hub — see docker-compose.yml.
+        image: quay.io/minio/mc:RELEASE.2024-01-18T07-03-39Z
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -75,7 +77,8 @@ spec:
               key: MINIO_ROOT_PASSWORD
       containers:
       - name: minio
-        image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+        # quay.io, not Docker Hub — see docker-compose.yml.
+        image: quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
