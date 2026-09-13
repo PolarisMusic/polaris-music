@@ -53,6 +53,109 @@ export class ChainReaderService {
     }
 
     /**
+     * Chain head and, more importantly, the last irreversible block.
+     *
+     * The lottery resolves its period against irreversibility rather than the
+     * head: a seed block a fork could still replace would silently change
+     * which node the front page opens on.
+     *
+     * @returns {Promise<{headBlock: number, lastIrreversibleBlock: number}>}
+     */
+    async getChainInfo() {
+        const resp = await fetch(`${this.rpcUrl}/v1/chain/get_info`);
+        if (!resp.ok) {
+            throw new Error(`get_info failed: ${resp.status} ${resp.statusText}`);
+        }
+        const info = await resp.json();
+        return {
+            headBlock: Number(info.head_block_num),
+            lastIrreversibleBlock: Number(info.last_irreversible_block_num),
+        };
+    }
+
+    /**
+     * The id of one block — the lottery's source of randomness.
+     *
+     * get_block_info rather than get_block: the id is all that is wanted and
+     * the header-only endpoint does not carry the transactions.
+     *
+     * @param {number} blockNum
+     * @returns {Promise<string>} 64-character block id
+     */
+    async getBlockId(blockNum) {
+        const resp = await fetch(`${this.rpcUrl}/v1/chain/get_block_info`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ block_num: blockNum }),
+        });
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(`get_block_info(${blockNum}) failed: ${resp.status} ${text}`);
+        }
+        const block = await resp.json();
+        if (!block?.id) throw new Error(`get_block_info(${blockNum}) returned no id`);
+        return String(block.id).toLowerCase();
+    }
+
+    /**
+     * The lottery rules, from the contract's `lottery` singleton.
+     *
+     * Absent row means the contract has never been configured, which is not an
+     * error — the caller falls back to the documented defaults.
+     *
+     * @returns {Promise<object|null>}
+     */
+    async getLotteryConfig() {
+        const resp = await this.getTableRows({
+            code: this.contractAccount,
+            scope: this.contractAccount,
+            table: 'lottery',
+            limit: 1,
+        });
+        return resp?.rows?.[0] ?? null;
+    }
+
+    /**
+     * Every node with stake on it, from `nodeagg`.
+     *
+     * Paged because the table grows with the registry and get_table_rows caps
+     * a single response; `more`/`next_key` is the chain's own cursor.
+     *
+     * NOTE ON CORRECTNESS: this is a *current state* read. A plain nodeos
+     * cannot answer "what did nodeagg hold at block B", so this cannot give
+     * the stake snapshot the design calls for — see §7.1 of
+     * docs/15-sponsored-node-lottery.md. The caller labels results read this
+     * way so the weaker guarantee is visible in the response rather than
+     * buried here.
+     *
+     * @param {number} [pageLimit]
+     * @returns {Promise<Map<string, string>>} chain node id -> staked asset
+     */
+    async getNodeStakes(pageLimit = 500) {
+        const stakes = new Map();
+        let lowerBound;
+
+        for (let page = 0; page < 200; page++) {
+            const resp = await this.getTableRows({
+                code: this.contractAccount,
+                scope: this.contractAccount,
+                table: 'nodeagg',
+                limit: pageLimit,
+                lower_bound: lowerBound,
+            });
+
+            for (const row of resp?.rows ?? []) {
+                if (row?.node_id) stakes.set(String(row.node_id).toLowerCase(), row.total);
+            }
+
+            if (!resp?.more || !resp?.next_key) break;
+            lowerBound = resp.next_key;
+        }
+
+        return stakes;
+    }
+
+    /**
      * Fetch likes for a specific account from the contract table
      * @param {string} account - Blockchain account name
      * @param {number} [limit=200] - Max rows

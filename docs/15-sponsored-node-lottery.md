@@ -1,10 +1,12 @@
 # Sponsored Node Lottery — Specification
 
-**Status:** design agreed and settled; draw and schedule implemented.
-**Implemented:** contract `lottery` singleton + `setlottery`;
-`backend/src/api/sponsoredNode.js` (21 tests); `backend/src/api/lotteryPeriod.js`
-(20 tests).
-**Outstanding:** eligibility query, seed fetch, stake snapshot, endpoint, frontend.
+**Status:** implemented end to end, with one known gap (§7.1).
+**Contract:** `lottery` singleton + `setlottery`.
+**Backend:** `sponsoredNode.js` (draw, 21 tests), `lotteryPeriod.js` (schedule,
+20 tests), `sponsoredNodeService.js` (assembly, 15 tests),
+`getLotteryCandidates()` (eligibility), `GET /api/graph/sponsored`.
+**Frontend:** opens on the drawn node, 6 e2e tests.
+**Gap:** stakes are read as current state, not as of the snapshot block — §7.1.
 
 **Settled:** 24h period; base weight lives on chain and is governable; the node
 changes on every fresh load with nothing remembered between visits; no paid-
@@ -218,17 +220,27 @@ the chain rather than taking on trust.
 
 ## 7. Remaining work
 
-1. **Eligibility query** — §4, in the graph layer, with the `ORDER BY`.
-2. **Seed fetch** — `get_info` for the last irreversible block, `get_block_info`
-   for the seed block's id, through `ChainReaderService`, which already proxies
-   `get_table_rows` (`chainReaderService.js:25`).
-3. **Stake snapshot** — the open problem, see §7.1.
-4. **Endpoint** — `GET /api/graph/sponsored`, returning the winner plus the
-   inputs from §5, cached for the period so every visitor sees the same node.
-5. **Frontend** — centre and select the node on every fresh load, falling back
-   to today's behaviour if the endpoint fails. Nothing is remembered between
-   visits. On a phone this lands in the collapsed sheet row, which already
-   names the selected node.
+Done, except the stake snapshot:
+
+| | |
+|---|---|
+| Eligibility | `MusicGraphDatabase.getLotteryCandidates()` |
+| Seed | `ChainReaderService.getChainInfo()` + `.getBlockId()` |
+| Rules | `.getLotteryConfig()` → `lotteryConfigFromRow()` |
+| Stakes | `.getNodeStakes()` — **current state, see §7.1** |
+| Assembly + per-period cache | `SponsoredNodeService` |
+| Endpoint | `GET /api/graph/sponsored` |
+| Frontend | `GraphAPI.fetchSponsoredNode()` → `GraphDataLoader.openOnSponsoredNode()` |
+
+The endpoint always answers 200. A missing draw is `{ node: null }` with a
+reason, never an error: the chain being unreachable is a reason for the front
+page to keep its own default, not something to show a visitor who never asked
+for a sponsored node. The frontend treats a node absent from its loaded
+subgraph the same way.
+
+The draw runs through the app's own click path rather than centring the view
+directly, so the opening node arrives exactly as a tapped one would — centred,
+selected, details populated, and named in the collapsed sheet row on a phone.
 
 ### 7.1 Reading stakes as of a past block
 
@@ -253,8 +265,16 @@ Three ways out, in order of preference:
    against a known seed. The window is seconds and they would have to win the
    race every period, but it is not the property §3.1 claims.
 
-(2) is the one that matches the rest of the architecture, since the events are
-already being indexed.
+**(3) is what currently ships**, and it says so in its own output: every draw
+carries `stake_source: "current_state"`, so a verifier reading the response
+knows which guarantee they are getting rather than assuming the stronger one.
+
+(2) is the fix, and it is cheaper than it looks. The substreams pipeline
+already decodes `stake` and `unstake` into `StakeEvent` / `UnstakeEvent`
+(`substreams/src/lib.rs:562,588`); what is missing is a handler in the backend
+event processor to project them into the graph with block numbers. Nothing
+consumes those events today. Once it does, stakes-as-of-a-block become a
+query, and the snapshot stops being operator-asserted.
 
 ### Failure behaviour
 

@@ -24,6 +24,7 @@ import EventProcessor from '../indexer/eventProcessor.js';
 import { IngestionHandler } from './ingestion.js';
 import { PlayerService } from './playerService.js';
 import { ChainReaderService } from './chainReaderService.js';
+import { SponsoredNodeService } from './sponsoredNodeService.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 
 import { schema } from './schema/sdl.js';
@@ -84,6 +85,10 @@ class APIServer {
             // Likes come from the graph projection now, not a contract table.
             graph: this.db
         });
+        this.sponsoredNodes = new SponsoredNodeService({
+            graph: this.db,
+            chain: this.chainReader,
+        });
 
         // Wire middleware, GraphQL, and routes synchronously so that
         // `new APIServer(...)` is enough to make `this.app` testable
@@ -119,6 +124,11 @@ class APIServer {
             config: this.config,
             writeRateLimiter: this.writeRateLimiter,
             requireApiKey: this.requireApiKey,
+            // Draws the node the visualization opens on. Needs both a graph
+            // and a chain; without either it reports itself unavailable and
+            // the frontend keeps its own default, so it is safe to construct
+            // unconditionally.
+            sponsoredNodes: this.sponsoredNodes,
         };
 
         // Identity management
