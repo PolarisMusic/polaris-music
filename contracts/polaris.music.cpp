@@ -1030,6 +1030,212 @@ public:
     }
 
     /**
+     * @brief Move every stake position from one node onto another
+     *
+     * For when a provisional id resolves *well*: the node it stood for turns
+     * out to be real and merges into a canonical entity. Stake placed on the
+     * provisional id has to follow, or it sits in `nodeagg` under a hash the
+     * registry no longer draws for — still the staker's, still locked, buying
+     * nothing.
+     *
+     * Paginated. A popular node can have more stakers than one transaction can
+     * touch, so this moves at most `limit` positions and leaves the rest; call
+     * it again until `from_node` has no aggregate row left. Calling it once
+     * more after that is a no-op rather than an error, so a caller can poll
+     * without special-casing the end.
+     *
+     * @param from_node - the identity being retired
+     * @param to_node - the identity that survives
+     * @param limit - positions to move in this call (1-100)
+     */
+    ACTION migstake(checksum256 from_node, checksum256 to_node, uint32_t limit) {
+        // Deliberately not gated on `paused`: this exists to repair identity,
+        // which is exactly what an operator may need to do while halted.
+        //
+        // Self-auth is a centralisation point and should be named as one. The
+        // decision this acts on is a governance outcome — a finalized
+        // MERGE_ENTITY or RESOLVE_ID — but the contract does not learn node
+        // ids from anchors, so it cannot verify that here. The blast radius is
+        // bounded: this moves positions between nodes, it cannot move them to
+        // an account, and every staker keeps the right to unstake whatever
+        // lands on the survivor. What it can corrupt is the lottery's odds and
+        // reward attribution, which is reason enough to tie it to a finalized
+        // merge event once anchors carry the ids.
+        require_auth(get_self());
+
+        check(from_node != to_node, "Cannot migrate a node onto itself");
+        check(limit > 0 && limit <= 100, "Limit must be 1-100");
+
+        auto g = get_globals();
+        staker_nodes_table staker_nodes(get_self(), get_self().value);
+        auto sn_by_node = staker_nodes.get_index<"bynode"_n>();
+        auto sn_by_accnode = staker_nodes.get_index<"byaccnode"_n>();
+
+        asset migrated = asset(0, g.token_symbol);
+        uint32_t new_stakers_on_target = 0;
+        uint32_t moved = 0;
+
+        while (moved < limit) {
+            // Re-found each pass rather than advanced: the body either erases
+            // this row or rewrites its node_id, and both move it out from
+            // under an iterator held across the change.
+            auto itr = sn_by_node.find(from_node);
+            if (itr == sn_by_node.end()) break;
+
+            name staker = itr->account;
+            asset amount = itr->amount;
+
+            auto existing = sn_by_accnode.find(combine_keys(staker.value, to_node));
+            if (existing == sn_by_accnode.end()) {
+                // No position on the survivor yet: rewrite this row's node_id
+                // rather than erase and re-emplace. Cheaper, and same_payer
+                // leaves the RAM bill with the staker who has been paying it
+                // rather than quietly moving it to the contract.
+                sn_by_node.modify(itr, same_payer, [&](auto& sn) {
+                    sn.node_id = to_node;
+                });
+                new_stakers_on_target += 1;
+            } else {
+                sn_by_accnode.modify(existing, same_payer, [&](auto& sn) {
+                    sn.amount += amount;
+                });
+                // The staker already counted toward the survivor's
+                // staker_count; folding two positions into one must not count
+                // them twice.
+                auto pk_itr = staker_nodes.iterator_to(*itr);
+                staker_nodes.erase(pk_itr);
+            }
+
+            migrated += amount;
+            moved += 1;
+        }
+
+        if (migrated.amount == 0) return;
+
+        nodeagg_table aggregates(get_self(), get_self().value);
+        auto agg_by_node = aggregates.get_index<"bynode"_n>();
+
+        // Credit the survivor.
+        auto to_itr = agg_by_node.find(to_node);
+        if (to_itr == agg_by_node.end()) {
+            // The contract pays here: the staker who funded the original row
+            // is not the one authorizing this call, and RAM cannot be billed
+            // to an account that has not signed.
+            aggregates.emplace(get_self(), [&](auto& a) {
+                a.id = aggregates.available_primary_key();
+                a.node_id = to_node;
+                a.total = migrated;
+                a.staker_count = new_stakers_on_target;
+            });
+        } else {
+            auto to_pk = aggregates.iterator_to(*to_itr);
+            aggregates.modify(to_pk, same_payer, [&](auto& a) {
+                a.total += migrated;
+                a.staker_count += new_stakers_on_target;
+            });
+        }
+
+        // Debit the retired identity, and drop its row once it is empty.
+        auto from_itr = agg_by_node.find(from_node);
+        if (from_itr != agg_by_node.end()) {
+            auto from_pk = aggregates.iterator_to(*from_itr);
+            bool drained = (sn_by_node.find(from_node) == sn_by_node.end());
+            if (drained) {
+                aggregates.erase(from_pk);
+            } else {
+                // staker_count is unsigned: a subtraction past zero wraps to
+                // four billion rather than throwing, and the lottery would
+                // then read a node with a nonsense staker count forever. The
+                // same for total, which asset allows to go negative.
+                check(from_itr->staker_count >= moved, "Migration would underflow staker_count");
+                check(from_itr->total >= migrated, "Migration would drive total negative");
+                aggregates.modify(from_pk, same_payer, [&](auto& a) {
+                    a.total -= migrated;
+                    a.staker_count -= moved;
+                });
+            }
+        }
+    }
+
+    /**
+     * @brief Return every stake on a node to the accounts that placed it
+     *
+     * For when a provisional id resolves *badly*: the entity it stood for is
+     * rejected, so there is nothing for the stake to follow. The tokens go
+     * back rather than staying locked against a node that will never be drawn.
+     *
+     * Paginated for a harder reason than migstake: each refund is an inline
+     * transfer, and a transaction can only carry so many. Keep `limit` small.
+     *
+     * @param node_id - the identity being abandoned
+     * @param limit - positions to refund in this call (1-50)
+     */
+    ACTION refundstake(checksum256 node_id, uint32_t limit) {
+        // See migstake on why this is self-auth and not paused-gated. Refunds
+        // are the safer of the two: tokens can only go back to the account
+        // that staked them, never to a caller's choosing.
+        require_auth(get_self());
+        check(limit > 0 && limit <= 50, "Limit must be 1-50 (each refund is an inline transfer)");
+
+        auto g = get_globals();
+        staker_nodes_table staker_nodes(get_self(), get_self().value);
+        auto sn_by_node = staker_nodes.get_index<"bynode"_n>();
+
+        asset refunded = asset(0, g.token_symbol);
+        uint32_t closed = 0;
+
+        while (closed < limit) {
+            auto itr = sn_by_node.find(node_id);
+            if (itr == sn_by_node.end()) break;
+
+            name staker = itr->account;
+            asset amount = itr->amount;
+
+            if (amount.amount > 0) {
+                transfer_tokens(get_self(), staker, amount,
+                                "Refund: node " + checksum_to_hex(node_id).substr(0, 16) + " was not adopted");
+            }
+
+            // Same legacy sweep unstake() does. stake() stopped writing these,
+            // and per-account scopes are unreachable from clear(), so this is
+            // the only path that can ever free them.
+            stakes_table stakes(get_self(), staker.value);
+            auto stakes_by_node = stakes.get_index<"bynode"_n>();
+            auto legacy_itr = stakes_by_node.find(node_id);
+            if (legacy_itr != stakes_by_node.end()) {
+                stakes.erase(stakes.iterator_to(*legacy_itr));
+            }
+
+            auto pk_itr = staker_nodes.iterator_to(*itr);
+            staker_nodes.erase(pk_itr);
+
+            refunded += amount;
+            closed += 1;
+        }
+
+        if (closed == 0) return;
+
+        nodeagg_table aggregates(get_self(), get_self().value);
+        auto agg_by_node = aggregates.get_index<"bynode"_n>();
+        auto agg_itr = agg_by_node.find(node_id);
+        if (agg_itr == agg_by_node.end()) return;
+
+        auto agg_pk = aggregates.iterator_to(*agg_itr);
+        if (sn_by_node.find(node_id) == sn_by_node.end()) {
+            aggregates.erase(agg_pk);
+        } else {
+            // As in migstake: unsigned wrap and negative totals are both
+            // silent, and both are permanent once written.
+            check(agg_itr->staker_count >= closed, "Refund would underflow staker_count");
+            check(agg_itr->total >= refunded, "Refund would drive total negative");
+            aggregates.modify(agg_pk, same_payer, [&](auto& a) {
+                a.total -= refunded;
+                a.staker_count -= closed;
+            });
+        }
+    }
+
+    /**
      * @brief Remove stake from a node
      *
      * @param account - Account removing stake

@@ -185,11 +185,31 @@ its aliases. Excluding them stops one artist drawing twice; returning them
 stops the tokens being stranded. The sum is deduplicated, so a malformed alias
 list cannot inflate a node's odds.
 
-What this does **not** do is migrate the `nodeagg` rows themselves — the stake
-is counted for the right node but still recorded against the old hash. That is
-fine for the draw and wrong for anything that later pays stakers out by node,
-so it is a decision left open rather than assumed: either `stake` refuses
-provisional ids, or a merge migrates the rows.
+Staking on a provisional id is allowed, and the chain state is repaired when
+the id resolves. Two contract actions do it, both paginated and both callable
+repeatedly until done:
+
+| outcome | action | effect |
+|---|---|---|
+| resolves **well** — merges into a canonical entity | `migstake(from, to, limit)` | every position moves to the survivor; stakers keep their tokens and their claim |
+| resolves **badly** — the entity is rejected | `refundstake(node, limit)` | every position is transferred back to the account that placed it |
+
+`migstake` folds a staker who already held a position on the survivor into one
+position rather than two, so `staker_count` is not double counted. Both guard
+against unsigned underflow on `staker_count` and a negative `total`: both wrap
+or pass silently in C++, and both are permanent once written.
+
+**Two things to be honest about.** Both actions are `require_auth(get_self())`.
+The decision they act on is a governance outcome — a finalized `MERGE_ENTITY`
+or `RESOLVE_ID` — but the contract does not learn node ids from anchors, so it
+cannot verify that on chain. The blast radius is bounded (stake can move
+between nodes or go back to its owner, never to a caller's choosing) but the
+lottery's odds and reward attribution are corruptible by whoever holds that
+key. Tying it to a finalized merge is the real fix, and needs anchors to carry
+the ids.
+
+And neither action writes to the graph's stake ledger, so after a migration the
+ledger and the chain disagree until it is reconciled — see §7.2.
 
 **Be honest about what this costs.** Eligibility is evaluated off chain, so
 an operator who altered the predicate could change the outcome. The mitigation
@@ -289,6 +309,27 @@ window the contract's running total is read instead, which happens after the
 seed is public and is therefore the weaker guarantee. Every draw reports which
 read produced it: `stake_source` is `"snapshot"` or `"current_state"`. A
 verifier should not have to guess.
+
+### 7.2 The ledger does not yet see migrations
+
+`processStakeAction()` routes `stake` and `unstake`. It does not route
+`migstake` or `refundstake`, so a migration moves stake on chain while the
+graph ledger still attributes it to the retired id — and the ledger is what the
+draw reads.
+
+The awkward part is that the action data cannot fix this on its own:
+`migstake(from, to, limit)` says which identities were involved but not which
+stakers moved or how much, and the indexer would have to read contract state to
+find out — which reintroduces exactly the current-state read the ledger exists
+to avoid.
+
+The clean fix is the standard Antelope one: have the contract emit an inline
+log action per position moved or refunded, carrying account and amount, and
+have the indexer consume that. It costs CPU on an already-paginated action and
+is a contract change, so it is written down rather than assumed.
+
+Until then a migration needs a ledger resync, and a draw taken between the two
+will weight the retired identity rather than the survivor.
 
 ## 8. Settled
 
