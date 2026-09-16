@@ -17,7 +17,14 @@
 
 const CONTRACT_ACCOUNT = import.meta.env?.VITE_CONTRACT_ACCOUNT || 'polarismusic';
 
-/** MUS is declared with 4 decimals, matching the contract's token_symbol. */
+/**
+ * What the token looks like until the chain says otherwise.
+ *
+ * The contract declares its symbol in its globals row, and every stake read carries
+ * that declaration back. These are the shape to assume before the first read
+ * lands, not the authority: a bundle built today must not decide the precision
+ * of a symbol the contract can change.
+ */
 export const TOKEN_PRECISION = 4;
 export const TOKEN_SYMBOL = 'MUS';
 
@@ -29,39 +36,43 @@ export const TOKEN_SYMBOL = 'MUS';
  * one unit short of what was typed.
  *
  * @param {string} input
+ * @param {{precision?: number, symbol?: string}} [token] - as the chain declares it
  * @returns {{units: bigint, asset: string}}
  * @throws {Error} when it is not a positive amount the symbol can hold
  */
-export function parseAmount(input) {
+export function parseAmount(input, { precision = TOKEN_PRECISION, symbol = TOKEN_SYMBOL } = {}) {
     const text = String(input ?? '').trim();
     const match = text.match(/^(\d+)(?:\.(\d*))?$/);
     if (!match) throw new Error('Enter an amount like 10 or 10.5');
 
     const [, whole, frac = ''] = match;
-    if (frac.length > TOKEN_PRECISION) {
-        throw new Error(`${TOKEN_SYMBOL} holds at most ${TOKEN_PRECISION} decimal places`);
+    if (frac.length > precision) {
+        throw new Error(`${symbol} holds at most ${precision} decimal places`);
     }
 
-    const padded = frac.padEnd(TOKEN_PRECISION, '0');
-    const units = BigInt(whole) * (10n ** BigInt(TOKEN_PRECISION)) + BigInt(padded || '0');
+    const padded = frac.padEnd(precision, '0');
+    const units = BigInt(whole) * (10n ** BigInt(precision)) + BigInt(padded || '0');
     if (units <= 0n) throw new Error('Amount must be greater than zero');
 
-    return { units, asset: `${whole}.${padded} ${TOKEN_SYMBOL}` };
+    // A zero-precision symbol takes no decimal point at all; "5. TOK" is not
+    // an asset the chain will unpack.
+    return { units, asset: `${padded ? `${whole}.${padded}` : whole} ${symbol}` };
 }
 
 /**
  * Render integer units for display. String surgery, never division.
  *
  * @param {bigint|string|number} units
+ * @param {{precision?: number, symbol?: string}} [token]
  * @returns {string}
  */
-export function formatUnits(units) {
+export function formatUnits(units, { precision = TOKEN_PRECISION, symbol = TOKEN_SYMBOL } = {}) {
     const value = BigInt(units ?? 0);
     const negative = value < 0n;
-    const digits = (negative ? -value : value).toString().padStart(TOKEN_PRECISION + 1, '0');
-    const whole = digits.slice(0, digits.length - TOKEN_PRECISION) || '0';
-    const frac = digits.slice(digits.length - TOKEN_PRECISION);
-    return `${negative ? '-' : ''}${whole}.${frac} ${TOKEN_SYMBOL}`;
+    const digits = (negative ? -value : value).toString().padStart(precision + 1, '0');
+    const whole = digits.slice(0, digits.length - precision) || '0';
+    const frac = precision ? `.${digits.slice(digits.length - precision)}` : '';
+    return `${negative ? '-' : ''}${whole}${frac} ${symbol}`;
 }
 
 export class StakeManager {
@@ -74,6 +85,8 @@ export class StakeManager {
         this.api = api;
         this.walletManager = walletManager;
         this._nodeStakeCache = new Map();
+        // Replaced by whatever the first stake read reports the chain declares.
+        this.token = { precision: TOKEN_PRECISION, symbol: TOKEN_SYMBOL };
     }
 
     /** @private */
@@ -102,6 +115,10 @@ export class StakeManager {
 
             const data = await response.json();
             if (!data?.success) return null;
+
+            if (Number.isInteger(data.precision) && data.symbol) {
+                this.token = { precision: data.precision, symbol: data.symbol };
+            }
 
             const stake = {
                 units: data.units,
@@ -200,7 +217,7 @@ export class StakeManager {
             throw new Error('Connect a wallet first');
         }
 
-        const { asset } = parseAmount(amountInput);
+        const { asset } = parseAmount(amountInput, this.token);
         const nodeHash = await this.nodeIdToChecksum256(nodeId);
         const session = this.walletManager.getSession();
         const actor = session.actor.toString();

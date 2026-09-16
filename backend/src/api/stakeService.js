@@ -176,7 +176,7 @@ export class StakeService {
      * handful that happen to have backers.
      *
      * @param {string} nodeId - graph node id
-     * @returns {Promise<{nodeId: string, chainId: string, units: string, formatted: string, stakerCount: number}>}
+     * @returns {Promise<{nodeId: string, chainId: string, symbol: string, precision: number, units: string, formatted: string, stakerCount: number}>}
      */
     async getNodeStake(nodeId) {
         const chainId = toChainId(nodeId);
@@ -193,6 +193,11 @@ export class StakeService {
         return {
             nodeId,
             chainId,
+            // The symbol travels with the figure so the client builds its
+            // asset strings from what the chain declares rather than from a
+            // constant compiled into the bundle months earlier.
+            symbol: code,
+            precision,
             units: units.toString(),
             formatted: formatUnits(units, precision, code),
             stakerCount: Number(row?.staker_count ?? 0),

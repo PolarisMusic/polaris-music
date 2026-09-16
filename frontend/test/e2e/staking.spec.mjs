@@ -37,7 +37,11 @@ async function boot(page, { nodeStake = null, connected = true, stakeFails = fal
             if (stakeFails) return route.fulfill({ status: 503, body: 'nope' });
             return route.fulfill({
                 contentType: 'application/json',
+                // The body is whatever the test named, verbatim: a stake
+                // read that omits the symbol is a real case, and a helper that
+                // quietly supplied one would hide it.
                 body: JSON.stringify({ success: true, ...(nodeStake ?? {
+                    symbol: 'MUS', precision: 4,
                     units: '0', formatted: '0.0000 MUS', stakerCount: 0,
                 }) }),
             });
@@ -86,8 +90,14 @@ async function selectNode(page, id) {
         const g = window.musicGraph;
         g.handleNodeClick(g.ht.graph.getNode(nodeId));
     }, id);
+    // Both halves matter: a missing .stake-total also satisfies "not the
+    // placeholder", so waiting on that alone would return before the panel
+    // had rendered at all and let a test read state the fetch has not reached.
     await page.waitForFunction(
-        () => document.querySelector('.stake-total')?.textContent !== '…',
+        () => {
+            const el = document.querySelector('.stake-total');
+            return !!el && el.textContent !== '…';
+        },
         { timeout: 10_000 }
     );
 }
@@ -293,5 +303,62 @@ test.describe('the balance in the top bar', () => {
 
         await expect(page.locator('#user-balance')).toHaveText('');
         expect(asked).toBe(false);
+    });
+});
+
+test.describe('the symbol the chain declares', () => {
+    // A bundle built today must not decide the precision of a symbol the
+    // contract can change. The stake read carries the declaration; the form
+    // builds its asset from that.
+
+    test('an amount is denominated in the symbol the read reported', async ({ page }) => {
+        await boot(page, { nodeStake: {
+            symbol: 'POL', precision: 2, units: '4200', formatted: '42.00 POL', stakerCount: 1,
+        } });
+        await selectNode(page, 'grp:band');
+
+        await page.locator('.stake-amount').fill('10.5');
+        await page.locator('.btn-stake').click();
+        await expect(page.locator('.stake-status')).toContainText('Staked');
+
+        const sent = await page.evaluate(() => window.__sent);
+        expect(sent[0].actions[0].data.quantity).toBe('10.50 POL');
+    });
+
+    test('decimals past that symbol are refused, in its own name', async ({ page }) => {
+        await boot(page, { nodeStake: {
+            symbol: 'POL', precision: 2, units: '0', formatted: '0.00 POL', stakerCount: 0,
+        } });
+        await selectNode(page, 'grp:band');
+
+        await page.locator('.stake-amount').fill('1.234');
+        await page.locator('.btn-stake').click();
+
+        await expect(page.locator('.stake-status')).toContainText('POL holds at most 2 decimal places');
+        expect(await page.evaluate(() => window.__sent.length)).toBe(0);
+    });
+
+    test('a symbol with no decimals takes no decimal point', async ({ page }) => {
+        // "5. TOK" is not an asset the chain will unpack.
+        await boot(page, { nodeStake: {
+            symbol: 'TOK', precision: 0, units: '5', formatted: '5 TOK', stakerCount: 1,
+        } });
+        await selectNode(page, 'grp:band');
+
+        await page.locator('.stake-amount').fill('5');
+        await page.locator('.btn-stake').click();
+        await expect(page.locator('.stake-status')).toContainText('Staked');
+
+        const sent = await page.evaluate(() => window.__sent);
+        expect(sent[0].actions[0].data.quantity).toBe('5 TOK');
+    });
+
+    test('a read that says nothing about the symbol leaves the default standing', async ({ page }) => {
+        await boot(page, { nodeStake: { units: '0', formatted: '0.0000 MUS', stakerCount: 0 } });
+        await page.evaluate(() => { window.musicGraph.stakeManager.token = { precision: 4, symbol: 'MUS' }; });
+        await selectNode(page, 'grp:band');
+
+        const token = await page.evaluate(() => window.musicGraph.stakeManager.token);
+        expect(token).toEqual({ precision: 4, symbol: 'MUS' });
     });
 });

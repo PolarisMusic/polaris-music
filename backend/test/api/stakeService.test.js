@@ -19,13 +19,14 @@ const GLOBALS = { token_contract: 'polaristoken', token_symbol: '4,MUS' };
 
 function makeService({
     nodeagg = [], liquid = null, pending = [], accountStakes = null, overrides = {},
+    globals = GLOBALS,
 } = {}) {
     const calls = { globals: 0, nodeagg: 0, liquid: 0, pending: 0 };
 
     const chain = {
         contractAccount: 'polarismusic',
         getTableRows: async ({ code, table, scope }) => {
-            if (table === 'globals') { calls.globals++; return { rows: [GLOBALS] }; }
+            if (table === 'globals') { calls.globals++; return { rows: [globals] }; }
             if (table === 'nodeagg') { calls.nodeagg++; return { rows: nodeagg, more: false }; }
             if (table === 'accounts') {
                 calls.liquid++;
@@ -128,6 +129,32 @@ describe('stake on a node', () => {
         service._nodeAggregates = async () => { throw new Error('rpc down'); };
 
         await expect(service.getNodeStake(NODE)).resolves.toMatchObject({ units: '0' });
+    });
+
+    test('the answer carries the symbol the chain declares', async () => {
+        // The client builds its asset strings from this rather than from a
+        // constant compiled into the bundle, so it has to travel with the
+        // figure.
+        const { service } = makeService({
+            nodeagg: [{ node_id: toChainId(NODE), total: '42.0000 MUS', staker_count: 3 }],
+        });
+
+        await expect(service.getNodeStake(NODE)).resolves.toMatchObject({
+            symbol: 'MUS', precision: 4,
+        });
+    });
+
+    test('a contract declaring a different symbol reports that one', async () => {
+        const { service } = makeService({
+            globals: { token_contract: 'polaristoken', token_symbol: '2,POL' },
+            nodeagg: [{ node_id: toChainId(NODE), total: '42.00 POL', staker_count: 1 }],
+        });
+
+        const stake = await service.getNodeStake(NODE);
+        expect(stake.symbol).toBe('POL');
+        expect(stake.precision).toBe(2);
+        expect(stake.units).toBe('4200');
+        expect(stake.formatted).toBe('42.00 POL');
     });
 
     test('the node table is read once for a burst of lookups', async () => {
