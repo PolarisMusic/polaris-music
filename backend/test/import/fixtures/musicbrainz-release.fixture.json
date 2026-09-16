@@ -1,0 +1,171 @@
+{
+  "_comment": [
+    "Hand-built to the shape MusicBrainz's ws/2 release lookup documents for",
+    "inc=artist-credits+labels+recordings+release-groups+media+isrcs+artist-rels",
+    "+recording-level-rels+work-rels+work-level-rels. It is NOT a live capture —",
+    "the MBIDs are placeholders. It exists to pin the transform's handling of",
+    "shapes the real API produces: a multi-instrumentalist credited once per",
+    "instrument, a recording with a linked Work and one without, a producer and",
+    "an arranger that must not become performance credits, and a second disc.",
+    "Personnel and label are the real ones for this album."
+  ],
+  "id": "00000000-0000-4000-8000-0000000000aa",
+  "title": "Blues for the Red Sun",
+  "date": "1992-06-30",
+  "country": "US",
+  "artist-credit": [
+    {
+      "name": "Kyuss",
+      "joinphrase": "",
+      "artist": { "id": "00000000-0000-4000-8000-0000000000b1", "name": "Kyuss" }
+    }
+  ],
+  "release-group": {
+    "id": "00000000-0000-4000-8000-0000000000c1",
+    "title": "Blues for the Red Sun",
+    "primary-type": "Album"
+  },
+  "label-info": [
+    {
+      "catalog-number": "CD 61340",
+      "label": { "id": "00000000-0000-4000-8000-0000000000d1", "name": "Dali Records" }
+    }
+  ],
+  "relations": [
+    {
+      "type": "mastering",
+      "direction": "backward",
+      "attributes": [],
+      "artist": { "id": "00000000-0000-4000-8000-0000000000e9", "name": "Eddy Schreyer" }
+    }
+  ],
+  "media": [
+    {
+      "format": "CD",
+      "position": 1,
+      "track-count": 2,
+      "tracks": [
+        {
+          "id": "00000000-0000-4000-8000-0000000000f1",
+          "position": 1,
+          "number": "1",
+          "title": "Thumb",
+          "length": 296000,
+          "recording": {
+            "id": "00000000-0000-4000-8000-000000000101",
+            "title": "Thumb",
+            "length": 296000,
+            "isrcs": ["USDA19200001"],
+            "relations": [
+              {
+                "type": "instrument",
+                "direction": "backward",
+                "attributes": ["guitar"],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b2", "name": "Josh Homme" }
+              },
+              {
+                "type": "instrument",
+                "direction": "backward",
+                "attributes": ["bass guitar"],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b3", "name": "Nick Oliveri" }
+              },
+              {
+                "type": "instrument",
+                "direction": "backward",
+                "attributes": ["drums (drum set)"],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b4", "name": "Brant Bjork" }
+              },
+              {
+                "type": "instrument",
+                "direction": "backward",
+                "attributes": ["percussion"],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b4", "name": "Brant Bjork" }
+              },
+              {
+                "type": "vocal",
+                "direction": "backward",
+                "attributes": ["lead vocals"],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b5", "name": "John Garcia" }
+              },
+              {
+                "type": "producer",
+                "direction": "backward",
+                "attributes": [],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b6", "name": "Chris Goss" }
+              },
+              {
+                "type": "arranger",
+                "direction": "backward",
+                "attributes": [],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b2", "name": "Josh Homme" }
+              },
+              {
+                "type": "performance",
+                "direction": "forward",
+                "work": {
+                  "id": "00000000-0000-4000-8000-000000000201",
+                  "title": "Thumb",
+                  "iswcs": ["T-123.456.789-0"],
+                  "relations": [
+                    {
+                      "type": "composer",
+                      "direction": "backward",
+                      "artist": { "id": "00000000-0000-4000-8000-0000000000b2", "name": "Josh Homme" }
+                    },
+                    {
+                      "type": "lyricist",
+                      "direction": "backward",
+                      "target-credit": "J. Garcia",
+                      "artist": { "id": "00000000-0000-4000-8000-0000000000b5", "name": "John Garcia" }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "00000000-0000-4000-8000-0000000000f2",
+          "position": 2,
+          "number": "2",
+          "title": "Green Machine",
+          "length": 209000,
+          "recording": {
+            "id": "00000000-0000-4000-8000-000000000102",
+            "title": "Green Machine",
+            "length": 209000,
+            "isrcs": [],
+            "relations": [
+              {
+                "type": "instrument",
+                "direction": "backward",
+                "attributes": ["guitar"],
+                "artist": { "id": "00000000-0000-4000-8000-0000000000b2", "name": "Josh Homme" }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "format": "CD",
+      "position": 2,
+      "track-count": 1,
+      "tracks": [
+        {
+          "id": "00000000-0000-4000-8000-0000000000f3",
+          "position": 1,
+          "number": "1",
+          "title": "Allen's Wrench",
+          "length": 148000,
+          "recording": {
+            "id": "00000000-0000-4000-8000-000000000103",
+            "title": "Allen's Wrench",
+            "length": 148000,
+            "relations": []
+          }
+        }
+      ]
+    }
+  ]
+}
