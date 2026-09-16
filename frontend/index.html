@@ -34,6 +34,10 @@
         <div class="top-bar-right">
             <div class="user-info">
                 <span id="user-account">Not logged in</span>
+                <!-- Filled in from /api/stake/account once a wallet is
+                     connected; stays empty otherwise so the bar does not
+                     carry a dash where a balance will be. -->
+                <span id="user-balance" class="user-balance" title="Liquid · staked · claimable"></span>
                 <button id="connect-wallet" class="btn-wallet">Log In</button>
             </div>
             <div class="stats">
@@ -181,15 +185,27 @@
          * Update UI based on wallet connection status
          */
         function updateWalletUI(accountInfo) {
+            const balanceEl = document.getElementById('user-balance');
             if (accountInfo) {
                 userAccountEl.textContent = accountInfo.accountName;
                 userAccountEl.style.color = '#4CAF50';
                 connectWalletBtn.textContent = 'Log Out';
+                refreshBalance(balanceEl);
             } else {
                 userAccountEl.textContent = 'Not logged in';
                 userAccountEl.style.color = '';
                 connectWalletBtn.textContent = 'Log In';
+                if (balanceEl) balanceEl.textContent = '';
             }
+        }
+
+        /**
+         * Show the connected account's position in the top bar. The wording
+         * and the failure behaviour live in StakeManager, where they are
+         * reachable from a test; this is only the call site.
+         */
+        function refreshBalance(balanceEl) {
+            window.musicGraph?.stakeManager?.refreshBalanceInto(balanceEl);
         }
 
         /**

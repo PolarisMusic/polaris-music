@@ -24,6 +24,7 @@ import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
 import { PanController } from './PanController.js';
 import { InlineEditor } from './InlineEditor.js';
+import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
 
 /**
@@ -96,7 +97,13 @@ export class MusicGraph {
                 },
             },
         });
+        this.stakeManager = new StakeManager({
+            api: this.api,
+            walletManager: this.walletManager,
+        });
+
         this.infoPanel = new InfoPanelRenderer({
+            stakeManager: this.stakeManager,
             inlineEditor: this.inlineEditor,
             callbacks: {
                 attachNavLinkListeners: (container) => this._attachNavLinkListeners(container),

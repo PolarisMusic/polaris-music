@@ -61,9 +61,12 @@ export class InfoPanelRenderer {
      *   graph navigation would re-centre on the node already centred and reset
      *   the orbit overlay under the reader.
      */
-    constructor({ inlineEditor, callbacks }) {
+    constructor({ inlineEditor, callbacks, stakeManager = null }) {
         this.inlineEditor = inlineEditor;
         this.callbacks = callbacks;
+        // Optional: without it the stake block is simply not rendered, which
+        // is what any consumer constructed before staking existed gets.
+        this.stakeManager = stakeManager;
     }
 
     /**
@@ -225,6 +228,102 @@ export class InfoPanelRenderer {
      * editableRowHtml returns a trusted, internally-escaped fragment;
      * insertAdjacentHTML is the right pass-through (it's not user data).
      */
+    /**
+     * The stake block: what is backing this node, and a way to add to it.
+     *
+     * Appended for groups and persons — the two node types the lottery can
+     * draw — and for nothing else, because staking on a track would buy
+     * nothing.
+     *
+     * Rendered synchronously with a placeholder and filled in when the figure
+     * arrives. The panel must not wait on a chain read to show a node's
+     * details, and a visitor who never looks at the stake line should not
+     * notice it was fetched.
+     *
+     * @param {HTMLElement} parent
+     * @param {string} nodeId
+     */
+    appendStakeSection(parent, nodeId) {
+        const stakeManager = this.stakeManager;
+        if (!stakeManager || !nodeId) return;
+
+        const total = this._el('span', { className: 'stake-total' }, '…');
+        const backers = this._el('span', { className: 'stake-backers' }, '');
+
+        const section = this._el('div', { className: 'info-section stake-section' },
+            this._el('h4', null, 'Staked'),
+            this._el('p', { className: 'stake-figure' }, total, ' ', backers));
+
+        const form = this._buildStakeForm(nodeId, stakeManager, { total, backers });
+        if (form) section.appendChild(form);
+        parent.appendChild(section);
+
+        stakeManager.getNodeStake(nodeId).then((stake) => {
+            this._paintStake({ total, backers }, stake);
+        });
+    }
+
+    /**
+     * @private
+     */
+    _paintStake({ total, backers }, stake) {
+        if (!stake) {
+            // Distinguished from "nothing staked": one is a fact about the
+            // node, the other is a fact about the connection.
+            total.textContent = 'unavailable';
+            backers.textContent = '';
+            return;
+        }
+        total.textContent = stake.formatted;
+        backers.textContent = stake.stakerCount === 1
+            ? 'from 1 backer'
+            : `from ${stake.stakerCount} backers`;
+    }
+
+    /**
+     * @private
+     * @returns {HTMLElement|null} null when nobody is signed in
+     */
+    _buildStakeForm(nodeId, stakeManager, figure) {
+        if (!stakeManager.accountName()) {
+            return this._el('p', { className: 'stake-hint' }, 'Log in to stake on this node.');
+        }
+
+        const amount = this._el('input', {
+            type: 'text',
+            className: 'stake-amount',
+            placeholder: '0.0000',
+            inputMode: 'decimal',
+            'aria-label': 'Amount to stake',
+        });
+        const status = this._el('p', { className: 'stake-status' }, '');
+
+        const run = async (action, button) => {
+            status.textContent = '';
+            button.disabled = true;
+            try {
+                const { asset } = await stakeManager.submit(action, nodeId, amount.value);
+                status.textContent = `${action === 'stake' ? 'Staked' : 'Unstaked'} ${asset}`;
+                amount.value = '';
+                // Re-read rather than adjust locally: the contract is the
+                // authority on the new total, and a local guess would be wrong
+                // the moment anyone else stakes.
+                this._paintStake(figure, await stakeManager.getNodeStake(nodeId, { refresh: true }));
+            } catch (error) {
+                status.textContent = error.message || 'Transaction failed';
+            } finally {
+                button.disabled = false;
+            }
+        };
+
+        const stakeBtn = this._el('button', { type: 'button', className: 'btn-stake' }, 'Stake');
+        const unstakeBtn = this._el('button', { type: 'button', className: 'btn-unstake' }, 'Unstake');
+        stakeBtn.addEventListener('click', () => run('stake', stakeBtn));
+        unstakeBtn.addEventListener('click', () => run('unstake', unstakeBtn));
+
+        return this._el('div', { className: 'stake-form' }, amount, stakeBtn, unstakeBtn, status);
+    }
+
     _appendEditableRow(parent, ...args) {
         parent.insertAdjacentHTML('beforeend', this.inlineEditor.editableRowHtml(...args));
     }
@@ -259,6 +358,7 @@ export class InfoPanelRenderer {
             contentElement.appendChild(this._el('p', { className: 'info-meta info-inferred' },
                 this._el('strong', null, 'Active (from releases):'), ' ', inferRange));
         }
+        this.appendStakeSection(contentElement, nodeId);
         this._appendEditableRow(contentElement, 'group', nodeId, 'formed_date', formed, 'Formed');
         this._appendEditableRow(contentElement, 'group', nodeId, 'disbanded_date', group.disbanded_date || '', 'Disbanded');
 
@@ -309,6 +409,7 @@ export class InfoPanelRenderer {
                 this._el('img', { src: person.photo, alt: person.name })));
         }
         this._appendEditableRow(contentElement, 'person', nodeId, 'photo', person.photo || '', 'Photo URL');
+        this.appendStakeSection(contentElement, nodeId);
 
         const currentColor = person.color || '#888888';
         contentElement.appendChild(this._el('div', { className: 'info-color-row' },

@@ -308,6 +308,83 @@ body.mini-player-visible.mini-player-embed {
     overflow: visible !important;
 }
 
+/* The account's position, beside its name in the top bar. Muted: it is
+   reference, not a control, and it sits next to the one button up there. */
+.user-balance {
+    margin-left: 10px;
+    font-size: 12px;
+    color: #9ad;
+    white-space: nowrap;
+}
+
+/* Staking, inside the node details. */
+.stake-section .stake-figure {
+    margin: 4px 0 8px;
+    font-size: 15px;
+}
+
+.stake-total {
+    font-weight: 600;
+    color: #e0e0e0;
+}
+
+.stake-backers {
+    font-size: 12px;
+    color: #999;
+}
+
+.stake-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.stake-amount {
+    flex: 1 1 90px;
+    min-width: 0;
+    padding: 6px 8px;
+    background: #111;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font: inherit;
+    font-size: 13px;
+}
+
+.btn-stake,
+.btn-unstake {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background: #1e1e1e;
+    color: #e0e0e0;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.btn-stake:hover,
+.btn-unstake:hover {
+    border-color: #9ad;
+}
+
+.btn-stake:disabled,
+.btn-unstake:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Full width so a message wraps under the controls rather than stretching
+   the row and reflowing the panel. */
+.stake-status,
+.stake-hint {
+    flex: 1 0 100%;
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #999;
+}
+
 /* Info Viewer Panel */
 #info-viewer {
     width: var(--info-viewer-width);
