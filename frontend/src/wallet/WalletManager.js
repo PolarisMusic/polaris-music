@@ -8,8 +8,10 @@ import { SessionKit } from '@wharfkit/session';
 import { WebRenderer } from '@wharfkit/web-renderer';
 import { WalletPluginAnchor } from '@wharfkit/wallet-plugin-anchor';
 import { WalletPluginCloudWallet } from '@wharfkit/wallet-plugin-cloudwallet';
+import { TransactPluginResourceProvider } from '@wharfkit/transact-plugin-resource-provider';
 import { POLARIS_ABI } from '../contracts/polarisAbi.js'; // Local ABI fallback for test/dev only
 import { CHAIN_ID, RPC_URL, CONTRACT_ACCOUNT, USE_LOCAL_ABI } from '../config/chain.js';
+import { resolveResourceProvider } from '../config/resourceProvider.js';
 
 export class WalletManager {
     constructor(config = {}) {
@@ -63,18 +65,38 @@ export class WalletManager {
             new WalletPluginCloudWallet()
         ];
 
-        // Create SessionKit instance
+        // Ask a resource provider to cover CPU and NET, when one answers for
+        // this chain. Registered as a transact plugin so it sits in front of
+        // every action the site pushes — put, like, vote, stake — rather than
+        // being wired per call site and forgotten at the next one.
+        this.resourceProvider = resolveResourceProvider(import.meta.env);
+        const transactPlugins = this.resourceProvider
+            ? [new TransactPluginResourceProvider(this.resourceProvider)]
+            : [];
+
+        // Create SessionKit instance.
+        //
+        // Two arguments, not one: SessionKit takes what the app *is* first
+        // (name, chains, UI, wallets) and how it *behaves* second. transactPlugins
+        // belongs to the second, and passing it in the first is accepted in
+        // silence — the kit just falls back to its own default plugin list and
+        // the provider never runs.
         this.sessionKit = new SessionKit({
             appName: this.config.appName,
             chains,
             ui: new WebRenderer(),
             walletPlugins
+        }, {
+            transactPlugins
         });
 
         console.log('WalletManager initialized:', {
             chainId: this.config.chainId,
             rpcUrl: this.config.rpcUrl,
-            contractAccount: this.config.contractAccount
+            contractAccount: this.config.contractAccount,
+            resourceProvider: this.resourceProvider
+                ? Object.values(this.resourceProvider.endpoints)[0]
+                : 'none'
         });
     }
 
