@@ -368,3 +368,33 @@ describeOrSkip('dist/ multi-page build', () => {
         expect(moduleChunks.length).toBeGreaterThan(0);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Resource provider reachability
+// ---------------------------------------------------------------------------
+
+// A provider the CSP blocks is the CloudWallet failure again in a new place:
+// nothing throws, the plugin's fetch is simply refused, and the visitor is told
+// their account has insufficient CPU. The endpoint has to be in connect-src on
+// every page that can push a transaction, and /submit is exactly the page where
+// a missing entry costs somebody a filled-in form.
+describeOrSkip('dist · the resource provider is reachable under the CSP', () => {
+    const pages = ['index.html', 'submit.html'];
+
+    for (const page of pages) {
+        test(`${page} permits every configured provider endpoint`, async () => {
+            const { resolveResourceProvider } = await import(
+                '../../../frontend/src/config/resourceProvider.js'
+            );
+            // The build under test; dist/ was built from whatever profile was
+            // set, and this suite only knows the default.
+            const config = resolveResourceProvider({});
+            const directives = parseDirectives(extractCsp(readHtml(page)));
+            const connect = directives['connect-src'] || [];
+
+            for (const url of Object.values(config.endpoints)) {
+                expect(connect).toContain(url);
+            }
+        });
+    }
+});

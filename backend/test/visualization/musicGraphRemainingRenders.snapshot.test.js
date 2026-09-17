@@ -93,7 +93,7 @@ function compileMethod(name) {
 // on (the renderer trusts InlineEditor to produce sane edit buttons).
 // ---------------------------------------------------------------------------
 
-function makeStub() {
+function makeStub({ stakeManager = null } = {}) {
     const editorCalls = [];
     const stub = {
         inlineEditor: {
@@ -117,6 +117,14 @@ function makeStub() {
     stub._appendEditableRow = compileMethod('_appendEditableRow').bind(stub);
     stub._renderEditionSwitcher = compileMethod('_renderEditionSwitcher').bind(stub);
     stub._compareTrackPlacement = compileMethod('_compareTrackPlacement').bind(stub);
+    // Staking decorates both the group and the person panel. Bound from live
+    // source for the same reason as the rest of the cluster, and null by
+    // default: without a stake manager the section is not rendered at all,
+    // which is what the pre-staking snapshots below lock.
+    stub.stakeManager = stakeManager;
+    stub._paintStake = compileMethod('_paintStake').bind(stub);
+    stub._buildStakeForm = compileMethod('_buildStakeForm').bind(stub);
+    stub.appendStakeSection = compileMethod('appendStakeSection').bind(stub);
     return stub;
 }
 
@@ -803,5 +811,92 @@ describe('Stage K · tracklist ordering', () => {
         const before = tracks.map(t => t.track_id);
         render(tracks);
         expect(tracks.map(t => t.track_id)).toEqual(before);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The staking section, which both the group and the person panel carry.
+// ---------------------------------------------------------------------------
+
+describe('Stage K · the staking section', () => {
+    /** A stake manager that answers immediately, so the paint is one tick away. */
+    function fakeStakeManager(overrides = {}) {
+        return {
+            accountName: () => 'polaristest3',
+            getNodeStake: async () => ({
+                units: '420000', formatted: '42.0000 MUS', stakerCount: 3,
+            }),
+            submit: jest.fn(),
+            ...overrides,
+        };
+    }
+
+    /** Let the getNodeStake promise and its .then settle. */
+    const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    test('without a stake manager the panel carries no staking section', () => {
+        const stub = makeStub();
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderGroupDetails').call(stub, { name: 'The Beatles' }, titleElement, contentElement, 'g:beatles');
+
+        expect(contentElement.querySelector('.stake-section')).toBeNull();
+    });
+
+    test('a group with a stake manager gets the figure and the form → snapshot', async () => {
+        const stub = makeStub({ stakeManager: fakeStakeManager() });
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderGroupDetails').call(stub, { name: 'The Beatles' }, titleElement, contentElement, 'g:beatles');
+        await settle();
+
+        expect(contentElement.querySelector('.stake-section').outerHTML).toMatchSnapshot();
+    });
+
+    test('a person gets it too, since persons can be drawn', async () => {
+        const stub = makeStub({ stakeManager: fakeStakeManager() });
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderPersonDetails').call(stub, { name: 'John Lennon' }, titleElement, contentElement, 'p:lennon');
+        await settle();
+
+        expect(contentElement.querySelector('.stake-total').textContent).toBe('42.0000 MUS');
+    });
+
+    test('the figure starts as a placeholder rather than a zero', () => {
+        // A zero that later becomes 42 would be read as the node's real total
+        // for as long as the fetch takes.
+        const stub = makeStub({ stakeManager: fakeStakeManager() });
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderGroupDetails').call(stub, { name: 'The Beatles' }, titleElement, contentElement, 'g:beatles');
+
+        expect(contentElement.querySelector('.stake-total').textContent).toBe('…');
+    });
+
+    test('one backer is singular', async () => {
+        const stub = makeStub({ stakeManager: fakeStakeManager({
+            getNodeStake: async () => ({ units: '10000', formatted: '1.0000 MUS', stakerCount: 1 }),
+        }) });
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderGroupDetails').call(stub, { name: 'The Beatles' }, titleElement, contentElement, 'g:beatles');
+        await settle();
+
+        expect(contentElement.querySelector('.stake-backers').textContent).toBe('from 1 backer');
+    });
+
+    test('an unreadable total says so rather than showing a false zero', async () => {
+        const stub = makeStub({ stakeManager: fakeStakeManager({ getNodeStake: async () => null }) });
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderGroupDetails').call(stub, { name: 'The Beatles' }, titleElement, contentElement, 'g:beatles');
+        await settle();
+
+        expect(contentElement.querySelector('.stake-total').textContent).toBe('unavailable');
+        expect(contentElement.querySelector('.stake-backers').textContent).toBe('');
+    });
+
+    test('with nobody signed in there is a prompt instead of a form', () => {
+        const stub = makeStub({ stakeManager: fakeStakeManager({ accountName: () => null }) });
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderGroupDetails').call(stub, { name: 'The Beatles' }, titleElement, contentElement, 'g:beatles');
+
+        expect(contentElement.querySelector('.stake-hint').textContent).toContain('Log in to stake');
+        expect(contentElement.querySelector('.btn-stake')).toBeNull();
     });
 });

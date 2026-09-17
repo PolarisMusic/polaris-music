@@ -26,10 +26,21 @@ const LIB = 172800 * 5 + 900;
 
 const blockId = (n) => createHash('sha256').update(`blk${n}`).digest('hex');
 
-function makeService({ candidates = CANDIDATES, stakes = new Map(), configRow = null, overrides = {} } = {}) {
-    const calls = { candidates: 0, blockId: 0, stakes: 0 };
+function makeService({
+    candidates = CANDIDATES, stakes = new Map(), configRow = null,
+    overrides = {}, ledger = null,
+} = {}) {
+    const calls = { candidates: 0, blockId: 0, stakes: 0, ledger: 0, ledgerBlock: null };
     const graph = {
         getLotteryCandidates: async () => { calls.candidates++; return candidates; },
+        // Absent unless a test supplies one, so the existing cases still
+        // exercise the contract-table fallback.
+        ...(ledger ? {
+            getStakesAsOfBlock: async (block) => {
+                calls.ledger++; calls.ledgerBlock = block;
+                return typeof ledger === 'function' ? ledger(block) : ledger;
+            },
+        } : {}),
     };
     const chain = {
         getLotteryConfig: async () => configRow,
@@ -179,6 +190,56 @@ describe('stake follows the identity through a rename or a merge', () => {
             expect(Number(draw.total_weight)).toBe(42);   // 41 + 1
             expect(draw.staked_candidates).toBe(1);
         });
+    });
+});
+
+describe('which stake read is used', () => {
+    // The two carry different guarantees. The ledger is summed as of the
+    // snapshot block — fixed a minute before the seed existed, so the seed
+    // cannot be read and then bought against. The contract's running total is
+    // read after the seed is public, and is therefore weaker.
+    const MUS = 10000n;
+
+    test('the ledger is read as of the snapshot block, not now', async () => {
+        const ledger = new Map([[toChainId('polaris:group:alpha'), (9n * MUS).toString()]]);
+        const { service, calls } = makeService({ ledger });
+
+        const { draw } = await service.getSponsoredNode();
+
+        expect(calls.ledgerBlock).toBe(172800 * 5);      // the snapshot block
+        expect(calls.ledgerBlock).toBeLessThan(draw.seed_block);
+        expect(draw.stake_source).toBe('snapshot');
+        expect(Number(draw.total_weight)).toBe(12);      // 10 + 1 + 1
+    });
+
+    test('an empty ledger falls back to the contract, and says so', async () => {
+        // Before stake actions have been indexed the ledger is legitimately
+        // empty, and empty is indistinguishable from "nothing is staked".
+        const stakes = new Map([[toChainId('polaris:group:alpha'), '4.0000 MUS']]);
+        const { service } = makeService({ ledger: new Map(), stakes });
+
+        const { draw } = await service.getSponsoredNode();
+
+        expect(draw.stake_source).toBe('current_state');
+        expect(Number(draw.total_weight)).toBe(7);       // 5 + 1 + 1
+    });
+
+    test('a failing ledger falls back rather than losing the draw', async () => {
+        const stakes = new Map([[toChainId('polaris:group:alpha'), '4.0000 MUS']]);
+        const { service } = makeService({
+            ledger: () => { throw new Error('neo4j down'); },
+            stakes,
+        });
+
+        const { draw } = await service.getSponsoredNode();
+        expect(draw.stake_source).toBe('current_state');
+        expect(Number(draw.total_weight)).toBe(7);
+    });
+
+    test('with no ledger at all the behaviour is exactly as before', async () => {
+        const { service } = makeService();
+        const { draw } = await service.getSponsoredNode();
+        expect(draw.stake_source).toBe('current_state');
     });
 });
 

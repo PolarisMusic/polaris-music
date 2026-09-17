@@ -875,6 +875,17 @@ export class IngestionHandler {
                 });
             }
 
+            // Stake and unstake are projected as an append-only ledger. The
+            // contract's nodeagg table holds only the running total, and
+            // get_table_rows can only ever read current state — so without
+            // this there is no way to answer "what was staked at block B",
+            // which is exactly what the sponsored-node draw is defined on.
+            if (action_name === 'stake' || action_name === 'unstake') {
+                return await this.processStakeAction(action_name, actionData, {
+                    block_num, trx_id, source, timestamp
+                });
+            }
+
             if (action_name !== 'put') {
                 this.log.info('anchored_event_skip', { event_hash: contentHash, action_name });
                 return {
@@ -1099,6 +1110,88 @@ export class IngestionHandler {
             });
             return { status: 'error', contentHash: targetHash, message: error.message };
         }
+    }
+
+    /**
+     * Project a stake or unstake into the graph's stake ledger.
+     *
+     * Signs the amount here rather than storing an action name: the ledger is
+     * summed, and a sum does not want to know which verb produced each row.
+     *
+     * @param {string} actionName - 'stake' or 'unstake'
+     * @param {Object} actionData - { account, node_id, quantity }
+     * @param {Object} meta
+     * @returns {Promise<Object>}
+     * @private
+     */
+    async processStakeAction(actionName, actionData, meta = {}) {
+        const graph = this.processor?.db;
+        const account = actionData?.account;
+        const nodeId = actionData?.node_id;
+        const quantity = actionData?.quantity;
+
+        if (!account || !nodeId || !quantity) {
+            this.log.warn('stake_action_incomplete', { action_name: actionName });
+            return { status: 'skipped', message: `${actionName} carried no account, node_id or quantity` };
+        }
+
+        if (!graph?.recordStakeDelta) {
+            this.log.info('stake_action_no_graph', { action_name: actionName });
+            return { status: 'skipped', message: 'No graph projection available' };
+        }
+
+        // "12.3456 MUS" -> 123456 units. Read as fixed point, never through a
+        // float: these are summed and compared against a draw that has to be
+        // reproducible exactly, and 0.1 + 0.2 is not 0.3.
+        const units = this.assetToUnits(quantity);
+        if (units === null) {
+            this.log.warn('stake_action_unparseable_quantity', { action_name: actionName, quantity });
+            return { status: 'skipped', message: `Could not read quantity ${quantity}` };
+        }
+
+        const deltaUnits = actionName === 'unstake' ? -units : units;
+
+        try {
+            const result = await graph.recordStakeDelta({
+                account,
+                nodeId: String(nodeId).toLowerCase(),
+                deltaUnits: deltaUnits.toString(),
+                blockNum: meta.block_num,
+                trxId: meta.trx_id ?? null,
+                ts: this.blockTimeToMillis(meta)
+            });
+
+            this.log.info('stake_action_recorded', {
+                action_name: actionName, account, delta_units: deltaUnits.toString()
+            });
+            return { status: 'processed', actionName, result: result.status };
+        } catch (error) {
+            this.log.error('stake_action_failed', {
+                action_name: actionName, account, error: error.message
+            });
+            return { status: 'error', message: error.message };
+        }
+    }
+
+    /**
+     * Read an Antelope asset string into integer units of its own precision.
+     *
+     * "12.3456 MUS" -> 123456n. The precision comes from the decimal places
+     * present, which is how an asset serializes, so this does not need to know
+     * the symbol.
+     *
+     * @param {string} asset
+     * @returns {bigint|null} null when it is not an asset
+     */
+    assetToUnits(asset) {
+        const match = String(asset ?? '').trim().match(/^(-?\d+)(?:\.(\d+))?\s+[A-Z]{1,7}$/);
+        if (!match) return null;
+
+        const [, whole, frac = ''] = match;
+        const negative = whole.startsWith('-');
+        const magnitude = BigInt(negative ? whole.slice(1) : whole) * (10n ** BigInt(frac.length))
+            + (frac === '' ? 0n : BigInt(frac));
+        return negative ? -magnitude : magnitude;
     }
 
     /**

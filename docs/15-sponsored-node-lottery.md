@@ -6,7 +6,9 @@
 20 tests), `sponsoredNodeService.js` (assembly, 15 tests),
 `getLotteryCandidates()` (eligibility), `GET /api/graph/sponsored`.
 **Frontend:** opens on the drawn node, 6 e2e tests.
-**Gap:** stakes are read as current state, not as of the snapshot block — §7.1.
+**Stake snapshot:** closed — stake and unstake are projected into a ledger and
+summed as of the snapshot block (§7.1). Falls back to the contract's running
+total, and labels which it used, while the ledger is still empty.
 
 **Settled:** 24h period; base weight lives on chain and is governable; the node
 changes on every fresh load with nothing remembered between visits; no paid-
@@ -183,11 +185,31 @@ its aliases. Excluding them stops one artist drawing twice; returning them
 stops the tokens being stranded. The sum is deduplicated, so a malformed alias
 list cannot inflate a node's odds.
 
-What this does **not** do is migrate the `nodeagg` rows themselves — the stake
-is counted for the right node but still recorded against the old hash. That is
-fine for the draw and wrong for anything that later pays stakers out by node,
-so it is a decision left open rather than assumed: either `stake` refuses
-provisional ids, or a merge migrates the rows.
+Staking on a provisional id is allowed, and the chain state is repaired when
+the id resolves. Two contract actions do it, both paginated and both callable
+repeatedly until done:
+
+| outcome | action | effect |
+|---|---|---|
+| resolves **well** — merges into a canonical entity | `migstake(from, to, limit)` | every position moves to the survivor; stakers keep their tokens and their claim |
+| resolves **badly** — the entity is rejected | `refundstake(node, limit)` | every position is transferred back to the account that placed it |
+
+`migstake` folds a staker who already held a position on the survivor into one
+position rather than two, so `staker_count` is not double counted. Both guard
+against unsigned underflow on `staker_count` and a negative `total`: both wrap
+or pass silently in C++, and both are permanent once written.
+
+**Two things to be honest about.** Both actions are `require_auth(get_self())`.
+The decision they act on is a governance outcome — a finalized `MERGE_ENTITY`
+or `RESOLVE_ID` — but the contract does not learn node ids from anchors, so it
+cannot verify that on chain. The blast radius is bounded (stake can move
+between nodes or go back to its owner, never to a caller's choosing) but the
+lottery's odds and reward attribution are corruptible by whoever holds that
+key. Tying it to a finalized merge is the real fix, and needs anchors to carry
+the ids.
+
+And neither action writes to the graph's stake ledger, so after a migration the
+ledger and the chain disagree until it is reconciled — see §7.2.
 
 **Be honest about what this costs.** Eligibility is evaluated off chain, so
 an operator who altered the predicate could change the outcome. The mitigation
@@ -244,7 +266,7 @@ Done, except the stake snapshot:
 | Eligibility + identity aliases | `MusicGraphDatabase.getLotteryCandidates()` |
 | Seed | `ChainReaderService.getChainInfo()` + `.getBlockId()` |
 | Rules | `.getLotteryConfig()` → `lotteryConfigFromRow()` |
-| Stakes | `.getNodeStakes()` — **current state, see §7.1** |
+| Stakes | `getStakesAsOfBlock()` from the ledger; `.getNodeStakes()` as fallback |
 | Assembly + per-period cache | `SponsoredNodeService` |
 | Endpoint | `GET /api/graph/sponsored` |
 | Frontend | `GraphAPI.fetchSponsoredNode()` → `GraphDataLoader.openOnSponsoredNode()` |
@@ -259,47 +281,55 @@ The draw runs through the app's own click path rather than centring the view
 directly, so the opening node arrives exactly as a tapped one would — centred,
 selected, details populated, and named in the collapsed sheet row on a phone.
 
-### 7.1 Reading stakes as of a past block
+### 7.1 Reading stakes as of a past block — closed
 
 `get_table_rows` returns *current* state. A plain nodeos cannot answer "what
-did `nodeagg` hold at block B", so the snapshot cannot simply be read after the
-fact — which matters, because the design says stakes are fixed at the snapshot
-block and the seed arrives a minute later.
+did `nodeagg` hold at block B", and `nodeagg` only stores a running total
+anyway — so the snapshot the design depends on was not readable at all.
 
-Three ways out, in order of preference:
+Closed by projecting stake and unstake into an append-only ledger. Substreams
+already decoded the actions (`substreams/src/lib.rs:562,588`); nothing in the
+backend consumed them. Now `processStakeAction()` writes a signed
+`StakeEntry` per action — positive to stake, negative to unstake, in integer
+units — and `getStakesAsOfBlock(B)` sums the deltas up to a block.
 
-1. **Record the snapshot when the block passes.** The backend reads `nodeagg`
-   once, at the snapshot block, and stores it against the period. Current-state
-   reads are enough because the read happens *now*, at the right moment. Needs
-   something running continuously and a place to keep the snapshot.
-2. **Reconstruct from indexed stake events.** The substreams pipeline already
-   carries stake and unstake events, so stakes-as-of-a-block can be replayed
-   from the projection, which also makes the snapshot independently checkable
-   rather than operator-asserted.
-3. **Read current stakes at draw time.** Simplest, and wrong in a specific way
-   worth naming rather than hiding: it reopens a window between the seed block
-   appearing and the read, in which someone watching the chain could stake
-   against a known seed. The window is seconds and they would have to win the
-   race every period, but it is not the property §3.1 claims.
+That answers the question the draw is defined on: stakes as they stood at the
+snapshot block, a minute before the seed block existed. It also answers "what
+has this account staked, and where", which is what the balance view needs, out
+of the same structure.
 
-**(3) is what currently ships**, and it says so in its own output: every draw
-carries `stake_source: "current_state"`, so a verifier reading the response
-knows which guarantee they are getting rather than assuming the stronger one.
+Entries are idempotent on `(trx_id, node, account, delta)` because the indexer
+replays, and amounts are stored as decimal strings and summed as `BigInt` —
+never as floats, and never through Neo4j's integer/float coercion.
 
-(2) is the fix, and it is cheaper than it looks. The substreams pipeline
-already decodes `stake` and `unstake` into `StakeEvent` / `UnstakeEvent`
-(`substreams/src/lib.rs:562,588`); what is missing is a handler in the backend
-event processor to project them into the graph with block numbers. Nothing
-consumes those events today. Once it does, stakes-as-of-a-block become a
-query, and the snapshot stops being operator-asserted.
+**The fallback, and why it is not silent.** The ledger only knows what the
+indexer has seen, so before stake history is backfilled it is legitimately
+empty — and empty is indistinguishable from "nothing is staked". In that
+window the contract's running total is read instead, which happens after the
+seed is public and is therefore the weaker guarantee. Every draw reports which
+read produced it: `stake_source` is `"snapshot"` or `"current_state"`. A
+verifier should not have to guess.
 
-### Failure behaviour
+### 7.2 The ledger does not yet see migrations
 
-The graph must still boot if the chain is unreachable, the draw returns
-nothing, or the endpoint errors. The fallback is today's behaviour — root on
-the busiest group — and it should be silent to the visitor.
+`processStakeAction()` routes `stake` and `unstake`. It does not route
+`migstake` or `refundstake`, so a migration moves stake on chain while the
+graph ledger still attributes it to the retired id — and the ledger is what the
+draw reads.
 
----
+The awkward part is that the action data cannot fix this on its own:
+`migstake(from, to, limit)` says which identities were involved but not which
+stakers moved or how much, and the indexer would have to read contract state to
+find out — which reintroduces exactly the current-state read the ledger exists
+to avoid.
+
+The clean fix is the standard Antelope one: have the contract emit an inline
+log action per position moved or refunded, carrying account and amount, and
+have the indexer consume that. It costs CPU on an already-paginated action and
+is a contract change, so it is written down rather than assumed.
+
+Until then a migration needs a ledger resync, and a draw taken between the two
+will weight the retired identity rather than the survivor.
 
 ## 8. Settled
 

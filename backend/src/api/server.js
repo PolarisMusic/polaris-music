@@ -25,6 +25,7 @@ import { IngestionHandler } from './ingestion.js';
 import { PlayerService } from './playerService.js';
 import { ChainReaderService } from './chainReaderService.js';
 import { SponsoredNodeService } from './sponsoredNodeService.js';
+import { StakeService } from './stakeService.js';
 import { getDevSigner } from '../crypto/devSigner.js';
 
 import { schema } from './schema/sdl.js';
@@ -48,6 +49,7 @@ import { createSpotifyRoutes } from './routes/spotify.js';
 import { createCurateRoutes } from './routes/curate.js';
 import { createPlayerRoutes } from './routes/player.js';
 import { createGraphRoutes } from './routes/graph.js';
+import { createStakeRoutes } from './routes/stake.js';
 
 /**
  * API Server class that manages an Express app with GraphQL and REST endpoints.
@@ -86,6 +88,10 @@ class APIServer {
             graph: this.db
         });
         this.sponsoredNodes = new SponsoredNodeService({
+            graph: this.db,
+            chain: this.chainReader,
+        });
+        this.stakeService = new StakeService({
             graph: this.db,
             chain: this.chainReader,
         });
@@ -129,6 +135,7 @@ class APIServer {
             // the frontend keeps its own default, so it is safe to construct
             // unconditionally.
             sponsoredNodes: this.sponsoredNodes,
+            stakeService: this.stakeService,
         };
 
         // Identity management
@@ -174,6 +181,9 @@ class APIServer {
 
         // Graph data (initial + neighborhood)
         this.app.use('/api/graph', createGraphRoutes(ctx));
+
+        // Stake totals and account balances
+        this.app.use('/api/stake', createStakeRoutes(ctx));
 
         console.log(' REST endpoints configured');
     }
