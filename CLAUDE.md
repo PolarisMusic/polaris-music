@@ -46,7 +46,7 @@ polaris-music-registry/
 │   └── proto/            # Protobuf definitions
 │
 ├── tools/
-│   ├── import/           # Data import from Discogs, etc.
+│   ├── import/           # Data import (MusicBrainz, Discogs, CSV)
 │   └── migration/        # Database migration scripts
 │
 ├── docs/                 # Detailed implementation specs
@@ -228,7 +228,24 @@ production.
   `describeOrSkip` on `GRAPH_URI` skip silently without a database, and a
   `describe.skip` reports as passing too. Check the skipped count, not just
   the failure count — both the tracklist id mismatch and the ghost-node bug
-  shipped past suites that were never executing.
+  shipped past suites that were never executing. Without a database `npm test`
+  reports roughly 1,230 passed and 230 skipped across 14 skipped suites; a
+  skipped count well above that means something stopped running.
+
+**The smoke bundles are not a schema reference.** None of the 29 files in
+`backend/smoke-tests/releases/` passes `validateReleaseBundle` — they carry
+`track.groups` and a top-level `labels` array, and the canonical schema sets
+`additionalProperties: false` on every object, so both are rejected. They load
+only because `backend/scripts/loadSmokeTests.js` has its own
+`processReleaseBundle` that writes to Neo4j directly, bypassing the validator
+*and* `normalizeReleaseBundle`. When writing anything that produces a bundle,
+copy the shape in `backend/src/schema/releaseBundle.schema.json` and assert
+against `validateReleaseBundle` — `backend/test/import/musicbrainzImporter.test.js`
+does this. Do not copy the smoke fixtures.
+
+**There are two copies of that schema** — `backend/src/schema/` (which the
+validator reads) and `shared/schemas/` (the published contract). They are kept
+identical by `backend/test/schema/labelCatalogNumber.test.js`. Edit both.
 
 ### Code Style Conventions
 
@@ -439,7 +456,17 @@ npm run processor
 
 ### External Systems
 
-- **Discogs**: Import tool in `tools/import/discogsImporter.js`
+- **MusicBrainz**: `tools/import/musicbrainzImporter.js` — single release to
+  bundle. Preferred over Discogs: MusicBrainz models Work and Recording as
+  separate entities, which is the same Song/Track split Polaris draws, so
+  authorship arrives as data (with ISWC) rather than scraped from role strings.
+  Also supplies ISRCs, which `normalizeReleaseBundle` uses to key `prov:` track
+  ids. Core data is CC0. One request per second; the client must name a contact
+  or MusicBrainz returns 403.
+- **Discogs**: `tools/import/discogsImporter.js`. Works for fetching, but its
+  output predates the current bundle schema and it calls `require()` inside an
+  ES module, so passing `config.storage` or `config.neo4j` throws. Prefer the
+  MusicBrainz importer for new work.
 - **Fractally**: Oracle updates Respect values weekly
 - **IPFS Gateway**: Public gateway fallback if local node down
 - **WharfKit**: Frontend blockchain wallet integration
@@ -453,21 +480,35 @@ npm run processor
 
 ## Current Status & Roadmap
 
-**Current Phase**: Foundation (In Progress)
-- ✅ Graph database schema designed
-- ✅ Smart contract specification complete
-- 🔄 Event storage implementation
-- 🔄 Basic visualization
-- ⏳ Event processor implementation
-- ⏳ API server implementation
+This section drifts faster than anything else in this file. Verify against
+the tree before relying on it; the marker means what the code does, not what
+the specs describe.
 
-**Next Phase**: Enhancement
-- 📋 "Like" function with path tracking
-- 📋 Advanced search capabilities
+**Foundation** — built, running against testnet
+- ✅ Graph schema, normalization, and merge (`backend/src/graph/`)
+- ✅ Smart contract, incl. `like`, `stake`, `vote`, `finalize`, `setlottery`
+      (`contracts/polaris.music.cpp`)
+- ✅ Event storage (`backend/src/storage/eventStore.js`)
+- ✅ Event processor and chain source (`backend/src/indexer/`)
+- ✅ API server — REST routes under `backend/src/api/routes/`, plus GraphQL
+- ✅ Hyperbolic visualization (`frontend/src/visualization/`)
+- ✅ "Like" with path tracking (`LikeManager.js`, `PathTracker.js`)
+- ✅ Search (`backend/src/api/routes/search.js`)
+- ✅ Sponsored-node lottery (`docs/15-sponsored-node-lottery.md`)
+
+**Not built**
+- 📋 Timeline scrubber — spec only, and the spec says so
+      (`docs/14-timeline-scrubber.md`)
+- 📋 Rewards to the musicians in the graph — the governance and Respect
+      machinery in the contract exists to support this, but no distribution
+      path does
+- 📋 KYC / identity verification — `routes/identity.js` is the ID stability and
+      merge protocol (`docs/12-identity-protocol.md`), not identity *proofing*
 - 📋 Mobile application
 - 📋 IPNS for mutable references
 
-**See README.md** for complete roadmap
+**Data** — the registry is seeded by hand, one release at a time. The 29
+bundles in `backend/smoke-tests/releases/` are a test fixture, not a corpus.
 
 ## Getting Help
 
@@ -497,8 +538,8 @@ When implementing features, remember this is building a canonical music registry
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-12-05
+**Document Version**: 1.1
+**Last Updated**: 2026-09-17
 **Maintained By**: Project contributors
 
 For questions or clarifications, refer to README.md or contact the development team.

@@ -57,21 +57,57 @@ describe('per-label catalogue numbers pass validation', () => {
     });
 });
 
-describe('the two copies of the bundle schema agree about Label', () => {
-    // They have drifted before, in both directions. This does not demand the
-    // whole files match — they already differ elsewhere — only that the shape
-    // a submitter is validated against matches the shape the shared contract
-    // advertises for the object being changed here.
+describe('the two copies of the bundle schema agree', () => {
+    // They have drifted before, in both directions, and always silently: the
+    // validator reads only the backend copy, so a field added to the shared one
+    // alone changes nothing, and a field added to the backend one alone leaves
+    // the published contract understating what a submitter may send.
+    //
+    // This used to check Label alone, which let the rest drift. By the time it
+    // was widened the shared copy was six fields behind — `schema_version`,
+    // `release.listen_links`, and `Track.song_id` / `lyrics` / `trivia` — none
+    // of it caught by anything. Compare the whole shape instead: it costs one
+    // assertion and there is no case where the two copies should disagree.
     const backend = readSchema('../../src/schema/releaseBundle.schema.json');
     const shared = readSchema('../../../shared/schemas/releaseBundle.schema.json');
 
-    it('exposes the same Label properties in both copies', () => {
-        expect(Object.keys(backend.definitions.Label.properties).sort())
-            .toEqual(Object.keys(shared.definitions.Label.properties).sort());
+    /** Every property path in the schema, so a diff names the field that moved. */
+    const propertyPaths = (node, prefix = '') => {
+        const paths = [];
+        for (const [name, value] of Object.entries(node.properties || {})) {
+            paths.push(prefix + name);
+            if (value && typeof value === 'object') {
+                paths.push(...propertyPaths(value, `${prefix}${name}.`));
+                if (value.items && typeof value.items === 'object') {
+                    paths.push(...propertyPaths(value.items, `${prefix}${name}[].`));
+                }
+            }
+        }
+        return paths.sort();
+    };
+
+    it('declares the same top-level and release properties', () => {
+        expect(propertyPaths(shared)).toEqual(propertyPaths(backend));
     });
 
-    it('keeps Label closed to unknown fields in both copies', () => {
-        expect(backend.definitions.Label.additionalProperties).toBe(false);
-        expect(shared.definitions.Label.additionalProperties).toBe(false);
+    it('declares the same definitions', () => {
+        expect(Object.keys(shared.definitions || {}).sort())
+            .toEqual(Object.keys(backend.definitions || {}).sort());
+    });
+
+    it.each(Object.keys(backend.definitions || {}))('declares the same %s shape', (name) => {
+        expect(propertyPaths(shared.definitions[name]))
+            .toEqual(propertyPaths(backend.definitions[name]));
+        expect(shared.definitions[name].required || [])
+            .toEqual(backend.definitions[name].required || []);
+    });
+
+    it('keeps every definition closed to unknown fields in both copies', () => {
+        // A definition that quietly opens up stops rejecting typos, and the
+        // bundle reaches processReleaseBundle carrying fields nothing reads.
+        for (const [name, definition] of Object.entries(backend.definitions || {})) {
+            expect([name, definition.additionalProperties]).toEqual([name, false]);
+            expect([name, shared.definitions[name].additionalProperties]).toEqual([name, false]);
+        }
     });
 });

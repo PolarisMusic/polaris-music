@@ -1,12 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://polaris.music/schemas/release-bundle.json",
+  "version": "1.0.0",
   "title": "ReleaseBundle",
   "description": "Canonical schema for music release submissions. All field names use snake_case.",
   "type": "object",
   "required": ["release", "tracks", "tracklist"],
   "additionalProperties": false,
   "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for backward compatibility tracking",
+      "default": "1.0.0"
+    },
     "release": {
       "type": "object",
       "required": ["name"],
@@ -22,6 +28,7 @@
         "liner_notes": { "type": "string" },
         "trivia": { "type": "string" },
         "album_art": { "type": "string", "format": "uri" },
+        "listen_links": { "type": "array", "items": { "type": "string", "format": "uri" } },
         "master_id": { "type": "string" },
         "master_name": { "type": "string" },
         "labels": {
@@ -110,6 +117,9 @@
         "recording_date": { "type": "string" },
         "recording_location": { "type": "string" },
         "listen_links": { "type": "array", "items": { "type": "string", "format": "uri" } },
+        "song_id": { "type": "string" },
+        "lyrics": { "type": "string" },
+        "trivia": { "type": "string" },
         "cover_of_song_id": { "type": "string" },
         "samples": { "type": "array", "items": { "$ref": "#/definitions/SampleCredit" } },
         "performed_by_groups": {

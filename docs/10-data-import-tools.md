@@ -10,6 +10,159 @@
 ## Overview
 Tools for importing data from external sources like Discogs, MusicBrainz, and CSV files into the Polaris music registry.
 
+## Status
+
+Most of this document is specification. What is in the tree:
+
+| Tool | File | State |
+|---|---|---|
+| MusicBrainz importer | `tools/import/musicbrainzImporter.js` | Implemented, tested (`backend/test/import/`) |
+| Discogs importer | `tools/import/discogsImporter.js` | Fetches and transforms, but see the warning below |
+| CSV importer | `tools/import/csvImporter.js` | Stub — every method is a `TODO` |
+| Migration runner | `tools/migration/migrate.js` | Stub — every method is a `TODO` |
+| Import CLI | `tools/cli/import-cli.js` | Does not exist |
+
+**The Discogs importer predates the current bundle schema.** It emits
+`release.label_id` / `release.label_name` where the schema wants a
+`release.labels[]` array, and a `tracklist` of `{track_id, position}` where the
+schema wants `{position, track_title, duration}`. Those bundles are rejected by
+`validateReleaseBundle`. It also calls `require()` inside an ES module, so
+constructing it with `config.storage` or `config.neo4j` throws immediately —
+meaning it has only ever been run in transform-only mode. Fix both before using
+it, or use the MusicBrainz importer.
+
+Code samples below this line were written alongside the specification and have
+drifted from the implementation in places. Where they disagree, the file in
+`tools/` is what runs.
+
+## MusicBrainz Importer
+
+**Implemented.** `tools/import/musicbrainzImporter.js`
+
+### Why MusicBrainz is the preferred source
+
+Polaris separates Song (the composition) from Track (the recording), and treats
+`WROTE` and `PERFORMED_ON` as different claims about different people. That
+distinction is the point of the registry: authorship carries a perpetual
+copyright interest, performance carries none, and a session drummer is invisible
+to the rights system precisely because the two are not the same relationship.
+
+MusicBrainz is the only open source whose model draws the same line. Work and
+Recording are separate entities joined by a `performance` relationship, so:
+
+- the composition arrives as an entity, with an **ISWC** and `composer` /
+  `lyricist` relationships kept distinct rather than flattened to "writer";
+- the performance arrives as per-recording relationships that **name the
+  instrument** (`instrument` relations carry it in `attributes`, `vocal`
+  relations carry the vocal part);
+- recordings carry **ISRCs**, which `normalizeReleaseBundle` already uses to key
+  provisional track ids (`prov:track:isrc:{isrc}`), so repeated imports dedupe
+  against each other for free.
+
+Discogs has no composition entity at all. `discogsImporter.extractWriters()`
+therefore has to scan role strings for the substring `"Written"` — which finds
+nothing when the credit reads "Music By" or "Arranged By", and cannot produce an
+ISWC under any circumstances.
+
+MusicBrainz core data is licensed CC0.
+
+### Usage
+
+```bash
+node tools/import/musicbrainzImporter.js <release-mbid> \
+  --contact you@example.com [--members] [--no-external-ids] [--out bundle.json]
+```
+
+The release MBID is the UUID in any `musicbrainz.org/release/<mbid>` URL.
+
+| Flag | Effect |
+|---|---|
+| `--contact` | Goes into the User-Agent. **Required in practice** — MusicBrainz returns 403 to clients that do not identify a contact. Also read from `MUSICBRAINZ_CONTACT`. |
+| `--members` | Additionally resolves band membership with date ranges. Costs one request per credited artist, so it is off by default. |
+| `--no-external-ids` | Emit no ids at all, letting `normalizeReleaseBundle` mint `prov:` ids. |
+| `--out` | Write to a file instead of stdout. |
+
+The CLI writes a bundle and stops. It does not hash, store, anchor or submit —
+the bundle is meant to be read before it becomes an event.
+
+### One release, one event
+
+A bundle maps to a single `CREATE_RELEASE_BUNDLE`, which `put()` anchors as a
+single hash, which `vote()` targets as a single `tx_hash`. Curation granularity
+therefore follows the *event*, not the fetch: a bulk run that emits N bundles
+produces N independently votable anchors, and a bad import is downvoted by
+itself. Bundling many releases into one event is what would collapse that, and
+nothing here does it.
+
+### Requests
+
+One lookup per release. `recording-level-rels` pulls each recording's artist
+relationships inline and `work-level-rels` pulls the composer credits off the
+linked works, which collapses what would otherwise be N+1 lookups. At the
+documented rate limit of one request per second, that is the difference between
+a second and a minute per album. `--members` adds one request per credited
+artist.
+
+The client sleeps to hold 1 req/sec and raises a named error on HTTP 503 rather
+than retrying into the limit.
+
+### Mapping
+
+| MusicBrainz | Polaris |
+|---|---|
+| `release.title` | `release.name` |
+| `release.date`, `.country` | `release.release_date`, `.country` |
+| `media[].format` | `release.format` |
+| `release-group.id` | `release.master_id` |
+| `label-info[]` | `release.labels[]` with `catalog_number` |
+| release-level artist relations | `release.guests[]` |
+| `artist-credit[]` | `groups[]` |
+| `member of band` relations (`--members`) | `groups[].members[]` with `from_date` / `to_date` |
+| `recording.length` (ms) | `track.duration` (seconds) |
+| `recording.isrcs[0]` | `track.isrc` |
+| `instrument` / `vocal` / `performer` relations | `track.guests[]` with `roles` + `instruments` |
+| `producer` relations | `track.producers[]` |
+| `arranger` relations | `track.arrangers[]` |
+| `performance` relation → Work | `track.recording_of`, `songs[]` |
+| `work.iswcs[0]` | `song.iswc` |
+| `composer` / `lyricist` / `writer` relations | `song.writers[]` with `role` |
+
+Three decisions worth knowing:
+
+**Performers are emitted as track guests even when they are band members.**
+`normalizeReleaseBundle.dropGuestsWhoAreMembers()` already resolves the overlap
+and membership wins, so this is not a duplicate. Emitting only the membership
+would lose which instrument a member played on which specific recording, which
+is the data the import exists to capture.
+
+**A multi-instrumentalist is merged into one credit with several roles.**
+MusicBrainz records one relation per instrument, so the same person arrives two
+or three times on a track; collapsing them keeps one edge per person per track
+instead of three parallel ones.
+
+**A Song is synthesized when a recording has no linked Work**, from the track
+title, because a Track must be a `RECORDING_OF` exactly one Song. Such a song
+gets no `song_id` and no ISWC.
+
+### Identity
+
+MBIDs are stable UUIDs that survive retitling and merges — what
+`docs/12-identity-protocol.md` asks a canonical id to be — so they are emitted
+as `mb:{entity}:{uuid}`. Note this makes a fourth id convention in the
+repository, alongside `polaris:{type}:{uuid}` in the smoke fixtures,
+`prov:{type}:{hash}` minted by `normalizeReleaseBundle`, and
+`discogs:{type}/{id}` in the Discogs importer. Settle on one.
+`--no-external-ids` emits none, deferring entirely to `prov:` minting.
+
+### Output dialect
+
+The importer emits what `backend/src/schema/releaseBundle.schema.json` accepts,
+which is **not** the dialect used by `backend/smoke-tests/releases/*`. Those
+fixtures carry `track.groups` and a top-level `labels` array; the canonical
+schema sets `additionalProperties: false` on every object and rejects both. They
+load only because `backend/scripts/loadSmokeTests.js` writes to Neo4j directly
+without validating. Do not use them as a format reference.
+
 ## Discogs Importer
 
 ```javascript

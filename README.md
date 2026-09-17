@@ -88,7 +88,7 @@ The different pieces of the project include:
 
 ```bash
 # Clone the repository
-git clone https://github.com/polaris/music-registry.git
+git clone https://github.com/PolarisMusic/polaris-music.git
 cd music-registry
 
 # Install dependencies
@@ -1270,23 +1270,32 @@ MIT License - see LICENSE file for details
 
 - Documentation: https://docs.polaris.music
 - Discord: https://discord.gg/polaris
-- GitHub Issues: https://github.com/polaris/music-registry/issues
+- GitHub Issues: https://github.com/PolarisMusic/polaris-music/issues
 
 ## Roadmap
 
-### Phase 1: Foundation (Complete)
-- 🔄 Graph database schema with Groups
-- 🔄 Smart contract deployment
-- 🔄 Event storage system
-- 🔄 Basic visualization
+Markers describe the code, not the specifications. Several things below have
+detailed specs in `docs/` and no implementation; those are marked 📋.
 
-### Phase 2: Enhancement (In Progress)
-- 📋 "Like" function that tracks a user's path through the visualization from the home node or searched node to the "liked" node. This will be used to weight edges with more like-paths higher, mimicking how ants find food.
-- 📋 Advanced search capabilities
+### Phase 1: Foundation (Built, running against testnet)
+- ✅ Graph database schema with Groups
+- ✅ Smart contract deployed to testnet
+- ✅ Event storage system
+- ✅ Event processor and chain indexer
+- ✅ REST + GraphQL API
+- ✅ Hyperbolic-plane visualization
+
+### Phase 2: Enhancement (In progress)
+- ✅ "Like" function that tracks a user's path through the visualization from the home node or searched node to the "liked" node. This will be used to weight edges with more like-paths higher, mimicking how ants find food. Path capture is built (`frontend/src/visualization/PathTracker.js`); edge weighting from accumulated paths is not.
+- ✅ Search across entities
+- ✅ Sponsored-node lottery — the visualization opens on a periodically drawn node ([spec](docs/15-sponsored-node-lottery.md))
+- 📋 Timeline scrubber — [spec](docs/14-timeline-scrubber.md) written, nothing implemented
+- 📋 Bulk import (the importers handle one release at a time)
 - 📋 Mobile application
 - 📋 IPNS for mutable references
 
 ### Phase 3: Expansion (Planned)
+- 📋 Rewards distributed to the musicians in the graph — the Respect, voting and staking machinery exists to support this; the distribution path does not
 - 📋 Multi-chain support
 - 📋 AI-powered deduplication
 - 📋 Fractally integration for organizational coordination and Respect voting
