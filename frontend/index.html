@@ -63,6 +63,10 @@
                     <span id="history-count">0</span><span class="stat-label"> History</span>
                 </span>
             </div>
+            <label class="stat-item show-guests" id="show-guests-label" title="Include session musicians and other non-members">
+                <input type="checkbox" id="show-guests">
+                <span class="stat-label">Guests</span>
+            </label>
             <!-- Phone only. The bar cannot hold the balance and three labelled
                  panels at 390px — measured at 512px of content in 390px of bar,
                  with the balance alone taking 203 of it, which pushed Favorites,
@@ -87,6 +91,10 @@
         <button class="top-bar-menu-item" type="button" data-opens="history">
             <span class="icon">❄️</span> History <span id="menu-history-count">0</span>
         </button>
+        <label class="top-bar-menu-item" for="menu-show-guests">
+            <input type="checkbox" id="menu-show-guests">
+            Show guests
+        </label>
     </div>
 
     <!-- History Panel (hidden by default) -->
@@ -362,6 +370,32 @@
             if (navBack) navBack.addEventListener('click', () => graph.goBackInHistory());
             if (navForward) navForward.addEventListener('click', () => graph.goForwardInHistory());
             graph.updateHistoryNavButtons();
+
+            // Show guests. Two checkboxes — the bar and the menu — because which
+            // one is on screen is a breakpoint away and a half-ticked pair is
+            // worse than either.
+            const guestBoxes = ['show-guests', 'menu-show-guests']
+                .map((id) => document.getElementById(id))
+                .filter(Boolean);
+            let guestReloadInFlight = false;
+            for (const box of guestBoxes) {
+                box.addEventListener('change', async () => {
+                    // A second tick while the first refetch is in flight would
+                    // race two loadJSON calls into the same hypertree.
+                    if (guestReloadInFlight) return;
+                    guestReloadInFlight = true;
+
+                    const include = box.checked;
+                    for (const other of guestBoxes) other.checked = include;
+                    for (const other of guestBoxes) other.disabled = true;
+                    try {
+                        await graph.setShowGuests(include);
+                    } finally {
+                        for (const other of guestBoxes) other.disabled = false;
+                        guestReloadInFlight = false;
+                    }
+                });
+            }
 
             // Phone overflow menu
             const menu = document.getElementById('top-bar-menu');

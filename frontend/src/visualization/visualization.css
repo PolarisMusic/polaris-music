@@ -2750,3 +2750,37 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
         display: block;
     }
 }
+
+/* ---------------------------------------------------------------------------
+   Show-guests checkbox
+   --------------------------------------------------------------------------- */
+
+.show-guests {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.show-guests input {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Disabled while the refetch is in flight, so a second tick cannot race it. */
+.show-guests input:disabled {
+    cursor: progress;
+}
+
+.top-bar-menu-item input[type="checkbox"] {
+    margin: 0;
+}
+
+@media (max-width: 768px) {
+    /* Same reasoning as .stats: the bar has no width for a label, and an
+       unlabelled checkbox says nothing about what it would include. */
+    .show-guests {
+        display: none;
+    }
+}

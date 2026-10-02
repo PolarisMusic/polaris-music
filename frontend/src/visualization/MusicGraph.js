@@ -1053,6 +1053,24 @@ export class MusicGraph {
             return;
         }
 
+        // A guest credit runs Person → Group exactly like a membership does, so
+        // the type-pair rules below cannot tell them apart and would paint a
+        // guest as a member — the one distinction this registry most cares
+        // about. The declared type wins where there is one.
+        if (edgeType === 'GUEST_ON') {
+            const personNode = (adj.nodeFrom.data.type || '').toLowerCase() === 'person'
+                ? adj.nodeFrom
+                : adj.nodeTo;
+            adj.setData('color', this.colorPalette.getEdgeColor('GUEST_ON', personNode.id));
+            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('GUEST_ON'));
+            if (this.edgeNavigator?.isHighlighted(adj)) {
+                const style = this.edgeNavigator.highlightStyle(adj.getData('lineWidth'));
+                adj.setData('color', style.color);
+                adj.setData('lineWidth', style.lineWidth);
+            }
+            return;
+        }
+
         const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
         const toType = (adj.nodeTo.data.type || '').toLowerCase();
 
@@ -1405,6 +1423,27 @@ export class MusicGraph {
     }
 
     // ========== History panel ==========
+
+    /**
+     * Refetch the graph with guest credits included or excluded.
+     *
+     * A refetch rather than a client-side filter: the guest half of the payload
+     * roughly doubles the person count on a well-credited release, and holding
+     * it in memory for every visitor so that a minority can tick a box is the
+     * wrong trade. The checkbox is rare; the page load is not.
+     *
+     * @param {boolean} include
+     * @returns {Promise<void>}
+     */
+    async setShowGuests(include) {
+        this.api.includeGuests = !!include;
+        // The selection and any highlight belong to the graph about to be
+        // replaced; a stale node reference would survive loadJSON and quietly
+        // anchor the edge picker to something no longer drawn.
+        this.edgeNavigator?.clear();
+        this.selectedNode = null;
+        await this.loader.loadGraphData();
+    }
 
     /**
      * Step one entry back through browse history.
