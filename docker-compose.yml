@@ -107,15 +107,35 @@ services:
       timeout: 10s
       retries: 3
 
-  # MinIO (S3-compatible storage)
-  # Pulled from quay.io, not Docker Hub: MinIO removed minio/minio and
-  # minio/mc from Docker Hub (both now 404 from its registry API, while the
-  # rest of the minio namespace such as minio/operator is still there), which
-  # broke every CI run with "pull access denied ... repository does not
-  # exist". quay.io is MinIO's own registry and carries the same RELEASE.*
-  # tags, so this is a registry change only — same image, same interface.
+  # MinIO (S3-compatible storage), from Chainguard.
+  #
+  # Third registry in a year, and none of the moves were ours. MinIO removed
+  # minio/minio and minio/mc from Docker Hub in September 2026 (404 from its
+  # registry API, while the rest of the namespace such as minio/operator stayed),
+  # so this moved to quay.io — MinIO's own registry, same RELEASE.* tags. Later
+  # the same month quay.io began refusing anonymous pulls on every tag, which
+  # arrives as "unauthorized: access to the requested resource is not authorized"
+  # rather than as a 404 and so reads like a credentials problem. dl.min.io
+  # answers 410 for the release archive. There is no anonymously pullable build
+  # left under the minio namespace anywhere.
+  #
+  # cgr.dev/chainguard/minio is Chainguard's build of the same server, free and
+  # account-free, and it ships mc as well, so it replaces both images.
+  #
+  # Two things it costs us:
+  #
+  #   - The free tier serves only :latest and :latest-dev, so the version cannot
+  #     be pinned. CI now tracks whatever Chainguard publishes. That is worse
+  #     than a RELEASE.* tag and better than red on every run; pinning again
+  #     means mirroring a copy into a registry we control.
+  #
+  #   - It runs as uid 65532, where minio/minio ran as 1000. A *fresh* named
+  #     volume takes its ownership from the image and is fine, which covers CI.
+  #     An existing minio-data volume is still owned by 1000 and the server
+  #     cannot write it, so an already-deployed host needs a one-time
+  #     chown — see docs/08-deployment-configuration.md.
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z
+    image: cgr.dev/chainguard/minio:latest
     container_name: polaris-minio
     ports:
       - "127.0.0.1:9000:9000"     # API
@@ -147,9 +167,15 @@ services:
       retries: 30
       start_period: 10s
 
-  # MinIO Client - Create bucket on startup
+  # MinIO Client - Create bucket on startup.
+  #
+  # The -dev variant, because this entrypoint needs a shell: Chainguard's
+  # default images carry no busybox, and `/bin/sh -c` on one of those fails with
+  # an exec error that reads like a broken entrypoint rather than a missing
+  # shell. mc is invoked by name rather than by absolute path, since where the
+  # binary lives is this image's business and not ours.
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2024-01-18T07-03-39Z
+    image: cgr.dev/chainguard/minio:latest-dev
     container_name: polaris-minio-init
     depends_on:
       minio-health:
@@ -160,9 +186,9 @@ services:
     entrypoint: >
       /bin/sh -c "
       set -e;
-      /usr/bin/mc alias set polaris http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
-      /usr/bin/mc mb -p polaris/polaris-events || true;
-      /usr/bin/mc anonymous set download polaris/polaris-events;
+      mc alias set polaris http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
+      mc mb -p polaris/polaris-events || true;
+      mc anonymous set download polaris/polaris-events;
       echo 'MinIO init complete';
       "
     networks:
