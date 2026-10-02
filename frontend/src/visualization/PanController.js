@@ -164,6 +164,30 @@ export class PanController {
     }
 
     /**
+     * Whether a pan is in progress right now.
+     *
+     * Peeks rather than consumes, unlike consumeSuppressClick below: more than
+     * one listener needs to know a drag is happening, and the first to ask must
+     * not take the answer away from the rest.
+     *
+     * @returns {boolean}
+     */
+    isPanning() {
+        return this.pan.isPanning === true;
+    }
+
+    /**
+     * Whether the click after this gesture is going to be swallowed, without
+     * swallowing it. For listeners that must stand aside while still leaving
+     * the flag for consumeSuppressClick to take.
+     *
+     * @returns {boolean}
+     */
+    willSuppressClick() {
+        return this.pan.suppressNextClick === true;
+    }
+
+    /**
      * Read-and-reset the suppress-click flag. MusicGraph's JIT onClick
      * handler calls this to swallow the click that follows a pan gesture.
      * @returns {boolean} true if the next click should be swallowed

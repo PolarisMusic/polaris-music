@@ -2570,3 +2570,57 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     pointer-events: none;
     overflow: hidden;
 }
+
+/* ---------------------------------------------------------------------------
+   Edge navigation label
+   --------------------------------------------------------------------------- */
+
+/*
+ * Names the node at the far end of the edge under the pointer. Fixed to the
+ * viewport and positioned from clientX/clientY, so it is unaffected by the
+ * graph's own pan and zoom transforms — the arc moves under it, the label does
+ * not jump.
+ */
+.edge-label {
+    position: fixed;
+    z-index: 1200;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-width: 240px;
+    padding: 5px 9px;
+    border-radius: 5px;
+    background: rgba(12, 14, 20, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    font-family: sans-serif;
+    line-height: 1.25;
+}
+
+.edge-label[hidden] {
+    display: none;
+}
+
+.edge-label-name {
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    /* A long group name should not stretch the label across the disk. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.edge-label-relation {
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 10px;
+    text-transform: lowercase;
+}
+
+/* The pick radius is generous on touch; the cursor should say so on a mouse. */
+@media (hover: hover) and (pointer: fine) {
+    #infovis canvas.edge-hover {
+        cursor: pointer;
+    }
+}

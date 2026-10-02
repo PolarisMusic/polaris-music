@@ -23,6 +23,7 @@ import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
 import { PanController } from './PanController.js';
+import { EdgeNavigator } from './EdgeNavigator.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -181,6 +182,31 @@ export class MusicGraph {
 
         // Initialize the visualization
         this.initializeHypertree();
+
+        // Edges become a navigation control: hover one that touches the current
+        // node to see where it goes, click to travel. Attached after the
+        // hypertree because it listens on JIT's own canvas element.
+        this.edgeNavigator = new EdgeNavigator({
+            getHypertree: () => this.ht,
+            // The current node, falling back to whatever is centred — on first
+            // load nothing is selected yet but the root is still a place to
+            // navigate from.
+            getAnchorNode: () =>
+                this.selectedNode || this.ht?.graph?.getNode?.(this.ht.root) || null,
+            callbacks: {
+                navigate: (nodeId) => {
+                    const node = this.ht?.graph?.getNode?.(nodeId);
+                    if (node) this.handleNodeClick(node);
+                },
+                plot: () => this.ht?.plot(),
+                // Both, and neither consumed: a drag in progress, or the
+                // click that ends one, which JIT's own handler still has to
+                // find waiting for it.
+                shouldSuppress: () =>
+                    this.panController.isPanning() || this.panController.willSuppressClick(),
+            },
+        });
+        this.edgeNavigator.attach();
 
         // GraphDataLoader needs `this.ht` (set by initializeHypertree above)
         // so it must be constructed AFTER it.
@@ -1054,6 +1080,15 @@ export class MusicGraph {
             adj.setData('color', this.colorPalette.getEdgeColor('IN_RELEASE'));
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('IN_RELEASE'));
         }
+
+        // Last, and on top of whatever the palette chose: this runs from
+        // onBeforePlotLine on every edge of every frame, so anything written
+        // before it is what the highlight has to beat.
+        if (this.edgeNavigator?.isHighlighted(adj)) {
+            const style = this.edgeNavigator.highlightStyle(adj.getData('lineWidth'));
+            adj.setData('color', style.color);
+            adj.setData('lineWidth', style.lineWidth);
+        }
     }
 
     /**
@@ -1073,6 +1108,10 @@ export class MusicGraph {
         // Set new selection
         node.setData('isSelected', true);
         this.selectedNode = node;
+
+        // The live edges are the ones touching the selection, so the previous
+        // highlight is about to belong to a node nobody is standing on.
+        this.edgeNavigator?.clear();
 
         // Record in browse history
         this.pathTracker.visitNode(node.id, {
