@@ -176,18 +176,25 @@ export class StakeManager {
     }
 
     /**
-     * Write that summary into an element, or clear it.
+     * Write that summary into an element.
+     *
+     * `whenEmpty` is what to show when there is nothing to say — nobody signed
+     * in, or a read that failed. The top bar wants nothing, so an absent
+     * balance leaves no gap in the chrome. A labelled row in a menu wants
+     * words: under a heading reading "Balance", blank reads as broken rather
+     * than as logged out.
      *
      * @param {HTMLElement|null} element
+     * @param {{whenEmpty?: string}} [options]
      * @returns {Promise<void>}
      */
-    async refreshBalanceInto(element) {
+    async refreshBalanceInto(element, { whenEmpty = '' } = {}) {
         if (!element) return;
         try {
-            element.textContent = await this.balanceSummary();
+            element.textContent = (await this.balanceSummary()) || whenEmpty;
         } catch (error) {
             console.warn('Balance unavailable:', error.message);
-            element.textContent = '';
+            element.textContent = whenEmpty;
         }
     }
 

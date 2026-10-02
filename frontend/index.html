@@ -40,6 +40,15 @@
                 <span id="user-balance" class="user-balance" title="Liquid · staked · claimable"></span>
                 <button id="connect-wallet" class="btn-wallet">Log In</button>
             </div>
+            <!-- Back and forward sit beside History because that is what they
+                 step through. Always in the bar, phone included: they are the
+                 controls pressed most often and the ones worth the width. -->
+            <div class="nav-history">
+                <button id="nav-back" class="btn-nav-history" type="button"
+                        title="Back" aria-label="Back" disabled>‹</button>
+                <button id="nav-forward" class="btn-nav-history" type="button"
+                        title="Forward" aria-label="Forward" disabled>›</button>
+            </div>
             <div class="stats">
                 <span class="stat-item stat-clickable" id="favorites-toggle">
                     <span class="icon">⭐</span>
@@ -54,7 +63,30 @@
                     <span id="history-count">0</span><span class="stat-label"> History</span>
                 </span>
             </div>
+            <!-- Phone only. The bar cannot hold the balance and three labelled
+                 panels at 390px — measured at 512px of content in 390px of bar,
+                 with the balance alone taking 203 of it, which pushed Favorites,
+                 Curate and History off-screen entirely. -->
+            <button id="top-bar-menu-toggle" class="btn-top-bar-menu" type="button"
+                    aria-label="More" aria-expanded="false">⋯</button>
         </div>
+    </div>
+
+    <!-- Overflow menu (phone only, hidden by default) -->
+    <div id="top-bar-menu" class="top-bar-menu" hidden>
+        <div class="top-bar-menu-balance">
+            <span class="top-bar-menu-heading">Balance</span>
+            <span id="menu-balance" class="user-balance">Not logged in</span>
+        </div>
+        <button class="top-bar-menu-item" type="button" data-opens="favorites">
+            <span class="icon">⭐</span> Favorites <span id="menu-favorites-count">0</span>
+        </button>
+        <button class="top-bar-menu-item" type="button" data-opens="curate">
+            <span class="icon">🗳</span> Curate
+        </button>
+        <button class="top-bar-menu-item" type="button" data-opens="history">
+            <span class="icon">❄️</span> History <span id="menu-history-count">0</span>
+        </button>
     </div>
 
     <!-- History Panel (hidden by default) -->
@@ -185,17 +217,28 @@
          * Update UI based on wallet connection status
          */
         function updateWalletUI(accountInfo) {
-            const balanceEl = document.getElementById('user-balance');
+            // Two readouts: the bar on a desktop, the overflow menu on a phone.
+            // Both, always — which one is visible is CSS's business, and a
+            // stale figure behind a menu is worse than no figure.
+            const balanceEls = [
+                document.getElementById('user-balance'),
+                document.getElementById('menu-balance'),
+            ].filter(Boolean);
+
             if (accountInfo) {
                 userAccountEl.textContent = accountInfo.accountName;
                 userAccountEl.style.color = '#4CAF50';
                 connectWalletBtn.textContent = 'Log Out';
-                refreshBalance(balanceEl);
+                balanceEls.forEach(refreshBalance);
             } else {
                 userAccountEl.textContent = 'Not logged in';
                 userAccountEl.style.color = '';
                 connectWalletBtn.textContent = 'Log In';
-                if (balanceEl) balanceEl.textContent = '';
+                for (const el of balanceEls) {
+                    // The menu names the row, so an empty value there reads as
+                    // a broken balance rather than as "nobody is logged in".
+                    el.textContent = el.id === 'menu-balance' ? 'Not logged in' : '';
+                }
             }
         }
 
@@ -205,7 +248,11 @@
          * reachable from a test; this is only the call site.
          */
         function refreshBalance(balanceEl) {
-            window.musicGraph?.stakeManager?.refreshBalanceInto(balanceEl);
+            if (!balanceEl) return;
+            // The menu row is labelled, so it says so in words; the bar says
+            // nothing at all rather than carry a dash where a balance will be.
+            const whenEmpty = balanceEl.id === 'menu-balance' ? 'Not logged in' : '';
+            window.musicGraph?.stakeManager?.refreshBalanceInto(balanceEl, { whenEmpty });
         }
 
         /**
@@ -306,6 +353,49 @@
             if (helpBtn) {
                 helpBtn.addEventListener('click', () => {
                     window.open('https://www.reddit.com/r/polarismusic/', '_blank');
+                });
+            }
+
+            // Back / forward through browse history
+            const navBack = document.getElementById('nav-back');
+            const navForward = document.getElementById('nav-forward');
+            if (navBack) navBack.addEventListener('click', () => graph.goBackInHistory());
+            if (navForward) navForward.addEventListener('click', () => graph.goForwardInHistory());
+            graph.updateHistoryNavButtons();
+
+            // Phone overflow menu
+            const menu = document.getElementById('top-bar-menu');
+            const menuToggle = document.getElementById('top-bar-menu-toggle');
+            const setMenuOpen = (open) => {
+                if (!menu || !menuToggle) return;
+                menu.hidden = !open;
+                menuToggle.setAttribute('aria-expanded', String(open));
+                // The figure behind a closed menu is whatever it was when the
+                // wallet last changed; opening is the moment to re-read it.
+                if (open) refreshBalance(document.getElementById('menu-balance'));
+            };
+            if (menuToggle) {
+                menuToggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setMenuOpen(menu.hidden);
+                });
+            }
+            if (menu) {
+                menu.addEventListener('click', (e) => {
+                    const item = e.target.closest('.top-bar-menu-item');
+                    if (!item) return;
+                    // Close first: these open full-screen panels on a phone and
+                    // the menu would sit on top of what it just opened.
+                    setMenuOpen(false);
+                    const opens = item.dataset.opens;
+                    if (opens === 'favorites') graph.favorites.toggleFavoritesPanel();
+                    else if (opens === 'curate') graph.toggleCuratePanel();
+                    else if (opens === 'history') graph.toggleHistoryPanel();
+                });
+                // Anywhere else dismisses it, the way a menu is expected to.
+                document.addEventListener('click', (e) => {
+                    if (menu.hidden) return;
+                    if (!menu.contains(e.target) && e.target !== menuToggle) setMenuOpen(false);
                 });
             }
 

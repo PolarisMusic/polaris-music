@@ -1094,7 +1094,7 @@ export class MusicGraph {
     /**
      * Handle node click - center on node and select it
      */
-    handleNodeClick(node) {
+    handleNodeClick(node, { record = true } = {}) {
         // Ignore clicks on synthetic root node
         if ((node.data.type || '').toLowerCase() === 'root') return;
 
@@ -1113,12 +1113,17 @@ export class MusicGraph {
         // highlight is about to belong to a node nobody is standing on.
         this.edgeNavigator?.clear();
 
-        // Record in browse history
-        this.pathTracker.visitNode(node.id, {
-            name: node.name,
-            type: node.data && node.data.type
-        });
+        // Record in browse history — unless this *is* a history step, which
+        // would otherwise prepend the entry it just travelled to and leave
+        // forward permanently empty.
+        if (record) {
+            this.pathTracker.visitNode(node.id, {
+                name: node.name,
+                type: node.data && node.data.type
+            });
+        }
         this.updateHistoryCount();
+        this.updateHistoryNavButtons();
         if (this.historyPanelOpen) {
             this.renderHistoryPanel();
         }
@@ -1402,9 +1407,63 @@ export class MusicGraph {
     // ========== History panel ==========
 
     /**
+     * Step one entry back through browse history.
+     * @returns {boolean} whether it moved
+     */
+    goBackInHistory() {
+        return this._stepHistory(() => this.pathTracker.goBack());
+    }
+
+    /**
+     * Step one entry forward through browse history.
+     * @returns {boolean} whether it moved
+     */
+    goForwardInHistory() {
+        return this._stepHistory(() => this.pathTracker.goForward());
+    }
+
+    /**
+     * @private
+     * @param {() => object|null} step
+     * @returns {boolean}
+     */
+    _stepHistory(step) {
+        const entry = step();
+        if (!entry) return false;
+
+        const node = this.ht?.graph?.getNode?.(entry.nodeId);
+        if (!node) {
+            // History outlives the loaded graph: an entry from a previous
+            // session, or a node trimmed from the current view, has nowhere to
+            // navigate to. The cursor has already moved, so the button state is
+            // refreshed and the step counts as taken rather than silently
+            // leaving the cursor somewhere the buttons disagree with.
+            this.updateHistoryNavButtons();
+            return false;
+        }
+
+        this.handleNodeClick(node, { record: false });
+        return true;
+    }
+
+    /**
+     * Enable or disable the back/forward buttons to match the cursor.
+     */
+    updateHistoryNavButtons() {
+        const back = document.getElementById('nav-back');
+        const forward = document.getElementById('nav-forward');
+        if (back) back.disabled = !this.pathTracker.canGoBack();
+        if (forward) forward.disabled = !this.pathTracker.canGoForward();
+    }
+
+    /**
      * Update the history count badge in the top bar
      */
     updateHistoryCount() {
+        const menuEl = document.getElementById('menu-history-count');
+        if (menuEl) {
+            menuEl.textContent = String(this.pathTracker.getBrowseHistory().length);
+        }
         const el = document.getElementById('history-count');
         if (el) {
             el.textContent = String(this.pathTracker.getBrowseHistory().length);

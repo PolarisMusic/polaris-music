@@ -49,8 +49,14 @@ export class FavoritesManager {
     }
 
     updateFavoritesCount() {
-        const el = document.getElementById('favorites-count');
-        if (el) el.textContent = String(this.chainFavorites.size);
+        const count = String(this.chainFavorites.size);
+        // Two places on a phone: the bar and the overflow menu that replaces it
+        // below 768px. Written unconditionally rather than per-breakpoint, so
+        // rotating a phone does not reveal a stale number.
+        for (const id of ['favorites-count', 'menu-favorites-count']) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = count;
+        }
     }
 
     async refreshFavoritesFromChain() {

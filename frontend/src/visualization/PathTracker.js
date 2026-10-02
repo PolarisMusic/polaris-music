@@ -22,6 +22,18 @@ export class PathTracker {
         // Browse history: array of {nodeId, name, type, timestamp}
         this.browseHistory = [];
 
+        /**
+         * Where back and forward currently stand in browseHistory.
+         *
+         * The list is newest-first, so 0 is "now", larger is further back. It
+         * is a cursor over the log rather than a browser stack: stepping back
+         * and then visiting somewhere new does *not* discard what was ahead.
+         * A browser would, but this log is also the History panel's contents,
+         * and silently deleting a person's browsing record to model a stack is
+         * the worse of the two surprises.
+         */
+        this.historyCursor = 0;
+
         // Load liked paths and browse history from localStorage
         this.loadFromStorage();
     }
@@ -81,14 +93,20 @@ export class PathTracker {
             timestamp: Date.now()
         };
 
-        // Don't add consecutive duplicate
+        // Don't add consecutive duplicate — but the visit still happened,
+        // so the cursor moves even though the log does not grow. Without this,
+        // stepping back and then re-selecting the node you came from leaves the
+        // cursor in the past: forward stays enabled and goes nowhere.
         if (this.browseHistory.length > 0 &&
             this.browseHistory[0].nodeId === nodeId) {
+            this.historyCursor = 0;
             return;
         }
 
         // Prepend (most recent first)
         this.browseHistory.unshift(record);
+        // A fresh visit is the new "now", wherever back had wandered to.
+        this.historyCursor = 0;
 
         // Cap at 200 entries
         if (this.browseHistory.length > 200) {
@@ -111,8 +129,57 @@ export class PathTracker {
      */
     clearBrowseHistory() {
         this.browseHistory = [];
+        this.historyCursor = 0;
         this.saveToStorage();
         console.log('Browse history cleared');
+    }
+
+    /**
+     * Whether there is an older entry to step back to.
+     * @returns {boolean}
+     */
+    canGoBack() {
+        return this.historyCursor + 1 < this.browseHistory.length;
+    }
+
+    /**
+     * Whether there is a newer entry to step forward to.
+     * @returns {boolean}
+     */
+    canGoForward() {
+        return this.historyCursor > 0;
+    }
+
+    /**
+     * Step one entry older.
+     *
+     * The cursor only moves when there is somewhere to move to, so holding the
+     * button at the end of the list does not walk off it and strand forward.
+     *
+     * @returns {{nodeId: string, name: string, type: string}|null}
+     */
+    goBack() {
+        if (!this.canGoBack()) return null;
+        this.historyCursor += 1;
+        return this.browseHistory[this.historyCursor];
+    }
+
+    /**
+     * Step one entry newer.
+     * @returns {{nodeId: string, name: string, type: string}|null}
+     */
+    goForward() {
+        if (!this.canGoForward()) return null;
+        this.historyCursor -= 1;
+        return this.browseHistory[this.historyCursor];
+    }
+
+    /**
+     * The entry the cursor is on, which is not always the newest.
+     * @returns {{nodeId: string, name: string, type: string}|null}
+     */
+    currentHistoryEntry() {
+        return this.browseHistory[this.historyCursor] || null;
     }
 
     /**
