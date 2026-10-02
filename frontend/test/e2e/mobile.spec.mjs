@@ -440,22 +440,30 @@ test.describe('phone layout', () => {
         await gotoApp(page, { requireApp: false });
 
         // These used to be display:none below 1024px, which removed the
-        // features on mobile rather than adapting them.
-        await expect(page.locator('#favorites-toggle')).toBeVisible();
-        await expect(page.locator('#curate-toggle')).toBeVisible();
-        await expect(page.locator('#history-toggle')).toBeVisible();
+        // features on mobile rather than adapting them. Then they were icons in
+        // the bar. They are now rows in the overflow menu, which is the third
+        // answer and the first one that fits: at 390px the bar wanted 512px of
+        // content once a balance was in it, and the icons were laid out at
+        // x=409..491 — in the DOM, off the screen, and reported as visible by
+        // every assertion that did not ask where they were.
+        await expect(page.locator('#top-bar-menu-toggle')).toBeVisible();
+        await expect(page.locator('#top-bar-menu')).toBeHidden();
 
-        // Icon-only. Assert on rendered text rather than on the label elements:
-        // innerText excludes hidden nodes, so this catches a label that is
-        // visible for ANY reason — including one that was never wrapped in a
-        // span and so cannot be hidden by CSS at all, which is the bug this
-        // replaces. Looping over .stat-label elements could not see a missing
-        // one and passed against the broken markup.
-        const statsText = await page.locator('.stats').innerText();
-        expect(statsText).not.toMatch(/Favorites|Curate|History/);
+        await page.locator('#top-bar-menu-toggle').click();
+        const menu = page.locator('#top-bar-menu');
+        await expect(menu).toBeVisible();
+
+        // In the menu they get their names back, which the icon-only bar had
+        // taken away.
+        const menuText = await menu.innerText();
+        expect(menuText).toMatch(/Favorites/);
+        expect(menuText).toMatch(/Curate/);
+        expect(menuText).toMatch(/History/);
 
         // #top-bar has overflow:hidden, so its boundingBox is clamped to the
-        // viewport and cannot reveal overflow. scrollWidth can.
+        // viewport and cannot reveal overflow. scrollWidth can — but only with
+        // a balance present, which is why this check never caught the
+        // regression above and why topBar.spec.mjs fills one in.
         const { scrollWidth, clientWidth } = await page.evaluate(() => {
             const bar = document.getElementById('top-bar');
             return { scrollWidth: bar.scrollWidth, clientWidth: bar.clientWidth };

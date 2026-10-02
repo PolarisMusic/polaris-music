@@ -121,8 +121,9 @@ services:
       retries: 3
   
   # MinIO (S3-compatible storage)
+  # See "Upgrading an existing MinIO volume" below before changing this.
   minio:
-    image: quay.io/minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     container_name: polaris-minio
     command: server /data --console-address ":9001"
     environment:
@@ -795,3 +796,90 @@ setInterval(async () => {
     }
 }, 60000);
 ```
+---
+
+## Upgrading an existing MinIO volume
+
+The MinIO images moved twice in September 2026, neither time by our choice:
+`minio/minio` and `minio/mc` were removed from Docker Hub, and the quay.io
+mirror they moved to then began refusing anonymous pulls on every tag. That
+arrives as:
+
+```
+unauthorized: access to the requested resource is not authorized
+```
+
+which reads like a credentials problem and is not one — there is no
+anonymously pullable build left under the `minio` namespace on any registry.
+`dl.min.io` answers 410 for the release archive.
+
+`docker-compose.yml` now uses **`cgr.dev/chainguard/minio`**, which is free and
+needs no account, and which ships `mc` as well, so it replaces both images.
+
+### The one-time chown
+
+`minio/minio` ran as uid 1000. Chainguard's build runs as **65532**. A fresh
+named volume takes its ownership from the image, so a new host and every CI run
+are fine. An **existing** `minio-data` volume is still owned by 1000, and the
+server cannot write it — the container starts and then fails on its first write,
+which looks like data loss and is not.
+
+Before the first deploy on a host that has already run MinIO:
+
+```bash
+cd ~/polaris-music
+
+# Stop only MinIO. Never 'docker compose down -v' — that destroys the Neo4j
+# volume along with everything else.
+docker compose stop minio minio-init
+
+# Hand the volume to the new uid. busybox is used rather than the MinIO image
+# itself because the MinIO image is exactly what cannot be relied on to run as
+# root any more.
+docker run --rm \
+  -v polaris-music_minio-data:/data \
+  busybox:1.36 chown -R 65532:65532 /data
+
+docker compose up -d minio minio-init
+docker compose logs --tail=20 minio-init    # expect 'MinIO init complete'
+```
+
+Confirm the volume name first with `docker volume ls | grep minio`; Compose
+prefixes it with the project directory name, which is `polaris-music` on the
+VPS but follows whatever the checkout is called.
+
+### Verify
+
+```bash
+curl -fsS http://127.0.0.1:9000/minio/health/ready && echo ' ready'
+docker compose exec -T api node -e "
+  import('./src/storage/eventStore.js').then(async (m) => {
+    console.log('event store reachable');
+  }).catch((e) => { console.error(e.message); process.exit(1); });
+"
+```
+
+### The cost of this image
+
+The Chainguard free tier publishes only `:latest` and `:latest-dev`, so the
+version cannot be pinned and CI tracks whatever Chainguard ships. That is worse
+than a `RELEASE.*` tag. Pinning again means mirroring a copy into a registry we
+control — the VPS still has the old `quay.io/minio/minio` image in its local
+cache, which is currently the only reachable source for it:
+
+```bash
+# On the VPS, while the cached image still exists.
+docker tag quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z \
+  ghcr.io/polarismusic/minio:RELEASE.2024-01-18T22-51-28Z
+docker push ghcr.io/polarismusic/minio:RELEASE.2024-01-18T22-51-28Z
+```
+
+Worth doing before that cache is pruned, whether or not the image reference is
+switched back.
+
+### k8s is not updated
+
+`k8s/base/minio-statefulset.yaml` still references the gated quay.io images and
+sets its security context to uid 1000. Changing the image there means changing
+`runAsUser`/`fsGroup` to 65532 in the same edit, and nothing in CI exercises
+those manifests, so it was left alone rather than half-changed.

@@ -54,12 +54,86 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
     });
 
     /**
+     * Guest credits, as edges from the guest to the group they appeared with.
+     *
+     * Conceptually a guest belongs to a *track* — that is the claim the registry
+     * records, and GUEST_ON points at a Track or a Release, never at a Group.
+     * This draws it at the group instead, because the initial graph holds no
+     * tracks: putting them in to hang guest edges off would turn a group with
+     * forty tracks into forty-one nodes. The edge carries trackCount and scope
+     * so the depiction can say how much of the group's work a guest touched
+     * without pretending the relationship is membership.
+     *
+     * Both routes to a guest credit are followed: a credit on one of the
+     * group's tracks, and a credit on a release carrying them — an engineer is
+     * usually credited once for the record, not once per song.
+     *
+     * @param {import('neo4j-driver').Session} session
+     * @returns {Promise<{persons: Array<object>, edges: Array<object>}>}
+     */
+    async function readGuestEdges(session) {
+        const result = await session.run(`
+            MATCH (g:Group)-[:PERFORMED_ON]->(t:Track)
+            OPTIONAL MATCH (t)<-[tg:GUEST_ON]-(tp:Person)
+            OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)<-[rg:GUEST_ON]-(rp:Person)
+
+            WITH g,
+                 collect(DISTINCT CASE WHEN tp IS NOT NULL
+                     THEN {person: tp, roles: tg.roles, track: t, scope: 'track'} END) AS trackGuests,
+                 collect(DISTINCT CASE WHEN rp IS NOT NULL
+                     THEN {person: rp, roles: rg.roles, track: t, scope: 'release'} END) AS releaseGuests
+            WITH g, [x IN trackGuests + releaseGuests WHERE x IS NOT NULL] AS credits
+            UNWIND credits AS credit
+            WITH g, credit.person AS p, credit.scope AS scope, credit.roles AS roles, credit.track AS t
+
+            // A member of this group is not its guest. The registry's rule is
+            // per-track; at group level the honest reading is that membership
+            // wins, or the same person arrives twice on two different edges.
+            WHERE NOT (p)-[:MEMBER_OF]->(g)
+
+            WITH g, p, count(DISTINCT t) AS trackCount,
+                 collect(DISTINCT scope) AS scopes,
+                 collect(DISTINCT roles) AS roleValues
+            RETURN collect(DISTINCT {
+                id: p.person_id,
+                name: p.name,
+                type: 'person',
+                color: p.color
+            }) AS persons,
+            collect({
+                source: p.person_id,
+                target: g.group_id,
+                type: 'GUEST_ON',
+                trackCount: trackCount,
+                scope: CASE WHEN 'track' IN scopes THEN 'track' ELSE 'release' END,
+                roles: [x IN roleValues WHERE x IS NOT NULL]
+            }) AS edges
+        `);
+
+        if (result.records.length === 0) return { persons: [], edges: [] };
+
+        const toNumber = (value) =>
+            value && typeof value === 'object' && value.toNumber ? value.toNumber() : Number(value) || 0;
+
+        return {
+            persons: result.records[0].get('persons').filter((p) => p && p.id),
+            edges: result.records[0].get('edges')
+                .filter((e) => e && e.source && e.target)
+                .map((e) => ({ ...e, trackCount: toNumber(e.trackCount) })),
+        };
+    }
+
+    /**
      * GET /api/graph/initial
      * Get initial graph data for visualization using all groups with tracks
      * and their member relationships. Includes per-group participation data
      * so the frontend does not need separate per-group fetches.
      */
     router.get('/initial', async (req, res) => {
+        // Opt-in, because guests roughly double the person count on a
+        // well-credited release and the graph is dense enough already.
+        const wantsGuests = String(req.query.guests || '') === 'true';
+
         try {
             const session = db.driver.session();
             try {
@@ -144,10 +218,31 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                     });
                 }
 
+                // Guests, when asked for. A second query rather than more
+                // OPTIONAL MATCHes on the first: the member query already
+                // collects four lists off one row per (group, member), and
+                // joining guests into it multiplies every one of them. The cost
+                // is a round trip; the alternative is a payload that silently
+                // over-counts participation.
+                const guestNodes = [];
+                const guestEdges = [];
+                if (wantsGuests) {
+                    const seenPersons = new Set(persons.map((p) => p.id));
+                    const guests = await readGuestEdges(session);
+                    for (const guest of guests.persons) {
+                        // A guest who is also a member of some other group is
+                        // already a node; only the edge is new.
+                        if (seenPersons.has(guest.id)) continue;
+                        seenPersons.add(guest.id);
+                        guestNodes.push(guest);
+                    }
+                    guestEdges.push(...guests.edges);
+                }
+
                 res.json({
                     success: true,
-                    nodes: [...groups, ...persons],
-                    edges: edges,
+                    nodes: [...groups, ...persons, ...guestNodes],
+                    edges: [...edges, ...guestEdges],
                     participation: participation
                 });
             } finally {

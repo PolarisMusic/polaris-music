@@ -23,6 +23,7 @@ import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
 import { PanController } from './PanController.js';
+import { EdgeNavigator } from './EdgeNavigator.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -181,6 +182,31 @@ export class MusicGraph {
 
         // Initialize the visualization
         this.initializeHypertree();
+
+        // Edges become a navigation control: hover one that touches the current
+        // node to see where it goes, click to travel. Attached after the
+        // hypertree because it listens on JIT's own canvas element.
+        this.edgeNavigator = new EdgeNavigator({
+            getHypertree: () => this.ht,
+            // The current node, falling back to whatever is centred — on first
+            // load nothing is selected yet but the root is still a place to
+            // navigate from.
+            getAnchorNode: () =>
+                this.selectedNode || this.ht?.graph?.getNode?.(this.ht.root) || null,
+            callbacks: {
+                navigate: (nodeId) => {
+                    const node = this.ht?.graph?.getNode?.(nodeId);
+                    if (node) this.handleNodeClick(node);
+                },
+                plot: () => this.ht?.plot(),
+                // Both, and neither consumed: a drag in progress, or the
+                // click that ends one, which JIT's own handler still has to
+                // find waiting for it.
+                shouldSuppress: () =>
+                    this.panController.isPanning() || this.panController.willSuppressClick(),
+            },
+        });
+        this.edgeNavigator.attach();
 
         // GraphDataLoader needs `this.ht` (set by initializeHypertree above)
         // so it must be constructed AFTER it.
@@ -1027,6 +1053,24 @@ export class MusicGraph {
             return;
         }
 
+        // A guest credit runs Person → Group exactly like a membership does, so
+        // the type-pair rules below cannot tell them apart and would paint a
+        // guest as a member — the one distinction this registry most cares
+        // about. The declared type wins where there is one.
+        if (edgeType === 'GUEST_ON') {
+            const personNode = (adj.nodeFrom.data.type || '').toLowerCase() === 'person'
+                ? adj.nodeFrom
+                : adj.nodeTo;
+            adj.setData('color', this.colorPalette.getEdgeColor('GUEST_ON', personNode.id));
+            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('GUEST_ON'));
+            if (this.edgeNavigator?.isHighlighted(adj)) {
+                const style = this.edgeNavigator.highlightStyle(adj.getData('lineWidth'));
+                adj.setData('color', style.color);
+                adj.setData('lineWidth', style.lineWidth);
+            }
+            return;
+        }
+
         const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
         const toType = (adj.nodeTo.data.type || '').toLowerCase();
 
@@ -1054,12 +1098,21 @@ export class MusicGraph {
             adj.setData('color', this.colorPalette.getEdgeColor('IN_RELEASE'));
             adj.setData('lineWidth', this.colorPalette.getEdgeWidth('IN_RELEASE'));
         }
+
+        // Last, and on top of whatever the palette chose: this runs from
+        // onBeforePlotLine on every edge of every frame, so anything written
+        // before it is what the highlight has to beat.
+        if (this.edgeNavigator?.isHighlighted(adj)) {
+            const style = this.edgeNavigator.highlightStyle(adj.getData('lineWidth'));
+            adj.setData('color', style.color);
+            adj.setData('lineWidth', style.lineWidth);
+        }
     }
 
     /**
      * Handle node click - center on node and select it
      */
-    handleNodeClick(node) {
+    handleNodeClick(node, { record = true } = {}) {
         // Ignore clicks on synthetic root node
         if ((node.data.type || '').toLowerCase() === 'root') return;
 
@@ -1074,12 +1127,21 @@ export class MusicGraph {
         node.setData('isSelected', true);
         this.selectedNode = node;
 
-        // Record in browse history
-        this.pathTracker.visitNode(node.id, {
-            name: node.name,
-            type: node.data && node.data.type
-        });
+        // The live edges are the ones touching the selection, so the previous
+        // highlight is about to belong to a node nobody is standing on.
+        this.edgeNavigator?.clear();
+
+        // Record in browse history — unless this *is* a history step, which
+        // would otherwise prepend the entry it just travelled to and leave
+        // forward permanently empty.
+        if (record) {
+            this.pathTracker.visitNode(node.id, {
+                name: node.name,
+                type: node.data && node.data.type
+            });
+        }
         this.updateHistoryCount();
+        this.updateHistoryNavButtons();
         if (this.historyPanelOpen) {
             this.renderHistoryPanel();
         }
@@ -1363,9 +1425,84 @@ export class MusicGraph {
     // ========== History panel ==========
 
     /**
+     * Refetch the graph with guest credits included or excluded.
+     *
+     * A refetch rather than a client-side filter: the guest half of the payload
+     * roughly doubles the person count on a well-credited release, and holding
+     * it in memory for every visitor so that a minority can tick a box is the
+     * wrong trade. The checkbox is rare; the page load is not.
+     *
+     * @param {boolean} include
+     * @returns {Promise<void>}
+     */
+    async setShowGuests(include) {
+        this.api.includeGuests = !!include;
+        // The selection and any highlight belong to the graph about to be
+        // replaced; a stale node reference would survive loadJSON and quietly
+        // anchor the edge picker to something no longer drawn.
+        this.edgeNavigator?.clear();
+        this.selectedNode = null;
+        await this.loader.loadGraphData();
+    }
+
+    /**
+     * Step one entry back through browse history.
+     * @returns {boolean} whether it moved
+     */
+    goBackInHistory() {
+        return this._stepHistory(() => this.pathTracker.goBack());
+    }
+
+    /**
+     * Step one entry forward through browse history.
+     * @returns {boolean} whether it moved
+     */
+    goForwardInHistory() {
+        return this._stepHistory(() => this.pathTracker.goForward());
+    }
+
+    /**
+     * @private
+     * @param {() => object|null} step
+     * @returns {boolean}
+     */
+    _stepHistory(step) {
+        const entry = step();
+        if (!entry) return false;
+
+        const node = this.ht?.graph?.getNode?.(entry.nodeId);
+        if (!node) {
+            // History outlives the loaded graph: an entry from a previous
+            // session, or a node trimmed from the current view, has nowhere to
+            // navigate to. The cursor has already moved, so the button state is
+            // refreshed and the step counts as taken rather than silently
+            // leaving the cursor somewhere the buttons disagree with.
+            this.updateHistoryNavButtons();
+            return false;
+        }
+
+        this.handleNodeClick(node, { record: false });
+        return true;
+    }
+
+    /**
+     * Enable or disable the back/forward buttons to match the cursor.
+     */
+    updateHistoryNavButtons() {
+        const back = document.getElementById('nav-back');
+        const forward = document.getElementById('nav-forward');
+        if (back) back.disabled = !this.pathTracker.canGoBack();
+        if (forward) forward.disabled = !this.pathTracker.canGoForward();
+    }
+
+    /**
      * Update the history count badge in the top bar
      */
     updateHistoryCount() {
+        const menuEl = document.getElementById('menu-history-count');
+        if (menuEl) {
+            menuEl.textContent = String(this.pathTracker.getBrowseHistory().length);
+        }
         const el = document.getElementById('history-count');
         if (el) {
             el.textContent = String(this.pathTracker.getBrowseHistory().length);

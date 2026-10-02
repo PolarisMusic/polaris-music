@@ -14,6 +14,9 @@ export class GraphAPI {
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
         // Only use mock fallback when explicitly enabled
         this.useMockFallback = import.meta.env.VITE_USE_GRAPH_MOCK === 'true';
+        // Guest credits are opt-in: they roughly double the person count on a
+        // well-credited release, so the default payload is members only.
+        this.includeGuests = false;
     }
 
     /**
@@ -22,7 +25,7 @@ export class GraphAPI {
      */
     async fetchInitialGraph() {
         try {
-            const response = await fetch(`${this.baseUrl}/graph/initial`);
+            const response = await fetch(`${this.baseUrl}/graph/initial${this.includeGuests ? '?guests=true' : ''}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -101,7 +104,7 @@ export class GraphAPI {
      */
     async fetchInitialGraphRaw() {
         try {
-            const response = await fetch(`${this.baseUrl}/graph/initial`);
+            const response = await fetch(`${this.baseUrl}/graph/initial${this.includeGuests ? '?guests=true' : ''}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
