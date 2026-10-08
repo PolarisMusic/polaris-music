@@ -169,6 +169,18 @@ export class MusicGraph {
         // Hover tooltip timer (500ms delay before showing label on edge nodes)
         this._hoverTooltipTimer = null;
 
+        /**
+         * Which selection the info panel belongs to.
+         *
+         * Bumped whenever the panel's subject changes — a node tap, or a release
+         * tile taking the panel over — and compared after every await that is
+         * going to write to it. Browsing quickly means several detail requests
+         * are in flight at once, and they do not come back in the order they
+         * were sent: without this, the slowest response wins and the panel shows
+         * a node nobody is standing on.
+         */
+        this._panelEpoch = 0;
+
         // Long-press pan state (replaces JIT's built-in panning to prevent
         // micro-drags from swallowing node clicks). The getCanvas callback
         // resolves lazily — `this.ht` isn't set until initializeHypertree().
@@ -1126,6 +1138,8 @@ export class MusicGraph {
         // Set new selection
         node.setData('isSelected', true);
         this.selectedNode = node;
+        // Everything the previous selection had in flight is now stale.
+        this._panelEpoch += 1;
 
         // The live edges are the ones touching the selection, so the previous
         // highlight is about to belong to a node nobody is standing on.
@@ -1155,10 +1169,21 @@ export class MusicGraph {
         // Hide release overlay immediately so tiles don't float during animation
         this.releaseOverlay.hide();
 
+        // The panel's name, skeleton and network request all start now, not in
+        // onComplete. Three things used to move at three speeds — the selection
+        // instantly, the recentring over 700ms, and the details not beginning
+        // until the recentring had finished — so the earliest a name could
+        // appear was 700ms after the tap and the earliest the content could was
+        // 700ms plus a round trip. The animation is unchanged; it simply no
+        // longer gates the request.
+        this.updateInfoPanel(node);
+
         // Center on node
         this.ht.onClick(node.id, {
             onComplete: () => {
-                this.updateInfoPanel(node);
+                // This one does have to wait: the orbit is positioned from the
+                // node's final screen coordinates, which do not exist until the
+                // animation has put it there.
                 this.overlayPositioner.syncReleaseOverlay(node);
             }
         });
@@ -1234,6 +1259,7 @@ export class MusicGraph {
 
         const type = node.data.type || 'Unknown';
         const nodeId = node.id;
+        const epoch = this._panelEpoch;
 
         infoTitle.textContent = node.name || 'Loading...';
         infoContent.innerHTML = '<p>Loading details...</p>';
@@ -1252,6 +1278,10 @@ export class MusicGraph {
 
         try {
             const response = await this.api.fetchNodeDetails(nodeId, type);
+
+            // The selection moved on while this was in flight. Everything below
+            // writes to the panel, so there is nothing here worth doing.
+            if (epoch !== this._panelEpoch) return;
 
             if (!response) {
                 infoContent.innerHTML = '<p>No details available</p>';
@@ -1275,6 +1305,9 @@ export class MusicGraph {
             }
         } catch (error) {
             console.error('Error fetching node details:', error);
+            // Only the current selection may report its own failure; a stale
+            // one would replace a perfectly good panel with an error.
+            if (epoch !== this._panelEpoch) return;
             infoContent.innerHTML = '<p>Error loading details</p>';
         }
     }
@@ -1326,6 +1359,10 @@ export class MusicGraph {
             return;
         }
 
+        // A release takes the panel over, so a node's details still in flight
+        // must not land on top of it. Same reason as a node tap, different
+        // subject.
+        this._panelEpoch += 1;
         this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
         // Populating the panel is not the same as showing it. On desktop the
         // panel is always present so this was invisible; on a phone the sheet

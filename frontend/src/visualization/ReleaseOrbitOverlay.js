@@ -30,6 +30,20 @@ export class ReleaseOrbitOverlay {
         this.activeReleaseDetails = null;
         this.visible = false;
 
+        /**
+         * Which show() call owns the overlay.
+         *
+         * Bumped by every show() and every hide(), captured by show() before it
+         * awaits, and compared afterwards. Without it a slow response for one
+         * group lands after a faster response for the next and assigns its
+         * releases to this.releases — which is not a cosmetic flicker, because
+         * selectRelease() and every tile's click handler read that array. The
+         * overlay would be holding one group's discography while the graph shows
+         * another, and a tap would navigate to a release the selected group does
+         * not have.
+         */
+        this._showEpoch = 0;
+
         // Layout constants
         this.TILE_SIZE = 34;
         this.TILE_SIZE_ACTIVE = 84;
@@ -56,6 +70,7 @@ export class ReleaseOrbitOverlay {
      * @param {number} nodeRadius - Visual radius of the group node on screen
      */
     async show(groupId, screenPos, nodeRadius) {
+        const epoch = ++this._showEpoch;
         this.anchorNodeId = groupId;
         this.anchorScreenPos = screenPos;
         this.activeReleaseId = null;
@@ -66,7 +81,20 @@ export class ReleaseOrbitOverlay {
         // Show loading spinner while fetching
         this._showLoading(screenPos);
 
-        const resp = await this.api.fetchGroupReleases(groupId);
+        let resp;
+        try {
+            resp = await this.api.fetchGroupReleases(groupId);
+        } catch (error) {
+            // Only the current request may report its own failure; a stale one
+            // would blank an overlay that is busy showing something else.
+            if (epoch !== this._showEpoch) return;
+            throw error;
+        }
+
+        // Someone selected another node, or hid the overlay, while this was in
+        // flight. Drop the response rather than let it become the state.
+        if (epoch !== this._showEpoch) return;
+
         this.releases = (resp && resp.releases) || [];
 
         this._render(nodeRadius);
@@ -95,6 +123,9 @@ export class ReleaseOrbitOverlay {
 
     /** Hide and clear the overlay. */
     hide() {
+        // Any show() still in flight is now stale: it was asked for a node that
+        // is no longer displayed.
+        this._showEpoch += 1;
         this.visible = false;
         this.anchorNodeId = null;
         this.releases = [];
