@@ -2567,10 +2567,6 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     overflow: hidden;
 }
 
-.grabbing {
-    cursor: grabbing !important;
-}
-
 /* ---------------------------------------------------------------------------
    Edge navigation label
    --------------------------------------------------------------------------- */

@@ -22,7 +22,6 @@ import { OverlayPositioner } from './OverlayPositioner.js';
 import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
-import { PanController } from './PanController.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
@@ -181,17 +180,6 @@ export class MusicGraph {
          */
         this._panelEpoch = 0;
 
-        // Long-press pan state (replaces JIT's built-in panning to prevent
-        // micro-drags from swallowing node clicks). The getCanvas callback
-        // resolves lazily — `this.ht` isn't set until initializeHypertree().
-        this.panController = new PanController({
-            getCanvas: () => this.ht?.canvas,
-            callbacks: {
-                plot: () => this.ht?.plot(),
-                updateOverlayPosition: () => this.overlayPositioner.updateOverlayPosition(),
-            },
-        });
-
         // Initialize the visualization
         this.initializeHypertree();
 
@@ -211,11 +199,6 @@ export class MusicGraph {
                     if (node) this.handleNodeClick(node);
                 },
                 plot: () => this.ht?.plot(),
-                // Both, and neither consumed: a drag in progress, or the
-                // click that ends one, which JIT's own handler still has to
-                // find waiting for it.
-                shouldSuppress: () =>
-                    this.panController.isPanning() || this.panController.willSuppressClick(),
             },
         });
         this.edgeNavigator.attach();
@@ -504,9 +487,6 @@ export class MusicGraph {
                 type: 'Native',
 
                 onClick: (node, eventInfo, e) => {
-                    if (this.panController.consumeSuppressClick()) {
-                        return;
-                    }
                     if (node) {
                         this.handleNodeClick(node);
                     }
@@ -600,7 +580,6 @@ export class MusicGraph {
             }
         });
 
-        this.panController.attach();
         this._isolateInfoPanelScroll();
         this._setupResizeObserver();
         window.addEventListener('resize', () => this._handleCanvasResize());

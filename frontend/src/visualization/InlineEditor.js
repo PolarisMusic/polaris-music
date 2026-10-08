@@ -6,7 +6,7 @@
  *
  * Extracted from MusicGraph as the fifth (final) pass of the J-series
  * splits (after InfoPanelRenderer, OverlayPositioner, FavoritesManager,
- * GraphDataLoader, DonutLoader, PanController). Behavior is unchanged
+ * GraphDataLoader, DonutLoader). Behavior is unchanged
  * — the characterization tests in
  * `backend/test/visualization/inlineEditor.snapshot.test.js` lock the
  * HTML output of editableRowHtml plus every interaction state.

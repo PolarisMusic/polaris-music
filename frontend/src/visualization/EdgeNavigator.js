@@ -66,7 +66,6 @@ export class EdgeNavigator {
      * @param {object} deps.callbacks
      * @param {(nodeId: string) => void} deps.callbacks.navigate
      * @param {() => void} deps.callbacks.plot
-     * @param {() => boolean} [deps.callbacks.shouldSuppress] - true while panning
      * @param {Window} [deps.win]
      */
     constructor({ getHypertree, getAnchorNode, callbacks, win = window }) {
@@ -326,8 +325,6 @@ export class EdgeNavigator {
 
     /** @param {MouseEvent} event */
     handlePointerMove(event) {
-        if (this.callbacks.shouldSuppress?.()) return;
-
         const hit = this.pickAt(event.clientX, event.clientY);
         if (!hit) {
             this.clear();
@@ -350,8 +347,6 @@ export class EdgeNavigator {
      * @returns {boolean} true when the click was consumed by an edge
      */
     handleClick(event) {
-        if (this.callbacks.shouldSuppress?.()) return false;
-
         const hit = this.pickAt(event.clientX, event.clientY);
         if (!hit) {
             this.clear();
