@@ -814,7 +814,11 @@ body.mini-player-visible.mini-player-embed {
     border-radius: 3px;
     padding: 0;
     cursor: pointer;
-    overflow: hidden;
+    /* Not hidden. It was, and it clipped two things to the tile's own 34px box:
+       the press target grown by ::after below, and the caption that hangs
+       underneath the open tile. The image is sized to the tile and so cannot
+       overflow on its own; it carries the rounded corner itself. */
+    overflow: visible;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -838,6 +842,8 @@ body.mini-player-visible.mini-player-embed {
     height: 100%;
     object-fit: cover;
     display: block;
+    /* Was inherited from the tile's overflow:hidden; now its own. */
+    border-radius: 2px;
 }
 
 .release-tile__placeholder {
@@ -2813,4 +2819,90 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     .show-guests {
         display: none;
     }
+}
+
+/* ---------------------------------------------------------------------------
+   Release orbit — press targets and naming
+   --------------------------------------------------------------------------- */
+
+/*
+ * The mark stays the size the orbit needs it to be; the area that answers a
+ * press grows outwards from it. --hit-expand is a negative inset written per
+ * element by the overlay, so the visual geometry and the layout maths above it
+ * are untouched — only the pseudo-element is bigger.
+ *
+ * Without this, release tiles are 34px and guest chips 22px. A fingertip covers
+ * roughly 8mm of glass and arrives with no cursor to aim by.
+ */
+.release-tile::after,
+.release-guest-chip::after {
+    content: '';
+    position: absolute;
+    /* Sized absolutely and centred, not inset. An inset resolves against the
+       containing block's *padding* box, which is 4px narrower than these
+       elements because of their 2px border — so -5px insets produced a 40px
+       target on a 34px tile, not the 44px asked for. A width says what it
+       means. */
+    top: 50%;
+    left: 50%;
+    width: var(--hit-size, 100%);
+    height: var(--hit-size, 100%);
+    transform: translate(-50%, -50%);
+    /* Nothing to see: this exists only to be pressed. */
+    border-radius: inherit;
+}
+
+/* The format, where the data has one. The only other text on a sleeveless tile
+   is two letters of its title, which reads as a format code and names nothing —
+   "LP" and "TD" in the recording were initials of album titles. */
+.release-tile__type {
+    position: absolute;
+    bottom: 1px;
+    right: 2px;
+    z-index: 1;
+    padding: 0 2px;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.72);
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+    pointer-events: none;
+}
+
+.release-tile--active .release-tile__type {
+    bottom: 3px;
+    right: 4px;
+    font-size: 9px;
+}
+
+/*
+ * What the open release is called. A hover tooltip cannot answer this on a
+ * phone — there is no hover — so before this the only way to learn a name was
+ * to open the release and read the info panel.
+ *
+ * Centred under the tile and allowed to overflow it, which is why it is
+ * translated rather than laid out: the tile is a fixed square and the name is
+ * not.
+ */
+.release-tile__caption {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    max-width: 160px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(12, 14, 20, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
 }

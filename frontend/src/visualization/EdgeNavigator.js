@@ -26,6 +26,7 @@
  */
 
 import { arcSense, arcThroughTwoPoints, pickEdge } from './edgePicking.js';
+import { canHover } from './pointerCapability.js';
 
 /**
  * How near the pointer has to be, in pixels.
@@ -52,11 +53,6 @@ export const NODE_PRIORITY_MARGIN_PX = 6;
 export const HIGHLIGHT_COLOR = '#ffffff';
 export const HIGHLIGHT_WIDTH_MULTIPLIER = 3;
 export const HIGHLIGHT_MIN_WIDTH = 2.5;
-
-/** Does this device have a pointer that can hover? */
-export function canHover(win = window) {
-    return !!win.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches;
-}
 
 export class EdgeNavigator {
     /**
@@ -578,3 +574,5 @@ export function describeRelation(adj) {
     if (role && label) return `${label} · ${role}`;
     return role || label;
 }
+
+export { canHover };

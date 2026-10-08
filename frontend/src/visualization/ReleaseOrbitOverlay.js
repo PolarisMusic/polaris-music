@@ -10,6 +10,8 @@
  * interactive children.
  */
 
+import { canHover } from './pointerCapability.js';
+
 export class ReleaseOrbitOverlay {
     /**
      * @param {Object} options
@@ -52,6 +54,20 @@ export class ReleaseOrbitOverlay {
         this.GUEST_ORBIT_PADDING = 20;
         this.MAX_SINGLE_RING = 12;
         this.MAX_GUEST_SINGLE_RING = 8;
+
+        /**
+         * Smallest thing worth asking a finger to hit, and the gap between two
+         * of them.
+         *
+         * The tiles stay 34px and the chips 22px — the orbit reads as an orbit
+         * because the marks are small. What grows is the area that answers a
+         * press, and the ring it sits on, because twelve 44px targets do not
+         * fit on a circle sized for twelve 34px ones: at the old radius their
+         * hit areas would overlap by about 7px on each side and a tap near a
+         * boundary would open the wrong record.
+         */
+        this.MIN_HIT_SIZE_TOUCH = 44;
+        this.HIT_GAP = 6;
 
         // Create DOM
         this.root = document.getElementById('release-orbit-overlay');
@@ -163,6 +179,50 @@ export class ReleaseOrbitOverlay {
         this.root.appendChild(this.cluster);
     }
 
+    /**
+     * The smallest hit box for a mark of this visual size.
+     *
+     * On a mouse the mark is the target: a cursor is precise and a 34px square
+     * is a generous click. A fingertip covers about 8mm of glass and arrives
+     * with nothing to aim by.
+     *
+     * @param {number} visualSize
+     * @returns {number}
+     */
+    _hitSize(visualSize) {
+        if (canHover()) return visualSize;
+        return Math.max(visualSize, this.MIN_HIT_SIZE_TOUCH);
+    }
+
+    /**
+     * A ring radius big enough that n marks do not crowd each other.
+     *
+     * Taken from the spacing each mark needs rather than from a fixed padding,
+     * so the ring grows to fit its contents instead of packing them tighter as
+     * a discography gets longer. The old formula was padding-only, which is why
+     * a twelve-release group already overlapped slightly on a mouse before any
+     * of this.
+     *
+     * Solved on the chord, not the circumference. What must not overlap is the
+     * straight-line distance between two centres, and the chord between
+     * adjacent points is shorter than the arc between them: sizing the
+     * circumference to n·spacing leaves the centres 1.1% short at twelve marks
+     * and 17% short at three, so a short discography would be the one that
+     * overlapped.
+     *
+     * @param {number} count
+     * @param {number} preferredRadius - what padding alone would give
+     * @param {number} visualSize
+     * @returns {number}
+     */
+    _ringRadius(count, preferredRadius, visualSize) {
+        if (count < 2) return preferredRadius;
+        const spacing = this._hitSize(visualSize) + this.HIT_GAP;
+        // chord = 2r·sin(π/n) ≥ spacing
+        const needed = spacing / (2 * Math.sin(Math.PI / count));
+        return Math.max(preferredRadius, needed);
+    }
+
     _render(nodeRadius) {
         this.root.innerHTML = '';
         this._lastNodeRadius = nodeRadius;
@@ -190,9 +250,11 @@ export class ReleaseOrbitOverlay {
             ? this.releases.slice(this.MAX_SINGLE_RING)
             : [];
 
-        this._renderRing(ring1, baseOrbitRadius);
+        const ring1Radius = this._ringRadius(ring1.length, baseOrbitRadius, this.TILE_SIZE);
+        this._renderRing(ring1, ring1Radius);
         if (ring2.length > 0) {
-            this._renderRing(ring2, baseOrbitRadius + this.TILE_SIZE + 10);
+            const ring2Preferred = ring1Radius + this._hitSize(this.TILE_SIZE) + 10;
+            this._renderRing(ring2, this._ringRadius(ring2.length, ring2Preferred, this.TILE_SIZE));
         }
 
         // Shared hover tooltip element
@@ -226,6 +288,10 @@ export class ReleaseOrbitOverlay {
             tile.style.left = (x - size / 2) + 'px';
             tile.style.top = (y - size / 2) + 'px';
 
+            // The visual stays `size`; the press target is a pseudo-element of
+            // its own size, centred on it, so nothing in the layout above moves.
+            tile.style.setProperty('--hit-size', `${this._hitSize(size)}px`);
+
             if (isActive) {
                 tile.classList.add('release-tile--active');
             }
@@ -243,6 +309,26 @@ export class ReleaseOrbitOverlay {
                 placeholder.className = 'release-tile__placeholder';
                 placeholder.textContent = this._initials(rel.name || '?');
                 tile.appendChild(placeholder);
+            }
+
+            // What kind of record this is, where the data says so. Without it
+            // the only text on a sleeveless tile is two letters of its title,
+            // which reads as a format code — "LP", "TD" — and names nothing.
+            if (rel.type) {
+                const typeEl = document.createElement('span');
+                typeEl.className = 'release-tile__type';
+                typeEl.textContent = String(rel.type).toUpperCase();
+                tile.appendChild(typeEl);
+            }
+
+            // The active tile says what it is in words. A hover tooltip cannot
+            // do this on a phone: there is no hover, so before this the only
+            // way to learn a release's name was to open it and read the panel.
+            if (isActive) {
+                const caption = document.createElement('span');
+                caption.className = 'release-tile__caption';
+                caption.textContent = this._captionFor(rel);
+                tile.appendChild(caption);
             }
 
             // Hover tooltip
@@ -267,9 +353,24 @@ export class ReleaseOrbitOverlay {
         });
     }
 
+    /**
+     * Name and year, for the caption and the tooltip alike.
+     *
+     * @param {object} release
+     * @returns {string}
+     */
+    _captionFor(release) {
+        const name = release.name || 'Untitled';
+        const year = release.release_date ? String(release.release_date).substring(0, 4) : '';
+        return year ? `${name} (${year})` : name;
+    }
+
     async _handleTileClick(release, orbitRadius) {
         const wasActive = this.activeReleaseId === release.release_id;
-        const nodeRadius = orbitRadius - this.ORBIT_PADDING - this.TILE_SIZE / 2;
+        // The radius this tile sits on is no longer derived from the node's
+        // radius by padding alone — a crowded ring grows past it — so inverting
+        // the formula no longer recovers the node. _render stored it; use that.
+        const nodeRadius = this._lastNodeRadius;
 
         if (wasActive) {
             this.activeReleaseId = null;
@@ -311,9 +412,12 @@ export class ReleaseOrbitOverlay {
         const ring1 = useDoubleRing ? guests.slice(0, this.MAX_GUEST_SINGLE_RING) : guests;
         const ring2 = useDoubleRing ? guests.slice(this.MAX_GUEST_SINGLE_RING) : [];
 
-        this._renderGuestRing(centerX, centerY, ring1, baseGuestRadius);
+        const ring1Radius = this._ringRadius(ring1.length, baseGuestRadius, this.GUEST_CHIP_SIZE);
+        this._renderGuestRing(centerX, centerY, ring1, ring1Radius);
         if (ring2.length > 0) {
-            this._renderGuestRing(centerX, centerY, ring2, baseGuestRadius + this.GUEST_CHIP_SIZE + 6);
+            const ring2Preferred = ring1Radius + this._hitSize(this.GUEST_CHIP_SIZE) + 6;
+            this._renderGuestRing(centerX, centerY, ring2,
+                this._ringRadius(ring2.length, ring2Preferred, this.GUEST_CHIP_SIZE));
         }
     }
 
@@ -332,6 +436,10 @@ export class ReleaseOrbitOverlay {
             chip.style.height = this.GUEST_CHIP_SIZE + 'px';
             chip.style.left = (gx - this.GUEST_CHIP_SIZE / 2) + 'px';
             chip.style.top = (gy - this.GUEST_CHIP_SIZE / 2) + 'px';
+
+            // 22px is half a fingertip. Same treatment as the tiles: the mark
+            // stays small, the press target does not.
+            chip.style.setProperty('--hit-size', `${this._hitSize(this.GUEST_CHIP_SIZE)}px`);
 
             if (guest.color) {
                 chip.style.borderColor = guest.color;
