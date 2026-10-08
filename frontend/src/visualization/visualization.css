@@ -1202,10 +1202,6 @@ body.mini-player-visible.mini-player-embed {
     flex: 1;
 }
 
-.grabbing {
-    cursor: grabbing !important;
-}
-
 .stat-clickable {
     cursor: pointer;
     transition: color 0.2s;
@@ -2571,6 +2567,10 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     overflow: hidden;
 }
 
+.grabbing {
+    cursor: grabbing !important;
+}
+
 /* ---------------------------------------------------------------------------
    Edge navigation label
    --------------------------------------------------------------------------- */
@@ -2617,6 +2617,40 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     font-size: 10px;
     text-transform: lowercase;
 }
+
+/*
+ * Armed, and therefore the button. Only reached without a hovering pointer:
+ * on a mouse the label follows the cursor, and a target under the cursor would
+ * take the hover away from the canvas and unhighlight the edge it describes.
+ *
+ * 44px minimum height because this is the second half of a two-step gesture on
+ * a phone, and the first half already asked the person to hit a 1px curve.
+ */
+.edge-label-tappable {
+    pointer-events: auto;
+    cursor: pointer;
+    min-height: 44px;
+    padding: 8px 30px 8px 12px;   /* right side leaves room for the arrow */
+    justify-content: center;
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(18, 22, 32, 0.98);
+}
+
+.edge-label-tappable:active {
+    background: rgba(40, 48, 66, 0.98);
+}
+
+/* The arrow is the affordance: it says this names a destination, not a fact. */
+.edge-label-go {
+    position: absolute;
+    top: 50%;
+    right: 9px;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 15px;
+    line-height: 1;
+}
+
 
 /* The pick radius is generous on touch; the cursor should say so on a mouse. */
 @media (hover: hover) and (pointer: fine) {
