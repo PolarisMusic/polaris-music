@@ -161,7 +161,12 @@
                 <span class="info-peek-action">Info <span aria-hidden="true">▲</span></span>
             </button>
             <!-- Drag affordance for the mobile bottom sheet; hidden on desktop. -->
-            <div id="info-sheet-handle" class="info-sheet-handle" aria-hidden="true"></div>
+            <!-- Draggable between the collapsed row and the full sheet. Not
+                 aria-hidden any more: it was a decorative grabber above a sheet
+                 whose only control was the ✕, and a thing shaped like a grabber
+                 either grabs or should not be there. -->
+            <div id="info-sheet-handle" class="info-sheet-handle" role="button"
+                 tabindex="0" aria-label="Resize details"></div>
             <div class="info-header">
                 <h2 id="info-title">Select a node</h2>
                 <button id="node-favorite" class="btn-favorite" title="Like">☆</button>

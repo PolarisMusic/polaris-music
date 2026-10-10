@@ -1800,17 +1800,63 @@ body.mini-player-visible.mini-player-embed {
         display: none;
     }
 
-    /* A decorative grabber that cost 16px of a 295px sheet. It is not
-       draggable — the X beside the title is the close control — so it is
-       sized as the hint it is. */
+    /* In the collapsed state the row is the handle — full width, 44px tall,
+       and already there. touch-action for the same reason as the handle below:
+       without it the browser claims a vertical drag for scrolling and cancels
+       the pointer mid-gesture. */
+    #info-peek {
+        touch-action: none;
+    }
+
+    /* It drags now, between the collapsed row and the full sheet, so it is
+       sized as a control rather than as a hint. 24px rather than 44: the sheet
+       is 295px tall and a 44px handle would be a seventh of it, and unlike a
+       tile in the orbit this one is a full-width strip, so the finger only has
+       to find it vertically.
+
+       touch-action is the part that makes the gesture work at all. Without it
+       the browser claims the vertical drag for scrolling and cancels the
+       pointer mid-gesture, which looks like the handle intermittently not
+       responding. */
     .info-sheet-handle {
         display: block;
+        width: 100%;
+        height: 24px;
+        margin: 0;
+        position: relative;
+        flex-shrink: 0;
+        cursor: grab;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* The visible grabber: still 36×3, now centred in something pressable. */
+    .info-sheet-handle::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
         width: 36px;
         height: 3px;
-        margin: 4px auto 1px;
+        margin-top: -1.5px;
+        margin-left: -18px;
         border-radius: 2px;
         background: #555;
-        flex-shrink: 0;
+    }
+
+    .info-sheet-handle:active {
+        cursor: grabbing;
+    }
+
+    .info-sheet-handle:active::before,
+    .info-sheet-handle:focus-visible::before {
+        background: #999;
+    }
+
+    /* While a finger is on it, the sheet follows the finger and must not also
+       be easing towards a CSS position — the two together lag and overshoot. */
+    #info-viewer.sheet-dragging {
+        transition: none !important;
     }
 
     .btn-info-close {

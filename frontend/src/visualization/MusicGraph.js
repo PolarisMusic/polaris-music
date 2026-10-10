@@ -24,6 +24,7 @@ import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
 import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
+import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -648,13 +649,23 @@ export class MusicGraph {
         // Every way out of the info sheet routes through collapseInfoPanel(),
         // which closes outright unless a phone has a node selected — there it
         // falls back to the collapsed row rather than to nothing.
+        this._attachSheetDrag();
+
         document.getElementById('info-close')
             ?.addEventListener('click', () => this.collapseInfoPanel());
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.collapseInfoPanel();
         });
-        document.getElementById('info-peek')
-            ?.addEventListener('click', () => this.openInfoPanel());
+        document.getElementById('info-peek')?.addEventListener('click', () => {
+            // A real drag on the row ends in a click too. Opening again here
+            // would undo a drag that had just collapsed the sheet, or re-open
+            // it after a drag that snapped back.
+            if (this._suppressPeekClick) {
+                this._suppressPeekClick = false;
+                return;
+            }
+            this.openInfoPanel();
+        });
         this._watchInfoTitle();
         requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
@@ -745,6 +756,139 @@ export class MusicGraph {
 
         this._syncPeekTitle();
         this._notifyLayoutChange();
+    }
+
+    /**
+     * Make the sheet's handle drag it between the collapsed row and the full
+     * sheet.
+     *
+     * Pointer Events, so one path covers a finger and a mouse. The sheet is a
+     * phone affordance — on a desktop the panel is a permanent column with
+     * nothing to drag — so the gesture declines to start outside that layout
+     * rather than being bound conditionally, which would leave it unbound after
+     * a rotation.
+     *
+     * @private
+     */
+    _attachSheetDrag() {
+        const sheet = document.getElementById('info-viewer');
+        if (!sheet) return;
+
+        // Two grab areas, because the handle is not shown while collapsed —
+        // it would eat a quarter of a 44px row to duplicate what the row
+        // already does. In that state the row *is* the handle, and a better
+        // one: full width and 44px tall rather than a 24px strip.
+        const grabs = [
+            document.getElementById('info-sheet-handle'),
+            document.getElementById('info-peek'),
+        ].filter(Boolean);
+        if (grabs.length === 0) return;
+
+        let drag = null;
+
+        const travel = () => {
+            // How far apart the two resting positions are. Measured rather than
+            // assumed because both are set in CSS and one of them is a vh.
+            const height = sheet.getBoundingClientRect().height;
+            return Math.max(1, height - this._peekRowHeight());
+        };
+
+        const onDown = (grab) => (event) => {
+            if (!this._isPhoneLayout()) return;
+
+            drag = {
+                grab,
+                startY: event.clientY,
+                lastY: event.clientY,
+                lastTime: event.timeStamp,
+                moved: false,
+                state: sheet.classList.contains('open') ? 'open' : 'peek',
+                travel: travel(),
+            };
+
+            // Capture, so the gesture survives the finger leaving the grab
+            // area — which it will, since the whole point is to move the sheet
+            // out from under it.
+            grab.setPointerCapture?.(event.pointerId);
+            sheet.classList.add('sheet-dragging');
+            // Without this a downward mouse drag starts a text selection over
+            // the sheet's own content, and Chromium then cancels the pointer
+            // mid-gesture — the drag simply stops having an effect, which looks
+            // like the handle working in one direction only.
+            event.preventDefault();
+        };
+
+        const onMove = (event) => {
+            if (!drag) return;
+
+            drag.lastY = event.clientY;
+            drag.lastTime = event.timeStamp;
+            // A few pixels is a tap with a shaky finger, not a drag. Tracked so
+            // the collapsed row's tap-to-open still works: that is a click, and
+            // a click after a real drag has to be swallowed or the row would
+            // open again immediately after being dragged shut.
+            if (Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
+
+            const offset = clampSheetDrag(drag.state, event.clientY - drag.startY, drag.travel);
+            sheet.style.transform = `translateY(${offset}px)`;
+        };
+
+        const finish = (event) => {
+            if (!drag) return;
+
+            const endY = event?.clientY ?? drag.lastY;
+            const deltaY = endY - drag.startY;
+            // Velocity from the last move rather than the whole gesture: a slow
+            // drag that ends in a flick is a flick, and averaging over the whole
+            // thing would call it slow.
+            const elapsed = Math.max(1, (event?.timeStamp ?? drag.lastTime) - drag.lastTime);
+            const velocity = (endY - drag.lastY) / elapsed;
+
+            const next = resolveSheetDrag({ state: drag.state, deltaY, velocity });
+            const dragged = drag.moved;
+            drag = null;
+
+            sheet.classList.remove('sheet-dragging');
+            // Hand the position back to CSS before changing state, or the
+            // inline transform fights the class that is meant to place it.
+            sheet.style.removeProperty('transform');
+            this._suppressPeekClick = dragged;
+
+            if (next === 'open') this.openInfoPanel();
+            else this.peekInfoPanel();
+        };
+
+        for (const grab of grabs) {
+            grab.addEventListener('pointerdown', onDown(grab));
+            grab.addEventListener('pointermove', onMove);
+            grab.addEventListener('pointerup', finish);
+            grab.addEventListener('pointercancel', finish);
+
+            // Anything focusable has to answer the keyboard as well. The row is
+            // already a button and opens on Enter by itself; the handle is not,
+            // so it gets this.
+            grab.addEventListener('keydown', (event) => {
+                if (grab.id !== 'info-sheet-handle') return;
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                if (sheet.classList.contains('open')) this.peekInfoPanel();
+                else this.openInfoPanel();
+            });
+        }
+    }
+
+    /**
+     * The height of the collapsed row, from the stylesheet rather than a copy
+     * of its number here.
+     *
+     * @private
+     * @returns {number}
+     */
+    _peekRowHeight() {
+        const raw = getComputedStyle(document.documentElement)
+            .getPropertyValue('--info-peek-height');
+        const parsed = parseFloat(raw);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 44;
     }
 
     /**
