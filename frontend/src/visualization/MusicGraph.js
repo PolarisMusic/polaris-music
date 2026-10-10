@@ -44,9 +44,29 @@ import { api as backendApi } from '../utils/api.js';
  * turns the gate off without changing a line of this file. That is not
  * hypothetical: it is exactly what a non-zero offset did, and every name in
  * the graph drew at once. Move these with it, or leave the offset at 0.
+ *
+ * The person bound was 0.5 until the layout started re-rooting on the
+ * selection (see centreOn). Measured, a one-hop neighbour of the focused node
+ * now sits at 0.50 to 0.54 depending on the scene, which 0.5 excluded by a
+ * hair: the neighbourhood became legible and stayed anonymous. 0.62 covers it
+ * with room for a denser scene to push it out a little further, and raising it
+ * is only safe because labels are resolved against each other by priority now
+ * — over-eligibility costs a suppressed label rather than a pile, and a
+ * neighbour of the selection outranks an unrelated group.
  */
-const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
+const PERSON_LABEL_PROXIMITY_RADIUS = 0.62;
 const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
+
+/**
+ * How long the graph takes to settle on a new selection.
+ *
+ * One constant for both readers: the Hypertree config below and centreOn's own
+ * animate() call. They were the same literal in two places, which is the kind
+ * of pair that drifts — the release orbit is positioned from the node's final
+ * coordinates and so depends on the animation it is told about being the
+ * animation that ran.
+ */
+const HYPERTREE_ANIMATION_MS = 700;
 
 /**
  * The group radius on a phone.
@@ -556,7 +576,7 @@ export class MusicGraph {
             },
 
             // Animation settings
-            duration: 700,
+            duration: HYPERTREE_ANIMATION_MS,
             transition: $jit.Trans.Quart.easeInOut,
 
             levelDistance: 100,
@@ -1511,14 +1531,84 @@ export class MusicGraph {
         // longer gates the request.
         this.updateInfoPanel(node);
 
-        // Center on node
-        this.ht.onClick(node.id, {
+        this.centreOn(node, () => {
+            // This one does have to wait: the orbit is positioned from the
+            // node's final screen coordinates, which do not exist until the
+            // animation has put it there.
+            this.overlayPositioner.syncReleaseOverlay(node);
+        });
+    }
+
+    /**
+     * Bring a node to the centre of the disk, with its own neighbours around it.
+     *
+     * Not `ht.onClick`, which is where the "immediate neighbourhood is crushed
+     * against the rim" problem comes from, and the reason is worth writing down
+     * because it took measurement to find and is not what it looks like.
+     *
+     * The Hypertree lays out a BFS *tree* and navigates by Möbius transform.
+     * A Möbius transform is an isometry of the hyperbolic plane, so it preserves
+     * hyperbolic distance — which means a node's radius after centring is fixed
+     * by its distance in the *layout tree*, not in the graph. `move()` does call
+     * `computeLevels` on the clicked node (jit.js:18120), but levels only set
+     * `_depth`; nothing recomputes positions, so the tree keeps the shape it was
+     * built with.
+     *
+     * In a tree those two distances agree and there is no problem. This is not a
+     * tree. Two bands sharing one session player are one hop apart in the graph
+     * and two levels apart in the layout, and the hyperbolic metric charges
+     * exponentially for the difference. Measured on `scripts/measureReachability.mjs`,
+     * focusing a band in a four-band scene put its own members at a median
+     * radius of 0.937 while nodes *two* hops away sat at 0.809 — nearer. Radius
+     * was not even monotonic in graph distance, which is why the view reads as
+     * arbitrary: the layout is asserting something about the data that is false.
+     *
+     * So the tree is rebuilt with the selection as its root, and the same
+     * measurement then puts one-hop neighbours at 0.540 and two-hop at 0.832,
+     * monotonic the whole way out. No geometry is touched, nothing is clamped,
+     * no coordinates are intercepted — the whole correction happens inside JIT's
+     * own pipeline, which is why every reader of a position stays consistent.
+     *
+     * `compute('end')` and not `reposition()`: reposition recomputes the layout
+     * and then Möbius-transforms it back to where the view already was, which
+     * is what its own docstring says and the opposite of centring. It happens to
+     * work when the new root is already at the origin, so the first navigation
+     * looks right and the second lands at radius 0.98.
+     *
+     * `compute('end')` writes only the end positions, leaving 'current' where
+     * the view is, so animating 'polar' morphs between the two layouts rather
+     * than cutting.
+     *
+     * @param {object} node
+     * @param {() => void} [onComplete]
+     */
+    centreOn(node, onComplete = () => {}) {
+        const ht = this.ht;
+        if (!ht || !node) return;
+
+        if (ht.busy) {
+            // A second selection mid-animation would interleave two animations
+            // on the same positions. Dropping the glide and arriving directly is
+            // better than the mess, and this is the rapid-browsing case where
+            // the visitor has already stopped looking at the motion.
+            ht.root = node.id;
+            ht.refresh();
+            onComplete();
+            return;
+        }
+
+        ht.busy = true;
+        ht.root = node.id;
+        ht.compute('end');
+
+        ht.fx.animate({
+            modes: ['polar'],
+            duration: HYPERTREE_ANIMATION_MS,
+            hideLabels: true,
             onComplete: () => {
-                // This one does have to wait: the orbit is positioned from the
-                // node's final screen coordinates, which do not exist until the
-                // animation has put it there.
-                this.overlayPositioner.syncReleaseOverlay(node);
-            }
+                ht.busy = false;
+                onComplete();
+            },
         });
     }
 

@@ -25,3 +25,7 @@ npm-debug.log*
 # Playwright run artifacts
 test-results/
 playwright-report/
+
+# Screenshots written by scripts/compareReachability.mjs — regenerate them,
+# do not carry binaries in the tree.
+reachability-shots/
