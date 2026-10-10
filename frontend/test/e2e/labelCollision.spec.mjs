@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 
-const GROUP_COUNT = 12;
+const GROUP_COUNT = 16;
 
 /*
  * Many groups, not one group with many people.
@@ -22,6 +22,20 @@ const GROUP_COUNT = 12;
  * at all, just one label. What piles up is group names, which hold almost to
  * the rim, and that is what the dense RHCP and QOTSA views are: lots of groups.
  * Shared members keep them in one connected component.
+ *
+ * Sixteen, raised from twelve. Centring began re-rooting the hypertree on the
+ * selection, so focusing the shared player now fans all of its groups evenly
+ * round one level instead of leaving them wherever the old tree had them. The
+ * view got less crowded, which is the point of that change and which left
+ * twelve groups fitting comfortably — the suppression test below then passed
+ * vacuously on a scene with nothing to suppress.
+ *
+ * Sixteen and not more: at twenty, and at twelve with much longer names, the
+ * resolver leaves a real overlapping pair, because it compares estimated label
+ * boxes (LABEL_CHAR_WIDTH_PX, 5.6px per character) against a font that measures
+ * about 6.2, and a label it suppresses is never drawn and so never measured.
+ * That is a pre-existing defect in the resolver rather than anything about
+ * orientation, and it wants its own change.
  */
 const GRAPH = {
     nodes: [
@@ -137,7 +151,7 @@ test.describe('a crowd of groups', () => {
         expect(collidingPairs(labels)).toEqual([]);
     });
 
-    test('suppresses some of them, rather than fitting all fourteen', async ({ page }) => {
+    test('suppresses some of them, rather than fitting every one', async ({ page }) => {
         // If everything fits, the test above proves nothing.
         await boot(page);
         await select(page, 'per:hub');
