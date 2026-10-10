@@ -121,10 +121,14 @@ test.describe('label density', () => {
 
         expect(hidden).not.toBeNull();
 
+        // Through a plot, not by calling placeNodeLabel directly. Visibility is
+        // now decided once per frame for all labels together — they have to be
+        // resolved against each other — so a single label cannot answer for
+        // itself. The app's own hover path plots too (handleNodeHover's timer
+        // ends in ht.plot()), so this is the route it actually takes.
         const labelShown = async (id) => page.evaluate((nodeId) => {
-            const node = window.musicGraph.ht.graph.getNode(nodeId);
+            window.musicGraph.ht.plot();
             const el = window.musicGraph.ht.labels.getLabel(nodeId);
-            window.musicGraph.placeNodeLabel(el, node);
             return el.style.display !== 'none';
         }, id);
 

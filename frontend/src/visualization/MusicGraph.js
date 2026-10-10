@@ -23,6 +23,7 @@ import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
+import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -45,6 +46,21 @@ import { api as backendApi } from '../utils/api.js';
  */
 const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
 const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
+
+/**
+ * The group radius on a phone.
+ *
+ * A third of the width holds a third of the names. Groups keep their labels
+ * almost to the rim on a monitor, which on a phone means a dozen of them
+ * competing for a strip of glass; collision resolution then suppresses most of
+ * what it is handed, and a rule that mostly says no is better expressed as a
+ * smaller radius.
+ */
+const GROUP_LABEL_PROXIMITY_RADIUS_PHONE = 0.68;
+
+/** Rough width of a label character, for a label that has never been drawn. */
+const LABEL_CHAR_WIDTH_PX = 5.6;
+const LABEL_HEIGHT_PX = 14;
 
 /**
  * Edge weight multipliers, by viewport. See ColorPalette.edgeWidthScale.
@@ -174,6 +190,18 @@ export class MusicGraph {
         // PERSON_LABEL_PROXIMITY_RADIUS for why groups reach further.
         this.labelProximityThreshold = PERSON_LABEL_PROXIMITY_RADIUS ** 2;
         this.groupLabelProximityThreshold = GROUP_LABEL_PROXIMITY_RADIUS ** 2;
+
+        /**
+         * Which labels won this frame, and how big each one is.
+         *
+         * The set is recomputed once per plot by _computeVisibleLabels and read
+         * by placeNodeLabel, which JIT calls per label. Sizes are cached
+         * because reading offsetWidth forces layout, and doing that for every
+         * label of every frame is the one way to make this expensive — the text
+         * never changes, so one measurement per label lasts the session.
+         */
+        this._visibleLabels = null;
+        this._labelSizes = new Map();
 
         // Hover tooltip timer (500ms delay before showing label on edge nodes)
         this._hoverTooltipTimer = null;
@@ -590,6 +618,23 @@ export class MusicGraph {
             }
         });
 
+        // Labels have to be resolved against each other, and JIT offers no hook
+        // between "positions are final" and "place each label". Wrapping the
+        // plotter gives one: the positions a plot is about to draw are the
+        // positions it reads, so a set computed here is the set that frame needs.
+        //
+        // fx.plot, not viz.plot. viz.plot is a one-line delegate to it
+        // (jit.js:8841) and JIT's own code calls viz.fx.plot() directly in a
+        // dozen places — the animation loop and canvas resize among them. A
+        // wrapper on viz.plot therefore catches our own calls and nothing else,
+        // which leaves the label set one frame stale: computed for the
+        // penultimate position and applied to the final one.
+        const originalFxPlot = this.ht.fx.plot.bind(this.ht.fx);
+        this.ht.fx.plot = (...args) => {
+            this._computeVisibleLabels();
+            return originalFxPlot(...args);
+        };
+
         this._isolateInfoPanelScroll();
         this._setupResizeObserver();
         window.addEventListener('resize', () => this._handleCanvasResize());
@@ -862,12 +907,20 @@ export class MusicGraph {
      * one.
      */
     _applyEdgeWidthScale() {
-        const isPhone = typeof window.matchMedia === 'function'
-            ? window.matchMedia(PHONE_MEDIA_QUERY).matches
-            : false;
+        const isPhone = this._isPhoneLayout();
+
+        // The group label radius rides along with the edge widths because both
+        // are the same decision — how much of this can a phone hold — and both
+        // are republished by the same plot.
+        const groupRadius = isPhone
+            ? GROUP_LABEL_PROXIMITY_RADIUS_PHONE
+            : GROUP_LABEL_PROXIMITY_RADIUS;
+        const groupThreshold = groupRadius ** 2;
+        const thresholdChanged = this.groupLabelProximityThreshold !== groupThreshold;
+        this.groupLabelProximityThreshold = groupThreshold;
 
         const scale = isPhone ? EDGE_WIDTH_SCALE_PHONE : EDGE_WIDTH_SCALE_DESKTOP;
-        if (this.colorPalette.edgeWidthScale === scale) return false;
+        if (this.colorPalette.edgeWidthScale === scale) return thresholdChanged;
 
         this.colorPalette.edgeWidthScale = scale;
         if (this.ht?.config?.Edge) {
@@ -949,6 +1002,113 @@ export class MusicGraph {
      * Show when: node is selected, hovered, or near center of the Poincaré disk.
      * "Near center" = pos.squaredNorm() < threshold.
      */
+    /**
+     * Work out which labels are drawn this frame.
+     *
+     * Two stages, kept apart. Eligibility is the existing rule — selected, or
+     * hovered, or inside its type's radius — and decides what is *allowed* to
+     * appear. Collision resolution then decides what *fits*, in priority order,
+     * and suppresses the rest rather than stacking them.
+     *
+     * @private
+     */
+    _computeVisibleLabels() {
+        if (!this.ht?.graph) return;
+
+        if (!this.labelsVisible) {
+            this._visibleLabels = new Set();
+            return;
+        }
+
+        const selected = this.selectedNode;
+        const neighbours = this._selectionNeighbourIds();
+        const candidates = [];
+
+        this.ht.graph.eachNode((node) => {
+            if ((node.data?.type || '').toLowerCase() === 'root') return;
+
+            const isSelected = !!node.getData('isSelected');
+            const hovered = !!node.getData('hoverTooltip');
+            const centrality = node.pos.getc().squaredNorm();
+            const eligible = isSelected || hovered || centrality < this.labelThresholdFor(node);
+            if (!eligible) return;
+
+            let tier;
+            if (isSelected) tier = LABEL_TIER.SELECTED;
+            else if (hovered) tier = LABEL_TIER.HOVERED;
+            else if (selected && neighbours.has(node.id)) tier = LABEL_TIER.NEIGHBOUR;
+            else if ((node.data?.type || '').toLowerCase() === 'group') tier = LABEL_TIER.GROUP;
+            else tier = LABEL_TIER.OTHER;
+
+            candidates.push({ id: node.id, tier, centrality, box: this._labelBox(node) });
+        });
+
+        this._visibleLabels = resolveLabelCollisions(candidates);
+    }
+
+    /**
+     * The ids one hop from the selection.
+     *
+     * @private
+     * @returns {Set<string>}
+     */
+    _selectionNeighbourIds() {
+        const ids = new Set();
+        const selected = this.selectedNode;
+        if (!selected) return ids;
+
+        selected.eachAdjacency?.((adj) => {
+            if ((adj.data?.type || '') === 'ROOT') return;
+            ids.add(adj.nodeFrom.id === selected.id ? adj.nodeTo.id : adj.nodeFrom.id);
+        });
+        return ids;
+    }
+
+    /**
+     * Where a node's label will be drawn, and how big it is.
+     *
+     * Mirrors placeNodeLabel's own arithmetic — centred under the node, offset
+     * by its radius — because a box computed differently from where the label
+     * lands resolves collisions that are not happening.
+     *
+     * @private
+     * @param {object} node
+     * @returns {{x: number, y: number, w: number, h: number}}
+     */
+    _labelBox(node) {
+        const screen = this._getNodeScreenPos(node);
+        const size = this._labelSize(node);
+        return {
+            x: screen.x - size.w / 2,
+            y: screen.y + screen.dim + 4,
+            w: size.w,
+            h: size.h,
+        };
+    }
+
+    /**
+     * @private
+     * @param {object} node
+     * @returns {{w: number, h: number}}
+     */
+    _labelSize(node) {
+        const cached = this._labelSizes.get(node.id);
+        if (cached) return cached;
+
+        const element = this.ht.labels?.getLabel?.(node.id);
+        // offsetWidth is 0 for a label that has never been displayed, and
+        // measuring it would force a layout anyway. Estimate from the text
+        // until the label has been drawn once, then cache the real figure.
+        if (element && element.offsetWidth > 0) {
+            const size = { w: element.offsetWidth, h: element.offsetHeight || LABEL_HEIGHT_PX };
+            this._labelSizes.set(node.id, size);
+            return size;
+        }
+
+        const text = String(node.name || node.id || '');
+        return { w: Math.max(8, text.length * LABEL_CHAR_WIDTH_PX), h: LABEL_HEIGHT_PX };
+    }
+
     placeNodeLabel(domElement, node) {
         // Hide label for synthetic root node
         if ((node.data.type || '').toLowerCase() === 'root') {
@@ -972,17 +1132,23 @@ export class MusicGraph {
             return;
         }
 
-        // Show tooltip when: selected, near center, or after 500ms hover delay.
+        // Eligibility and collisions were both decided for the whole frame by
+        // _computeVisibleLabels; this call knows about one label and cannot see
+        // the pile it is joining.
+        //
+        // A null set means no plot has run through the wrapper yet — fall back
+        // to the per-label rule rather than hiding everything.
+        if (this._visibleLabels) {
+            style.display = this._visibleLabels.has(node.id) ? '' : 'none';
+            return;
+        }
+
         const isSelected = node.getData('isSelected');
         const sqNorm = node.pos.getc().squaredNorm();
         const isNearCenter = sqNorm < this.labelThresholdFor(node);
         const hoverTooltip = node.getData('hoverTooltip');
 
-        if (isSelected || isNearCenter || hoverTooltip) {
-            style.display = '';
-        } else {
-            style.display = 'none';
-        }
+        style.display = (isSelected || isNearCenter || hoverTooltip) ? '' : 'none';
     }
 
     /**
