@@ -45,6 +45,9 @@ export class ColorPalette {
          * never sets it gets.
          */
         this.edgeWidthScale = 1;
+        /** Memo for withOpacity, and the colours it could not parse. */
+        this._opacityCache = new Map();
+        this._warnedColors = new Set();
     }
 
     /**
@@ -107,6 +110,95 @@ export class ColorPalette {
         const color = this.getColor(personId);
         const rgb = this.hexToRgb(color);
         return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+    }
+
+    /**
+     * The same colour, carrying less of itself.
+     *
+     * Used to push everything that is not the current neighbourhood into the
+     * background. Takes whatever the palette or the database produced — a
+     * 3- or 6-digit hex, an rgb(), or an rgba() that already has an alpha, as
+     * guest edges do — and multiplies the alpha rather than replacing it, so a
+     * credit that was already half-strength ends up fainter than a membership
+     * that was not.
+     *
+     * Memoised because this runs from onBeforePlotLine, which is once per edge
+     * per frame: on a dense group that is several hundred string builds in
+     * every animation step. The key space is the palette plus one colour per
+     * person, so it is bounded in practice, and capped anyway.
+     *
+     * @param {string} color
+     * @param {number} factor - 0..1
+     * @returns {string} an rgba() string, or the input if it cannot be parsed
+     */
+    withOpacity(color, factor) {
+        if (!color || factor >= 1) return color;
+
+        const key = `${color}|${factor}`;
+        const cached = this._opacityCache.get(key);
+        if (cached) return cached;
+
+        const parsed = this._parseColor(color);
+        // Unparseable: hand back the original rather than paint something
+        // arbitrary. A line at full strength is a worse outcome than a crash
+        // only if it is silent, so say so once.
+        if (!parsed) {
+            if (!this._warnedColors.has(color)) {
+                this._warnedColors.add(color);
+                console.warn('withOpacity: unrecognised colour', color);
+            }
+            return color;
+        }
+
+        const { r, g, b, a } = parsed;
+        const result = `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a * factor))})`;
+
+        // Bounded so a pathological data set cannot grow this without limit.
+        if (this._opacityCache.size > 512) this._opacityCache.clear();
+        this._opacityCache.set(key, result);
+        return result;
+    }
+
+    /**
+     * @private
+     * @param {string} color
+     * @returns {{r: number, g: number, b: number, a: number}|null}
+     */
+    _parseColor(color) {
+        const text = String(color).trim();
+
+        const short = /^#([a-f\d])([a-f\d])([a-f\d])$/i.exec(text);
+        if (short) {
+            // #abc is #aabbcc, not #0a0b0c.
+            return {
+                r: parseInt(short[1] + short[1], 16),
+                g: parseInt(short[2] + short[2], 16),
+                b: parseInt(short[3] + short[3], 16),
+                a: 1,
+            };
+        }
+
+        const long = /^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(text);
+        if (long) {
+            return {
+                r: parseInt(long[1], 16),
+                g: parseInt(long[2], 16),
+                b: parseInt(long[3], 16),
+                a: 1,
+            };
+        }
+
+        const functional = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?\s*\)$/i.exec(text);
+        if (functional) {
+            return {
+                r: Number(functional[1]),
+                g: Number(functional[2]),
+                b: Number(functional[3]),
+                a: functional[4] === undefined ? 1 : Number(functional[4]),
+            };
+        }
+
+        return null;
     }
 
     /**

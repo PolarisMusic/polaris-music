@@ -54,6 +54,16 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
  * into roughly a third of the width and any weight that reads as "a line" on
  * a monitor reads as a blot there.
  */
+/**
+ * How much of itself an edge keeps when it is not part of the selection.
+ *
+ * Low enough that the neighbourhood reads as the subject, high enough that the
+ * rest of the graph is still legible as somewhere to go next. Hiding unrelated
+ * edges outright was the other option and is worse: the thing being looked at
+ * would float with no context, which is the opposite of what a map is for.
+ */
+const UNRELATED_EDGE_OPACITY = 0.32;
+
 const EDGE_WIDTH_SCALE_DESKTOP = 0.7;
 const EDGE_WIDTH_SCALE_PHONE = 0.35;
 
@@ -1044,6 +1054,9 @@ export class MusicGraph {
             return;
         }
 
+        let color = null;
+        let width = null;
+
         // A guest credit runs Person → Group exactly like a membership does, so
         // the type-pair rules below cannot tell them apart and would paint a
         // guest as a member — the one distinction this registry most cares
@@ -1052,43 +1065,54 @@ export class MusicGraph {
             const personNode = (adj.nodeFrom.data.type || '').toLowerCase() === 'person'
                 ? adj.nodeFrom
                 : adj.nodeTo;
-            adj.setData('color', this.colorPalette.getEdgeColor('GUEST_ON', personNode.id));
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('GUEST_ON'));
-            if (this.edgeNavigator?.isHighlighted(adj)) {
-                const style = this.edgeNavigator.highlightStyle(adj.getData('lineWidth'));
-                adj.setData('color', style.color);
-                adj.setData('lineWidth', style.lineWidth);
+            color = this.colorPalette.getEdgeColor('GUEST_ON', personNode.id);
+            width = this.colorPalette.getEdgeWidth('GUEST_ON');
+        } else {
+            const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
+            const toType = (adj.nodeTo.data.type || '').toLowerCase();
+
+            // MEMBER_OF edges: find the person endpoint, use its DB color
+            if ((fromType === 'person' && toType === 'group') ||
+                (fromType === 'group' && toType === 'person')) {
+                const personNode = fromType === 'person' ? adj.nodeFrom : adj.nodeTo;
+                // Prefer DB-stored color on the node, fall back to palette
+                color =
+                    personNode.getData('color') ||
+                    personNode.data.$color ||
+                    this.colorPalette.getColor(personNode.id);
+                width = this.colorPalette.getEdgeWidth('MEMBER_OF');
             }
-            return;
+            // Group -> Track: green edges
+            else if ((fromType === 'group' && toType === 'track') ||
+                     (fromType === 'track' && toType === 'group')) {
+                color = this.colorPalette.getEdgeColor('PERFORMED_ON');
+                width = this.colorPalette.getEdgeWidth('PERFORMED_ON');
+            }
+            // Track -> Release: gray edges
+            else if ((fromType === 'track' && toType === 'release') ||
+                     (fromType === 'release' && toType === 'track')) {
+                color = this.colorPalette.getEdgeColor('IN_RELEASE');
+                width = this.colorPalette.getEdgeWidth('IN_RELEASE');
+            }
         }
 
-        const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
-        const toType = (adj.nodeTo.data.type || '').toLowerCase();
+        // Everything that is not the current neighbourhood goes quiet.
+        //
+        // The graph colours and weights every edge the same regardless of what
+        // is selected, which is why a dense group reads as uniformly important
+        // — the whole universe at once, and the one thing being looked at no
+        // louder than the rest. Dimming rather than hiding keeps the universe
+        // there to navigate into.
+        //
+        // Width is untouched on purpose: thinning an unrelated edge as well
+        // would change the shape of the graph as you browse, and the shape is
+        // the data.
+        if (color !== null && !this._isNeighbourhoodEdge(adj)) {
+            color = this.colorPalette.withOpacity(color, UNRELATED_EDGE_OPACITY);
+        }
 
-        // MEMBER_OF edges: find the person endpoint, use its DB color
-        if ((fromType === 'person' && toType === 'group') ||
-            (fromType === 'group' && toType === 'person')) {
-            const personNode = fromType === 'person' ? adj.nodeFrom : adj.nodeTo;
-            // Prefer DB-stored color on the node, fall back to palette
-            const color =
-                personNode.getData('color') ||
-                personNode.data.$color ||
-                this.colorPalette.getColor(personNode.id);
-            adj.setData('color', color);
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('MEMBER_OF'));
-        }
-        // Group -> Track: green edges
-        else if ((fromType === 'group' && toType === 'track') ||
-                 (fromType === 'track' && toType === 'group')) {
-            adj.setData('color', this.colorPalette.getEdgeColor('PERFORMED_ON'));
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('PERFORMED_ON'));
-        }
-        // Track -> Release: gray edges
-        else if ((fromType === 'track' && toType === 'release') ||
-                 (fromType === 'release' && toType === 'track')) {
-            adj.setData('color', this.colorPalette.getEdgeColor('IN_RELEASE'));
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('IN_RELEASE'));
-        }
+        if (color !== null) adj.setData('color', color);
+        if (width !== null) adj.setData('lineWidth', width);
 
         // Last, and on top of whatever the palette chose: this runs from
         // onBeforePlotLine on every edge of every frame, so anything written
@@ -1098,6 +1122,26 @@ export class MusicGraph {
             adj.setData('color', style.color);
             adj.setData('lineWidth', style.lineWidth);
         }
+    }
+
+    /**
+     * Whether an edge belongs to what the visitor is currently looking at.
+     *
+     * One hop: the edges touching the selection. Not two — a two-hop rule on a
+     * well-connected group keeps most of the graph bright and dims nothing
+     * worth dimming.
+     *
+     * With nothing selected, everything qualifies. The opening view is the
+     * universe and has no focus to contrast against.
+     *
+     * @private
+     * @param {object} adj
+     * @returns {boolean}
+     */
+    _isNeighbourhoodEdge(adj) {
+        const selected = this.selectedNode;
+        if (!selected) return true;
+        return adj.nodeFrom.id === selected.id || adj.nodeTo.id === selected.id;
     }
 
     /**
