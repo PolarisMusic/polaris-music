@@ -22,8 +22,9 @@ import { OverlayPositioner } from './OverlayPositioner.js';
 import { FavoritesManager } from './FavoritesManager.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
-import { PanController } from './PanController.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
+import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
+import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -48,6 +49,21 @@ const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
 const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 
 /**
+ * The group radius on a phone.
+ *
+ * A third of the width holds a third of the names. Groups keep their labels
+ * almost to the rim on a monitor, which on a phone means a dozen of them
+ * competing for a strip of glass; collision resolution then suppresses most of
+ * what it is handed, and a rule that mostly says no is better expressed as a
+ * smaller radius.
+ */
+const GROUP_LABEL_PROXIMITY_RADIUS_PHONE = 0.68;
+
+/** Rough width of a label character, for a label that has never been drawn. */
+const LABEL_CHAR_WIDTH_PX = 5.6;
+const LABEL_HEIGHT_PX = 14;
+
+/**
  * Edge weight multipliers, by viewport. See ColorPalette.edgeWidthScale.
  *
  * The phone gets much less than the desktop rather than the same reduction:
@@ -55,6 +71,16 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
  * into roughly a third of the width and any weight that reads as "a line" on
  * a monitor reads as a blot there.
  */
+/**
+ * How much of itself an edge keeps when it is not part of the selection.
+ *
+ * Low enough that the neighbourhood reads as the subject, high enough that the
+ * rest of the graph is still legible as somewhere to go next. Hiding unrelated
+ * edges outright was the other option and is worse: the thing being looked at
+ * would float with no context, which is the opposite of what a map is for.
+ */
+const UNRELATED_EDGE_OPACITY = 0.32;
+
 const EDGE_WIDTH_SCALE_DESKTOP = 0.7;
 const EDGE_WIDTH_SCALE_PHONE = 0.35;
 
@@ -166,19 +192,32 @@ export class MusicGraph {
         this.labelProximityThreshold = PERSON_LABEL_PROXIMITY_RADIUS ** 2;
         this.groupLabelProximityThreshold = GROUP_LABEL_PROXIMITY_RADIUS ** 2;
 
+        /**
+         * Which labels won this frame, and how big each one is.
+         *
+         * The set is recomputed once per plot by _computeVisibleLabels and read
+         * by placeNodeLabel, which JIT calls per label. Sizes are cached
+         * because reading offsetWidth forces layout, and doing that for every
+         * label of every frame is the one way to make this expensive — the text
+         * never changes, so one measurement per label lasts the session.
+         */
+        this._visibleLabels = null;
+        this._labelSizes = new Map();
+
         // Hover tooltip timer (500ms delay before showing label on edge nodes)
         this._hoverTooltipTimer = null;
 
-        // Long-press pan state (replaces JIT's built-in panning to prevent
-        // micro-drags from swallowing node clicks). The getCanvas callback
-        // resolves lazily — `this.ht` isn't set until initializeHypertree().
-        this.panController = new PanController({
-            getCanvas: () => this.ht?.canvas,
-            callbacks: {
-                plot: () => this.ht?.plot(),
-                updateOverlayPosition: () => this.overlayPositioner.updateOverlayPosition(),
-            },
-        });
+        /**
+         * Which selection the info panel belongs to.
+         *
+         * Bumped whenever the panel's subject changes — a node tap, or a release
+         * tile taking the panel over — and compared after every await that is
+         * going to write to it. Browsing quickly means several detail requests
+         * are in flight at once, and they do not come back in the order they
+         * were sent: without this, the slowest response wins and the panel shows
+         * a node nobody is standing on.
+         */
+        this._panelEpoch = 0;
 
         // Initialize the visualization
         this.initializeHypertree();
@@ -199,11 +238,6 @@ export class MusicGraph {
                     if (node) this.handleNodeClick(node);
                 },
                 plot: () => this.ht?.plot(),
-                // Both, and neither consumed: a drag in progress, or the
-                // click that ends one, which JIT's own handler still has to
-                // find waiting for it.
-                shouldSuppress: () =>
-                    this.panController.isPanning() || this.panController.willSuppressClick(),
             },
         });
         this.edgeNavigator.attach();
@@ -492,9 +526,6 @@ export class MusicGraph {
                 type: 'Native',
 
                 onClick: (node, eventInfo, e) => {
-                    if (this.panController.consumeSuppressClick()) {
-                        return;
-                    }
                     if (node) {
                         this.handleNodeClick(node);
                     }
@@ -588,7 +619,23 @@ export class MusicGraph {
             }
         });
 
-        this.panController.attach();
+        // Labels have to be resolved against each other, and JIT offers no hook
+        // between "positions are final" and "place each label". Wrapping the
+        // plotter gives one: the positions a plot is about to draw are the
+        // positions it reads, so a set computed here is the set that frame needs.
+        //
+        // fx.plot, not viz.plot. viz.plot is a one-line delegate to it
+        // (jit.js:8841) and JIT's own code calls viz.fx.plot() directly in a
+        // dozen places — the animation loop and canvas resize among them. A
+        // wrapper on viz.plot therefore catches our own calls and nothing else,
+        // which leaves the label set one frame stale: computed for the
+        // penultimate position and applied to the final one.
+        const originalFxPlot = this.ht.fx.plot.bind(this.ht.fx);
+        this.ht.fx.plot = (...args) => {
+            this._computeVisibleLabels();
+            return originalFxPlot(...args);
+        };
+
         this._isolateInfoPanelScroll();
         this._setupResizeObserver();
         window.addEventListener('resize', () => this._handleCanvasResize());
@@ -602,13 +649,23 @@ export class MusicGraph {
         // Every way out of the info sheet routes through collapseInfoPanel(),
         // which closes outright unless a phone has a node selected — there it
         // falls back to the collapsed row rather than to nothing.
+        this._attachSheetDrag();
+
         document.getElementById('info-close')
             ?.addEventListener('click', () => this.collapseInfoPanel());
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.collapseInfoPanel();
         });
-        document.getElementById('info-peek')
-            ?.addEventListener('click', () => this.openInfoPanel());
+        document.getElementById('info-peek')?.addEventListener('click', () => {
+            // A real drag on the row ends in a click too. Opening again here
+            // would undo a drag that had just collapsed the sheet, or re-open
+            // it after a drag that snapped back.
+            if (this._suppressPeekClick) {
+                this._suppressPeekClick = false;
+                return;
+            }
+            this.openInfoPanel();
+        });
         this._watchInfoTitle();
         requestAnimationFrame(() => this._handleCanvasResize());
         console.log('Hypertree initialized');
@@ -699,6 +756,139 @@ export class MusicGraph {
 
         this._syncPeekTitle();
         this._notifyLayoutChange();
+    }
+
+    /**
+     * Make the sheet's handle drag it between the collapsed row and the full
+     * sheet.
+     *
+     * Pointer Events, so one path covers a finger and a mouse. The sheet is a
+     * phone affordance — on a desktop the panel is a permanent column with
+     * nothing to drag — so the gesture declines to start outside that layout
+     * rather than being bound conditionally, which would leave it unbound after
+     * a rotation.
+     *
+     * @private
+     */
+    _attachSheetDrag() {
+        const sheet = document.getElementById('info-viewer');
+        if (!sheet) return;
+
+        // Two grab areas, because the handle is not shown while collapsed —
+        // it would eat a quarter of a 44px row to duplicate what the row
+        // already does. In that state the row *is* the handle, and a better
+        // one: full width and 44px tall rather than a 24px strip.
+        const grabs = [
+            document.getElementById('info-sheet-handle'),
+            document.getElementById('info-peek'),
+        ].filter(Boolean);
+        if (grabs.length === 0) return;
+
+        let drag = null;
+
+        const travel = () => {
+            // How far apart the two resting positions are. Measured rather than
+            // assumed because both are set in CSS and one of them is a vh.
+            const height = sheet.getBoundingClientRect().height;
+            return Math.max(1, height - this._peekRowHeight());
+        };
+
+        const onDown = (grab) => (event) => {
+            if (!this._isPhoneLayout()) return;
+
+            drag = {
+                grab,
+                startY: event.clientY,
+                lastY: event.clientY,
+                lastTime: event.timeStamp,
+                moved: false,
+                state: sheet.classList.contains('open') ? 'open' : 'peek',
+                travel: travel(),
+            };
+
+            // Capture, so the gesture survives the finger leaving the grab
+            // area — which it will, since the whole point is to move the sheet
+            // out from under it.
+            grab.setPointerCapture?.(event.pointerId);
+            sheet.classList.add('sheet-dragging');
+            // Without this a downward mouse drag starts a text selection over
+            // the sheet's own content, and Chromium then cancels the pointer
+            // mid-gesture — the drag simply stops having an effect, which looks
+            // like the handle working in one direction only.
+            event.preventDefault();
+        };
+
+        const onMove = (event) => {
+            if (!drag) return;
+
+            drag.lastY = event.clientY;
+            drag.lastTime = event.timeStamp;
+            // A few pixels is a tap with a shaky finger, not a drag. Tracked so
+            // the collapsed row's tap-to-open still works: that is a click, and
+            // a click after a real drag has to be swallowed or the row would
+            // open again immediately after being dragged shut.
+            if (Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
+
+            const offset = clampSheetDrag(drag.state, event.clientY - drag.startY, drag.travel);
+            sheet.style.transform = `translateY(${offset}px)`;
+        };
+
+        const finish = (event) => {
+            if (!drag) return;
+
+            const endY = event?.clientY ?? drag.lastY;
+            const deltaY = endY - drag.startY;
+            // Velocity from the last move rather than the whole gesture: a slow
+            // drag that ends in a flick is a flick, and averaging over the whole
+            // thing would call it slow.
+            const elapsed = Math.max(1, (event?.timeStamp ?? drag.lastTime) - drag.lastTime);
+            const velocity = (endY - drag.lastY) / elapsed;
+
+            const next = resolveSheetDrag({ state: drag.state, deltaY, velocity });
+            const dragged = drag.moved;
+            drag = null;
+
+            sheet.classList.remove('sheet-dragging');
+            // Hand the position back to CSS before changing state, or the
+            // inline transform fights the class that is meant to place it.
+            sheet.style.removeProperty('transform');
+            this._suppressPeekClick = dragged;
+
+            if (next === 'open') this.openInfoPanel();
+            else this.peekInfoPanel();
+        };
+
+        for (const grab of grabs) {
+            grab.addEventListener('pointerdown', onDown(grab));
+            grab.addEventListener('pointermove', onMove);
+            grab.addEventListener('pointerup', finish);
+            grab.addEventListener('pointercancel', finish);
+
+            // Anything focusable has to answer the keyboard as well. The row is
+            // already a button and opens on Enter by itself; the handle is not,
+            // so it gets this.
+            grab.addEventListener('keydown', (event) => {
+                if (grab.id !== 'info-sheet-handle') return;
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                if (sheet.classList.contains('open')) this.peekInfoPanel();
+                else this.openInfoPanel();
+            });
+        }
+    }
+
+    /**
+     * The height of the collapsed row, from the stylesheet rather than a copy
+     * of its number here.
+     *
+     * @private
+     * @returns {number}
+     */
+    _peekRowHeight() {
+        const raw = getComputedStyle(document.documentElement)
+            .getPropertyValue('--info-peek-height');
+        const parsed = parseFloat(raw);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 44;
     }
 
     /**
@@ -861,12 +1051,20 @@ export class MusicGraph {
      * one.
      */
     _applyEdgeWidthScale() {
-        const isPhone = typeof window.matchMedia === 'function'
-            ? window.matchMedia(PHONE_MEDIA_QUERY).matches
-            : false;
+        const isPhone = this._isPhoneLayout();
+
+        // The group label radius rides along with the edge widths because both
+        // are the same decision — how much of this can a phone hold — and both
+        // are republished by the same plot.
+        const groupRadius = isPhone
+            ? GROUP_LABEL_PROXIMITY_RADIUS_PHONE
+            : GROUP_LABEL_PROXIMITY_RADIUS;
+        const groupThreshold = groupRadius ** 2;
+        const thresholdChanged = this.groupLabelProximityThreshold !== groupThreshold;
+        this.groupLabelProximityThreshold = groupThreshold;
 
         const scale = isPhone ? EDGE_WIDTH_SCALE_PHONE : EDGE_WIDTH_SCALE_DESKTOP;
-        if (this.colorPalette.edgeWidthScale === scale) return false;
+        if (this.colorPalette.edgeWidthScale === scale) return thresholdChanged;
 
         this.colorPalette.edgeWidthScale = scale;
         if (this.ht?.config?.Edge) {
@@ -948,6 +1146,113 @@ export class MusicGraph {
      * Show when: node is selected, hovered, or near center of the Poincaré disk.
      * "Near center" = pos.squaredNorm() < threshold.
      */
+    /**
+     * Work out which labels are drawn this frame.
+     *
+     * Two stages, kept apart. Eligibility is the existing rule — selected, or
+     * hovered, or inside its type's radius — and decides what is *allowed* to
+     * appear. Collision resolution then decides what *fits*, in priority order,
+     * and suppresses the rest rather than stacking them.
+     *
+     * @private
+     */
+    _computeVisibleLabels() {
+        if (!this.ht?.graph) return;
+
+        if (!this.labelsVisible) {
+            this._visibleLabels = new Set();
+            return;
+        }
+
+        const selected = this.selectedNode;
+        const neighbours = this._selectionNeighbourIds();
+        const candidates = [];
+
+        this.ht.graph.eachNode((node) => {
+            if ((node.data?.type || '').toLowerCase() === 'root') return;
+
+            const isSelected = !!node.getData('isSelected');
+            const hovered = !!node.getData('hoverTooltip');
+            const centrality = node.pos.getc().squaredNorm();
+            const eligible = isSelected || hovered || centrality < this.labelThresholdFor(node);
+            if (!eligible) return;
+
+            let tier;
+            if (isSelected) tier = LABEL_TIER.SELECTED;
+            else if (hovered) tier = LABEL_TIER.HOVERED;
+            else if (selected && neighbours.has(node.id)) tier = LABEL_TIER.NEIGHBOUR;
+            else if ((node.data?.type || '').toLowerCase() === 'group') tier = LABEL_TIER.GROUP;
+            else tier = LABEL_TIER.OTHER;
+
+            candidates.push({ id: node.id, tier, centrality, box: this._labelBox(node) });
+        });
+
+        this._visibleLabels = resolveLabelCollisions(candidates);
+    }
+
+    /**
+     * The ids one hop from the selection.
+     *
+     * @private
+     * @returns {Set<string>}
+     */
+    _selectionNeighbourIds() {
+        const ids = new Set();
+        const selected = this.selectedNode;
+        if (!selected) return ids;
+
+        selected.eachAdjacency?.((adj) => {
+            if ((adj.data?.type || '') === 'ROOT') return;
+            ids.add(adj.nodeFrom.id === selected.id ? adj.nodeTo.id : adj.nodeFrom.id);
+        });
+        return ids;
+    }
+
+    /**
+     * Where a node's label will be drawn, and how big it is.
+     *
+     * Mirrors placeNodeLabel's own arithmetic — centred under the node, offset
+     * by its radius — because a box computed differently from where the label
+     * lands resolves collisions that are not happening.
+     *
+     * @private
+     * @param {object} node
+     * @returns {{x: number, y: number, w: number, h: number}}
+     */
+    _labelBox(node) {
+        const screen = this._getNodeScreenPos(node);
+        const size = this._labelSize(node);
+        return {
+            x: screen.x - size.w / 2,
+            y: screen.y + screen.dim + 4,
+            w: size.w,
+            h: size.h,
+        };
+    }
+
+    /**
+     * @private
+     * @param {object} node
+     * @returns {{w: number, h: number}}
+     */
+    _labelSize(node) {
+        const cached = this._labelSizes.get(node.id);
+        if (cached) return cached;
+
+        const element = this.ht.labels?.getLabel?.(node.id);
+        // offsetWidth is 0 for a label that has never been displayed, and
+        // measuring it would force a layout anyway. Estimate from the text
+        // until the label has been drawn once, then cache the real figure.
+        if (element && element.offsetWidth > 0) {
+            const size = { w: element.offsetWidth, h: element.offsetHeight || LABEL_HEIGHT_PX };
+            this._labelSizes.set(node.id, size);
+            return size;
+        }
+
+        const text = String(node.name || node.id || '');
+        return { w: Math.max(8, text.length * LABEL_CHAR_WIDTH_PX), h: LABEL_HEIGHT_PX };
+    }
+
     placeNodeLabel(domElement, node) {
         // Hide label for synthetic root node
         if ((node.data.type || '').toLowerCase() === 'root') {
@@ -971,17 +1276,23 @@ export class MusicGraph {
             return;
         }
 
-        // Show tooltip when: selected, near center, or after 500ms hover delay.
+        // Eligibility and collisions were both decided for the whole frame by
+        // _computeVisibleLabels; this call knows about one label and cannot see
+        // the pile it is joining.
+        //
+        // A null set means no plot has run through the wrapper yet — fall back
+        // to the per-label rule rather than hiding everything.
+        if (this._visibleLabels) {
+            style.display = this._visibleLabels.has(node.id) ? '' : 'none';
+            return;
+        }
+
         const isSelected = node.getData('isSelected');
         const sqNorm = node.pos.getc().squaredNorm();
         const isNearCenter = sqNorm < this.labelThresholdFor(node);
         const hoverTooltip = node.getData('hoverTooltip');
 
-        if (isSelected || isNearCenter || hoverTooltip) {
-            style.display = '';
-        } else {
-            style.display = 'none';
-        }
+        style.display = (isSelected || isNearCenter || hoverTooltip) ? '' : 'none';
     }
 
     /**
@@ -1053,6 +1364,9 @@ export class MusicGraph {
             return;
         }
 
+        let color = null;
+        let width = null;
+
         // A guest credit runs Person → Group exactly like a membership does, so
         // the type-pair rules below cannot tell them apart and would paint a
         // guest as a member — the one distinction this registry most cares
@@ -1061,43 +1375,54 @@ export class MusicGraph {
             const personNode = (adj.nodeFrom.data.type || '').toLowerCase() === 'person'
                 ? adj.nodeFrom
                 : adj.nodeTo;
-            adj.setData('color', this.colorPalette.getEdgeColor('GUEST_ON', personNode.id));
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('GUEST_ON'));
-            if (this.edgeNavigator?.isHighlighted(adj)) {
-                const style = this.edgeNavigator.highlightStyle(adj.getData('lineWidth'));
-                adj.setData('color', style.color);
-                adj.setData('lineWidth', style.lineWidth);
+            color = this.colorPalette.getEdgeColor('GUEST_ON', personNode.id);
+            width = this.colorPalette.getEdgeWidth('GUEST_ON');
+        } else {
+            const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
+            const toType = (adj.nodeTo.data.type || '').toLowerCase();
+
+            // MEMBER_OF edges: find the person endpoint, use its DB color
+            if ((fromType === 'person' && toType === 'group') ||
+                (fromType === 'group' && toType === 'person')) {
+                const personNode = fromType === 'person' ? adj.nodeFrom : adj.nodeTo;
+                // Prefer DB-stored color on the node, fall back to palette
+                color =
+                    personNode.getData('color') ||
+                    personNode.data.$color ||
+                    this.colorPalette.getColor(personNode.id);
+                width = this.colorPalette.getEdgeWidth('MEMBER_OF');
             }
-            return;
+            // Group -> Track: green edges
+            else if ((fromType === 'group' && toType === 'track') ||
+                     (fromType === 'track' && toType === 'group')) {
+                color = this.colorPalette.getEdgeColor('PERFORMED_ON');
+                width = this.colorPalette.getEdgeWidth('PERFORMED_ON');
+            }
+            // Track -> Release: gray edges
+            else if ((fromType === 'track' && toType === 'release') ||
+                     (fromType === 'release' && toType === 'track')) {
+                color = this.colorPalette.getEdgeColor('IN_RELEASE');
+                width = this.colorPalette.getEdgeWidth('IN_RELEASE');
+            }
         }
 
-        const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
-        const toType = (adj.nodeTo.data.type || '').toLowerCase();
+        // Everything that is not the current neighbourhood goes quiet.
+        //
+        // The graph colours and weights every edge the same regardless of what
+        // is selected, which is why a dense group reads as uniformly important
+        // — the whole universe at once, and the one thing being looked at no
+        // louder than the rest. Dimming rather than hiding keeps the universe
+        // there to navigate into.
+        //
+        // Width is untouched on purpose: thinning an unrelated edge as well
+        // would change the shape of the graph as you browse, and the shape is
+        // the data.
+        if (color !== null && !this._isNeighbourhoodEdge(adj)) {
+            color = this.colorPalette.withOpacity(color, UNRELATED_EDGE_OPACITY);
+        }
 
-        // MEMBER_OF edges: find the person endpoint, use its DB color
-        if ((fromType === 'person' && toType === 'group') ||
-            (fromType === 'group' && toType === 'person')) {
-            const personNode = fromType === 'person' ? adj.nodeFrom : adj.nodeTo;
-            // Prefer DB-stored color on the node, fall back to palette
-            const color =
-                personNode.getData('color') ||
-                personNode.data.$color ||
-                this.colorPalette.getColor(personNode.id);
-            adj.setData('color', color);
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('MEMBER_OF'));
-        }
-        // Group -> Track: green edges
-        else if ((fromType === 'group' && toType === 'track') ||
-                 (fromType === 'track' && toType === 'group')) {
-            adj.setData('color', this.colorPalette.getEdgeColor('PERFORMED_ON'));
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('PERFORMED_ON'));
-        }
-        // Track -> Release: gray edges
-        else if ((fromType === 'track' && toType === 'release') ||
-                 (fromType === 'release' && toType === 'track')) {
-            adj.setData('color', this.colorPalette.getEdgeColor('IN_RELEASE'));
-            adj.setData('lineWidth', this.colorPalette.getEdgeWidth('IN_RELEASE'));
-        }
+        if (color !== null) adj.setData('color', color);
+        if (width !== null) adj.setData('lineWidth', width);
 
         // Last, and on top of whatever the palette chose: this runs from
         // onBeforePlotLine on every edge of every frame, so anything written
@@ -1107,6 +1432,26 @@ export class MusicGraph {
             adj.setData('color', style.color);
             adj.setData('lineWidth', style.lineWidth);
         }
+    }
+
+    /**
+     * Whether an edge belongs to what the visitor is currently looking at.
+     *
+     * One hop: the edges touching the selection. Not two — a two-hop rule on a
+     * well-connected group keeps most of the graph bright and dims nothing
+     * worth dimming.
+     *
+     * With nothing selected, everything qualifies. The opening view is the
+     * universe and has no focus to contrast against.
+     *
+     * @private
+     * @param {object} adj
+     * @returns {boolean}
+     */
+    _isNeighbourhoodEdge(adj) {
+        const selected = this.selectedNode;
+        if (!selected) return true;
+        return adj.nodeFrom.id === selected.id || adj.nodeTo.id === selected.id;
     }
 
     /**
@@ -1126,6 +1471,8 @@ export class MusicGraph {
         // Set new selection
         node.setData('isSelected', true);
         this.selectedNode = node;
+        // Everything the previous selection had in flight is now stale.
+        this._panelEpoch += 1;
 
         // The live edges are the ones touching the selection, so the previous
         // highlight is about to belong to a node nobody is standing on.
@@ -1155,10 +1502,21 @@ export class MusicGraph {
         // Hide release overlay immediately so tiles don't float during animation
         this.releaseOverlay.hide();
 
+        // The panel's name, skeleton and network request all start now, not in
+        // onComplete. Three things used to move at three speeds — the selection
+        // instantly, the recentring over 700ms, and the details not beginning
+        // until the recentring had finished — so the earliest a name could
+        // appear was 700ms after the tap and the earliest the content could was
+        // 700ms plus a round trip. The animation is unchanged; it simply no
+        // longer gates the request.
+        this.updateInfoPanel(node);
+
         // Center on node
         this.ht.onClick(node.id, {
             onComplete: () => {
-                this.updateInfoPanel(node);
+                // This one does have to wait: the orbit is positioned from the
+                // node's final screen coordinates, which do not exist until the
+                // animation has put it there.
                 this.overlayPositioner.syncReleaseOverlay(node);
             }
         });
@@ -1234,6 +1592,7 @@ export class MusicGraph {
 
         const type = node.data.type || 'Unknown';
         const nodeId = node.id;
+        const epoch = this._panelEpoch;
 
         infoTitle.textContent = node.name || 'Loading...';
         infoContent.innerHTML = '<p>Loading details...</p>';
@@ -1252,6 +1611,10 @@ export class MusicGraph {
 
         try {
             const response = await this.api.fetchNodeDetails(nodeId, type);
+
+            // The selection moved on while this was in flight. Everything below
+            // writes to the panel, so there is nothing here worth doing.
+            if (epoch !== this._panelEpoch) return;
 
             if (!response) {
                 infoContent.innerHTML = '<p>No details available</p>';
@@ -1275,6 +1638,9 @@ export class MusicGraph {
             }
         } catch (error) {
             console.error('Error fetching node details:', error);
+            // Only the current selection may report its own failure; a stale
+            // one would replace a perfectly good panel with an error.
+            if (epoch !== this._panelEpoch) return;
             infoContent.innerHTML = '<p>Error loading details</p>';
         }
     }
@@ -1326,6 +1692,10 @@ export class MusicGraph {
             return;
         }
 
+        // A release takes the panel over, so a node's details still in flight
+        // must not land on top of it. Same reason as a node tap, different
+        // subject.
+        this._panelEpoch += 1;
         this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
         // Populating the panel is not the same as showing it. On desktop the
         // panel is always present so this was invisible; on a phone the sheet

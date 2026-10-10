@@ -16,10 +16,17 @@
  * stays inert: a graph where any of several hundred arcs might be the one under
  * your finger is not more navigable, it is a minefield.
  *
+ * The second tap does not have to land on the arc. The label that appears names
+ * where the edge goes and is itself the button — a chip several times the width
+ * of the line it describes. Asking someone to hit the same curve twice, while
+ * showing them a large piece of text they cannot press, was the worst part of
+ * the first version of this.
+ *
  * @module visualization/EdgeNavigator
  */
 
 import { arcSense, arcThroughTwoPoints, pickEdge } from './edgePicking.js';
+import { canHover } from './pointerCapability.js';
 
 /**
  * How near the pointer has to be, in pixels.
@@ -47,11 +54,6 @@ export const HIGHLIGHT_COLOR = '#ffffff';
 export const HIGHLIGHT_WIDTH_MULTIPLIER = 3;
 export const HIGHLIGHT_MIN_WIDTH = 2.5;
 
-/** Does this device have a pointer that can hover? */
-export function canHover(win = window) {
-    return !!win.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches;
-}
-
 export class EdgeNavigator {
     /**
      * @param {object} deps
@@ -60,7 +62,6 @@ export class EdgeNavigator {
      * @param {object} deps.callbacks
      * @param {(nodeId: string) => void} deps.callbacks.navigate
      * @param {() => void} deps.callbacks.plot
-     * @param {() => boolean} [deps.callbacks.shouldSuppress] - true while panning
      * @param {Window} [deps.win]
      */
     constructor({ getHypertree, getAnchorNode, callbacks, win = window }) {
@@ -73,6 +74,8 @@ export class EdgeNavigator {
         this.highlightedId = null;
         /** On a touch device, the edge a second tap would travel. */
         this.armedId = null;
+        /** The node that armed edge leads to, for the chip to travel to. */
+        this.armedTargetId = null;
 
         this._label = null;
         this._listeners = [];
@@ -318,8 +321,6 @@ export class EdgeNavigator {
 
     /** @param {MouseEvent} event */
     handlePointerMove(event) {
-        if (this.callbacks.shouldSuppress?.()) return;
-
         const hit = this.pickAt(event.clientX, event.clientY);
         if (!hit) {
             this.clear();
@@ -342,8 +343,6 @@ export class EdgeNavigator {
      * @returns {boolean} true when the click was consumed by an edge
      */
     handleClick(event) {
-        if (this.callbacks.shouldSuppress?.()) return false;
-
         const hit = this.pickAt(event.clientX, event.clientY);
         if (!hit) {
             this.clear();
@@ -357,6 +356,8 @@ export class EdgeNavigator {
             this.clear();
             this._highlight(hit);
             this.armedId = hit.id;
+            this.armedTargetId = hit.other.id;
+            this._setLabelTappable(true);
             // A finger covers the point it taps, so the label goes on the arc
             // rather than at the touch.
             const onArc = this.diskToViewport(this.midpointOf(hit));
@@ -410,6 +411,8 @@ export class EdgeNavigator {
         const had = this.highlightedId !== null;
         this.highlightedId = null;
         this.armedId = null;
+        this.armedTargetId = null;
+        this._setLabelTappable(false);
         this.element?.classList.remove('edge-hover');
         this._hideLabel();
         // Only when something changed: a mousemove across empty canvas calls
@@ -448,6 +451,39 @@ export class EdgeNavigator {
         element.hidden = false;
     }
 
+    /**
+     * Turn the label into the button, or back into a label.
+     *
+     * Only while armed, and only where there is no hovering pointer. On a mouse
+     * the label tracks the cursor, so an element that accepted pointer events
+     * there would sit under the cursor and take the hover and the click away
+     * from the canvas it is describing — the edge would unhighlight the instant
+     * its own label appeared.
+     *
+     * @private
+     * @param {boolean} tappable
+     */
+    _setLabelTappable(tappable) {
+        const element = this._label;
+        if (!element) return;
+
+        element.classList.toggle('edge-label-tappable', tappable);
+        if (tappable) {
+            element.setAttribute('role', 'button');
+            element.setAttribute('tabindex', '0');
+            if (!element.querySelector('.edge-label-go')) {
+                const go = document.createElement('span');
+                go.className = 'edge-label-go';
+                go.textContent = '→';
+                element.appendChild(go);
+            }
+        } else {
+            element.removeAttribute('role');
+            element.removeAttribute('tabindex');
+            element.querySelector('.edge-label-go')?.remove();
+        }
+    }
+
     /** @private */
     _positionLabel(clientX, clientY) {
         if (!this._label || this._label.hidden) return;
@@ -467,9 +503,37 @@ export class EdgeNavigator {
             this._label = document.createElement('div');
             this._label.className = 'edge-label';
             this._label.hidden = true;
+
+            // The chip lives on body rather than inside the canvas, so a press
+            // here never reaches the canvas handlers at all — which is why it
+            // can be a plain click listener with nothing to coordinate.
+            this._label.addEventListener('click', (e) => {
+                if (!this.armedTargetId) return;
+                e.stopPropagation();
+                e.preventDefault();
+                this._travelToArmed();
+            });
+            this._label.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                if (!this.armedTargetId) return;
+                e.preventDefault();
+                this._travelToArmed();
+            });
+
             document.body.appendChild(this._label);
         }
         return this._label;
+    }
+
+    /**
+     * Travel the armed edge. Shared by the chip and a second tap on the arc.
+     * @private
+     */
+    _travelToArmed() {
+        const target = this.armedTargetId;
+        if (!target) return;
+        this.clear();
+        this.callbacks.navigate(target);
     }
 }
 
@@ -487,8 +551,12 @@ export function edgeId(adj) {
  * @returns {string}
  */
 export function describeRelation(adj) {
-    const type = adj.data?.type || adj.getData?.('type') || '';
-    const role = adj.data?.role || adj.getData?.('role') || '';
+    // adj.data only, never getData: JIT's Edge config defines its own 'type'
+    // — the *rendering* type, 'hyperline' — and getData falls back to it. An
+    // edge whose relationship type is missing would be labelled 'hyperline',
+    // which is not a thing anybody played on a record.
+    const type = adj.data?.type || '';
+    const role = adj.data?.role || '';
 
     const label = {
         MEMBER_OF: 'member',
@@ -506,3 +574,5 @@ export function describeRelation(adj) {
     if (role && label) return `${label} · ${role}`;
     return role || label;
 }
+
+export { canHover };

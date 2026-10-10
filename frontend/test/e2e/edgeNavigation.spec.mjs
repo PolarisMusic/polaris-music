@@ -19,10 +19,13 @@ const GRAPH = {
         { id: 'grp:band', name: 'Test Band', type: 'group' },
         { id: 'per:drums', name: 'A Drummer', type: 'person' },
         { id: 'per:bass', name: 'A Bassist', type: 'person' },
+        { id: 'per:keys', name: 'A Keyboardist', type: 'person' },
     ],
     edges: [
         { source: 'grp:band', target: 'per:drums', type: 'MEMBER_OF', role: 'drums' },
         { source: 'grp:band', target: 'per:bass', type: 'MEMBER_OF', role: 'bass' },
+        // Deliberately untyped: produces a one-line chip.
+        { source: 'grp:band', target: 'per:keys' },
     ],
 };
 
@@ -30,6 +33,7 @@ const DETAILS = {
     'grp:band': { group_id: 'grp:band', name: 'Test Band' },
     'per:drums': { person_id: 'per:drums', name: 'A Drummer' },
     'per:bass': { person_id: 'per:bass', name: 'A Bassist' },
+    'per:keys': { person_id: 'per:keys', name: 'A Keyboardist' },
 };
 
 async function boot(page) {
@@ -162,6 +166,22 @@ test.describe('hovering an edge', () => {
         expect(restored).toBe(true);
     });
 
+    test('on a mouse the label stays inert, so it cannot steal its own hover', async ({ page }) => {
+        // The label tracks the cursor here. A target under the cursor would take
+        // the hover from the canvas and unhighlight the edge it is describing.
+        await boot(page);
+        await select(page, 'grp:band');
+
+        const point = await edgeMidpoint(page, 'per:drums');
+        await page.mouse.move(point.x, point.y);
+        await expect(page.locator('.edge-label-name')).toBeVisible();
+
+        await expect(page.locator('.edge-label')).not.toHaveClass(/edge-label-tappable/);
+        expect(await page.evaluate(() =>
+            getComputedStyle(document.querySelector('.edge-label')).pointerEvents)).toBe('none');
+        await expect(page.locator('.edge-label-go')).toHaveCount(0);
+    });
+
     test('an edge that does not touch the current node is inert', async ({ page }) => {
         // Only the selection's own edges are live; every other arc on screen
         // has to stay un-pickable or the graph becomes a minefield.
@@ -259,6 +279,77 @@ test.describe('clicking an edge', () => {
 
 test.describe('without a hovering pointer', () => {
     test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+    test('the revealed chip is the button, and tapping it travels', async ({ page }) => {
+        // The point of the chip: the second tap does not have to land on the
+        // same 1px curve. Asking for that twice, while showing a large piece of
+        // text that could not be pressed, was the worst part of the first
+        // version of this.
+        await boot(page);
+        await select(page, 'grp:band');
+
+        const point = await edgeMidpoint(page, 'per:drums');
+        await page.evaluate(({ x, y }) => {
+            window.musicGraph.edgeNavigator.handleClick(
+                new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+        }, point);
+
+        const chip = page.locator('.edge-label');
+        await expect(chip).toContainText('A Drummer');
+        await expect(chip).toHaveClass(/edge-label-tappable/);
+        await expect(page.locator('.edge-label-go')).toHaveText('→');
+
+        // Big enough to hit. The arc it describes is about one pixel wide.
+        const box = await chip.boundingBox();
+        expect(box.height).toBeGreaterThanOrEqual(44);
+
+        await chip.click();
+        await page.waitForFunction(
+            () => window.musicGraph.selectedNode?.id === 'per:drums',
+            { timeout: 10_000 }
+        );
+    });
+
+    test('a one-line chip is still a 44px target', async ({ page }) => {
+        // With a relation line the chip clears 44px on content and padding
+        // alone — the floor does nothing. An edge with no relation to describe
+        // is the case it exists for.
+        await boot(page);
+        await select(page, 'grp:band');
+
+        const point = await edgeMidpoint(page, 'per:keys');
+        await page.evaluate(({ x, y }) => {
+            window.musicGraph.edgeNavigator.handleClick(
+                new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+        }, point);
+
+        await expect(page.locator('.edge-label-name')).toHaveText('A Keyboardist');
+        // Not 'hyperline': describeRelation must read the registry's type off
+        // adj.data, not through getData, which falls back to JIT's own Edge
+        // config where 'type' means the rendering style.
+        await expect(page.locator('.edge-label-relation')).toHaveCount(0);
+
+        const box = await page.locator('.edge-label').boundingBox();
+        expect(box.height).toBeGreaterThanOrEqual(44);
+    });
+
+    test('the chip is keyboard-reachable once armed', async ({ page }) => {
+        await boot(page);
+        await select(page, 'grp:band');
+
+        const point = await edgeMidpoint(page, 'per:bass');
+        await page.evaluate(({ x, y }) => {
+            window.musicGraph.edgeNavigator.handleClick(
+                new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+        }, point);
+
+        await expect(page.locator('.edge-label')).toHaveAttribute('role', 'button');
+        await page.locator('.edge-label').press('Enter');
+        await page.waitForFunction(
+            () => window.musicGraph.selectedNode?.id === 'per:bass',
+            { timeout: 10_000 }
+        );
+    });
 
     test('the first tap reveals and the second travels', async ({ page }) => {
         await boot(page);

@@ -814,7 +814,11 @@ body.mini-player-visible.mini-player-embed {
     border-radius: 3px;
     padding: 0;
     cursor: pointer;
-    overflow: hidden;
+    /* Not hidden. It was, and it clipped two things to the tile's own 34px box:
+       the press target grown by ::after below, and the caption that hangs
+       underneath the open tile. The image is sized to the tile and so cannot
+       overflow on its own; it carries the rounded corner itself. */
+    overflow: visible;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -838,6 +842,8 @@ body.mini-player-visible.mini-player-embed {
     height: 100%;
     object-fit: cover;
     display: block;
+    /* Was inherited from the tile's overflow:hidden; now its own. */
+    border-radius: 2px;
 }
 
 .release-tile__placeholder {
@@ -1200,10 +1206,6 @@ body.mini-player-visible.mini-player-embed {
     padding: 0;
     overflow-y: auto;
     flex: 1;
-}
-
-.grabbing {
-    cursor: grabbing !important;
 }
 
 .stat-clickable {
@@ -1798,17 +1800,63 @@ body.mini-player-visible.mini-player-embed {
         display: none;
     }
 
-    /* A decorative grabber that cost 16px of a 295px sheet. It is not
-       draggable — the X beside the title is the close control — so it is
-       sized as the hint it is. */
+    /* In the collapsed state the row is the handle — full width, 44px tall,
+       and already there. touch-action for the same reason as the handle below:
+       without it the browser claims a vertical drag for scrolling and cancels
+       the pointer mid-gesture. */
+    #info-peek {
+        touch-action: none;
+    }
+
+    /* It drags now, between the collapsed row and the full sheet, so it is
+       sized as a control rather than as a hint. 24px rather than 44: the sheet
+       is 295px tall and a 44px handle would be a seventh of it, and unlike a
+       tile in the orbit this one is a full-width strip, so the finger only has
+       to find it vertically.
+
+       touch-action is the part that makes the gesture work at all. Without it
+       the browser claims the vertical drag for scrolling and cancels the
+       pointer mid-gesture, which looks like the handle intermittently not
+       responding. */
     .info-sheet-handle {
         display: block;
+        width: 100%;
+        height: 24px;
+        margin: 0;
+        position: relative;
+        flex-shrink: 0;
+        cursor: grab;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* The visible grabber: still 36×3, now centred in something pressable. */
+    .info-sheet-handle::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
         width: 36px;
         height: 3px;
-        margin: 4px auto 1px;
+        margin-top: -1.5px;
+        margin-left: -18px;
         border-radius: 2px;
         background: #555;
-        flex-shrink: 0;
+    }
+
+    .info-sheet-handle:active {
+        cursor: grabbing;
+    }
+
+    .info-sheet-handle:active::before,
+    .info-sheet-handle:focus-visible::before {
+        background: #999;
+    }
+
+    /* While a finger is on it, the sheet follows the finger and must not also
+       be easing towards a CSS position — the two together lag and overshoot. */
+    #info-viewer.sheet-dragging {
+        transition: none !important;
     }
 
     .btn-info-close {
@@ -2618,6 +2666,40 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     text-transform: lowercase;
 }
 
+/*
+ * Armed, and therefore the button. Only reached without a hovering pointer:
+ * on a mouse the label follows the cursor, and a target under the cursor would
+ * take the hover away from the canvas and unhighlight the edge it describes.
+ *
+ * 44px minimum height because this is the second half of a two-step gesture on
+ * a phone, and the first half already asked the person to hit a 1px curve.
+ */
+.edge-label-tappable {
+    pointer-events: auto;
+    cursor: pointer;
+    min-height: 44px;
+    padding: 8px 30px 8px 12px;   /* right side leaves room for the arrow */
+    justify-content: center;
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(18, 22, 32, 0.98);
+}
+
+.edge-label-tappable:active {
+    background: rgba(40, 48, 66, 0.98);
+}
+
+/* The arrow is the affordance: it says this names a destination, not a fact. */
+.edge-label-go {
+    position: absolute;
+    top: 50%;
+    right: 9px;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 15px;
+    line-height: 1;
+}
+
+
 /* The pick radius is generous on touch; the cursor should say so on a mouse. */
 @media (hover: hover) and (pointer: fine) {
     #infovis canvas.edge-hover {
@@ -2783,4 +2865,90 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     .show-guests {
         display: none;
     }
+}
+
+/* ---------------------------------------------------------------------------
+   Release orbit — press targets and naming
+   --------------------------------------------------------------------------- */
+
+/*
+ * The mark stays the size the orbit needs it to be; the area that answers a
+ * press grows outwards from it. --hit-expand is a negative inset written per
+ * element by the overlay, so the visual geometry and the layout maths above it
+ * are untouched — only the pseudo-element is bigger.
+ *
+ * Without this, release tiles are 34px and guest chips 22px. A fingertip covers
+ * roughly 8mm of glass and arrives with no cursor to aim by.
+ */
+.release-tile::after,
+.release-guest-chip::after {
+    content: '';
+    position: absolute;
+    /* Sized absolutely and centred, not inset. An inset resolves against the
+       containing block's *padding* box, which is 4px narrower than these
+       elements because of their 2px border — so -5px insets produced a 40px
+       target on a 34px tile, not the 44px asked for. A width says what it
+       means. */
+    top: 50%;
+    left: 50%;
+    width: var(--hit-size, 100%);
+    height: var(--hit-size, 100%);
+    transform: translate(-50%, -50%);
+    /* Nothing to see: this exists only to be pressed. */
+    border-radius: inherit;
+}
+
+/* The format, where the data has one. The only other text on a sleeveless tile
+   is two letters of its title, which reads as a format code and names nothing —
+   "LP" and "TD" in the recording were initials of album titles. */
+.release-tile__type {
+    position: absolute;
+    bottom: 1px;
+    right: 2px;
+    z-index: 1;
+    padding: 0 2px;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.72);
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+    pointer-events: none;
+}
+
+.release-tile--active .release-tile__type {
+    bottom: 3px;
+    right: 4px;
+    font-size: 9px;
+}
+
+/*
+ * What the open release is called. A hover tooltip cannot answer this on a
+ * phone — there is no hover — so before this the only way to learn a name was
+ * to open the release and read the info panel.
+ *
+ * Centred under the tile and allowed to overflow it, which is why it is
+ * translated rather than laid out: the tile is a fixed square and the name is
+ * not.
+ */
+.release-tile__caption {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    max-width: 160px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(12, 14, 20, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
 }
