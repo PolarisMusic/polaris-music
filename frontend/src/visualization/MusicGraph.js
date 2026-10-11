@@ -25,6 +25,7 @@ import { DonutLoader } from './DonutLoader.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
 import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
 import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
+import { rebuildVerdict } from './layoutRebuild.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -68,6 +69,20 @@ const HYPERTREE_ANIMATION_MS = 700;
  * the rest. The whole history is still in the history panel.
  */
 const TRAIL_LENGTH = 5;
+
+/**
+ * The most any node the visitor can see may move when the layout tree is
+ * rebuilt underneath them. See layoutRebuild.js for why a rebuild is wanted at
+ * all and why this is the only control over it.
+ *
+ * Four pixels is under the width of a node's outline. In the scenes measured
+ * the qualifying rebuilds moved nothing whatsoever — the gate fires when the
+ * view is sparse, and a sparse view has nothing to disturb — so this is a
+ * guard against a dense real graph producing a near-miss, not a budget being
+ * spent. Lowering it costs rebuilds; raising it buys visible rearrangement,
+ * which is the thing being avoided.
+ */
+const REBUILD_GATE_PX = 4;
 
 /**
  * The group radius on a phone.
@@ -1713,8 +1728,96 @@ export class MusicGraph {
         ht.onClick(node.id, {
             duration: HYPERTREE_ANIMATION_MS,
             hideLabels: true,
-            onComplete: () => onComplete(),
+            onComplete: () => {
+                // After the glide, not before: the gate is measured against
+                // the view the visitor has ended up looking at.
+                this._rebuildLayoutIfFree(node);
+                onComplete();
+            },
         });
+    }
+
+    /**
+     * Re-root the layout tree on `node`, but only if nobody would see it.
+     *
+     * Translation leaves the selection's own neighbours at whatever radius
+     * their depth in a tree built from somewhere else dictates — measured, a
+     * band's members at 0.937 while strangers two hops away sit at 0.809.
+     * Rebuilding the tree here fixes that, and normally rearranges the scene,
+     * which is worse than the problem.
+     *
+     * Not always, though. The cost of a rebuild falls entirely on the nodes
+     * the viewer can resolve, and after a step to somewhere sparse there may
+     * be none at all. So: compute the rebuilt layout, take out the best-fit
+     * rotation, and ask what the legible nodes would do. Under REBUILD_GATE_PX
+     * the answer is "nothing anyone could see", and the rebuild is taken.
+     *
+     * This cannot produce the rearrangement it exists to avoid, because not
+     * producing one is its entry condition — and when it declines, the view is
+     * left exactly as the translation left it.
+     *
+     * The gain is larger than the rebuilds themselves: re-rooting here anchors
+     * the tree where the visitor is, so the plain translations that follow
+     * land better too. Measured over three walks, the share of a selection's
+     * neighbours that are legible goes from 38% to 51% while the rebuild fires
+     * on 4 of 25 steps.
+     *
+     * @private
+     * @param {object} node the node now at the centre
+     * @returns {boolean} whether the layout was rebuilt
+     */
+    _rebuildLayoutIfFree(node) {
+        const ht = this.ht;
+        if (!ht?.graph || !node || ht.busy) return false;
+        if (ht.root === node.id) return false;
+
+        const nodes = [];
+        ht.graph.eachNode((n) => nodes.push(n));
+
+        const savedRoot = ht.root;
+        const savedEnd = nodes.map((n) => ({ theta: n.endPos.theta, rho: n.endPos.rho }));
+
+        ht.root = node.id;
+        ht.compute('end');
+
+        const samples = nodes.map((n, i) => ({
+            fromTheta: n.pos.theta,
+            fromRho: n.pos.rho,
+            toTheta: n.endPos.theta,
+            toRho: n.endPos.rho,
+            index: i,
+        }));
+
+        const { spin, free } = rebuildVerdict(samples, ht.getRadius(), REBUILD_GATE_PX);
+
+        if (!free) {
+            // Put back exactly what was there. compute('end') has already
+            // overwritten every end position, and the next animation starts
+            // from them.
+            ht.root = savedRoot;
+            nodes.forEach((n, i) => n.endPos.setp(savedEnd[i].theta, savedEnd[i].rho));
+            return false;
+        }
+
+        // Applying `spin` is what makes the verdict's promise true: it is the
+        // rotation the gate measured against, so leaving it out would move
+        // every node by exactly the amount the gate was told would not happen.
+        //
+        // No scene in the e2e suite exercises it, though, and that is worth
+        // knowing rather than discovering. The rebuild fires when the view is
+        // sparse, a sparse view gives the fit no samples, and with no samples
+        // the rotation is zero — so deleting this line passes every end-to-end
+        // test. Its arithmetic is pinned in layoutRebuild.test.js instead
+        // ("a rotation of the whole scene does not block it"), which is also
+        // the case it exists for: a denser graph where re-rooting produces a
+        // similar tree facing a different way, and the rotation is what lets
+        // an otherwise free rebuild through.
+        nodes.forEach((n) => {
+            n.endPos.theta += spin;
+            n.pos.set(n.endPos);
+        });
+        ht.plot();
+        return true;
     }
 
     /**

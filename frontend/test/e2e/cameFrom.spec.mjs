@@ -105,16 +105,28 @@ test.describe('the node you came from', () => {
     });
 
     test('keeps its name even out at the rim', async ({ page }) => {
-        // The whole point. Measured, a band's own member sits at 0.937 after
-        // centring on it, well past the 0.5 a person's label needs.
+        // The whole point, and it needs a step that genuinely strands the node
+        // you came from. A hop between two members of one band does: measured,
+        // it leaves the previous member at 0.97, where a person's label radius
+        // of 0.5 gave up long ago.
+        //
+        // The obvious shorter walk no longer works, which is worth knowing
+        // rather than discovering. Stepping from a band to its own member is
+        // one of the cases where the gated rebuild fires, so the band comes in
+        // to 0.51 and the test would pass without the feature it is testing.
         await boot(page);
         await select(page, 'grp:0');
         await select(page, 'per:0_1');
+        await select(page, 'per:0_2');
+        await select(page, 'per:1_0');
+
+        const previous = await page.evaluate(() => window.musicGraph.previousNode.id);
+        expect(previous).toBe('per:0_2');
 
         const rho = await page.evaluate(
-            () => window.musicGraph.ht.graph.getNode('grp:0').pos.rho);
-        expect(rho).toBeGreaterThan(0.6);
-        expect(await labelled(page, 'grp:0')).toBe(true);
+            () => window.musicGraph.ht.graph.getNode('per:0_2').pos.rho);
+        expect(rho).toBeGreaterThan(0.9);
+        expect(await labelled(page, 'per:0_2')).toBe(true);
     });
 
     test('is not the selection as well', async ({ page }) => {

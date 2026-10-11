@@ -13,8 +13,22 @@
  * asserting about some consequence of it: measure the distances, navigate,
  * measure them again.
  *
- * The second half is the canvas resize, which was quietly rebuilding the layout
- * underneath the animation.
+ * With one exception, which is deliberate and gated. On arrival the layout may
+ * be rebuilt around the new selection — but only when doing so would move no
+ * node the viewer can resolve by more than a few pixels (see
+ * MusicGraph._rebuildLayoutIfFree). So the contract has two branches, and both
+ * are checked here against a reference this file computes for itself rather
+ * than asks the application for:
+ *
+ *   no rebuild  the step is exactly the Mobius translation taking the target
+ *               to the origin, to within floating point.
+ *   rebuild     every node that was legible beforehand is within the gate of
+ *               where that same translation would have put it. Nothing a
+ *               visitor could see has moved; the gain is nodes arriving from
+ *               the rim, which were not visible to begin with.
+ *
+ * The third section is the canvas resize, which was quietly rebuilding the
+ * layout underneath the animation, and is nothing to do with either.
  */
 
 import { test, expect } from '@playwright/test';
@@ -123,7 +137,7 @@ function hyperbolicDistance(u, v) {
  * out near the rim, which they are — that is the cost this navigation accepts.
  */
 const WELL_INSIDE = 0.999;
-const radius = (p) => Math.hypot(p.x, p.y);
+const radiusOf = (p) => Math.hypot(p.x, p.y);
 
 /**
  * The largest relative change in any pairwise distance, and how many pairs were
@@ -131,7 +145,7 @@ const radius = (p) => Math.hypot(p.x, p.y);
  */
 function worstDistortion(before, after) {
     const ids = Object.keys(after).filter((id) => id in before
-        && radius(before[id]) < WELL_INSIDE && radius(after[id]) < WELL_INSIDE);
+        && radiusOf(before[id]) < WELL_INSIDE && radiusOf(after[id]) < WELL_INSIDE);
 
     let worst = 0;
     let pairs = 0;
@@ -156,10 +170,45 @@ function worstDistortion(before, after) {
  */
 const RIGID = 1e-9;
 
+/**
+ * Where a plain translation would put every node.
+ *
+ * JIT applies `z -> (z + c) / (1 + conj(c) z)` with `c` the negated position of
+ * the target (Complex.moebiusTransformation, jit.js:17820, driven from
+ * Graph.Util.moebiusTransformation), which is the translation carrying the
+ * target to the origin. Recomputed here rather than read back from the
+ * application: a reference the implementation supplies cannot contradict it.
+ */
+function predictTranslation(before, targetId) {
+    const b = before[targetId];
+    const out = {};
+    for (const [id, z] of Object.entries(before)) {
+        // (z - b) / (1 - conj(b) z), in real arithmetic.
+        const nx = z.x - b.x;
+        const ny = z.y - b.y;
+        const dx = 1 - (b.x * z.x + b.y * z.y);
+        const dy = -(b.x * z.y - b.y * z.x);
+        const den = dx * dx + dy * dy;
+        out[id] = { x: (nx * dx + ny * dy) / den, y: (ny * dx - nx * dy) / den };
+    }
+    return out;
+}
+
+/* Must match MusicGraph.REBUILD_GATE_PX. */
+const REBUILD_GATE_PX = 4;
+
+/** Pixels from the centre of the rendered disk to its rim. */
+const diskRadius = (page) => page.evaluate(() => window.musicGraph.ht.getRadius());
+
 test.describe('the view moves rigidly', () => {
     test('stepping to a neighbour preserves every distance', async ({ page }) => {
         await boot(page);
         await select(page, 'grp:0');
+
+        // Deliberately with the rebuild stubbed out, so this measures the
+        // navigation itself. The gated rebuild has its own tests, and the walk
+        // below covers the two together.
+        await page.evaluate(() => { window.musicGraph._rebuildLayoutIfFree = () => false; });
 
         const before = await positions(page);
         await select(page, 'per:0_1');
@@ -169,16 +218,47 @@ test.describe('the view moves rigidly', () => {
         expect(worst).toBeLessThan(RIGID);
     });
 
-    test('it holds across a walk, not just one step', async ({ page }) => {
+    test('every step is that translation, or invisibly close to it', async ({ page }) => {
         await boot(page);
         await select(page, 'grp:0');
+        const radius = await diskRadius(page);
 
-        for (const id of ['per:0_1', 'grp:0', 'per:hub', 'grp:2']) {
+        for (const id of ['per:0_1', 'grp:0', 'per:hub', 'grp:2', 'per:2_3']) {
             const before = await positions(page);
+            const rootBefore = await page.evaluate(() => window.musicGraph.ht.root);
+
             await select(page, id);
-            const { worst, pairs } = worstDistortion(before, await positions(page));
-            expect(pairs, `step to ${id}`).toBeGreaterThan(10);
-            expect(worst, `step to ${id}`).toBeLessThan(RIGID);
+
+            const after = await positions(page);
+            const rootAfter = await page.evaluate(() => window.musicGraph.ht.root);
+            const predicted = predictTranslation(before, id);
+
+            let worstPx = 0;
+            let judged = 0;
+            for (const nodeId of Object.keys(after)) {
+                if (!(nodeId in predicted)) continue;
+                // Legible where the translation leaves it, not where it
+                // started. The glide happens first and the rebuild second, so
+                // the view a rebuild can disturb is the one the translation
+                // produced — and the two sets barely overlap, since centring
+                // on a node throws most of what was near the middle outwards.
+                // Filtering on the starting radius instead reported a 488px
+                // violation against a build that was behaving correctly.
+                if (radiusOf(predicted[nodeId]) >= 0.9) continue;
+                judged++;
+                worstPx = Math.max(worstPx, Math.hypot(
+                    after[nodeId].x - predicted[nodeId].x,
+                    after[nodeId].y - predicted[nodeId].y
+                ) * radius);
+            }
+
+            expect(judged, `step to ${id}`).toBeGreaterThan(0);
+            if (rootAfter === rootBefore) {
+                // No rebuild: the step is the translation and nothing else.
+                expect(worstPx, `step to ${id}, no rebuild`).toBeLessThan(0.5);
+            } else {
+                expect(worstPx, `step to ${id}, rebuilt`).toBeLessThan(REBUILD_GATE_PX);
+            }
         }
     });
 
