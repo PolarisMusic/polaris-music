@@ -26,6 +26,7 @@ npm-debug.log*
 test-results/
 playwright-report/
 
-# Screenshots written by scripts/compareReachability.mjs — regenerate them,
+# Screenshots written by the scripts/compare*.mjs harnesses — regenerate them,
 # do not carry binaries in the tree.
 reachability-shots/
+orientation-shots/

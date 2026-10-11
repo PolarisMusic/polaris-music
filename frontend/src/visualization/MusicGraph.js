@@ -27,6 +27,7 @@ import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
 import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
+import { bestFitRotation } from './layoutOrientation.js';
 import { api as backendApi } from '../utils/api.js';
 
 /**
@@ -1036,9 +1037,8 @@ export class MusicGraph {
         this._lastCanvasHeight = height;
 
         // Remember what the user is looking at before resizing. canvas.resize()
-        // zeroes the pan/zoom offsets (jit.js:2941) and recomputes the layout
-        // from the root, so without this the view snaps home — which is what
-        // made the graph impossible to navigate.
+        // zeroes the pan/zoom offsets (jit.js:2941), so without this the view
+        // snaps home — which is what made the graph impossible to navigate.
         //
         // Read it from the model rather than from this.selectedNode: the
         // centred node is the one at the origin of the unit disk, which is true
@@ -1049,18 +1049,75 @@ export class MusicGraph {
         const focusId = this._centredNodeId();
 
         if (typeof this.ht.canvas.resize === 'function') {
-            this.ht.canvas.resize(width, height);
+            this._resizeCanvasWithoutRecomputing(width, height);
         }
 
         if (focusId && focusId !== this.ht.root && this.ht.graph.getNode(focusId)) {
             // Zero duration: the click animation that triggered this has
             // already finished, so animating again would show a second move.
+            //
+            // Rarely reached now that centring re-roots the tree, which leaves
+            // the focused node *as* ht.root and takes the branch below. It
+            // still covers a view moved by something other than centreOn.
+            //
+            // No guard is needed against a resize landing mid-animation, which
+            // is otherwise the case to worry about — a glide is part-way
+            // through, so the node at the origin is the one being left behind
+            // and this would snatch the view back to it. ht.move refuses
+            // outright while an animation is running (jit.js:18115), so the
+            // call is a no-op exactly when it would do harm. A guard here was
+            // written and then removed: no test could tell it from its absence,
+            // because there is nothing for it to prevent.
             this.ht.onClick(focusId, { duration: 0 });
         } else {
             this.ht.plot();
         }
 
         this.overlayPositioner.updateOverlayPosition();
+    }
+
+    /**
+     * Resize the canvas without letting it rebuild the layout.
+     *
+     * Canvas.Base.resize ends by calling back into the visualization
+     * (jit.js:3189 -> the `resize` hook at jit.js:2833), and for the Hypertree
+     * that hook is `viz.refresh()`, which is `compute()` + `plot()` — a full
+     * canonical recompute of the current, start AND end positions. Two things
+     * break:
+     *
+     *  - The orientation goes. compute() restarts the angular fan at theta = 0
+     *    (jit.js:11971), so the scene is thrown back to whatever direction the
+     *    adjacency order happens to imply. Measured at 135 degrees of spin on
+     *    the first selection after load, which is the one that opens the info
+     *    panel and so the one that changes a canvas dimension.
+     *  - Any animation in flight dies. compute() with no argument writes
+     *    'current' too, so a 700ms glide becomes an instant snap to a layout
+     *    nobody asked for. That was happening before re-rooting existed; the
+     *    old code papered over it by re-centring afterwards, which is why the
+     *    first click always looked different from the rest.
+     *
+     * Suppressing the recompute is safe because Hypertree positions do not
+     * depend on the canvas size. They are unit-disk coordinates, and the only
+     * size-dependent quantity is the pixel radius they are multiplied by at
+     * draw time (getRadius, jit.js:18008); createLevelDistanceFunc
+     * (jit.js:17966) is a function of the level count alone. So a resize needs
+     * a replot, which the caller does, and never a recompute.
+     *
+     * @param {number} width
+     * @param {number} height
+     */
+    _resizeCanvasWithoutRecomputing(width, height) {
+        const ht = this.ht;
+        const hadOwn = Object.prototype.hasOwnProperty.call(ht, 'refresh');
+        const saved = ht.refresh;
+
+        ht.refresh = () => {};
+        try {
+            ht.canvas.resize(width, height);
+        } finally {
+            if (hadOwn) ht.refresh = saved;
+            else delete ht.refresh;
+        }
     }
 
     /**
@@ -1591,8 +1648,15 @@ export class MusicGraph {
             // on the same positions. Dropping the glide and arriving directly is
             // better than the mess, and this is the rapid-browsing case where
             // the visitor has already stopped looking at the motion.
+            //
+            // Oriented anyway: arriving without the glide is not a licence to
+            // arrive facing a random direction, and this is the path a fast
+            // clicker takes every time.
             ht.root = node.id;
-            ht.refresh();
+            ht.compute('end');
+            this._orientEndPositions();
+            ht.graph.eachNode((n) => n.pos.set(n.endPos));
+            ht.plot();
             onComplete();
             return;
         }
@@ -1600,6 +1664,7 @@ export class MusicGraph {
         ht.busy = true;
         ht.root = node.id;
         ht.compute('end');
+        this._orientEndPositions();
 
         ht.fx.animate({
             modes: ['polar'],
@@ -1609,6 +1674,50 @@ export class MusicGraph {
                 ht.busy = false;
                 onComplete();
             },
+        });
+    }
+
+    /**
+     * Turn the freshly computed layout to face the way the old one did.
+     *
+     * A rotation of the disk about the origin is an isometry: it moves every
+     * node but changes nothing about the layout except which way it faces. So
+     * this is free to apply and costs nothing in the radii that centreOn went
+     * to the trouble of fixing — only `theta` is touched.
+     *
+     * Reads 'current' and writes 'end', so it must run after compute('end') and
+     * before the animation starts; once the tween is running, 'current' is
+     * somewhere between the two and no longer describes where the scene was.
+     *
+     * See layoutOrientation.js for why a rotation is the right correction, what
+     * it measured, and which better-sounding anchor the measurement rejected.
+     */
+    _orientEndPositions() {
+        const graph = this.ht?.graph;
+        if (!graph) return;
+
+        const samples = [];
+        graph.eachNode((node) => {
+            const from = node.pos.getp();
+            const to = node.endPos.getp();
+            samples.push({
+                fromTheta: from.theta,
+                fromRho: from.rho,
+                toTheta: to.theta,
+                toRho: to.rho,
+            });
+        });
+
+        const delta = bestFitRotation(samples);
+        // Kept for scripts/measureOrientation.mjs and the spec, which need to
+        // see what was applied rather than infer it from positions.
+        this._lastOrientationDelta = delta;
+        if (delta === 0) return;
+
+        graph.eachNode((node) => {
+            // rho is deliberately untouched: the radial structure is the fix,
+            // the angle is the part that was arbitrary.
+            node.endPos.theta += delta;
         });
     }
 
@@ -1814,19 +1923,19 @@ export class MusicGraph {
     // ========== View controls (wired from index.html) ==========
 
     /**
-     * Center the view back to the root node
+     * Re-centre on whatever is currently focused.
+     *
+     * Nothing calls this: the on-canvas view controls it was written for were
+     * removed, and "back to the root node" stopped meaning anything when
+     * centring began re-rooting the tree — ht.root *is* the current selection.
+     * Kept, routed through centreOn, so it cannot quietly become the one place
+     * still navigating by Mobius transform if a control is wired to it again.
      */
     centerView() {
         if (!this.ht) return;
         this.releaseOverlay.hide();
-        const root = this.ht.root;
-        if (root) {
-            this.ht.onClick(root, {
-                onComplete: () => {
-                    console.log('View centered');
-                }
-            });
-        }
+        const node = this.ht.graph?.getNode(this.ht.root);
+        if (node) this.centreOn(node);
     }
 
     /**
@@ -2253,17 +2362,18 @@ export class MusicGraph {
         this._loadPlayerQueue(node);
         this.releaseOverlay.hide();
 
-        this.ht.onClick(node.id, {
-            onComplete: async () => {
-                // Show the release orbit overlay
-                await this.overlayPositioner.syncReleaseOverlay(node);
+        // centreOn, not ht.onClick: arriving here from a release link has to put
+        // the group's own neighbourhood around it for the same reason arriving
+        // by a node click does, and has to leave the scene facing the same way.
+        this.centreOn(node, async () => {
+            // Show the release orbit overlay
+            await this.overlayPositioner.syncReleaseOverlay(node);
 
-                // Auto-select the target release in the overlay
-                this.releaseOverlay.selectRelease(releaseId, releaseDetails);
+            // Auto-select the target release in the overlay
+            this.releaseOverlay.selectRelease(releaseId, releaseDetails);
 
-                // Show release details in info panel
-                this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
-            }
+            // Show release details in info panel
+            this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
         });
     }
 
