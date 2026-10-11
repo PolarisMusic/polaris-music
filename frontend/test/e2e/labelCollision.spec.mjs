@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 
-const GROUP_COUNT = 16;
+const GROUP_COUNT = 12;
 
 /*
  * Many groups, not one group with many people.
@@ -23,19 +23,13 @@ const GROUP_COUNT = 16;
  * the rim, and that is what the dense RHCP and QOTSA views are: lots of groups.
  * Shared members keep them in one connected component.
  *
- * Sixteen, raised from twelve. Centring began re-rooting the hypertree on the
- * selection, so focusing the shared player now fans all of its groups evenly
- * round one level instead of leaving them wherever the old tree had them. The
- * view got less crowded, which is the point of that change and which left
- * twelve groups fitting comfortably — the suppression test below then passed
- * vacuously on a scene with nothing to suppress.
- *
- * Sixteen and not more: at twenty, and at twelve with much longer names, the
- * resolver leaves a real overlapping pair, because it compares estimated label
- * boxes (LABEL_CHAR_WIDTH_PX, 5.6px per character) against a font that measures
- * about 6.2, and a label it suppresses is never drawn and so never measured.
- * That is a pre-existing defect in the resolver rather than anything about
- * orientation, and it wants its own change.
+ * Twelve is as dense as this can go. Beyond about sixteen — or at twelve with
+ * much longer names — the resolver leaves a genuinely overlapping pair, because
+ * it compares estimated label boxes (LABEL_CHAR_WIDTH_PX, 5.6px per character)
+ * against a font that measures about 6.2, and a label it suppresses is never
+ * drawn and so never measured, which keeps it on the bad estimate for good.
+ * That is a defect in the resolver and it wants its own change; raising the
+ * count here would only convert it into a failure in the wrong file.
  */
 const GRAPH = {
     nodes: [

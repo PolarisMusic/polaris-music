@@ -27,7 +27,6 @@ import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
 import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
-import { bestFitRotation } from './layoutOrientation.js';
 import { api as backendApi } from '../utils/api.js';
 
 /**
@@ -45,17 +44,8 @@ import { api as backendApi } from '../utils/api.js';
  * turns the gate off without changing a line of this file. That is not
  * hypothetical: it is exactly what a non-zero offset did, and every name in
  * the graph drew at once. Move these with it, or leave the offset at 0.
- *
- * The person bound was 0.5 until the layout started re-rooting on the
- * selection (see centreOn). Measured, a one-hop neighbour of the focused node
- * now sits at 0.50 to 0.54 depending on the scene, which 0.5 excluded by a
- * hair: the neighbourhood became legible and stayed anonymous. 0.62 covers it
- * with room for a denser scene to push it out a little further, and raising it
- * is only safe because labels are resolved against each other by priority now
- * — over-eligibility costs a suppressed label rather than a pile, and a
- * neighbour of the selection outranks an unrelated group.
  */
-const PERSON_LABEL_PROXIMITY_RADIUS = 0.62;
+const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
 const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 
 /**
@@ -68,6 +58,16 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
  * animation that ran.
  */
 const HYPERTREE_ANIMATION_MS = 700;
+
+/**
+ * How many steps of the trail to show.
+ *
+ * Enough to cover the two or three hops it takes for every legible node to
+ * have changed, which is what the trail exists to answer, and few enough that
+ * the strip stays one line on a phone beside the ellipsis that stands in for
+ * the rest. The whole history is still in the history panel.
+ */
+const TRAIL_LENGTH = 5;
 
 /**
  * The group radius on a phone.
@@ -187,6 +187,8 @@ export class MusicGraph {
         // State tracking
         this.hoveredNode = null;
         this.selectedNode = null;
+        /* The selection before this one — see _markSelected. */
+        this.previousNode = null;
         this.labelsVisible = true;
         this.historyPanelOpen = false;
         this.curatePanelOpen = false;
@@ -351,6 +353,16 @@ export class MusicGraph {
                             ctx.strokeStyle = 'rgba(255,255,255,0.6)';
                             ctx.lineWidth = 1.5;
                             ctx.stroke();
+                        } else if (node.getData('isPrevious')) {
+                            // Dashed, so it reads as "you were here" rather
+                            // than as a second selection. The dash must be
+                            // cleared again: the context is shared by every
+                            // node and edge drawn after this one.
+                            ctx.setLineDash([3, 3]);
+                            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                            ctx.lineWidth = 1.5;
+                            ctx.stroke();
+                            ctx.setLineDash([]);
                         }
 
                         // Draw initials inside circle
@@ -457,6 +469,14 @@ export class MusicGraph {
                             ctx.strokeStyle = 'rgba(255,255,255,0.6)';
                             ctx.lineWidth = 1.5;
                             ctx.stroke();
+                        } else if (node.getData('isPrevious')) {
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, outlineR + 1, 0, Math.PI * 2, false);
+                            ctx.setLineDash([3, 3]);
+                            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                            ctx.lineWidth = 1.5;
+                            ctx.stroke();
+                            ctx.setLineDash([]);
                         }
 
                         // Draw initials inside base circle (skip if photo is loaded)
@@ -674,6 +694,16 @@ export class MusicGraph {
 
         document.getElementById('info-close')
             ?.addEventListener('click', () => this.collapseInfoPanel());
+
+        // Delegated: renderTrail replaces the strip's children on every
+        // navigation, so a listener per chip would be attached and discarded
+        // several times a minute.
+        document.getElementById('graph-trail')?.addEventListener('click', (e) => {
+            const step = e.target.closest?.('.graph-trail-step');
+            if (!step || step.disabled) return;
+            const index = Number(step.dataset.historyIndex);
+            this.goToHistoryIndex(index);
+        });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.collapseInfoPanel();
         });
@@ -1250,13 +1280,20 @@ export class MusicGraph {
 
             const isSelected = !!node.getData('isSelected');
             const hovered = !!node.getData('hoverTooltip');
+            const isPrevious = !!node.getData('isPrevious');
             const centrality = node.pos.getc().squaredNorm();
-            const eligible = isSelected || hovered || centrality < this.labelThresholdFor(node);
+            // isPrevious earns a label regardless of distance. A translation
+            // leaves the node you came from at whatever radius its tree depth
+            // dictates, which is usually past every threshold here, and an
+            // anonymous dot is not a landmark.
+            const eligible = isSelected || hovered || isPrevious
+                || centrality < this.labelThresholdFor(node);
             if (!eligible) return;
 
             let tier;
             if (isSelected) tier = LABEL_TIER.SELECTED;
             else if (hovered) tier = LABEL_TIER.HOVERED;
+            else if (isPrevious) tier = LABEL_TIER.PREVIOUS;
             else if (selected && neighbours.has(node.id)) tier = LABEL_TIER.NEIGHBOUR;
             else if ((node.data?.type || '').toLowerCase() === 'group') tier = LABEL_TIER.GROUP;
             else tier = LABEL_TIER.OTHER;
@@ -1532,6 +1569,40 @@ export class MusicGraph {
     }
 
     /**
+     * Make `node` the selection, and the node it replaces the one you came from.
+     *
+     * Navigation is a translation, so the previous selection does not move
+     * anywhere helpful when you leave it — it stays at whatever radius its
+     * depth in the layout tree dictates, usually out among the rim crowd. It
+     * is also the one node on screen the visitor certainly recognises, which
+     * makes it the cheapest orientation cue available: mark it, name it, and
+     * there is always one known point in the view.
+     *
+     * Re-selecting the current node is not a move and must not make a node its
+     * own predecessor; arriving back at where you came from clears the mark
+     * rather than leaving it on the node now at the centre.
+     *
+     * @private
+     * @param {object} node
+     */
+    _markSelected(node) {
+        const outgoing = this.selectedNode;
+        if (outgoing && outgoing.id === node.id) {
+            node.setData('isSelected', true);
+            return;
+        }
+
+        if (outgoing) outgoing.setData('isSelected', false);
+        node.setData('isSelected', true);
+
+        if (this.previousNode) this.previousNode.setData('isPrevious', false);
+        this.previousNode = outgoing || null;
+        if (this.previousNode) this.previousNode.setData('isPrevious', true);
+
+        this.selectedNode = node;
+    }
+
+    /**
      * Handle node click - center on node and select it
      */
     handleNodeClick(node, { record = true } = {}) {
@@ -1540,14 +1611,7 @@ export class MusicGraph {
 
         console.log('Node clicked:', node.id, node.data);
 
-        // Clear previous selection
-        if (this.selectedNode && this.selectedNode.id !== node.id) {
-            this.selectedNode.setData('isSelected', false);
-        }
-
-        // Set new selection
-        node.setData('isSelected', true);
-        this.selectedNode = node;
+        this._markSelected(node);
         // Everything the previous selection had in flight is now stale.
         this._panelEpoch += 1;
 
@@ -1597,44 +1661,30 @@ export class MusicGraph {
     }
 
     /**
-     * Bring a node to the centre of the disk, with its own neighbours around it.
+     * Bring a node to the centre of the disk.
      *
-     * Not `ht.onClick`, which is where the "immediate neighbourhood is crushed
-     * against the rim" problem comes from, and the reason is worth writing down
-     * because it took measurement to find and is not what it looks like.
+     * A Mobius translation of the Poincare disk, which is an isometry: every
+     * hyperbolic distance between every pair of nodes is exactly what it was
+     * before, and the whole scene glides as one rigid thing. That is the
+     * property that makes the view followable, and it is why this is the
+     * navigation the visualization ships with.
      *
-     * The Hypertree lays out a BFS *tree* and navigates by Möbius transform.
-     * A Möbius transform is an isometry of the hyperbolic plane, so it preserves
-     * hyperbolic distance — which means a node's radius after centring is fixed
-     * by its distance in the *layout tree*, not in the graph. `move()` does call
-     * `computeLevels` on the clicked node (jit.js:18120), but levels only set
-     * `_depth`; nothing recomputes positions, so the tree keeps the shape it was
-     * built with.
+     * It was briefly replaced by rebuilding the tree with the selection as its
+     * root, which put the selection's own graph neighbours near the centre
+     * instead of wherever their depth in a tree built from some other root
+     * happened to place them. That is a real improvement to each end state and
+     * it is measurably worse to use, so it is gone. The trade is not a defect
+     * to be engineered away: radial position encodes depth in the layout tree,
+     * so putting graph neighbours near the centre *requires* rebuilding the
+     * tree, and rebuilding moves things that a translation would have left
+     * alone. You can have coherent motion or a well-formed neighbourhood. Not
+     * both, not from this layout.
      *
-     * In a tree those two distances agree and there is no problem. This is not a
-     * tree. Two bands sharing one session player are one hop apart in the graph
-     * and two levels apart in the layout, and the hyperbolic metric charges
-     * exponentially for the difference. Measured on `scripts/measureReachability.mjs`,
-     * focusing a band in a four-band scene put its own members at a median
-     * radius of 0.937 while nodes *two* hops away sat at 0.809 — nearer. Radius
-     * was not even monotonic in graph distance, which is why the view reads as
-     * arbitrary: the layout is asserting something about the data that is false.
-     *
-     * So the tree is rebuilt with the selection as its root, and the same
-     * measurement then puts one-hop neighbours at 0.540 and two-hop at 0.832,
-     * monotonic the whole way out. No geometry is touched, nothing is clamped,
-     * no coordinates are intercepted — the whole correction happens inside JIT's
-     * own pipeline, which is why every reader of a position stays consistent.
-     *
-     * `compute('end')` and not `reposition()`: reposition recomputes the layout
-     * and then Möbius-transforms it back to where the view already was, which
-     * is what its own docstring says and the opposite of centring. It happens to
-     * work when the new root is already at the origin, so the first navigation
-     * looks right and the second lands at radius 0.98.
-     *
-     * `compute('end')` writes only the end positions, leaving 'current' where
-     * the view is, so animating 'polar' morphs between the two layouts rather
-     * than cutting.
+     * What that costs is measured, not guessed, by scripts/measureNavigation.mjs:
+     * focusing a band in a four-band scene leaves its own members at a median
+     * radius of 0.937 while nodes two hops away sit at 0.809 — nearer. Finding
+     * the people in a band you are looking at is a job for the "came from"
+     * marker and the trail, not for the geometry.
      *
      * @param {object} node
      * @param {() => void} [onComplete]
@@ -1644,80 +1694,26 @@ export class MusicGraph {
         if (!ht || !node) return;
 
         if (ht.busy) {
-            // A second selection mid-animation would interleave two animations
-            // on the same positions. Dropping the glide and arriving directly is
-            // better than the mess, and this is the rapid-browsing case where
-            // the visitor has already stopped looking at the motion.
+            // ht.move refuses outright while an animation runs (jit.js:18115),
+            // so a click landing mid-glide used to be swallowed by the graph
+            // while handleNodeClick had already moved the selection and the
+            // panel on to the new node — the view and the details disagreeing
+            // until something else moved the view.
             //
-            // Oriented anyway: arriving without the glide is not a licence to
-            // arrive facing a random direction, and this is the path a fast
-            // clicker takes every time.
-            ht.root = node.id;
-            ht.compute('end');
-            this._orientEndPositions();
-            ht.graph.eachNode((n) => n.pos.set(n.endPos));
-            ht.plot();
-            onComplete();
-            return;
+            // Cancel and re-aim instead of dropping it. Stopping the timer
+            // leaves every node at a real point part-way along its path, and
+            // translating from there to the new target is as valid an isometry
+            // as translating from a settled layout. The abandoned animation's
+            // onComplete never fires, which is correct: it belonged to a
+            // selection that has been superseded.
+            ht.fx.animation.stopTimer();
+            ht.busy = false;
         }
 
-        ht.busy = true;
-        ht.root = node.id;
-        ht.compute('end');
-        this._orientEndPositions();
-
-        ht.fx.animate({
-            modes: ['polar'],
+        ht.onClick(node.id, {
             duration: HYPERTREE_ANIMATION_MS,
             hideLabels: true,
-            onComplete: () => {
-                ht.busy = false;
-                onComplete();
-            },
-        });
-    }
-
-    /**
-     * Turn the freshly computed layout to face the way the old one did.
-     *
-     * A rotation of the disk about the origin is an isometry: it moves every
-     * node but changes nothing about the layout except which way it faces. So
-     * this is free to apply and costs nothing in the radii that centreOn went
-     * to the trouble of fixing — only `theta` is touched.
-     *
-     * Reads 'current' and writes 'end', so it must run after compute('end') and
-     * before the animation starts; once the tween is running, 'current' is
-     * somewhere between the two and no longer describes where the scene was.
-     *
-     * See layoutOrientation.js for why a rotation is the right correction, what
-     * it measured, and which better-sounding anchor the measurement rejected.
-     */
-    _orientEndPositions() {
-        const graph = this.ht?.graph;
-        if (!graph) return;
-
-        const samples = [];
-        graph.eachNode((node) => {
-            const from = node.pos.getp();
-            const to = node.endPos.getp();
-            samples.push({
-                fromTheta: from.theta,
-                fromRho: from.rho,
-                toTheta: to.theta,
-                toRho: to.rho,
-            });
-        });
-
-        const delta = bestFitRotation(samples);
-        // Kept for scripts/measureOrientation.mjs and the spec, which need to
-        // see what was applied rather than infer it from positions.
-        this._lastOrientationDelta = delta;
-        if (delta === 0) return;
-
-        graph.eachNode((node) => {
-            // rho is deliberately untouched: the radial structure is the fix,
-            // the angle is the part that was arbitrary.
-            node.endPos.theta += delta;
+            onComplete: () => onComplete(),
         });
     }
 
@@ -1923,13 +1919,12 @@ export class MusicGraph {
     // ========== View controls (wired from index.html) ==========
 
     /**
-     * Re-centre on whatever is currently focused.
+     * Centre the view back on the root node.
      *
-     * Nothing calls this: the on-canvas view controls it was written for were
-     * removed, and "back to the root node" stopped meaning anything when
-     * centring began re-rooting the tree — ht.root *is* the current selection.
-     * Kept, routed through centreOn, so it cannot quietly become the one place
-     * still navigating by Mobius transform if a control is wired to it again.
+     * Nothing calls this — the on-canvas view controls it was written for were
+     * removed — but it is routed through centreOn so that if a control is ever
+     * wired to it again it cannot become the one place navigating by some
+     * other means.
      */
     centerView() {
         if (!this.ht) return;
@@ -2011,6 +2006,7 @@ export class MusicGraph {
         // anchor the edge picker to something no longer drawn.
         this.edgeNavigator?.clear();
         this.selectedNode = null;
+        this.previousNode = null;
         await this.loader.loadGraphData();
     }
 
@@ -2062,6 +2058,110 @@ export class MusicGraph {
         const forward = document.getElementById('nav-forward');
         if (back) back.disabled = !this.pathTracker.canGoBack();
         if (forward) forward.disabled = !this.pathTracker.canGoForward();
+        this.renderTrail();
+    }
+
+    /**
+     * Draw the trail: where you have been, oldest on the left.
+     *
+     * Rebuilt rather than diffed. It is at most TRAIL_LENGTH buttons and it
+     * only changes when the visitor navigates, which is also the moment the
+     * graph is animating several hundred nodes — this is not the expensive
+     * thing on screen.
+     *
+     * Indices are the history's own, so a chip survives the list growing under
+     * it: the cursor is where you are, and entries older than it are the ones
+     * behind you. The newest entries are at the front of browseHistory, which
+     * is why the window reads forwards from the cursor and is then reversed.
+     */
+    renderTrail() {
+        const el = document.getElementById('graph-trail');
+        if (!el) return;
+
+        const history = this.pathTracker.getBrowseHistory();
+        const cursor = this.pathTracker.historyCursor || 0;
+
+        // Index 0 is the newest entry, so "older" means a larger index and the
+        // strip reads right to left through the array.
+        //
+        // The window spans the cursor rather than starting at it. Stepping
+        // back used to shrink the trail from behind, so walking to the oldest
+        // entry left a strip of one — it vanished at the exact moment the
+        // visitor had most obviously lost their place, and took the steps they
+        // could go forward to with it.
+        const oldest = Math.min(history.length - 1, cursor + TRAIL_LENGTH - 1);
+        const newest = Math.max(0, oldest - TRAIL_LENGTH + 1);
+        const window_ = history.slice(newest, oldest + 1);
+
+        // One entry is not a trail, it is just the node you are looking at,
+        // which the info panel already names.
+        if (window_.length < 2) {
+            el.hidden = true;
+            el.replaceChildren();
+            return;
+        }
+
+        const children = [];
+        const ellipsis = () => {
+            const more = document.createElement('span');
+            more.className = 'graph-trail-more';
+            more.textContent = '…';
+            // The rest of the route is in the history panel, and announcing an
+            // ellipsis to a screen reader helps nobody.
+            more.setAttribute('aria-hidden', 'true');
+            return more;
+        };
+
+        if (oldest < history.length - 1) children.push(ellipsis());
+
+        window_.slice().reverse().forEach((entry, i) => {
+            if (i > 0 || children.length > 0) {
+                const sep = document.createElement('span');
+                sep.className = 'graph-trail-sep';
+                sep.textContent = '›';
+                sep.setAttribute('aria-hidden', 'true');
+                children.push(sep);
+            }
+
+            const index = oldest - i;
+            const step = document.createElement('button');
+            step.type = 'button';
+            step.className = 'graph-trail-step';
+            step.textContent = entry.name || entry.nodeId;
+            step.title = entry.name || entry.nodeId;
+            step.dataset.historyIndex = String(index);
+            if (index === cursor) {
+                step.setAttribute('aria-current', 'true');
+                step.disabled = true;
+            }
+            children.push(step);
+        });
+
+        // Steps newer than the window: reached by going forward, so they are
+        // as real as the ones behind and get the same mark.
+        if (newest > 0) {
+            const sep = document.createElement('span');
+            sep.className = 'graph-trail-sep';
+            sep.textContent = '›';
+            sep.setAttribute('aria-hidden', 'true');
+            children.push(sep, ellipsis());
+        }
+
+        el.replaceChildren(...children);
+        el.hidden = false;
+    }
+
+    /**
+     * Travel to a trail step.
+     *
+     * The same path as the back button, which already copes with an entry
+     * whose node is not in the loaded graph — history outlives a graph reload.
+     *
+     * @param {number} index
+     * @returns {boolean} whether it moved
+     */
+    goToHistoryIndex(index) {
+        return this._stepHistory(() => this.pathTracker.goToIndex(index));
     }
 
     /**
@@ -2145,6 +2245,9 @@ export class MusicGraph {
     clearHistory() {
         this.pathTracker.clearBrowseHistory();
         this.updateHistoryCount();
+        // Back and forward were left enabled over an empty history, and the
+        // trail would have been left drawn over it.
+        this.updateHistoryNavButtons();
         if (this.historyPanelOpen) {
             this.renderHistoryPanel();
         }
@@ -2344,17 +2447,16 @@ export class MusicGraph {
         }
 
         // Select and center on the group node
-        if (this.selectedNode && this.selectedNode.id !== node.id) {
-            this.selectedNode.setData('isSelected', false);
-        }
-        node.setData('isSelected', true);
-        this.selectedNode = node;
+        this._markSelected(node);
 
         this.pathTracker.visitNode(node.id, {
             name: node.name,
             type: node.data && node.data.type
         });
         this.updateHistoryCount();
+        // Arriving here moves the cursor exactly as a node click does, so the
+        // controls that read it have to be refreshed exactly as they are there.
+        this.updateHistoryNavButtons();
         if (this.historyPanelOpen) {
             this.renderHistoryPanel();
         }
