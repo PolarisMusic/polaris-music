@@ -27,7 +27,6 @@ import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
 import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
-import { bestFitRotation } from './layoutOrientation.js';
 import { api as backendApi } from '../utils/api.js';
 
 /**
@@ -45,17 +44,8 @@ import { api as backendApi } from '../utils/api.js';
  * turns the gate off without changing a line of this file. That is not
  * hypothetical: it is exactly what a non-zero offset did, and every name in
  * the graph drew at once. Move these with it, or leave the offset at 0.
- *
- * The person bound was 0.5 until the layout started re-rooting on the
- * selection (see centreOn). Measured, a one-hop neighbour of the focused node
- * now sits at 0.50 to 0.54 depending on the scene, which 0.5 excluded by a
- * hair: the neighbourhood became legible and stayed anonymous. 0.62 covers it
- * with room for a denser scene to push it out a little further, and raising it
- * is only safe because labels are resolved against each other by priority now
- * — over-eligibility costs a suppressed label rather than a pile, and a
- * neighbour of the selection outranks an unrelated group.
  */
-const PERSON_LABEL_PROXIMITY_RADIUS = 0.62;
+const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
 const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 
 /**
@@ -1597,44 +1587,30 @@ export class MusicGraph {
     }
 
     /**
-     * Bring a node to the centre of the disk, with its own neighbours around it.
+     * Bring a node to the centre of the disk.
      *
-     * Not `ht.onClick`, which is where the "immediate neighbourhood is crushed
-     * against the rim" problem comes from, and the reason is worth writing down
-     * because it took measurement to find and is not what it looks like.
+     * A Mobius translation of the Poincare disk, which is an isometry: every
+     * hyperbolic distance between every pair of nodes is exactly what it was
+     * before, and the whole scene glides as one rigid thing. That is the
+     * property that makes the view followable, and it is why this is the
+     * navigation the visualization ships with.
      *
-     * The Hypertree lays out a BFS *tree* and navigates by Möbius transform.
-     * A Möbius transform is an isometry of the hyperbolic plane, so it preserves
-     * hyperbolic distance — which means a node's radius after centring is fixed
-     * by its distance in the *layout tree*, not in the graph. `move()` does call
-     * `computeLevels` on the clicked node (jit.js:18120), but levels only set
-     * `_depth`; nothing recomputes positions, so the tree keeps the shape it was
-     * built with.
+     * It was briefly replaced by rebuilding the tree with the selection as its
+     * root, which put the selection's own graph neighbours near the centre
+     * instead of wherever their depth in a tree built from some other root
+     * happened to place them. That is a real improvement to each end state and
+     * it is measurably worse to use, so it is gone. The trade is not a defect
+     * to be engineered away: radial position encodes depth in the layout tree,
+     * so putting graph neighbours near the centre *requires* rebuilding the
+     * tree, and rebuilding moves things that a translation would have left
+     * alone. You can have coherent motion or a well-formed neighbourhood. Not
+     * both, not from this layout.
      *
-     * In a tree those two distances agree and there is no problem. This is not a
-     * tree. Two bands sharing one session player are one hop apart in the graph
-     * and two levels apart in the layout, and the hyperbolic metric charges
-     * exponentially for the difference. Measured on `scripts/measureReachability.mjs`,
-     * focusing a band in a four-band scene put its own members at a median
-     * radius of 0.937 while nodes *two* hops away sat at 0.809 — nearer. Radius
-     * was not even monotonic in graph distance, which is why the view reads as
-     * arbitrary: the layout is asserting something about the data that is false.
-     *
-     * So the tree is rebuilt with the selection as its root, and the same
-     * measurement then puts one-hop neighbours at 0.540 and two-hop at 0.832,
-     * monotonic the whole way out. No geometry is touched, nothing is clamped,
-     * no coordinates are intercepted — the whole correction happens inside JIT's
-     * own pipeline, which is why every reader of a position stays consistent.
-     *
-     * `compute('end')` and not `reposition()`: reposition recomputes the layout
-     * and then Möbius-transforms it back to where the view already was, which
-     * is what its own docstring says and the opposite of centring. It happens to
-     * work when the new root is already at the origin, so the first navigation
-     * looks right and the second lands at radius 0.98.
-     *
-     * `compute('end')` writes only the end positions, leaving 'current' where
-     * the view is, so animating 'polar' morphs between the two layouts rather
-     * than cutting.
+     * What that costs is measured, not guessed, by scripts/measureNavigation.mjs:
+     * focusing a band in a four-band scene leaves its own members at a median
+     * radius of 0.937 while nodes two hops away sit at 0.809 — nearer. Finding
+     * the people in a band you are looking at is a job for the "came from"
+     * marker and the trail, not for the geometry.
      *
      * @param {object} node
      * @param {() => void} [onComplete]
@@ -1644,80 +1620,26 @@ export class MusicGraph {
         if (!ht || !node) return;
 
         if (ht.busy) {
-            // A second selection mid-animation would interleave two animations
-            // on the same positions. Dropping the glide and arriving directly is
-            // better than the mess, and this is the rapid-browsing case where
-            // the visitor has already stopped looking at the motion.
+            // ht.move refuses outright while an animation runs (jit.js:18115),
+            // so a click landing mid-glide used to be swallowed by the graph
+            // while handleNodeClick had already moved the selection and the
+            // panel on to the new node — the view and the details disagreeing
+            // until something else moved the view.
             //
-            // Oriented anyway: arriving without the glide is not a licence to
-            // arrive facing a random direction, and this is the path a fast
-            // clicker takes every time.
-            ht.root = node.id;
-            ht.compute('end');
-            this._orientEndPositions();
-            ht.graph.eachNode((n) => n.pos.set(n.endPos));
-            ht.plot();
-            onComplete();
-            return;
+            // Cancel and re-aim instead of dropping it. Stopping the timer
+            // leaves every node at a real point part-way along its path, and
+            // translating from there to the new target is as valid an isometry
+            // as translating from a settled layout. The abandoned animation's
+            // onComplete never fires, which is correct: it belonged to a
+            // selection that has been superseded.
+            ht.fx.animation.stopTimer();
+            ht.busy = false;
         }
 
-        ht.busy = true;
-        ht.root = node.id;
-        ht.compute('end');
-        this._orientEndPositions();
-
-        ht.fx.animate({
-            modes: ['polar'],
+        ht.onClick(node.id, {
             duration: HYPERTREE_ANIMATION_MS,
             hideLabels: true,
-            onComplete: () => {
-                ht.busy = false;
-                onComplete();
-            },
-        });
-    }
-
-    /**
-     * Turn the freshly computed layout to face the way the old one did.
-     *
-     * A rotation of the disk about the origin is an isometry: it moves every
-     * node but changes nothing about the layout except which way it faces. So
-     * this is free to apply and costs nothing in the radii that centreOn went
-     * to the trouble of fixing — only `theta` is touched.
-     *
-     * Reads 'current' and writes 'end', so it must run after compute('end') and
-     * before the animation starts; once the tween is running, 'current' is
-     * somewhere between the two and no longer describes where the scene was.
-     *
-     * See layoutOrientation.js for why a rotation is the right correction, what
-     * it measured, and which better-sounding anchor the measurement rejected.
-     */
-    _orientEndPositions() {
-        const graph = this.ht?.graph;
-        if (!graph) return;
-
-        const samples = [];
-        graph.eachNode((node) => {
-            const from = node.pos.getp();
-            const to = node.endPos.getp();
-            samples.push({
-                fromTheta: from.theta,
-                fromRho: from.rho,
-                toTheta: to.theta,
-                toRho: to.rho,
-            });
-        });
-
-        const delta = bestFitRotation(samples);
-        // Kept for scripts/measureOrientation.mjs and the spec, which need to
-        // see what was applied rather than infer it from positions.
-        this._lastOrientationDelta = delta;
-        if (delta === 0) return;
-
-        graph.eachNode((node) => {
-            // rho is deliberately untouched: the radial structure is the fix,
-            // the angle is the part that was arbitrary.
-            node.endPos.theta += delta;
+            onComplete: () => onComplete(),
         });
     }
 
@@ -1923,13 +1845,12 @@ export class MusicGraph {
     // ========== View controls (wired from index.html) ==========
 
     /**
-     * Re-centre on whatever is currently focused.
+     * Centre the view back on the root node.
      *
-     * Nothing calls this: the on-canvas view controls it was written for were
-     * removed, and "back to the root node" stopped meaning anything when
-     * centring began re-rooting the tree — ht.root *is* the current selection.
-     * Kept, routed through centreOn, so it cannot quietly become the one place
-     * still navigating by Mobius transform if a control is wired to it again.
+     * Nothing calls this — the on-canvas view controls it was written for were
+     * removed — but it is routed through centreOn so that if a control is ever
+     * wired to it again it cannot become the one place navigating by some
+     * other means.
      */
     centerView() {
         if (!this.ht) return;
