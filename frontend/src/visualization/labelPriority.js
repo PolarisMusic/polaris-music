@@ -28,9 +28,17 @@
 export const LABEL_TIER = {
     SELECTED: 0,
     HOVERED: 1,
-    NEIGHBOUR: 2,
-    GROUP: 3,
-    OTHER: 4,
+    /*
+     * The node the visitor arrived from. Below a deliberate hover and above
+     * everything else, because navigation here is a translation that leaves
+     * the previous selection wherever the layout tree put it — often out at
+     * 0.93 among a crowd of strangers. An unnamed dot out there is no use as
+     * the one thing on screen you already know.
+     */
+    PREVIOUS: 2,
+    NEIGHBOUR: 3,
+    GROUP: 4,
+    OTHER: 5,
 };
 
 /** Pixels of clear space required between two labels. */
