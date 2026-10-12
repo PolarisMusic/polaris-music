@@ -15,7 +15,7 @@
  * - camelCase → snake_case (general pattern)
  */
 
-import crypto from 'crypto';
+import { IdentityService } from '../identity/idService.js';
 import { normalizeRoles, normalizeRole, normalizeRoleInput } from './roleNormalization.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -70,7 +70,8 @@ export function normalizeReleaseBundle(bundle) {
     }
 
     // Normalize and deduplicate tracks into catalog
-    const { tracks: normalizedTracks, trackIdMap } = normalizeTrackCatalog(trackDefs, errors);
+    const { tracks: normalizedTracks, trackIdMap } =
+        normalizeTrackCatalog(trackDefs, errors, releaseScopeFor(normalizedRelease));
 
     // ========== TRACKLIST NORMALIZATION ==========
     // Normalize tracklist to reference track_id (not embedded track objects)
@@ -142,9 +143,10 @@ export function normalizeReleaseBundle(bundle) {
  *
  * @param {Array} trackDefs - Track definitions from input
  * @param {Array} errors - Error collection
+ * @param {string|null} releaseScope - Scope for generated ids; see releaseScopeFor
  * @returns {Object} { tracks: Array, trackIdMap: Map }
  */
-function normalizeTrackCatalog(trackDefs, errors) {
+function normalizeTrackCatalog(trackDefs, errors, releaseScope) {
     const tracks = [];
     const trackIdMap = new Map(); // Maps track_id → track index
     const seenIds = new Set();
@@ -156,7 +158,7 @@ function normalizeTrackCatalog(trackDefs, errors) {
 
             // Ensure track has a stable track_id
             if (!normalized.track_id) {
-                normalized.track_id = generateTrackId(normalized);
+                normalized.track_id = generateTrackId(normalized, releaseScope);
             }
 
             // Deduplicate by track_id
@@ -182,6 +184,48 @@ function normalizeTrackCatalog(trackDefs, errors) {
 }
 
 /**
+ * The release a generated track id is scoped to.
+ *
+ * A Track is a *recording*, and a recording belongs to the release it was
+ * issued on. Two records that happen to share a track title do not share a
+ * recording, and nothing in a bare title says otherwise — which is how Pearl
+ * Jam's hidden track "Untitled" on Ten became the same graph node as hidden
+ * tracks of the same name on a Queens Of The Stone Age and an Aquabats!
+ * release, leaving all three bands credited as performers on Ten.
+ *
+ * Generic titles are not an edge case in this registry: Untitled, (silence),
+ * Intro, Outro, Reprise, Release, Black, Deep. Discogs imports carry no
+ * durations either, so title+duration is title alone for most of the catalogue.
+ *
+ * Re-releases are *supposed* to share a recording, and two mechanisms already
+ * do that deliberately rather than by accident: an ISRC, which is a global
+ * recording identifier and so is left unscoped below, and MERGE_NODE, which is
+ * what curation is for.
+ *
+ * Built from IdentityService.releaseFingerprint so this follows the registry's
+ * own rule for what makes two releases the same edition — including the label,
+ * so a licensed reissue is a different scope — rather than inventing a second
+ * one that would drift away from it.
+ *
+ * @param {Object|undefined} release - Normalized release
+ * @returns {string|null} Scope key, or null when there is no usable release
+ */
+function releaseScopeFor(release) {
+    if (!release || !release.name) return null;
+    return IdentityService.makeProvisionalId(
+        'release',
+        IdentityService.releaseFingerprint({
+            title: release.name,
+            release_date: release.release_date,
+            catalog_number: release.catalog_number,
+            format: release.format,
+            country: release.country,
+            labels: release.labels
+        })
+    );
+}
+
+/**
  * Generate deterministic track_id when missing
  *
  * All generated IDs use the provisional format (prov:track:*) so that
@@ -189,30 +233,38 @@ function normalizeTrackCatalog(trackDefs, errors) {
  * ensuring consistent ID handling throughout the graph pipeline.
  *
  * Priority:
- * 1. ISRC if available (stored as property, ID is still provisional)
- * 2. Hash of normalized title + duration
+ * 1. ISRC if available (stored as property, ID is still provisional).
+ *    Deliberately NOT scoped to the release: an ISRC identifies a recording
+ *    globally, so the same recording appearing on two releases *should* be one
+ *    node, and this is the one signal trustworthy enough to say so.
+ * 2. Fingerprint of title within the release — see releaseScopeFor.
+ *
+ * The id this returns is a reference key for wiring the tracklist to the track
+ * catalogue inside one bundle. It is not the graph's identity for the track:
+ * processReleaseBundle resolves that through IdentityService.trackFingerprint,
+ * which is scoped to the resolved Release node. Both are release-scoped, which
+ * is the point — an unscoped id here was being honoured by resolveEntityId as
+ * though the submitter had picked the node out of a typeahead, which bound a
+ * new track to a stranger's recording before the real rule was ever consulted.
  *
  * @param {Object} track - Normalized track
+ * @param {string|null} releaseScope - Scope key from releaseScopeFor
  * @returns {string} Deterministic track_id with prov: prefix
  */
-function generateTrackId(track) {
+function generateTrackId(track, releaseScope) {
     // Priority 1: ISRC-based provisional ID
     if (track.isrc) {
         return `prov:track:isrc:${track.isrc}`;
     }
 
-    // Priority 2: Hash of canonical identity (title + duration)
-    const normalizedTitle = track.title.toLowerCase().trim().replace(/\s+/g, ' ');
-    const duration = track.duration || 0;
-    const identityString = `track:${normalizedTitle}:${duration}`;
-
-    // Generate short hash (first 16 chars of SHA256)
-    const hash = crypto.createHash('sha256')
-        .update(identityString)
-        .digest('hex')
-        .substring(0, 16);
-
-    return `prov:track:${hash}`;
+    // Priority 2: title, scoped to the release it was issued on.
+    return IdentityService.makeProvisionalId(
+        'track',
+        IdentityService.trackFingerprint({
+            title: track.title,
+            release_id: releaseScope
+        })
+    );
 }
 
 /**

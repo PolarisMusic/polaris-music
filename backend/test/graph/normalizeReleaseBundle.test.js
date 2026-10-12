@@ -946,3 +946,132 @@ describe('normalizeReleaseBundle', () => {
         });
     });
 });
+
+describe('a track is a recording on a release, not a title', () => {
+    /*
+     * Reported from production: the release page for Pearl Jam's "Ten" credited
+     * Pearl Jam, Queens Of The Stone Age and The Aquabats! as performers.
+     *
+     * Track ids were a hash of title + duration. Discogs imports carry no
+     * durations, so that is a hash of the title, and a hidden track called
+     * "Untitled" is one node for the entire registry — shared by every release
+     * that has one, with every one of their performers attached. The release
+     * page reads performers through (Group)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r),
+     * so all three bands came back.
+     *
+     * Generic titles are not rare here: Untitled, (silence), Intro, Outro,
+     * Reprise, Release, Black, Deep.
+     */
+    const release = (over = {}) => ({
+        name: 'Ten',
+        release_date: '1991/08/27',
+        format: 'CD',
+        labels: [{ name: 'Epic Associated' }],
+        ...over
+    });
+
+    const bundle = (releaseOver, titles) => ({
+        release: release(releaseOver),
+        tracks: titles.map(t => (typeof t === 'string' ? { title: t } : t)),
+        tracklist: titles.map((t, i) => ({
+            position: String(i + 1),
+            track_title: typeof t === 'string' ? t : t.title
+        }))
+    });
+
+    const idsByTitle = (normalized) =>
+        Object.fromEntries(normalized.tracks.map(t => [t.title, t.track_id]));
+
+    it('gives the same track title on two different releases two different ids', () => {
+        const ten = normalizeReleaseBundle(bundle({}, ['Untitled', '(silence)']));
+        const deaf = normalizeReleaseBundle(bundle({
+            name: 'Songs For The Deaf',
+            release_date: '2002/08/27',
+            labels: [{ name: 'Interscope Records' }]
+        }, ['Untitled', '(silence)']));
+
+        expect(idsByTitle(ten)['Untitled'])
+            .not.toBe(idsByTitle(deaf)['Untitled']);
+        expect(idsByTitle(ten)['(silence)'])
+            .not.toBe(idsByTitle(deaf)['(silence)']);
+    });
+
+    it('gives the same release resubmitted the same ids', () => {
+        // The hard invariant: replaying an event must not fork the graph.
+        const once = normalizeReleaseBundle(bundle({}, ['Untitled', 'Alive']));
+        const twice = normalizeReleaseBundle(bundle({}, ['Untitled', 'Alive']));
+        expect(idsByTitle(twice)).toEqual(idsByTitle(once));
+    });
+
+    it('keeps a reissue on another label apart from the original', () => {
+        // Release identity already treats a licensed reissue as its own
+        // edition. Track identity inherits that rather than inventing a
+        // second, coarser rule that would drift away from it.
+        const original = normalizeReleaseBundle(bundle({}, ['Alive']));
+        const reissue = normalizeReleaseBundle(bundle({
+            labels: [{ name: 'Legacy Recordings' }]
+        }, ['Alive']));
+
+        expect(idsByTitle(original)['Alive']).not.toBe(idsByTitle(reissue)['Alive']);
+    });
+
+    it('still shares one id across releases when an ISRC says to', () => {
+        // An ISRC identifies a *recording* globally, so the same recording
+        // issued on two releases genuinely is one node. It is the one signal
+        // trustworthy enough to say so, and it stays unscoped on purpose —
+        // this is how a re-release is meant to share a track.
+        const comp = normalizeReleaseBundle(bundle(
+            { name: 'Rearviewmirror', release_date: '2004/11/16' },
+            [{ title: 'Alive', isrc: 'USSM19100123' }]
+        ));
+        const orig = normalizeReleaseBundle(bundle({}, [{ title: 'Alive', isrc: 'USSM19100123' }]));
+
+        expect(idsByTitle(orig)['Alive']).toBe('prov:track:isrc:USSM19100123');
+        expect(idsByTitle(comp)['Alive']).toBe(idsByTitle(orig)['Alive']);
+    });
+
+    it('leaves an id the submitter supplied exactly as it is', () => {
+        // A track the submitter picked out of a typeahead is evidence about
+        // which node they meant. A generated id is not, and must never be
+        // mistaken for one.
+        const normalized = normalizeReleaseBundle(bundle({}, [
+            { title: 'Alive', track_id: 'prov:track:picked-by-hand' }
+        ]));
+        expect(idsByTitle(normalized)['Alive']).toBe('prov:track:picked-by-hand');
+    });
+
+    it('does not depend on duration, which imports do not carry', () => {
+        // Duration was half of the old identity and is absent from every
+        // Discogs import, which is why the old rule degenerated to the title.
+        // Adding one later must not fork the node.
+        const without = normalizeReleaseBundle(bundle({}, [{ title: 'Alive' }]));
+        const with_ = normalizeReleaseBundle(bundle({}, [{ title: 'Alive', duration: 341 }]));
+        expect(idsByTitle(with_)['Alive']).toBe(idsByTitle(without)['Alive']);
+    });
+
+    it('known limit: one title twice on one release is still one track', () => {
+        // Position would separate them, and is deliberately not in the
+        // fingerprint: correcting a tracklist position would then mint a new
+        // node and orphan the old one, which is a worse failure than this one.
+        // Two tracks of the same name on a single release need curation.
+        const normalized = normalizeReleaseBundle({
+            release: release(),
+            tracks: [{ title: 'Intro' }, { title: 'Intro' }],
+            tracklist: [
+                { position: '1', track_title: 'Intro' },
+                { position: '9', track_title: 'Intro' }
+            ]
+        });
+        expect(normalized.tracks).toHaveLength(1);
+    });
+
+    it('reports the release error rather than crashing on the scope', () => {
+        // The scope is computed from the release, which may itself have failed
+        // to normalize. The caller must still get the validation message.
+        expect(() => normalizeReleaseBundle({
+            release: { name: '' },
+            tracks: [{ title: 'Alive' }],
+            tracklist: [{ position: '1', track_title: 'Alive' }]
+        })).toThrow(/release/);
+    });
+});
