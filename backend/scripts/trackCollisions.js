@@ -21,9 +21,16 @@
  * READ ONLY. It opens a session, runs MATCH queries and writes nothing. Safe
  * against production.
  *
- * Usage, from backend/:
- *   GRAPH_URI=bolt://127.0.0.1:7687 GRAPH_USER=neo4j GRAPH_PASSWORD=… \
- *     node scripts/trackCollisions.js [--json]
+ * Usage — simplest is inside the api container, which already has GRAPH_URI,
+ * GRAPH_USER and GRAPH_PASSWORD set by docker-compose:
+ *
+ *   docker compose exec api node scripts/trackCollisions.js [--json]
+ *
+ * From the host, with the password out of the deployment's .env rather than
+ * typed (and so never landing in shell history):
+ *
+ *   cd ~/polaris-music && set -a && . ./.env && set +a \
+ *     && node backend/scripts/trackCollisions.js
  *
  * Use 127.0.0.1, never localhost: since Node 17 `localhost` resolves to ::1
  * first, which on a machine with the deployment runbook's SSH tunnel open is
@@ -34,12 +41,20 @@ import neo4j from 'neo4j-driver';
 
 const asJson = process.argv.includes('--json');
 
-const uri = process.env.GRAPH_URI || process.env.NEO4J_URI;
-const user = process.env.GRAPH_USER || process.env.NEO4J_USER;
+// Defaults match backend/scripts/backfillRelationships.js and the compose
+// file, so that run inside the api container — where GRAPH_* are already set —
+// this needs no arguments at all. NEO4J_PASSWORD is accepted because that is
+// the name the deployment's .env uses.
+const uri = process.env.GRAPH_URI || process.env.NEO4J_URI || 'bolt://127.0.0.1:7687';
+const user = process.env.GRAPH_USER || process.env.NEO4J_USER || 'neo4j';
 const password = process.env.GRAPH_PASSWORD || process.env.NEO4J_PASSWORD;
 
-if (!uri || !user || !password) {
-    console.error('Set GRAPH_URI, GRAPH_USER and GRAPH_PASSWORD.');
+if (!password) {
+    console.error(
+        'No password. Set GRAPH_PASSWORD (or NEO4J_PASSWORD), or run this inside\n' +
+        'the api container, which already has them:\n\n' +
+        '  docker compose exec api node scripts/trackCollisions.js\n'
+    );
     process.exit(2);
 }
 
