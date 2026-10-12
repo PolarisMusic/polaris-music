@@ -1068,7 +1068,20 @@ constructor(config = {}) {
 
             for (const track of normalizedBundle.tracks || []) {
                 const trackOpId = opId();
-                const trackId = await this.resolveEntityId(tx, 'track', track);
+                // release_id is what makes the track fingerprint identify a
+                // *recording on this release* rather than any track anywhere
+                // that happens to share a title. IdentityService.trackFingerprint
+                // has always read it; nothing passed it, so every generated
+                // track id reduced to the title alone and "Untitled" was one
+                // node for the whole registry. The Release is resolved above,
+                // so the real node id is in hand here.
+                //
+                // Not spread onto `track` permanently: the normalized bundle is
+                // validated against releaseBundle.schema.json, which sets
+                // additionalProperties:false.
+                const trackId = await this.resolveEntityId(
+                    tx, 'track', { ...track, release_id: releaseId }
+                );
                 recordResolved('track', track.track_id, trackId);
 
                 this.log.debug('track_create', { track_id: trackId, title: track.title });

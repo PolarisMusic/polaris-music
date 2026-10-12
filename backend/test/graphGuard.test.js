@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { assertDisposableGraph, OPT_IN } from './graphGuard.js';
+import { assertDisposableGraph, OPT_IN, CEILING, DEFAULT_MAX_NODES } from './graphGuard.js';
 
 /** Stub driver whose count query returns `nodes`, or rejects if `fail` is set. */
 function stubDriver({ nodes = 0, fail = false } = {}) {
@@ -90,19 +90,92 @@ describe('assertDisposableGraph', () => {
         }
     });
 
-    test('does not touch the database when already opted in', async () => {
+    test('counts the database even when opted in, because the count is the check', async () => {
+        // This test used to assert the opposite — that the opt-in short-circuits
+        // before any query. That was the hole: the flag states a habit, not a
+        // fact about the database in front of you, and it rides along into a
+        // shell on the production host unchanged.
         process.env[OPT_IN] = 'true';
-        const run = jest.fn();
+        const run = jest.fn(async () => ({
+            records: [{ get: () => ({ toNumber: () => 3 }) }]
+        }));
         const driver = { session: () => ({ run, close: async () => {} }) };
 
         await assertDisposableGraph(driver, 'Demo Suite');
 
-        expect(run).not.toHaveBeenCalled();
+        expect(run).toHaveBeenCalled();
     });
 
     test('closes the session it opens', async () => {
         const { driver, closed } = stubDriver({ nodes: 5 });
         await expect(assertDisposableGraph(driver, 'Demo Suite')).rejects.toThrow();
         expect(closed.count).toBe(1);
+    });
+
+    describe('the opt-in is not evidence about this database', () => {
+        beforeEach(() => {
+            process.env[OPT_IN] = 'true';
+            delete process.env[CEILING];
+        });
+
+        afterEach(() => {
+            delete process.env[CEILING];
+        });
+
+        test('refuses a database far too large to be a scratch one', async () => {
+            const { driver } = stubDriver({ nodes: DEFAULT_MAX_NODES + 1 });
+            await expect(assertDisposableGraph(driver, 'Demo Suite'))
+                .rejects.toThrow(/far more than a scratch database should/);
+        });
+
+        test('says how many nodes it found, so the refusal is checkable', async () => {
+            const { driver } = stubDriver({ nodes: 48123 });
+            await expect(assertDisposableGraph(driver, 'Demo Suite'))
+                .rejects.toThrow(/48,123 nodes/);
+        });
+
+        test('explains that the flag travels and the database does not', async () => {
+            const { driver } = stubDriver({ nodes: 90000 });
+            await expect(assertDisposableGraph(driver, 'Demo Suite'))
+                .rejects.toThrow(/statement about your habits/);
+        });
+
+        test('allows a dirty scratch database through', async () => {
+            // Leavings from a previous run must not become a wall.
+            const { driver } = stubDriver({ nodes: DEFAULT_MAX_NODES });
+            await expect(assertDisposableGraph(driver, 'Demo Suite')).resolves.toBeUndefined();
+        });
+
+        test('refuses when the count cannot be read, rather than assuming', async () => {
+            // An unreachable or unreadable target is not one anyone has
+            // established is safe to empty.
+            const { driver } = stubDriver({ fail: true });
+            await expect(assertDisposableGraph(driver, 'Demo Suite'))
+                .rejects.toThrow(/could not be read/);
+        });
+
+        test('a per-run ceiling lets a genuinely large scratch database through', async () => {
+            const { driver } = stubDriver({ nodes: 50000 });
+            process.env[CEILING] = '50000';
+            await expect(assertDisposableGraph(driver, 'Demo Suite')).resolves.toBeUndefined();
+        });
+
+        test('the escape hatch names the exact count, so it cannot be set by habit', async () => {
+            const { driver } = stubDriver({ nodes: 50000 });
+            await expect(assertDisposableGraph(driver, 'Demo Suite'))
+                .rejects.toThrow(new RegExp(`${CEILING}=50000`));
+        });
+
+        test('a ceiling below the real count still refuses', async () => {
+            const { driver } = stubDriver({ nodes: 50000 });
+            process.env[CEILING] = '49999';
+            await expect(assertDisposableGraph(driver, 'Demo Suite')).rejects.toThrow();
+        });
+
+        test('a nonsense ceiling falls back to the default rather than disabling the check', async () => {
+            const { driver } = stubDriver({ nodes: DEFAULT_MAX_NODES + 1 });
+            process.env[CEILING] = 'yes please';
+            await expect(assertDisposableGraph(driver, 'Demo Suite')).rejects.toThrow();
+        });
     });
 });
