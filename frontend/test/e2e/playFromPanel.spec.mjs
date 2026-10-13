@@ -139,12 +139,17 @@ test.describe('playing from a panel', () => {
         await select(page, 'grp:band');
         await control(page).click();
 
+        // Waited for on the opening rather than on the queue. Selecting the
+        // node loads the queue in the background on its own — deliberately,
+        // and without opening anything — so a queue of three is satisfied
+        // before the control's own fetch has returned and says nothing about
+        // whether the control worked.
         await expect.poll(() => page.evaluate(
-            () => window.musicGraph.miniPlayer?.queue?.length ?? 0)).toBe(3);
+            () => window.musicGraph.miniPlayer?._collapsed)).toBe(false);
+        expect(await page.evaluate(
+            () => window.musicGraph.miniPlayer.queue.length)).toBe(3);
         expect(await page.evaluate(
             () => window.musicGraph.miniPlayer.currentIndex)).toBe(0);
-        expect(await page.evaluate(
-            () => window.musicGraph.miniPlayer._collapsed)).toBe(false);
     });
 
     test('and says so when there is nothing to play', async ({ page }) => {
