@@ -77,6 +77,40 @@ export class MiniPlayer {
     }
 
     /**
+     * Load everything a person or group played and reveal the player on it.
+     *
+     * The queue for the selected node is already fetched on every selection by
+     * loadQueue, but that deliberately defers while something is sounding and
+     * never reveals anything — browsing is not a request to change the music.
+     * Pressing a play control is that request, so this behaves like
+     * playTrackById: it takes effect immediately and opens the player.
+     *
+     * What it cannot do is start the audio. Spotify's embed is a plain iframe
+     * with no controller, so this points the player at the first track and the
+     * visitor presses play inside it. The control that calls this is labelled
+     * accordingly.
+     *
+     * @param {string} contextType - 'person' or 'group'
+     * @param {string} contextId
+     * @returns {Promise<boolean>} false when there is nothing playable
+     */
+    async loadContext(contextType, contextId) {
+        const sameContext = this.context?.id === contextId && this.queue.length > 0;
+
+        if (!sameContext) {
+            const data = await this.api.fetchPlaybackQueue(contextType, contextId);
+            if (!data.success || !data.queue?.length) return false;
+            this._applyQueue(data.context, data.queue);
+        }
+        if (!this.queue.length) return false;
+
+        this.currentIndex = 0;
+        this._loadCurrentTrack(false);
+        this.expand();
+        return true;
+    }
+
+    /**
      * Load a context and go straight to one track in it.
      *
      * Deliberately does NOT defer the way loadQueue() does. Deferring exists so
@@ -686,8 +720,15 @@ export class MiniPlayer {
         // External link — always offered when one exists and we are not
         // playing the track ourselves, including in embed mode so the visitor
         // can open the full track in the Spotify app.
+        //
+        // `listen` is optional, and reading through it unguarded threw on any
+        // track that has no links at all — which the registry is full of:
+        // hidden tracks, interludes, a track called "(silence)". The throw came
+        // out of the display, after the queue had been applied and the index
+        // moved, so the player was left half-loaded and the caller's promise
+        // rejected. Reached for every track, not just external ones.
         const linkEl = this._externalEl.querySelector('.mp-open-link');
-        if (track && track.listen.preferred_link && mode !== 'audio') {
+        if (track?.listen?.preferred_link && mode !== 'audio') {
             linkEl.href = track.listen.preferred_link;
             linkEl.style.display = '';
         } else {

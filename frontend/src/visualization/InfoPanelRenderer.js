@@ -52,6 +52,10 @@ export class InfoPanelRenderer {
      * @param {(releaseId: string) => void} deps.callbacks.navigateToRelease
      * @param {(op: Object) => void} deps.callbacks.selectCurateOperation
      * @param {(op: Object, val: number) => void} deps.callbacks.voteFromDetail
+     * @param {(contextType: string, contextId: string) => Promise<boolean>} deps.callbacks.playContext
+     *   Load everything a person or group played into the player. Resolves
+     *   false when there is nothing playable, which the control reports rather
+     *   than swallowing.
      * @param {(releaseId: string, trackId: string) => void} deps.callbacks.playTrack
      *   Point the player at one track of a release. Lives on MusicGraph because
      *   the player instance does.
@@ -331,9 +335,53 @@ export class InfoPanelRenderer {
     /**
      * Render Group details in info panel.
      */
+    /**
+     * A control that loads everything this person or group played.
+     *
+     * The queue is already fetched on selection, but nothing revealed it — the
+     * player stays collapsed and the visitor had no way to ask for it. Pressing
+     * this is the request.
+     *
+     * "Load in player" rather than "Play", matching the track rows: the embed
+     * is an iframe with no controller, so this points the player at the music
+     * and the visitor presses play inside it. Claiming to play it would be a
+     * lie.
+     *
+     * Whether there is anything to play is not known until it is asked for, and
+     * a button that silently does nothing is worse than no button — so a dead
+     * end is reported on the control itself rather than swallowed.
+     *
+     * @private
+     * @param {'person'|'group'} contextType
+     * @param {string} nodeId
+     * @returns {HTMLElement}
+     */
+    _playContextButton(contextType, nodeId) {
+        const label = contextType === 'group' ? 'this group' : 'this person';
+        const button = this._el('button', {
+            className: 'info-play-context',
+            type: 'button',
+            title: 'Load in player',
+            'aria-label': `Load the music of ${label} in the player`,
+            onClick: async () => {
+                button.disabled = true;
+                const played = await this.callbacks.playContext?.(contextType, nodeId);
+                if (!played) {
+                    button.textContent = 'Nothing to play';
+                    button.classList.add('info-play-context--empty');
+                    return;
+                }
+                button.disabled = false;
+            },
+        }, '\u25B6 Load in player');
+        return button;
+    }
+
     renderGroupDetails(group, titleElement, contentElement, nodeId) {
         titleElement.textContent = group.name || group.group_name || 'Unknown Group';
         contentElement.replaceChildren();
+
+        if (nodeId) contentElement.appendChild(this._playContextButton('group', nodeId));
 
         if (group.photo) {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },
@@ -403,6 +451,8 @@ export class InfoPanelRenderer {
     renderPersonDetails(person, titleElement, contentElement, nodeId) {
         titleElement.textContent = person.name || person.person_name || 'Unknown Person';
         contentElement.replaceChildren();
+
+        if (nodeId) contentElement.appendChild(this._playContextButton('person', nodeId));
 
         if (person.photo) {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },

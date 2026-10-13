@@ -116,6 +116,9 @@ function makeStub({ stakeManager = null } = {}) {
     stub._el = compileMethod('_el').bind(stub);
     stub._appendEditableRow = compileMethod('_appendEditableRow').bind(stub);
     stub._renderEditionSwitcher = compileMethod('_renderEditionSwitcher').bind(stub);
+    // The control that loads everything a person or group played. Compiled in
+    // rather than stubbed, so the real markup reaches the snapshots.
+    stub._playContextButton = compileMethod('_playContextButton').bind(stub);
     stub._compareTrackPlacement = compileMethod('_compareTrackPlacement').bind(stub);
     // Staking decorates both the group and the person panel. Bound from live
     // source for the same reason as the rest of the cluster, and null by

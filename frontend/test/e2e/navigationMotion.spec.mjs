@@ -192,9 +192,17 @@ function predictTranslation(before, targetId) {
 /** Pixels from the centre of the rendered disk to its rim. */
 const diskRadius = (page) => page.evaluate(() => window.musicGraph.ht.getRadius());
 
-/** Stop the second leg, to measure the first on its own. */
+/**
+ * Stop the second leg, to measure the first on its own.
+ *
+ * Also lets the travel run its full duration. The two legs overlap by design —
+ * the settle takes over partway through so the pair reads as one motion — which
+ * makes "is the travel exactly a translation" unobservable from the outside
+ * unless the handover is pushed to the end.
+ */
 const travelOnly = (page) => page.evaluate(() => {
     window.musicGraph._settleAround = (node, done) => done();
+    window.musicGraph._travelHandover = 1;
 });
 
 /** Who is adjacent to whom, ignoring the synthetic layout connectors. */
@@ -358,16 +366,26 @@ test.describe('the second leg opens the neighbourhood', () => {
         // of them per step; keeping the order means the motion is radial and
         // can be followed.
         //
-        // Measured across the settle, not across the whole navigation: the
-        // settle starts from the layout the travel produced, and that is the
-        // layout to compare against.
+        // Measured across the settle, not across the whole navigation, and
+        // from where the settle actually begins. The legs overlap, so the
+        // travel is cut off part way and a full translation is not the
+        // baseline — using one reported four crossings against a build that
+        // had not reordered anything. ht.root flips at the start of the
+        // settle, which is the moment to look.
         await boot(page);
         await select(page, 'grp:0');
         const adj = await adjacency(page);
 
         for (const id of ['per:0_1', 'per:hub', 'grp:2', 'per:2_3']) {
-            const start = ringsFrom(predictTranslation(await positions(page), id), adj);
-            await select(page, id);
+            const arrival = page.waitForFunction(
+                (target) => window.musicGraph.ht.root === target,
+                id,
+                { polling: 'raf', timeout: 15_000 }
+            );
+            const clicked = select(page, id);
+            await arrival;
+            const start = ringsFrom(await positions(page), adj);
+            await clicked;
             const end = ringsFrom(await positions(page), adj);
 
             const shared = Object.keys(end).filter((k) => k in start);
@@ -478,6 +496,29 @@ test.describe('both legs are animated', () => {
 
         expect(first.busy).toBe(true);
         expect(Math.abs(second.rho - first.rho)).toBeGreaterThan(0.001);
+    });
+
+    test('as one motion: the settle starts before the travel has finished', async ({ page }) => {
+        // Run end to end the two legs read as a slide, a pause and a rearrange.
+        // The settle's target already has the selection at the origin, so it
+        // can finish what the travel started.
+        await boot(page);
+        await select(page, 'grp:0');
+
+        const started = Date.now();
+        await page.evaluate(() => {
+            const g = window.musicGraph;
+            g.handleNodeClick(g.ht.graph.getNode('per:0_1'));
+        });
+        await page.waitForFunction(
+            () => window.musicGraph.ht.root === 'per:0_1',
+            { timeout: 15_000, polling: 'raf' }
+        );
+        const handover = Date.now() - started;
+
+        // Comfortably inside the travel's own duration, and not instant.
+        expect(handover).toBeGreaterThan(40);
+        expect(handover).toBeLessThan(380);
     });
 
     test('and both have finished by the time it reports it is done', async ({ page }) => {
