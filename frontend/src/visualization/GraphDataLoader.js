@@ -27,6 +27,16 @@
  * @module visualization/GraphDataLoader
  */
 
+/**
+ * How long the opening draw may hold up the first paint.
+ *
+ * The sponsored fetch starts with the graph fetch, so in the ordinary case it
+ * has already resolved by the time this is consulted and the grace is never
+ * spent. It exists for a chain that is slow or down, where the graph must still
+ * appear.
+ */
+const SPONSORED_GRACE_MS = 600;
+
 export class GraphDataLoader {
     /**
      * @param {Object} deps
@@ -56,41 +66,90 @@ export class GraphDataLoader {
 
         this.rawGraph = null;
         this._initialParticipation = undefined;
+        /*
+         * How long the opening draw may hold up the first paint. An instance
+         * field rather than a bare constant because the loader's tests compile
+         * method bodies out of this file and run them against a stub, where a
+         * module-level binding is not in scope.
+         */
+        this.sponsoredGraceMs = SPONSORED_GRACE_MS;
     }
 
     /**
-     * Centre the view on this period's drawn node, if there is one.
+     * Open on this period's drawn node, if there is one.
      *
      * Runs on every fresh load rather than only the first visit: the draw is
      * the same for everyone in the period, so there is nothing to remember
      * about a returning visitor and no cookie to set.
+     *
+     * Called before the first paint, with the id already in hand, so the
+     * hypertree is built around the drawn node and it is simply *there*. It
+     * used to run afterwards, which meant the graph appeared centred on
+     * whichever node the layout happened to pick and then visibly travelled to
+     * the drawn one — an opening journey from an arbitrary band that said
+     * nothing, every single load.
      *
      * Silent on every failure path. A node that is not in the loaded subgraph
      * is treated the same as no node at all — the initial graph holds groups
      * and their members, which is exactly the eligible set, but a draw taken
      * against a newer graph than the one this client fetched could still name
      * something absent.
+     *
+     * @param {string|null} sponsoredId
+     * @returns {boolean} whether the root was moved
      */
-    async openOnSponsoredNode() {
+    openOnSponsoredNode(sponsoredId) {
+        if (!sponsoredId) return false;
+
+        const node = this.callbacks.getNode?.(sponsoredId);
+        if (!node) {
+            console.log('Sponsored node is not in the loaded graph, keeping the default root');
+            return false;
+        }
+
+        this.callbacks.setRoot?.(sponsoredId);
+        return true;
+    }
+
+    /**
+     * The drawn node's id, if it arrives in time to open on.
+     *
+     * Started alongside the graph fetch and waited for only as long as it takes
+     * the graph itself to arrive, plus a short grace. The draw is worth opening
+     * on; it is not worth holding a blank screen for. Past the grace the load
+     * continues without it, which is the behaviour this had before the draw was
+     * part of the opening at all.
+     *
+     * @param {Promise<{id?: string}>} pending
+     * @returns {Promise<string|null>}
+     */
+    async _sponsoredIdIfPrompt(pending) {
+        let timer;
+        const grace = new Promise((resolve) => {
+            timer = setTimeout(() => resolve(null), this.sponsoredGraceMs);
+        });
         try {
-            const sponsored = await this.api.fetchSponsoredNode();
-            if (!sponsored?.id) return;
-
-            const node = this.callbacks.getNode?.(sponsored.id);
-            if (!node) {
-                console.log('Sponsored node is not in the loaded graph, keeping the default root');
-                return;
-            }
-
-            this.callbacks.selectNode?.(node);
+            const winner = await Promise.race([pending, grace]);
+            return winner?.id ?? null;
         } catch (error) {
-            console.warn('Could not open on the sponsored node:', error.message);
+            console.warn('Could not read the sponsored node:', error.message);
+            return null;
+        } finally {
+            clearTimeout(timer);
         }
     }
 
     async loadGraphData() {
         try {
             console.log('Loading graph data...');
+            // Both requests go out together: the draw is needed before the
+            // first paint, and fetching it after the graph would add its round
+            // trip to the time the visitor spends looking at nothing.
+            const pendingSponsored = this.api.fetchSponsoredNode()
+                .catch((error) => {
+                    console.warn('Could not fetch the sponsored node:', error.message);
+                    return null;
+                });
             const raw = await this.api.fetchInitialGraphRaw();
             this.rawGraph = { nodes: raw.nodes, edges: raw.edges };
 
@@ -101,6 +160,12 @@ export class GraphDataLoader {
 
             const jit = this.api.transformToJIT(this.rawGraph);
             this.callbacks.loadJSON(jit);
+
+            // Before refresh(), which is what builds the layout: setting the
+            // root after it would draw one view and then replace it.
+            const sponsoredId = await this._sponsoredIdIfPrompt(pendingSponsored);
+            this.openOnSponsoredNode(sponsoredId);
+
             this.callbacks.refresh();
             this.callbacks.syncZoomSlider();
             this.callbacks.updateHistoryCount();
@@ -112,11 +177,21 @@ export class GraphDataLoader {
 
             console.log('Graph rendered');
 
-            // Last, and deliberately not awaited above: the graph is already
-            // drawn and usable by now, so a slow or unreachable chain delays
-            // nothing. If the draw comes back, the view moves to it; if not,
-            // the hypertree keeps the root it chose for itself.
-            await this.openOnSponsoredNode();
+            // Select it, now that it is drawn: the node is already at the
+            // centre, so this fills the details and marks it without moving
+            // anything. A draw that missed the grace above still gets here —
+            // it travels, as it used to, which is the right fallback for a
+            // slow chain and the wrong default for every load.
+            if (sponsoredId) {
+                const node = this.callbacks.getNode?.(sponsoredId);
+                if (node) this.callbacks.selectNode?.(node);
+            } else {
+                const late = await pendingSponsored;
+                if (late?.id) {
+                    const node = this.callbacks.getNode?.(late.id);
+                    if (node) this.callbacks.selectNode?.(node);
+                }
+            }
         } catch (error) {
             console.error('Failed to load graph data:', error);
         }

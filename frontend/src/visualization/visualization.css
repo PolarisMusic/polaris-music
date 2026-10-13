@@ -789,69 +789,37 @@ body.mini-player-visible.mini-player-embed {
 
 /* ========== Release Orbit Overlay ========== */
 
-/* The trail: where you have been, oldest on the left, current on the right.
-   Navigation is a translation, so after two or three steps everything legible
-   is new — this is the record of how you got here, and the way back.
-
-   Absolutely positioned, pointer-events only on the steps themselves, so the
-   strip never steals a drag or a tap aimed at the graph behind it. */
-.graph-trail {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    right: 8px;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    pointer-events: none;
-    overflow: hidden;
-    z-index: 40;
-}
-
-.graph-trail[hidden] {
-    display: none;
-}
-
-.graph-trail-step {
-    pointer-events: auto;
-    max-width: 10rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding: 3px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 11px;
-    background: rgba(18, 18, 18, 0.82);
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 12px;
-    line-height: 1.3;
+/* Load everything a person or group played. Sits at the top of their panel,
+   where it reads as being about the node rather than about one row below. */
+.info-play-context {
+    display: block;
+    width: 100%;
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 13px;
     cursor: pointer;
+    text-align: center;
 }
 
-.graph-trail-step:hover:not(:disabled) {
-    border-color: rgba(255, 255, 255, 0.34);
+.info-play-context:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.38);
+    background: rgba(255, 255, 255, 0.1);
     color: #fff;
 }
 
-/* The step you are standing on. Not a link, because it goes nowhere, but it
-   has to be in the strip or the trail stops short of where you are. */
-.graph-trail-step[aria-current="true"] {
-    border-color: rgba(255, 255, 255, 0.55);
-    color: #fff;
+.info-play-context:disabled {
     cursor: default;
+    opacity: 0.7;
 }
 
-.graph-trail-more,
-.graph-trail-sep {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 11px;
-    flex: none;
-}
-
-@media (max-width: 768px) {
-    .graph-trail-step {
-        max-width: 6.5rem;
-    }
+/* Asked, and there was nothing. Says so rather than going quiet. */
+.info-play-context--empty {
+    color: rgba(255, 255, 255, 0.45);
+    border-style: dashed;
 }
 
 #release-orbit-overlay {

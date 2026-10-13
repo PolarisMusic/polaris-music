@@ -175,24 +175,6 @@ export class PathTracker {
     }
 
     /**
-     * Move the cursor straight to an entry, the way the trail does.
-     *
-     * Back and forward step by one; a trail chip is a jump of however many
-     * steps separate it from where the cursor is. Out-of-range is a no-op
-     * returning null rather than a clamp, so a stale chip from a render that
-     * raced a history change cannot move the cursor somewhere arbitrary.
-     *
-     * @param {number} index
-     * @returns {{nodeId: string, name: string, type: string}|null}
-     */
-    goToIndex(index) {
-        if (!Number.isInteger(index)) return null;
-        if (index < 0 || index >= this.browseHistory.length) return null;
-        this.historyCursor = index;
-        return this.browseHistory[index];
-    }
-
-    /**
      * The entry the cursor is on, which is not always the newest.
      * @returns {{nodeId: string, name: string, type: string}|null}
      */

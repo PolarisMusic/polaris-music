@@ -59,16 +59,6 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 const HYPERTREE_ANIMATION_MS = 700;
 
 /**
- * How many steps of the trail to show.
- *
- * Enough to cover the two or three hops it takes for every legible node to
- * have changed, which is what the trail exists to answer, and few enough that
- * the strip stays one line on a phone beside the ellipsis that stands in for
- * the rest. The whole history is still in the history panel.
- */
-const TRAIL_LENGTH = 5;
-
-/**
  * The two legs of a navigation, in milliseconds.
  *
  * TRAVEL is a Mobius translation carrying the selection to the centre: rigid,
@@ -88,6 +78,22 @@ const TRAIL_LENGTH = 5;
  */
 const TRAVEL_MS = 420;
 const SETTLE_MS = 320;
+
+/**
+ * How far into the travel the settle takes over.
+ *
+ * Run end to end the two legs read as two events — a quick slide, a pause, a
+ * quick rearrange — which is a stutter, not a journey. The settle's target
+ * already has the selection at the origin, so it can finish the carrying the
+ * travel started: cutting the translation off part way and handing over loses
+ * nothing and makes one continuous motion of it.
+ *
+ * Not zero. The opening of a navigation is the part that says you are going
+ * somewhere, and it says it by being rigid — everything moving together,
+ * nothing changing shape. Begin rearranging immediately and that reading is
+ * gone.
+ */
+const TRAVEL_HANDOVER = 0.45;
 
 
 /**
@@ -180,6 +186,8 @@ export class MusicGraph {
                 selectCurateOperation: (op) => this._selectCurateOperation(op),
                 voteFromDetail: (op, val, memo) => this._curateVoteFromDetail(op, val, memo),
                 playTrack: (releaseId, trackId) => this._playTrack(releaseId, trackId),
+                playContext: (contextType, contextId) =>
+                    this.miniPlayer?.loadContext(contextType, contextId) ?? Promise.resolve(false),
                 switchToEdition: (releaseId) => this._switchToEdition(releaseId),
             },
         });
@@ -210,6 +218,16 @@ export class MusicGraph {
         this.selectedNode = null;
         /* The selection before this one — see _markSelected. */
         this.previousNode = null;
+        /* Pending travel→settle handover, and which node owns it. */
+        this._handover = null;
+        this._settling = null;
+        /*
+         * Instance copy of TRAVEL_HANDOVER so a test can set it to 1 and watch
+         * the translation run to completion. Measuring the legs separately is
+         * the only way to assert that the first one is exactly a translation,
+         * and overlapping them by design makes that unobservable otherwise.
+         */
+        this._travelHandover = TRAVEL_HANDOVER;
         this.labelsVisible = true;
         this.historyPanelOpen = false;
         this.curatePanelOpen = false;
@@ -305,6 +323,10 @@ export class MusicGraph {
                 // in the collapsed sheet row.
                 getNode: (id) => this.ht?.graph?.getNode?.(id) ?? null,
                 selectNode: (node) => this.handleNodeClick(node),
+                // Set before the first refresh, so the opening layout is built
+                // around the drawn node rather than built elsewhere and then
+                // travelled away from.
+                setRoot: (id) => { if (this.ht) this.ht.root = id; },
             },
         });
     }
@@ -716,15 +738,6 @@ export class MusicGraph {
         document.getElementById('info-close')
             ?.addEventListener('click', () => this.collapseInfoPanel());
 
-        // Delegated: renderTrail replaces the strip's children on every
-        // navigation, so a listener per chip would be attached and discarded
-        // several times a minute.
-        document.getElementById('graph-trail')?.addEventListener('click', (e) => {
-            const step = e.target.closest?.('.graph-trail-step');
-            if (!step || step.disabled) return;
-            const index = Number(step.dataset.historyIndex);
-            this.goToHistoryIndex(index);
-        });
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') this.collapseInfoPanel();
         });
@@ -1731,11 +1744,54 @@ export class MusicGraph {
             ht.busy = false;
         }
 
+        // A handover scheduled by the navigation being abandoned would fire
+        // into this one, settling around the node that was just superseded.
+        clearTimeout(this._handover);
+        this._handover = null;
+        this._settling = null;
+
         ht.onClick(node.id, {
             duration: TRAVEL_MS,
             hideLabels: true,
-            onComplete: () => this._settleAround(node, onComplete),
+            // Ordinarily the handover below gets there first and this never
+            // runs; it is the backstop for a frame budget that overshoots.
+            onComplete: () => this._handOverToSettle(node, onComplete),
         });
+
+        this._handover = setTimeout(
+            () => this._handOverToSettle(node, onComplete),
+            TRAVEL_MS * this._travelHandover
+        );
+    }
+
+    /**
+     * Cut the travel short, wherever it has got to, and settle from there.
+     *
+     * Stopping the timer leaves every node at a real point part way along its
+     * path — a translation is a continuous family of them — so the settle has a
+     * perfectly good layout to start from and to read bearings off. The
+     * selection does not need the rest of the translation either: it is going
+     * to the origin, and the settle's target puts it there.
+     *
+     * Guarded because two things race to call it, the timer and the animation's
+     * own completion, and whichever loses must do nothing.
+     *
+     * @private
+     */
+    _handOverToSettle(node, onComplete) {
+        const ht = this.ht;
+        if (!ht || this._settling === node.id) return;
+        this._settling = node.id;
+
+        clearTimeout(this._handover);
+        this._handover = null;
+
+        if (ht.busy) {
+            ht.fx.animation.stopTimer();
+            ht.busy = false;
+        }
+
+        this._settleAround(node, onComplete);
     }
 
     /**
@@ -1788,6 +1844,7 @@ export class MusicGraph {
             hideLabels: true,
             onComplete: () => {
                 ht.busy = false;
+                this._settling = null;
                 onComplete();
             },
         });
@@ -2134,110 +2191,6 @@ export class MusicGraph {
         const forward = document.getElementById('nav-forward');
         if (back) back.disabled = !this.pathTracker.canGoBack();
         if (forward) forward.disabled = !this.pathTracker.canGoForward();
-        this.renderTrail();
-    }
-
-    /**
-     * Draw the trail: where you have been, oldest on the left.
-     *
-     * Rebuilt rather than diffed. It is at most TRAIL_LENGTH buttons and it
-     * only changes when the visitor navigates, which is also the moment the
-     * graph is animating several hundred nodes — this is not the expensive
-     * thing on screen.
-     *
-     * Indices are the history's own, so a chip survives the list growing under
-     * it: the cursor is where you are, and entries older than it are the ones
-     * behind you. The newest entries are at the front of browseHistory, which
-     * is why the window reads forwards from the cursor and is then reversed.
-     */
-    renderTrail() {
-        const el = document.getElementById('graph-trail');
-        if (!el) return;
-
-        const history = this.pathTracker.getBrowseHistory();
-        const cursor = this.pathTracker.historyCursor || 0;
-
-        // Index 0 is the newest entry, so "older" means a larger index and the
-        // strip reads right to left through the array.
-        //
-        // The window spans the cursor rather than starting at it. Stepping
-        // back used to shrink the trail from behind, so walking to the oldest
-        // entry left a strip of one — it vanished at the exact moment the
-        // visitor had most obviously lost their place, and took the steps they
-        // could go forward to with it.
-        const oldest = Math.min(history.length - 1, cursor + TRAIL_LENGTH - 1);
-        const newest = Math.max(0, oldest - TRAIL_LENGTH + 1);
-        const window_ = history.slice(newest, oldest + 1);
-
-        // One entry is not a trail, it is just the node you are looking at,
-        // which the info panel already names.
-        if (window_.length < 2) {
-            el.hidden = true;
-            el.replaceChildren();
-            return;
-        }
-
-        const children = [];
-        const ellipsis = () => {
-            const more = document.createElement('span');
-            more.className = 'graph-trail-more';
-            more.textContent = '…';
-            // The rest of the route is in the history panel, and announcing an
-            // ellipsis to a screen reader helps nobody.
-            more.setAttribute('aria-hidden', 'true');
-            return more;
-        };
-
-        if (oldest < history.length - 1) children.push(ellipsis());
-
-        window_.slice().reverse().forEach((entry, i) => {
-            if (i > 0 || children.length > 0) {
-                const sep = document.createElement('span');
-                sep.className = 'graph-trail-sep';
-                sep.textContent = '›';
-                sep.setAttribute('aria-hidden', 'true');
-                children.push(sep);
-            }
-
-            const index = oldest - i;
-            const step = document.createElement('button');
-            step.type = 'button';
-            step.className = 'graph-trail-step';
-            step.textContent = entry.name || entry.nodeId;
-            step.title = entry.name || entry.nodeId;
-            step.dataset.historyIndex = String(index);
-            if (index === cursor) {
-                step.setAttribute('aria-current', 'true');
-                step.disabled = true;
-            }
-            children.push(step);
-        });
-
-        // Steps newer than the window: reached by going forward, so they are
-        // as real as the ones behind and get the same mark.
-        if (newest > 0) {
-            const sep = document.createElement('span');
-            sep.className = 'graph-trail-sep';
-            sep.textContent = '›';
-            sep.setAttribute('aria-hidden', 'true');
-            children.push(sep, ellipsis());
-        }
-
-        el.replaceChildren(...children);
-        el.hidden = false;
-    }
-
-    /**
-     * Travel to a trail step.
-     *
-     * The same path as the back button, which already copes with an entry
-     * whose node is not in the loaded graph — history outlives a graph reload.
-     *
-     * @param {number} index
-     * @returns {boolean} whether it moved
-     */
-    goToHistoryIndex(index) {
-        return this._stepHistory(() => this.pathTracker.goToIndex(index));
     }
 
     /**

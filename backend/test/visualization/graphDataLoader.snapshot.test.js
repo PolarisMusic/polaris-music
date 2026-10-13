@@ -119,6 +119,8 @@ function makeStub({
     rawGraph = null,
     hashIndex = new Map(),
     checksumImpl,
+    sponsoredResponse,
+    fetchSponsoredImpl,
 } = {}) {
     const stub = {
         rawGraph,
@@ -132,6 +134,12 @@ function makeStub({
                 ? jest.fn(fetchNeighborhoodImpl)
                 : jest.fn(async () => neighborhoodResponse ?? null),
             transformToJIT: jest.fn(raw => ({ jitFor: raw })),
+            // The opening draw. Fetched alongside the graph so the hypertree
+            // can be built around it, rather than afterwards, which made the
+            // view travel to it from wherever the layout had started.
+            fetchSponsoredNode: fetchSponsoredImpl
+                ? jest.fn(fetchSponsoredImpl)
+                : jest.fn(async () => sponsoredResponse ?? null),
             mergeRawGraph: jest.fn((a, b) => ({
                 nodes: [...(a?.nodes || []), ...(b?.nodes || [])],
                 edges: [...(a?.edges || []), ...(b?.edges || [])],
@@ -148,13 +156,21 @@ function makeStub({
             syncZoomSlider: jest.fn(),
             updateHistoryCount: jest.fn(),
             prePopulateDonutData: jest.fn(),
+            getNode: jest.fn(() => null),
+            selectNode: jest.fn(),
+            setRoot: jest.fn(),
         },
+        // Zero, so the tests never wait on the grace. The real value only
+        // matters when the chain is slow, which has its own test below.
+        sponsoredGraceMs: 0,
     };
     // Intra-class delegation: loadGraphData → rebuildHashIndexFromRawGraph
     // and ensureNodeInGraph → rebuildHashIndexFromRawGraph. Wire the real
     // compiled body so we lock both in one shot.
     stub.rebuildHashIndexFromRawGraph =
         compileMethod('rebuildHashIndexFromRawGraph').bind(stub);
+    stub._sponsoredIdIfPrompt = compileMethod('_sponsoredIdIfPrompt').bind(stub);
+    stub.openOnSponsoredNode = compileMethod('openOnSponsoredNode').bind(stub);
     return stub;
 }
 
@@ -167,6 +183,8 @@ describe('Stage J.2 · GraphDataLoader · drift guard', () => {
         ['loadGraphData',                '()'],
         ['rebuildHashIndexFromRawGraph', '()'],
         ['ensureNodeInGraph',            '(nodeId)'],
+        ['openOnSponsoredNode',          '(sponsoredId)'],
+        ['_sponsoredIdIfPrompt',         '(pending)'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -200,6 +218,87 @@ describe('Stage J.2 · loadGraphData', () => {
         expect(stub.callbacks.syncZoomSlider).toHaveBeenCalledTimes(1);
         expect(stub.callbacks.updateHistoryCount).toHaveBeenCalledTimes(1);
         expect(stub.callbacks.prePopulateDonutData).toHaveBeenCalledTimes(1);
+    });
+
+    /* Minimal graph for the opening-draw tests below. */
+    const openingGraph = {
+        nodes: [{ id: 'g:1', name: 'G1', type: 'group' }],
+        edges: [{ source: 'p:1', target: 'g:1', type: 'MEMBER_OF' }],
+        participation: {},
+    };
+
+    test('sets the root to the drawn node before refresh builds the layout', async () => {
+        // The complaint this answers: the graph appeared centred on whichever
+        // node the layout picked and then visibly travelled to the drawn one.
+        // refresh() is what builds the layout, so the root has to be in place
+        // first or one view is drawn and then replaced.
+        const stub = makeStub({
+            initialGraphResponse: openingGraph,
+            sponsoredResponse: { id: 'g:1' },
+        });
+        stub.callbacks.getNode = jest.fn((id) => ({ id }));
+
+        await compileMethod('loadGraphData').call(stub);
+
+        expect(stub.callbacks.setRoot).toHaveBeenCalledWith('g:1');
+        expect(stub.callbacks.setRoot.mock.invocationCallOrder[0])
+            .toBeLessThan(stub.callbacks.refresh.mock.invocationCallOrder[0]);
+        expect(stub.callbacks.selectNode).toHaveBeenCalled();
+    });
+
+    test('starts the draw request before awaiting the graph, not after it', async () => {
+        // Fetched in parallel: asking for the draw only once the graph has
+        // arrived adds its round trip to the time the visitor spends looking
+        // at nothing.
+        const stub = makeStub({
+            initialGraphResponse: openingGraph,
+            sponsoredResponse: { id: 'g:1' },
+        });
+
+        await compileMethod('loadGraphData').call(stub);
+
+        expect(stub.api.fetchSponsoredNode.mock.invocationCallOrder[0])
+            .toBeLessThan(stub.api.fetchInitialGraphRaw.mock.invocationCallOrder[0]);
+    });
+
+    test('renders the graph when there is no draw to open on', async () => {
+        const stub = makeStub({ initialGraphResponse: openingGraph, sponsoredResponse: null });
+
+        await compileMethod('loadGraphData').call(stub);
+
+        expect(stub.callbacks.setRoot).not.toHaveBeenCalled();
+        expect(stub.callbacks.refresh).toHaveBeenCalled();
+        expect(stub.rawGraph).not.toBeNull();
+    });
+
+    test('renders the graph when the draw request fails outright', async () => {
+        // A chain that is down must not take the graph with it.
+        const stub = makeStub({
+            initialGraphResponse: openingGraph,
+            fetchSponsoredImpl: async () => { throw new Error('chain unreachable'); },
+        });
+
+        await compileMethod('loadGraphData').call(stub);
+
+        expect(stub.callbacks.refresh).toHaveBeenCalled();
+        expect(stub.rawGraph).not.toBeNull();
+    });
+
+    test('leaves the root alone when the drawn node is not in the loaded graph', async () => {
+        // The initial graph holds groups and their members, which is the
+        // eligible set — but a draw taken against a newer graph than this
+        // client fetched can still name something absent.
+        const stub = makeStub({
+            initialGraphResponse: openingGraph,
+            sponsoredResponse: { id: 'g:not-here' },
+        });
+        stub.callbacks.getNode = jest.fn(() => null);
+
+        await compileMethod('loadGraphData').call(stub);
+
+        expect(stub.callbacks.setRoot).not.toHaveBeenCalled();
+        expect(stub.callbacks.selectNode).not.toHaveBeenCalled();
+        expect(stub.callbacks.refresh).toHaveBeenCalled();
     });
 
     test('rebuildHashIndexFromRawGraph runs after loadJSON/refresh', async () => {
