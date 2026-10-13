@@ -192,17 +192,9 @@ function predictTranslation(before, targetId) {
 /** Pixels from the centre of the rendered disk to its rim. */
 const diskRadius = (page) => page.evaluate(() => window.musicGraph.ht.getRadius());
 
-/**
- * Stop the second leg, to measure the first on its own.
- *
- * Also lets the travel run its full duration. The two legs overlap by design —
- * the settle takes over partway through so the pair reads as one motion — which
- * makes "is the travel exactly a translation" unobservable from the outside
- * unless the handover is pushed to the end.
- */
+/** Stop the second leg, to measure the first on its own. */
 const travelOnly = (page) => page.evaluate(() => {
     window.musicGraph._settleAround = (node, done) => done();
-    window.musicGraph._travelHandover = 1;
 });
 
 /** Who is adjacent to whom, ignoring the synthetic layout connectors. */
@@ -367,11 +359,10 @@ test.describe('the second leg opens the neighbourhood', () => {
         // can be followed.
         //
         // Measured across the settle, not across the whole navigation, and
-        // from where the settle actually begins. The legs overlap, so the
-        // travel is cut off part way and a full translation is not the
-        // baseline — using one reported four crossings against a build that
-        // had not reordered anything. ht.root flips at the start of the
-        // settle, which is the moment to look.
+        // from where the settle actually begins rather than from a predicted
+        // translation. ht.root flips at the start of the settle, which is the
+        // moment to look; reading the layout there needs no assumption about
+        // where the travel left things.
         await boot(page);
         await select(page, 'grp:0');
         const adj = await adjacency(page);
@@ -498,10 +489,12 @@ test.describe('both legs are animated', () => {
         expect(Math.abs(second.rho - first.rho)).toBeGreaterThan(0.001);
     });
 
-    test('as one motion: the settle starts before the travel has finished', async ({ page }) => {
-        // Run end to end the two legs read as a slide, a pause and a rearrange.
-        // The settle's target already has the selection at the origin, so it
-        // can finish what the travel started.
+    test('in sequence: the settle waits for the travel to finish', async ({ page }) => {
+        // Not a timing detail — the thing being protected is the beat between
+        // the legs. The travel ends with the selection at the centre and the
+        // scene still in the shape it was; only then does the neighbourhood
+        // open out. Overlapping the two was tried and reads as one blurred
+        // event in which nothing has arrived.
         await boot(page);
         await select(page, 'grp:0');
 
@@ -516,9 +509,9 @@ test.describe('both legs are animated', () => {
         );
         const handover = Date.now() - started;
 
-        // Comfortably inside the travel's own duration, and not instant.
-        expect(handover).toBeGreaterThan(40);
-        expect(handover).toBeLessThan(380);
+        // The travel's own duration is 420ms. A little under allows for the
+        // last frame landing early; anything near half of it is an overlap.
+        expect(handover).toBeGreaterThan(380);
     });
 
     test('and both have finished by the time it reports it is done', async ({ page }) => {

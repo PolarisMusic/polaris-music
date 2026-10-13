@@ -59,6 +59,19 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 const HYPERTREE_ANIMATION_MS = 700;
 
 /**
+ * How far from a node's ink a click still belongs to it, in canvas pixels.
+ *
+ * Only reached by nodes too small to have any ink worth aiming at — out at
+ * the rim of the disk a person is drawn at a third of a pixel. Without some
+ * reach they would be unclickable; with much more they would swallow their
+ * neighbours, which is the bug this replaces. A finger's width is about
+ * twenty; this is deliberately under that, because the specks it serves sit
+ * in crowds and taking the nearest of them is only useful while "nearest"
+ * means something.
+ */
+const MIN_HIT_RADIUS = 12;
+
+/**
  * The two legs of a navigation, in milliseconds.
  *
  * TRAVEL is a Mobius translation carrying the selection to the centre: rigid,
@@ -75,25 +88,15 @@ const HYPERTREE_ANIMATION_MS = 700;
  * travel is lost in the rearrangement; run in sequence, you go there and then
  * the place resolves. Together they are about the length of the single glide
  * they replace.
+ *
+ * Overlapping them was tried: the travel cut off at 45% and handed over, on
+ * the argument that end to end they read as a slide, a pause and a rearrange.
+ * They do, and the pause is the point — it is the beat in which you have
+ * arrived somewhere, before that somewhere opens out. Blended, the arrival
+ * does not register. Reverted on exactly that judgement; do not re-derive it.
  */
 const TRAVEL_MS = 420;
 const SETTLE_MS = 320;
-
-/**
- * How far into the travel the settle takes over.
- *
- * Run end to end the two legs read as two events — a quick slide, a pause, a
- * quick rearrange — which is a stutter, not a journey. The settle's target
- * already has the selection at the origin, so it can finish the carrying the
- * travel started: cutting the translation off part way and handing over loses
- * nothing and makes one continuous motion of it.
- *
- * Not zero. The opening of a navigation is the part that says you are going
- * somewhere, and it says it by being rigid — everything moving together,
- * nothing changing shape. Begin rearranging immediately and that reading is
- * gone.
- */
-const TRAVEL_HANDOVER = 0.45;
 
 
 /**
@@ -218,16 +221,13 @@ export class MusicGraph {
         this.selectedNode = null;
         /* The selection before this one — see _markSelected. */
         this.previousNode = null;
-        /* Pending travel→settle handover, and which node owns it. */
-        this._handover = null;
-        this._settling = null;
         /*
-         * Instance copy of TRAVEL_HANDOVER so a test can set it to 1 and watch
-         * the translation run to completion. Measuring the legs separately is
-         * the only way to assert that the first one is exactly a translation,
-         * and overlapping them by design makes that unobservable otherwise.
+         * The last hit-test answer, and the redraw it was computed for. See
+         * _hitTarget: the epoch is what stops a stale answer being handed back
+         * to a pointer that has not moved while the graph has.
          */
-        this._travelHandover = TRAVEL_HANDOVER;
+        this._hitCache = null;
+        this._hitEpoch = 0;
         this.labelsVisible = true;
         this.historyPanelOpen = false;
         this.curatePanelOpen = false;
@@ -359,6 +359,131 @@ export class MusicGraph {
     }
 
     /**
+     * The radius this node is actually drawn at, in canvas pixels.
+     *
+     * Mirrors the renderers in registerNodeTypes exactly, transform and all:
+     * a node's drawn size shrinks with its distance from the centre of the
+     * disk, and a group wearing a donut is as big as the donut's outer edge,
+     * because that ring is part of what you can see and aim at. config.Node is
+     * the same object the renderers read it from (jit.js:6778), so the two
+     * cannot drift apart over a config change.
+     *
+     * Returns 0 for a node the renderers skip (dim <= 0.2). Something that is
+     * not drawn is not a target.
+     *
+     * @param {Object} node
+     * @returns {number}
+     * @private
+     */
+    _drawnRadius(node) {
+        const dim = node.getData('dim');
+        if (!(dim > 0)) return 0;
+
+        const transform = this.ht?.config?.Node?.transform;
+        const drawn = transform ? dim * (1 - node.pos.getc().squaredNorm()) : dim;
+        if (!(drawn > 0.2)) return 0;
+
+        const slices = node.getData('donutSlices');
+        if (slices && slices.length > 0) {
+            return drawn + Math.max(2, drawn * 0.20) + Math.max(3, drawn * 0.45);
+        }
+        return drawn;
+    }
+
+    /**
+     * Which node a point on the canvas belongs to.
+     *
+     * Replaces JIT's own answer, which was wrong in two ways that compound.
+     * Its `contains` compared the pointer against the node's *untransformed*
+     * dim (jit.js:18358), so a person drawn as a third of a pixel out at the
+     * rim still carried a ten-pixel target, and a group a thirty-pixel one —
+     * invisible discs, several times larger than the ink, stacked on top of
+     * each other wherever the layout crowds. And the winner was simply the
+     * first such disc in `graph.nodes` key order (jit.js:2099), which is the
+     * order the API happened to return the nodes in.
+     *
+     * Together that is: click a dot at the edge of the disk, arrive somewhere
+     * you did not click. The node you land on need not be the one under the
+     * pointer, need not be near it, and is not even stable between loads.
+     *
+     * The rule here is the one the eye uses. If the point is on something's
+     * ink, it belongs to the nearest such node. Otherwise it belongs to the
+     * nearest node within a finger's width, so the specks at the rim stay
+     * reachable without swallowing their neighbours. Nothing within that
+     * distance means empty canvas, which is a real answer.
+     *
+     * @param {{x: number, y: number}} pos - canvas coordinates
+     * @returns {Object|null}
+     * @private
+     */
+    _nodeAt(pos) {
+        const graph = this.ht?.graph;
+        if (!graph) return null;
+
+        let onInk = null;
+        let onInkDistance = Infinity;
+        let nearby = null;
+        let nearbyDistance = Infinity;
+
+        graph.eachNode((node) => {
+            const radius = this._drawnRadius(node);
+            if (radius <= 0) return;
+
+            const centre = node.pos.getc().$scale(node.scale);
+            const distance = Math.sqrt(
+                (centre.x - pos.x) ** 2 + (centre.y - pos.y) ** 2
+            );
+
+            if (distance <= radius) {
+                if (distance < onInkDistance) {
+                    onInkDistance = distance;
+                    onInk = node;
+                }
+            } else if (distance <= MIN_HIT_RADIUS && distance < nearbyDistance) {
+                nearbyDistance = distance;
+                nearby = node;
+            }
+        });
+
+        return onInk || nearby;
+    }
+
+    /**
+     * Is this node the one the pointer is on?
+     *
+     * JIT asks per node, in its own order, and takes the first yes
+     * (jit.js:2099). Answering "only if you are the winner" turns that loop
+     * into a lookup of a single decision, so hover, click, right-click and the
+     * tooltip all agree about what is under the pointer — which matters more
+     * than any of them individually, because the hover is the preview of what
+     * a click will do.
+     *
+     * The decision is memoised per pointer position: JIT calls this once per
+     * node per event, and recomputing a whole scan each time would make a
+     * mousemove quadratic in the size of the graph. The cache is thrown away
+     * whenever anything is redrawn, since that is when the answer can change
+     * under a pointer that has not moved.
+     *
+     * @param {Object} node
+     * @param {{x: number, y: number}} pos
+     * @returns {boolean}
+     * @private
+     */
+    _hitTarget(node, pos) {
+        const cached = this._hitCache;
+        if (!cached || cached.epoch !== this._hitEpoch
+            || cached.x !== pos.x || cached.y !== pos.y) {
+            this._hitCache = {
+                epoch: this._hitEpoch,
+                x: pos.x,
+                y: pos.y,
+                node: this._nodeAt(pos),
+            };
+        }
+        return this._hitCache.node === node;
+    }
+
+    /**
      * Register custom Hypertree node types: circle-hover and group-donut
      */
     registerNodeTypes() {
@@ -423,9 +548,7 @@ export class MusicGraph {
                     }
                 },
                 'contains': function(node, pos) {
-                    var dim = node.getData('dim'),
-                        npos = node.pos.getc().$scale(node.scale);
-                    return this.nodeHelper.circle.contains(npos, pos, dim);
+                    return musicGraph._hitTarget(node, pos);
                 }
             },
 
@@ -538,17 +661,7 @@ export class MusicGraph {
                     }
                 },
                 'contains': function(node, pos) {
-                    var dim = node.getData('dim'),
-                        npos = node.pos.getc().$scale(node.scale);
-                    // Hit area includes donut ring when slices are present
-                    var slices = node.getData('donutSlices');
-                    if (slices && slices.length > 0) {
-                        var gap = Math.max(2, dim * 0.20);
-                        var thickness = Math.max(3, dim * 0.45);
-                        var outerR = dim + gap + thickness;
-                        return this.nodeHelper.circle.contains(npos, pos, outerR);
-                    }
-                    return this.nodeHelper.circle.contains(npos, pos, dim);
+                    return musicGraph._hitTarget(node, pos);
                 }
             }
         });
@@ -717,6 +830,10 @@ export class MusicGraph {
         const originalFxPlot = this.ht.fx.plot.bind(this.ht.fx);
         this.ht.fx.plot = (...args) => {
             this._computeVisibleLabels();
+            // A plot is the only way a node's drawn position changes, so it is
+            // also the moment the hit-test answer from the last pointer event
+            // stops being true. See _hitTarget.
+            this._hitEpoch++;
             return originalFxPlot(...args);
         };
 
@@ -1744,54 +1861,11 @@ export class MusicGraph {
             ht.busy = false;
         }
 
-        // A handover scheduled by the navigation being abandoned would fire
-        // into this one, settling around the node that was just superseded.
-        clearTimeout(this._handover);
-        this._handover = null;
-        this._settling = null;
-
         ht.onClick(node.id, {
             duration: TRAVEL_MS,
             hideLabels: true,
-            // Ordinarily the handover below gets there first and this never
-            // runs; it is the backstop for a frame budget that overshoots.
-            onComplete: () => this._handOverToSettle(node, onComplete),
+            onComplete: () => this._settleAround(node, onComplete),
         });
-
-        this._handover = setTimeout(
-            () => this._handOverToSettle(node, onComplete),
-            TRAVEL_MS * this._travelHandover
-        );
-    }
-
-    /**
-     * Cut the travel short, wherever it has got to, and settle from there.
-     *
-     * Stopping the timer leaves every node at a real point part way along its
-     * path — a translation is a continuous family of them — so the settle has a
-     * perfectly good layout to start from and to read bearings off. The
-     * selection does not need the rest of the translation either: it is going
-     * to the origin, and the settle's target puts it there.
-     *
-     * Guarded because two things race to call it, the timer and the animation's
-     * own completion, and whichever loses must do nothing.
-     *
-     * @private
-     */
-    _handOverToSettle(node, onComplete) {
-        const ht = this.ht;
-        if (!ht || this._settling === node.id) return;
-        this._settling = node.id;
-
-        clearTimeout(this._handover);
-        this._handover = null;
-
-        if (ht.busy) {
-            ht.fx.animation.stopTimer();
-            ht.busy = false;
-        }
-
-        this._settleAround(node, onComplete);
     }
 
     /**
@@ -1844,7 +1918,6 @@ export class MusicGraph {
             hideLabels: true,
             onComplete: () => {
                 ht.busy = false;
-                this._settling = null;
                 onComplete();
             },
         });
