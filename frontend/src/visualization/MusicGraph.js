@@ -25,7 +25,7 @@ import { DonutLoader } from './DonutLoader.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
 import { LABEL_TIER, resolveLabelCollisions } from './labelPriority.js';
 import { clampSheetDrag, resolveSheetDrag } from './sheetGesture.js';
-import { rebuildVerdict } from './layoutRebuild.js';
+import { computeStablePositions } from './stableRadialLayout.js';
 import { InlineEditor } from './InlineEditor.js';
 import { StakeManager } from './StakeManager.js';
 import { api as backendApi } from '../utils/api.js';
@@ -50,13 +50,11 @@ const PERSON_LABEL_PROXIMITY_RADIUS = 0.5;
 const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 
 /**
- * How long the graph takes to settle on a new selection.
+ * The default animation length the Hypertree config carries.
  *
- * One constant for both readers: the Hypertree config below and centreOn's own
- * animate() call. They were the same literal in two places, which is the kind
- * of pair that drifts — the release orbit is positioned from the node's final
- * coordinates and so depends on the animation it is told about being the
- * animation that ran.
+ * Navigation does not use it — centreOn times its two legs with TRAVEL_MS and
+ * SETTLE_MS — but JIT animates from other entry points too, and leaving the
+ * config unset would give those a 1500ms default from the library.
  */
 const HYPERTREE_ANIMATION_MS = 700;
 
@@ -71,18 +69,26 @@ const HYPERTREE_ANIMATION_MS = 700;
 const TRAIL_LENGTH = 5;
 
 /**
- * The most any node the visitor can see may move when the layout tree is
- * rebuilt underneath them. See layoutRebuild.js for why a rebuild is wanted at
- * all and why this is the only control over it.
+ * The two legs of a navigation, in milliseconds.
  *
- * Four pixels is under the width of a node's outline. In the scenes measured
- * the qualifying rebuilds moved nothing whatsoever — the gate fires when the
- * view is sparse, and a sparse view has nothing to disturb — so this is a
- * guard against a dense real graph producing a near-miss, not a budget being
- * spent. Lowering it costs rebuilds; raising it buys visible rearrangement,
- * which is the thing being avoided.
+ * TRAVEL is a Mobius translation carrying the selection to the centre: rigid,
+ * every distance preserved, the whole scene gliding as one. That is what reads
+ * as going somewhere.
+ *
+ * SETTLE then re-roots the layout tree on the selection, which is the only way
+ * the nodes next to it end up anywhere near it — measured, translation alone
+ * leaves a band's members at 0.937 while strangers two hops away sit at 0.809.
+ * The selection is already at the origin and stays there, so this leg is the
+ * neighbourhood opening up around a fixed point rather than a second journey.
+ *
+ * Kept apart because they say different things. Run as one blended motion the
+ * travel is lost in the rearrangement; run in sequence, you go there and then
+ * the place resolves. Together they are about the length of the single glide
+ * they replace.
  */
-const REBUILD_GATE_PX = 4;
+const TRAVEL_MS = 420;
+const SETTLE_MS = 320;
+
 
 /**
  * The group radius on a phone.
@@ -1726,98 +1732,65 @@ export class MusicGraph {
         }
 
         ht.onClick(node.id, {
-            duration: HYPERTREE_ANIMATION_MS,
+            duration: TRAVEL_MS,
             hideLabels: true,
-            onComplete: () => {
-                // After the glide, not before: the gate is measured against
-                // the view the visitor has ended up looking at.
-                this._rebuildLayoutIfFree(node);
-                onComplete();
-            },
+            onComplete: () => this._settleAround(node, onComplete),
         });
     }
 
     /**
-     * Re-root the layout tree on `node`, but only if nobody would see it.
+     * Open the neighbourhood out around the node now at the centre.
      *
-     * Translation leaves the selection's own neighbours at whatever radius
-     * their depth in a tree built from somewhere else dictates — measured, a
-     * band's members at 0.937 while strangers two hops away sit at 0.809.
-     * Rebuilding the tree here fixes that, and normally rearranges the scene,
-     * which is worse than the problem.
+     * The second leg of a navigation. Translation has carried the selection to
+     * the origin without disturbing a single distance, which is what makes it
+     * followable — and which is exactly why it cannot help with the thing the
+     * view is for: radius encodes depth in the layout tree, so a node's
+     * neighbours sit wherever a tree built from somewhere else put them.
      *
-     * Not always, though. The cost of a rebuild falls entirely on the nodes
-     * the viewer can resolve, and after a step to somewhere sparse there may
-     * be none at all. So: compute the rebuilt layout, take out the best-fit
-     * rotation, and ask what the legible nodes would do. Under REBUILD_GATE_PX
-     * the answer is "nothing anyone could see", and the rebuild is taken.
+     * So the tree is rebuilt here, rooted on the selection. What made that
+     * unbearable before was not that nodes moved. It was that they moved past
+     * each other: JIT deals out each node's children in adjacency order from
+     * the edge of its wedge, so the ring around every node is shuffled afresh
+     * and there is nothing to follow. computeStablePositions produces the same
+     * radii and keeps every ring in the order it is already in — measured, zero
+     * rings disturbed against one to three for JIT's own rebuild, with
+     * identical one-hop radii.
      *
-     * This cannot produce the rearrangement it exists to avoid, because not
-     * producing one is its entry condition — and when it declines, the view is
-     * left exactly as the translation left it.
+     * What is left is radial: nodes sliding in and out along their own
+     * bearings as their distance from the selection changes, which is the thing
+     * that actually changed. The selection does not move at all.
      *
-     * The gain is larger than the rebuilds themselves: re-rooting here anchors
-     * the tree where the visitor is, so the plain translations that follow
-     * land better too. Measured over three walks, the share of a selection's
-     * neighbours that are legible goes from 38% to 51% while the rebuild fires
-     * on 4 of 25 steps.
+     * Animated, always. An earlier version of this applied the rebuild
+     * instantly on the grounds that it had been gated to cases where nothing
+     * visible moved — but the gate only bounded nodes already inside the disk,
+     * so a node arriving from the rim was unbounded and unmeasured, and
+     * arriving from the rim is the most conspicuous motion on screen. It read
+     * as the graph snapping.
      *
      * @private
-     * @param {object} node the node now at the centre
-     * @returns {boolean} whether the layout was rebuilt
+     * @param {object} node - the node at the centre
+     * @param {() => void} onComplete
      */
-    _rebuildLayoutIfFree(node) {
+    _settleAround(node, onComplete) {
         const ht = this.ht;
-        if (!ht?.graph || !node || ht.busy) return false;
-        if (ht.root === node.id) return false;
-
-        const nodes = [];
-        ht.graph.eachNode((n) => nodes.push(n));
-
-        const savedRoot = ht.root;
-        const savedEnd = nodes.map((n) => ({ theta: n.endPos.theta, rho: n.endPos.rho }));
-
-        ht.root = node.id;
-        ht.compute('end');
-
-        const samples = nodes.map((n, i) => ({
-            fromTheta: n.pos.theta,
-            fromRho: n.pos.rho,
-            toTheta: n.endPos.theta,
-            toRho: n.endPos.rho,
-            index: i,
-        }));
-
-        const { spin, free } = rebuildVerdict(samples, ht.getRadius(), REBUILD_GATE_PX);
-
-        if (!free) {
-            // Put back exactly what was there. compute('end') has already
-            // overwritten every end position, and the next animation starts
-            // from them.
-            ht.root = savedRoot;
-            nodes.forEach((n, i) => n.endPos.setp(savedEnd[i].theta, savedEnd[i].rho));
-            return false;
+        if (!ht?.graph || !node) {
+            onComplete();
+            return;
         }
 
-        // Applying `spin` is what makes the verdict's promise true: it is the
-        // rotation the gate measured against, so leaving it out would move
-        // every node by exactly the amount the gate was told would not happen.
-        //
-        // No scene in the e2e suite exercises it, though, and that is worth
-        // knowing rather than discovering. The rebuild fires when the view is
-        // sparse, a sparse view gives the fit no samples, and with no samples
-        // the rotation is zero — so deleting this line passes every end-to-end
-        // test. Its arithmetic is pinned in layoutRebuild.test.js instead
-        // ("a rotation of the whole scene does not block it"), which is also
-        // the case it exists for: a denser graph where re-rooting produces a
-        // similar tree facing a different way, and the rotation is what lets
-        // an otherwise free rebuild through.
-        nodes.forEach((n) => {
-            n.endPos.theta += spin;
-            n.pos.set(n.endPos);
+        ht.root = node.id;
+        computeStablePositions(ht, $jit.Graph.Util);
+
+        ht.busy = true;
+        ht.fx.animate({
+            modes: ['polar'],
+            duration: SETTLE_MS,
+            hideLabels: true,
+            onComplete: () => {
+                ht.busy = false;
+                onComplete();
+            },
         });
-        ht.plot();
-        return true;
     }
 
     /**
