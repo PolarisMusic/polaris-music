@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 
-const GROUP_COUNT = 12;
+const GROUP_COUNT = 16;
 
 /*
  * Many groups, not one group with many people.
@@ -23,13 +23,22 @@ const GROUP_COUNT = 12;
  * the rim, and that is what the dense RHCP and QOTSA views are: lots of groups.
  * Shared members keep them in one connected component.
  *
- * Twelve is as dense as this can go. Beyond about sixteen — or at twelve with
- * much longer names — the resolver leaves a genuinely overlapping pair, because
- * it compares estimated label boxes (LABEL_CHAR_WIDTH_PX, 5.6px per character)
- * against a font that measures about 6.2, and a label it suppresses is never
- * drawn and so never measured, which keeps it on the bad estimate for good.
- * That is a defect in the resolver and it wants its own change; raising the
- * count here would only convert it into a failure in the wrong file.
+ * Sixteen, and the number is load-bearing in both directions.
+ *
+ * Twelve is too few now: arriving at a node re-roots the layout around it, so
+ * focusing the shared player fans all of its groups evenly round one level
+ * instead of leaving them wherever an older tree had them. The view got less
+ * crowded — that is the point of the change — and twelve then fitted
+ * comfortably, so the suppression test below passed on a scene with nothing to
+ * suppress.
+ *
+ * Beyond about sixteen is too many: the resolver leaves a genuinely overlapping
+ * pair, because it compares estimated label boxes (LABEL_CHAR_WIDTH_PX, 5.6px
+ * per character) against a font that measures about 6.2, and a label it
+ * suppresses is never drawn and so never measured, which keeps it on the bad
+ * estimate for good. That is a defect in the resolver and it wants its own
+ * change; raising the count here would only convert it into a failure in the
+ * wrong file.
  */
 const GRAPH = {
     nodes: [
