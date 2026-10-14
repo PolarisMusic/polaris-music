@@ -476,17 +476,28 @@ test.describe('both legs are animated', () => {
             { timeout: 15_000, polling: 'raf' }
         );
 
-        const sample = () => page.evaluate(() => ({
+        const first = await page.evaluate(() => ({
             busy: window.musicGraph.ht.busy,
             rho: window.musicGraph.ht.graph.getNode('grp:0').pos.rho,
         }));
-
-        const first = await sample();
-        await page.waitForTimeout(120);
-        const second = await sample();
-
         expect(first.busy).toBe(true);
-        expect(Math.abs(second.rho - first.rho)).toBeGreaterThan(0.001);
+
+        // Watched frame by frame rather than sampled after a fixed wait. A
+        // fixed wait has to be chosen against both the settle's duration and
+        // its easing curve — Quart easeInOut spends its first fifth barely
+        // moving — so it silently stops testing anything the moment either
+        // changes. What matters is only that the node moves while the settle
+        // is still running, which is what "animated rather than applied in one
+        // frame" means.
+        const outcome = await page.waitForFunction((startRho) => {
+            const ht = window.musicGraph.ht;
+            const rho = ht.graph.getNode('grp:0').pos.rho;
+            if (Math.abs(rho - startRho) > 0.001) return { moved: true, busy: ht.busy };
+            if (!ht.busy) return { moved: false, busy: false };
+            return false;
+        }, first.rho, { polling: 'raf', timeout: 15_000 }).then((h) => h.jsonValue());
+
+        expect(outcome).toEqual({ moved: true, busy: true });
     });
 
     test('in sequence: the settle waits for the travel to finish', async ({ page }) => {
@@ -512,6 +523,38 @@ test.describe('both legs are animated', () => {
         // The travel's own duration is 420ms. A little under allows for the
         // last frame landing early; anything near half of it is an overlap.
         expect(handover).toBeGreaterThan(380);
+    });
+
+    test('and takes longer over the settle than over the travel', async ({ page }) => {
+        // The leg that carries information is the slower one. The travel is
+        // rigid — nothing changes shape, so there is nothing to follow but the
+        // whole — and can be brisk. The settle moves every node along its own
+        // bearing as its distance from the selection changes, and at the speed
+        // the travel runs at that reads as a flinch rather than a movement.
+        //
+        // Bounds rather than a figure: the point is the proportion, and a
+        // frame budget that slips should not fail a build.
+        await boot(page);
+        await select(page, 'grp:0');
+
+        await page.evaluate(() => {
+            const g = window.musicGraph;
+            g.handleNodeClick(g.ht.graph.getNode('per:0_1'));
+        });
+        await page.waitForFunction(
+            () => window.musicGraph.ht.root === 'per:0_1',
+            { timeout: 15_000, polling: 'raf' }
+        );
+
+        const settleStarted = Date.now();
+        await page.waitForFunction(
+            () => !window.musicGraph.ht.busy,
+            { timeout: 15_000, polling: 'raf' }
+        );
+        const settle = Date.now() - settleStarted;
+
+        expect(settle).toBeGreaterThan(450);
+        expect(settle).toBeLessThan(1400);
     });
 
     test('and both have finished by the time it reports it is done', async ({ page }) => {
