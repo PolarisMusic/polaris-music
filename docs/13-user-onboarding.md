@@ -29,9 +29,18 @@ The contract does not subsidise submissions. In `contracts/polaris.music.cpp`,
 | `aggregates.emplace(account, …)`, `staker_nodes.emplace(account, …)` | a stake | **staker** |
 | `respect.emplace(get_self(), …)`, `pending.emplace(get_self(), …)` | oracle/system rows | contract |
 
-So a brand-new account can browse, `like` (deliberately zero-RAM — the action
-writes no rows) and `vote` (an account with no Respect gets weight 1, no
-Respect required). It **cannot submit** until it owns RAM.
+So a brand-new account can browse and `like` — `like()` is deliberately
+zero-RAM, the action body writes no rows at all and says so. It can do nothing
+else.
+
+**An earlier version of this document said a new account could also vote. That
+was wrong**, and the table above contradicts it on the same page: `vote()`
+reaches `votes.emplace(voter, …)` (`polaris.music.cpp:769`) and that row is
+billed to the voter. The claim conflated two separate gates — Respect, which a
+new account genuinely does not need (weight falls back to 1), and RAM, which it
+does. A zero-RAM account cannot vote and cannot submit. It can read, and it can
+like. That is the whole of it, and it makes the RAM question the gate on
+*participation*, not just on submission.
 
 ### Do not quote a fixed byte cost
 
@@ -141,7 +150,89 @@ CloudWallet finding above is exactly this class of assumption failing on a
 
 ---
 
-## 4. Recommended order
+## 4. Decided: passkeys, and a RAM allowance paid by the contract
+
+Decision taken 2026-10-14, replacing the recommended order below where the two
+conflict. Both halves are evidenced against the npm registry on the same date;
+the chain-side checks could not be run from the authoring sandbox, whose egress
+proxy refuses chain endpoints, and are listed as outstanding.
+
+### Login: passkeys (WebAuthn), not email
+
+Email login does not exist for this chain. The three candidates and why:
+
+- `@wharfkit/wallet-plugin-cloudwallet`, which the app already installs, is
+  email and social login — and WAX-only, as §2 records. Dead weight here.
+- `@wharfkit/wallet-plugin-web-authenticator` 4.0.2 is the right architecture
+  (a popup web wallet, which could be email-backed) and its own README says it
+  is "currently under development and not ready for production use". It is also
+  Jungle4-only and expects *us* to host the authenticator service — the default
+  URL in the package is `http://localhost:5174`. Taking this route means
+  building and operating a custodial web wallet.
+- `@wharfkit/webauthn` 4.0.2 wraps Antelope's native `PUB_WA_` key type:
+  Face ID or a fingerprint, no app to install, no seed phrase to lose, and no
+  key for us to hold. It is a key-helper library rather than a wallet plugin,
+  so the SessionKit side is ours to write.
+
+The third is better than what was asked for. No custody, no password, no email
+round trip, and the key never leaves the device's secure element.
+
+**It forces the 4.x upgrade.** On 2026-09-28 the whole `@wharfkit` org
+re-versioned in lockstep to 4.0.2, and `session@4.0.2` now pins
+`@wharfkit/antelope: 4.0.2` exactly rather than by range. `@wharfkit/webauthn`
+exists only at 4.x and pins the same. Mixing it with the app's `session@1.6.1`
+installs two copies of `@wharfkit/antelope`, and every `instanceof` across that
+boundary fails. The predecessor package `@greymass/webauthn@1.0.2` is no escape:
+it depends on `@greymass/eosio@^0.5.0`, the library WharfKit replaced.
+
+**Outstanding, and blocking:** whether Jungle4 has the `WEBAUTHN_KEY` protocol
+feature activated. If it does not, `PUB_WA_` keys cannot be used and this whole
+path is void. One command, from a host that can reach the chain:
+
+```bash
+curl -s -X POST https://jungle4.greymass.com/v1/chain/get_activated_protocol_features \
+  -H 'Content-Type: application/json' -d '{"limit":200}' | grep -c WEBAUTHN_KEY
+```
+
+### Account creation does not need the upgrade
+
+Worth recording separately, because it is cheap and independent:
+`SessionKit.createAccount()` already exists in 1.6.1, and
+`@wharfkit/account-creation-plugin-jungle4@1.2.0` declares
+`peerDependencies: {"@wharfkit/session": "^1.1.0"}` with the same implementation
+as its 4.0.2 build — generate a K1 key in the browser, POST to
+`jungle4.greymass.com/account/create` with a random account name, show the user
+a QR of the private key to save. Free account in seconds, no server key, no
+custody. It ends at "now import this into a wallet", which is why it is a
+complement to a login route and not one itself.
+
+### RAM: the contract pays for the first N rows per account
+
+Rather than sponsoring from a server-held key (Path B above, with its permanent
+attack surface), the contract itself pays. `emplace(get_self(), …)` bills the
+contract account, so `put()` chooses its payer by quota: under the allowance the
+contract pays, over it the submitter does. The allowance doubles as the
+anti-abuse gate — it is finite per account, and past it a user who wants more
+arranges their own RAM.
+
+Design notes for the implementation:
+
+- The allowance must cover **votes as well as submissions**, per the correction
+  in §1. An allowance that only covers `put()` leaves a new account unable to
+  vote, which is the cheaper and more common action.
+- Rows paid by the contract return their RAM to the contract when erased, which
+  connects this to the existing `reclaimAnchors` path rather than making it a
+  one-way cost.
+- The quota constant waits on the measurement in §1 —
+  `node scripts/measureRam.js <account> --watch` against a *typical* release.
+  Ten submissions' worth is the target size; ten times a guess is a guess.
+- A row's payer is fixed at `emplace` time. Moving a sponsored row to the user
+  later means erase and re-emplace, so "we paid, now you pay" is not a thing
+  that can happen to an existing row — only to the next one.
+
+---
+
+## 5. Recommended order (superseded in part by §4)
 
 1. **Measure the RAM cost** (§1). Everything about pricing is guesswork until
    this number exists, and it takes one command plus one submission.
