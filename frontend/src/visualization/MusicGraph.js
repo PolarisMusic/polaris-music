@@ -59,6 +59,23 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 const HYPERTREE_ANIMATION_MS = 700;
 
 /**
+ * The smallest a node is ever drawn, in canvas pixels.
+ *
+ * Without a floor the Poincare disk takes nodes to nothing: a person three
+ * hops out is drawn at a third of a pixel, and past that the renderers used to
+ * skip them entirely. The hyperbolic shrink is the depth cue and worth
+ * keeping, but a node you cannot see is a node you cannot hover, aim at or
+ * know is there — and the edge of the graph is where most of the registry
+ * lives. Two pixels is a dot: visible, still obviously smaller than its
+ * parent, and large enough that the ring of them reads as nodes rather than as
+ * noise on the rim.
+ *
+ * It also makes the renderers' own `dim > 0.2` guards a formality, which they
+ * now are. Left in place because they also cover a node whose dim is nonsense.
+ */
+const MIN_DRAWN_RADIUS = 2;
+
+/**
  * How far from a node's ink a click still belongs to it, in canvas pixels.
  *
  * Only reached by nodes too small to have any ink worth aiming at — out at
@@ -276,6 +293,8 @@ export class MusicGraph {
 
         // Hover tooltip timer (500ms delay before showing label on edge nodes)
         this._hoverTooltipTimer = null;
+        /* The node a first tap is showing the name of — see _previewOnTap. */
+        this._tapPreview = null;
 
         /**
          * Which selection the info panel belongs to.
@@ -376,8 +395,10 @@ export class MusicGraph {
      * the same object the renderers read it from (jit.js:6778), so the two
      * cannot drift apart over a config change.
      *
-     * Returns 0 for a node the renderers skip (dim <= 0.2). Something that is
-     * not drawn is not a target.
+     * Never smaller than MIN_DRAWN_RADIUS, because the renderers do not draw
+     * anything smaller than that either. A node is a target exactly when it is
+     * drawn, which is what makes "click the thing you can see" true rather
+     * than aspirational.
      *
      * @param {Object} node
      * @returns {number}
@@ -388,8 +409,8 @@ export class MusicGraph {
         if (!(dim > 0)) return 0;
 
         const transform = this.ht?.config?.Node?.transform;
-        const drawn = transform ? dim * (1 - node.pos.getc().squaredNorm()) : dim;
-        if (!(drawn > 0.2)) return 0;
+        const shrunk = transform ? dim * (1 - node.pos.getc().squaredNorm()) : dim;
+        const drawn = Math.max(shrunk, MIN_DRAWN_RADIUS);
 
         const slices = node.getData('donutSlices');
         if (slices && slices.length > 0) {
@@ -507,6 +528,7 @@ export class MusicGraph {
                         dim = node.getData('dim'),
                         p = node.pos.getc();
                     dim = nconfig.transform ? dim * (1 - p.squaredNorm()) : dim;
+                    dim = Math.max(dim, MIN_DRAWN_RADIUS);
                     p.$scale(node.scale);
                     if (dim > 0.2) {
                         var ctx = canvas.getCtx();
@@ -571,6 +593,7 @@ export class MusicGraph {
                         dim = node.getData('dim'),
                         p = node.pos.getc();
                     dim = nconfig.transform ? dim * (1 - p.squaredNorm()) : dim;
+                    dim = Math.max(dim, MIN_DRAWN_RADIUS);
                     p.$scale(node.scale);
                     if (dim > 0.2) {
                         var ctx = canvas.getCtx();
@@ -731,9 +754,12 @@ export class MusicGraph {
                 type: 'Native',
 
                 onClick: (node, eventInfo, e) => {
-                    if (node) {
-                        this.handleNodeClick(node);
+                    if (!node) {
+                        this._clearTapPreview();
+                        return;
                     }
+                    if (this._previewOnTap(node)) return;
+                    this.handleNodeClick(node);
                 },
 
                 onRightClick: (node, eventInfo, e) => {
@@ -1941,7 +1967,70 @@ export class MusicGraph {
     /**
      * Handle node hover - set visual state and trigger redraw
      */
-    handleNodeHover(node, isEntering) {
+    /**
+     * Can this visitor point at something without committing to it?
+     *
+     * `hover: none` is the device telling you there is no such gesture: a
+     * finger is either touching or it is not, so the preview a mouse gets for
+     * free — move over a node, read its name, decide — does not exist. It is
+     * the right question to ask rather than screen width, because it is the
+     * one the behaviour depends on. A narrow desktop window still has a
+     * pointer; a tablet at full width still does not.
+     *
+     * @returns {boolean}
+     * @private
+     */
+    _isTouchOnly() {
+        return typeof window.matchMedia === 'function'
+            && window.matchMedia('(hover: none)').matches;
+    }
+
+    /**
+     * On a touch device, spend the first tap on the node's name.
+     *
+     * Navigation is a commitment: it moves the whole graph, replaces the
+     * panel, and adds an entry to the history. With a mouse you never commit
+     * blind, because hovering tells you what you are about to open. A finger
+     * gets no such warning, and out at the rim — where the nodes are small and
+     * crowded and the labels are hidden — that means tapping one and finding
+     * out afterwards.
+     *
+     * So the first tap shows the name and nothing else, and the second tap,
+     * on the same node, goes. Tapping a different node moves the preview
+     * there; tapping the canvas puts it away. A pointer device is unaffected.
+     *
+     * @param {Object} node
+     * @returns {boolean} whether the tap was spent on the preview
+     * @private
+     */
+    _previewOnTap(node) {
+        if (!this._isTouchOnly()) return false;
+
+        if (this._tapPreview === node.id) {
+            // Second tap: let it through, and take the preview's styling off
+            // the node before it becomes the selection.
+            this._clearTapPreview();
+            return false;
+        }
+
+        this._tapPreview = node.id;
+        this.handleNodeHover(node, true, { immediate: true });
+        return true;
+    }
+
+    /**
+     * Put away a preview nobody acted on.
+     *
+     * @private
+     */
+    _clearTapPreview() {
+        const previewed = this._tapPreview
+            && this.ht?.graph?.getNode?.(this._tapPreview);
+        this._tapPreview = null;
+        if (previewed) this.handleNodeHover(previewed, false);
+    }
+
+    handleNodeHover(node, isEntering, { immediate = false } = {}) {
         if (isEntering) {
             // Clear previous hover
             if (this.hoveredNode && this.hoveredNode.id !== node.id) {
@@ -1952,14 +2041,21 @@ export class MusicGraph {
             this.hoveredNode = node;
             this.container.style.cursor = 'pointer';
 
-            // Start 500ms timer to show tooltip for nodes near the edge
             clearTimeout(this._hoverTooltipTimer);
-            this._hoverTooltipTimer = setTimeout(() => {
-                if (this.hoveredNode && this.hoveredNode.id === node.id) {
-                    node.setData('hoverTooltip', true);
-                    if (this.ht) this.ht.plot();
-                }
-            }, 500);
+            if (immediate) {
+                // A tap has no dwell to wait out — the name is the whole point
+                // of the tap, and half a second of nothing reads as a tap that
+                // missed.
+                node.setData('hoverTooltip', true);
+            } else {
+                // Start 500ms timer to show tooltip for nodes near the edge
+                this._hoverTooltipTimer = setTimeout(() => {
+                    if (this.hoveredNode && this.hoveredNode.id === node.id) {
+                        node.setData('hoverTooltip', true);
+                        if (this.ht) this.ht.plot();
+                    }
+                }, 500);
+            }
         } else {
             clearTimeout(this._hoverTooltipTimer);
             node.setData('isHovered', false);

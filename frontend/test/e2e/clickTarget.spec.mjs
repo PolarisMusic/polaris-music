@@ -76,21 +76,26 @@ async function boot(page, graph = SCENE) {
  * visualiser, so that what the hit test claims can be checked against the
  * geometry the renderers actually use (MusicGraph.js, 'circle-hover' and
  * 'group-donut' render) rather than against the hit test's own idea of it.
- * A radius of zero means the renderers draw nothing at all.
+ * `shrunk` is the size the hyperbolic transform alone would give — before the
+ * two-pixel floor that keeps a node visible however far out it sits. Tests
+ * pick their specks by that, because it is what says "this node would be
+ * invisible without the floor" and so names the nodes at the rim that the
+ * floor exists for.
  */
 const drawn = (page) => page.evaluate(() => {
     const ht = window.musicGraph.ht;
     const out = {};
     ht.graph.eachNode((node) => {
         const p = node.pos.getc();
-        const dim = node.getData('dim') * (1 - p.squaredNorm());
+        const shrunk = node.getData('dim') * (1 - p.squaredNorm());
+        const dim = Math.max(shrunk, 2);
         const centre = p.$scale(node.scale);
         const slices = node.getData('donutSlices');
-        let radius = dim > 0.2 ? dim : 0;
-        if (radius && slices && slices.length > 0) {
+        let radius = dim;
+        if (slices && slices.length > 0) {
             radius += Math.max(2, dim * 0.20) + Math.max(3, dim * 0.45);
         }
-        out[node.id] = { x: centre.x, y: centre.y, radius };
+        out[node.id] = { x: centre.x, y: centre.y, radius, shrunk };
     });
     return out;
 });
@@ -152,12 +157,55 @@ test.describe('a click belongs to the node under it', () => {
 
     test('and there are specks in this scene for it to be about', async ({ page }) => {
         // Guards the test above from passing because the scene is roomy. If
-        // nothing is drawn smaller than a pixel, nothing here is being tested.
+        // the hyperbolic shrink is not taking nodes under a pixel somewhere,
+        // nothing here is being tested.
         await boot(page);
         const positions = Object.values(await drawn(page));
 
-        const specks = positions.filter((p) => p.radius > 0 && p.radius < 1);
+        const specks = positions.filter((p) => p.shrunk < 1);
         expect(specks.length).toBeGreaterThan(50);
+    });
+
+    test('nothing is drawn too small to see or aim at', async ({ page }) => {
+        // The floor, read off the canvas rather than recomputed — the helper
+        // above applies the same floor, so asking it would only prove the test
+        // agrees with itself.
+        //
+        // The first attempt measured the ink in a box around each speck and
+        // passed with the floor removed: at the rim a node's own edges run
+        // through any box drawn around it, and they are most of what is in it.
+        // So this samples one pixel, on the outward side, where the node's
+        // single edge is not. The median rather than the minimum because a
+        // node at the very edge of the canvas falls outside it.
+        await boot(page);
+        const positions = await drawn(page);
+        const specks = Object.entries(positions)
+            .filter(([, p]) => p.shrunk < 1)
+            .map(([, p]) => ({ x: p.x, y: p.y }));
+        expect(specks.length).toBeGreaterThan(50);
+
+        const alphas = await page.evaluate((points) => {
+            const canvas = window.musicGraph.ht.canvas;
+            const ctx = canvas.getCtx();
+            const size = canvas.getSize();
+            return points.map((p) => {
+                // Sampled a pixel and a half out along the node's own bearing
+                // from the centre of the disk. That is inside the ink of a
+                // node drawn at the floor and outside the ink of one drawn at
+                // a third of a pixel — and it is away from the node's edge,
+                // which leaves on the inward side towards its group and would
+                // otherwise be what the measurement found.
+                const away = Math.hypot(p.x, p.y) || 1;
+                const cx = Math.round(p.x + size.width / 2 + 1.5 * p.x / away);
+                const cy = Math.round(p.y + size.height / 2 + 1.5 * p.y / away);
+                if (cx < 1 || cy < 1 || cx > size.width - 2 || cy > size.height - 2) return null;
+                return ctx.getImageData(cx, cy, 1, 1).data[3];
+            }).filter((v) => v !== null);
+        }, specks);
+
+        // Measured: 216 with the floor, 0 without it.
+        const median = alphas.sort((a, b) => a - b)[Math.floor(alphas.length / 2)];
+        expect(median).toBeGreaterThan(150);
     });
 
     test('the nearest speck wins, and it is the nearest that moves', async ({ page }) => {
@@ -167,7 +215,7 @@ test.describe('a click belongs to the node under it', () => {
         // Two people on the same ring, as close together as the layout puts
         // them, and a point on the line between them.
         const people = Object.entries(positions)
-            .filter(([id, p]) => id.startsWith('per:') && p.radius > 0 && p.radius < 1)
+            .filter(([id, p]) => id.startsWith('per:') && p.shrunk < 1)
             .sort((a, b) => Math.atan2(a[1].y, a[1].x) - Math.atan2(b[1].y, b[1].x));
 
         const [idA, a] = people[0];
@@ -260,7 +308,7 @@ test.describe('the pointer and the click agree', () => {
         for (const nth of [0, 7, 15]) {
             const positions = await drawn(page);
             const specks = Object.entries(positions)
-                .filter(([id, q]) => id.startsWith('per:') && q.radius > 0 && q.radius < 1);
+                .filter(([id, q]) => id.startsWith('per:') && q.shrunk < 1);
             const [id, p] = specks[nth % specks.length];
 
             const point = await viewportPoint(page, p);
@@ -281,7 +329,7 @@ test.describe('the pointer and the click agree', () => {
         await boot(page);
         const positions = await drawn(page);
         const [speckId, speck] = Object.entries(positions)
-            .find(([id, q]) => id.startsWith('per:') && q.radius > 0 && q.radius < 1);
+            .find(([id, q]) => id.startsWith('per:') && q.shrunk < 1);
 
         const point = await viewportPoint(page, speck);
         await page.mouse.move(point.x, point.y);
@@ -315,7 +363,7 @@ test.describe('the pointer and the click agree', () => {
         await boot(page);
         const positions = await drawn(page);
         const [, p] = Object.entries(positions)
-            .find(([nodeId, q]) => nodeId.startsWith('per:') && q.radius > 0 && q.radius < 1);
+            .find(([nodeId, q]) => nodeId.startsWith('per:') && q.shrunk < 1);
 
         const point = await viewportPoint(page, p);
         await page.mouse.move(point.x, point.y);
