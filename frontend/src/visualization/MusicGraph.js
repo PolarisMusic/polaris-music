@@ -94,9 +94,17 @@ const MIN_HIT_RADIUS = 12;
  * They do, and the pause is the point — it is the beat in which you have
  * arrived somewhere, before that somewhere opens out. Blended, the arrival
  * does not register. Reverted on exactly that judgement; do not re-derive it.
+ *
+ * The settle is the longer leg, and deliberately so. It was 320ms, which for
+ * two hundred nodes all changing distance at once reads as a flinch rather
+ * than a movement — something happened, too fast to watch, and the eye is left
+ * checking what. The travel can be brisk because it is rigid: nothing changes
+ * shape, so there is nothing to follow but the whole. The settle is the leg
+ * that carries information — every node sliding along its own bearing as its
+ * distance from the selection changes — and information needs time to be read.
  */
 const TRAVEL_MS = 420;
-const SETTLE_MS = 320;
+const SETTLE_MS = 640;
 
 
 /**
