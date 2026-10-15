@@ -52,7 +52,21 @@ against. A comment in `backend/src/chain/reclaimService.js` cites "roughly 461,
 only, with no derivation anywhere in the codebase, and cannot be right as a
 constant for a variable-width row. Treat it as a hypothesis.
 
-Measure it instead, against a real submission:
+**Measured, 2026-10-14, on Jungle4.** One release submission moved
+`polaristest2`'s RAM usage by **896 bytes** — the anchor row and its zeroed
+tally together, about 448 a row — at a spot price of 0.208658 EOS/KiB, so
+roughly **0.18 EOS a submission**.
+
+That is close enough to the "roughly 461, 336 and 552 bytes" in
+`reclaimService.js` (552 + 336 = 888) that the prose figure was substantially
+right, and the scepticism above was misplaced about the magnitude if not about
+the principle: the row *is* variable width, and a release with ten tags carries
+80 bytes of `tags` that one with none does not. Treat 896 as the figure for a
+typical release and expect tens of bytes either way, not hundreds. The vote row
+has not been measured; the same prose puts it at 461, which is the next number
+to check, by voting with the watcher running.
+
+Measure it yourself against a real submission:
 
 ```bash
 cd backend
@@ -185,9 +199,9 @@ installs two copies of `@wharfkit/antelope`, and every `instanceof` across that
 boundary fails. The predecessor package `@greymass/webauthn@1.0.2` is no escape:
 it depends on `@greymass/eosio@^0.5.0`, the library WharfKit replaced.
 
-**Outstanding, and blocking:** whether Jungle4 has the `WEBAUTHN_KEY` protocol
-feature activated. If it does not, `PUB_WA_` keys cannot be used and this whole
-path is void. One command, from a host that can reach the chain:
+**Confirmed 2026-10-15:** Jungle4 has `WEBAUTHN_KEY` activated, so `PUB_WA_`
+keys work there and this path is open. The check, for whenever the chain
+changes or another one is considered:
 
 ```bash
 curl -s -X POST https://jungle4.greymass.com/v1/chain/get_activated_protocol_features \
