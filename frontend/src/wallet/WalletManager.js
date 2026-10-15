@@ -7,7 +7,6 @@
 import { SessionKit } from '@wharfkit/session';
 import { WebRenderer } from '@wharfkit/web-renderer';
 import { WalletPluginAnchor } from '@wharfkit/wallet-plugin-anchor';
-import { WalletPluginCloudWallet } from '@wharfkit/wallet-plugin-cloudwallet';
 import { TransactPluginResourceProvider } from '@wharfkit/transact-plugin-resource-provider';
 import { POLARIS_ABI } from '../contracts/polarisAbi.js'; // Local ABI fallback for test/dev only
 import { CHAIN_ID, RPC_URL, CONTRACT_ACCOUNT, USE_LOCAL_ABI } from '../config/chain.js';
@@ -59,10 +58,16 @@ export class WalletManager {
             url: this.config.rpcUrl
         }];
 
-        // Configure wallet plugins
+        // Anchor only.
+        //
+        // CloudWallet was registered here for years and could never have
+        // worked: its supportedChains holds exactly one entry, WAX mainnet,
+        // while this app runs Jungle4 and EOS. WharfKit filtered it out of
+        // every login modal, so it was an unreachable option that still had to
+        // be installed, bundled and upgraded. docs/13-user-onboarding.md §2
+        // records the finding; this removes the dependency.
         const walletPlugins = [
-            new WalletPluginAnchor(),
-            new WalletPluginCloudWallet()
+            new WalletPluginAnchor()
         ];
 
         // Ask a resource provider to cover CPU and NET, when one answers for

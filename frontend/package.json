@@ -12,11 +12,10 @@
     "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
-    "@wharfkit/session": "1.6.1",
-    "@wharfkit/transact-plugin-resource-provider": "1.2.0",
-    "@wharfkit/wallet-plugin-anchor": "1.6.1",
-    "@wharfkit/wallet-plugin-cloudwallet": "1.5.1",
-    "@wharfkit/web-renderer": "1.4.3",
+    "@wharfkit/session": "4.0.2",
+    "@wharfkit/transact-plugin-resource-provider": "4.0.2",
+    "@wharfkit/wallet-plugin-anchor": "4.0.2",
+    "@wharfkit/web-renderer": "4.0.2",
     "crypto-js": "4.2.0"
   },
   "devDependencies": {
