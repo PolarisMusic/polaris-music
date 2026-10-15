@@ -230,6 +230,35 @@ Design notes for the implementation:
   later means erase and re-emplace, so "we paid, now you pay" is not a thing
   that can happen to an existing row — only to the next one.
 
+### Parked: streaming-service OAuth as the login
+
+Raised 2026-10-15, not scheduled. Sign in with Spotify, Amazon Music,
+SoundCloud, Bandcamp or Deezer, and have that same grant serve as the listen
+link and the player authorisation — so there is one sign-in rather than a login
+followed by a separate "connect your Spotify" step.
+
+What makes it worth building is not the login. It is that the player stops
+being an embed the visitor has to authorise separately: the graph becomes a
+thing you can listen to, queue from and build a playlist in, which is the
+difference between a reference work and something people use. The login is a
+by-product of an authorisation we want anyway.
+
+As abuse prevention it is in the same class as "sign in with Google" — an
+account at a third party that costs something to create in bulk. Weaker than
+payment, far cheaper than a captcha.
+
+Pairing it with the passkey is the interesting part: the OAuth identity says
+who you are to the services, the passkey holds the chain key, and neither alone
+gets you both. That is approximately two-factor without building a second
+factor.
+
+Open questions, none of them answered here: which services allow playback
+control from a third-party web app at all (Spotify's Web Playback SDK needs
+Premium; Bandcamp has no public playback API); how an OAuth identity maps onto
+a chain account, which is the same custody question §4 answers with passkeys
+and does not answer twice; and whether the player's existing per-track `listen`
+data can be reconciled with per-service tokens.
+
 ---
 
 ## 5. Recommended order (superseded in part by §4)
