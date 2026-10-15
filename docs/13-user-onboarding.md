@@ -164,7 +164,7 @@ CloudWallet finding above is exactly this class of assumption failing on a
 
 ---
 
-## 4. Decided: passkeys, and a RAM allowance paid by the contract
+## 4. Decided: passkeys, and RAM paid by the contract
 
 Decision taken 2026-10-14, replacing the recommended order below where the two
 conflict. Both halves are evidenced against the npm registry on the same date;
@@ -220,29 +220,59 @@ a QR of the private key to save. Free account in seconds, no server key, no
 custody. It ends at "now import this into a wallet", which is why it is a
 complement to a login route and not one itself.
 
-### RAM: the contract pays for the first N rows per account
+### RAM: the contract pays, and the cap is on work in flight
 
 Rather than sponsoring from a server-held key (Path B above, with its permanent
 attack surface), the contract itself pays. `emplace(get_self(), …)` bills the
-contract account, so `put()` chooses its payer by quota: under the allowance the
-contract pays, over it the submitter does. The allowance doubles as the
-anti-abuse gate — it is finite per account, and past it a user who wants more
-arranges their own RAM.
+contract account and needs no extra authorization, because the payer is the
+executing contract.
 
-Design notes for the implementation:
+**The contract is the default payer, not an allowance that runs out.** What is
+capped is how many rows one account may have *outstanding* — open on the
+contract's RAM right now. A submission takes two and gives them back when it is
+reclaimed, so somebody who submits, waits for the vote to close and reclaims can
+keep going forever, while somebody opening fifty at once cannot. Who pays is a
+policy; how much you may have in flight is a rate limit; they are separate
+questions and the design keeps them separate.
 
-- The allowance must cover **votes as well as submissions**, per the correction
-  in §1. An allowance that only covers `put()` leaves a new account unable to
-  vote, which is the cheaper and more common action.
-- Rows paid by the contract return their RAM to the contract when erased, which
-  connects this to the existing `reclaimAnchors` path rather than making it a
-  one-way cost.
-- The quota constant waits on the measurement in §1 —
-  `node scripts/measureRam.js <account> --watch` against a *typical* release.
-  Ten submissions' worth is the target size; ten times a guess is a guess.
-- A row's payer is fixed at `emplace` time. Moving a sponsored row to the user
-  later means erase and re-emplace, so "we paid, now you pay" is not a thing
-  that can happen to an existing row — only to the next one.
+**An account at its cap may still act on its own RAM**, as everyone did before
+this existed. Those rows are recorded in a `selfpaid` marker keyed by anchor id
+and paid for by the account that chose it, so reclaim does not credit them back
+to a sponsorship that never funded them. **The exception is marked, not the
+rule** — sponsorship is the common case and costs nothing to record, while the
+bypass writes one small row at the bypasser's expense. Without the marker there
+is a farm: self-pay, reclaim, collect a slot that was never taken, repeat.
+
+Facts the design rests on:
+
+- **The chain does record a row's payer.** It has to — that is how `erase()`
+  knows whose `ram_usage` to credit back — and `/v1/chain/get_table_rows` will
+  show it with `show_payer: true`. What a contract cannot do is read it from
+  inside WASM: the database intrinsics return row data and iterators and never
+  a payer, and `multi_index` exposes no accessor. The fact exists; the code
+  that needs it cannot reach it. Hence the marker.
+- **`ram_quota` and `ram_usage` are two integers per account**, not a map of
+  bytes to rows. There is nothing to cross-reference.
+- **A contract cannot read its own RAM balance.** No intrinsic. So it cannot
+  stop when the tank runs dry, only when it is holding as much open as it was
+  told to — which is what the global ceiling is for, and why that ceiling counts
+  rows outstanding rather than rows ever granted. A lifetime tally would have
+  the contract sitting on free RAM and refusing to use it.
+- **A row's payer is fixed at `emplace`.** `modify(itr, payer, …)` reassigns it
+  for the whole row, not just for any growth — which is why `vote()` now passes
+  `same_payer`. Naming the voter would move a contract-paid row onto an account
+  that may have no RAM to receive it, turning a change of mind into a failed
+  transaction.
+
+Numbers, from the measurement in §1: 896 bytes a submission, about 448 a row.
+The default cap is 30 rows — ten submissions in flight plus ten open votes —
+which is about 13 KiB and 2.7 EOS an account. The default ceiling of 3,000 rows
+is about 1.3 MB and 274 EOS of RAM the contract must **own**; RAM is an asset
+and sells back, so that is capital tied up rather than money spent. Set the
+ceiling from the RAM you have actually bought, in EOS, not in round numbers of
+rows.
+
+---
 
 ### Parked: streaming-service OAuth as the login
 

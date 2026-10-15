@@ -1,18 +1,19 @@
 /**
  * @file ramSponsorship.test.js
- * @brief The contract-paid RAM allowance, mirrored (no blockchain required)
+ * @brief The contract-paid RAM rules, mirrored (no blockchain required)
  *
- * `ram_payer_for()` decides, for every row `put()` and `vote()` are about to
- * write, whether the contract buys the RAM or the submitter does. It is a
- * handful of comparisons, and all of them are load-bearing: get one wrong and
- * either newcomers cannot take part at all, or the contract's RAM drains
- * without a floor.
+ * The contract pays for the rows `put()` and `vote()` write. What is capped is
+ * how much one account may have *outstanding* — rows held open on its behalf
+ * right now — so a submission takes two and gives them back when it is
+ * reclaimed. Who pays is a policy; how much you may have in flight is a rate
+ * limit; they are separate things and this is where that separation is
+ * checked.
  *
  * The contract cannot be executed here — there is no chain and no CDT — so
- * this mirrors the helper in JavaScript and tests the arithmetic. That is the
- * same arrangement validation.test.js already uses for the parts of the
- * contract that are pure logic. It is not a substitute for compiling: if the
- * C++ and this file disagree, this file is the one that proves nothing.
+ * this mirrors ram_payer_for() and ram_release() in JavaScript and tests the
+ * arithmetic, as validation.test.js already does for the contract's other pure
+ * logic. It is not a substitute for compiling: if the C++ and this file
+ * disagree, this file is the one that proves nothing.
  */
 
 const { expect } = require('chai');
@@ -24,38 +25,66 @@ const defaultPolicy = () => ({
     enabled: true,
     rows_per_account: 30,
     max_total_rows: 3000,
-    rows_sponsored: 0,
+    rows_outstanding: 0,
 });
 
-/** Mirrors ram_payer_for(). Mutates policy and credits exactly as it does. */
+/** Mirrors ram_payer_for(). Mutates the state exactly as it does. */
 function ramPayerFor(state, account, rows) {
     const { policy, credits } = state;
 
     if (!policy.enabled) return account;
-    if (policy.rows_sponsored + rows > policy.max_total_rows) return account;
+    if (policy.rows_outstanding + rows > policy.max_total_rows) return account;
 
-    const used = credits[account] ?? 0;
-    if (used + rows > policy.rows_per_account) return account;
+    const open = credits[account] ?? 0;
+    if (open + rows > policy.rows_per_account) return account;
 
-    credits[account] = used + rows;
-    policy.rows_sponsored += rows;
+    credits[account] = open + rows;
+    policy.rows_outstanding += rows;
     return SELF;
+}
+
+/** Mirrors ram_release(). Floors at zero, as it does and for the same reason. */
+function ramRelease(state, account, rows) {
+    const { policy, credits } = state;
+
+    const open = credits[account] ?? 0;
+    if (open === 0) return;
+
+    const freed = Math.min(open, rows);
+    credits[account] = open - freed;
+    policy.rows_outstanding = Math.max(0, policy.rows_outstanding - freed);
 }
 
 const newState = (overrides = {}) => ({
     policy: { ...defaultPolicy(), ...overrides },
     credits: {},
+    selfPaid: new Set(),
 });
 
-/** What put() and vote() ask for. */
-const submit = (state, who) => ramPayerFor(state, who, 2);
-const vote = (state, who) => ramPayerFor(state, who, 1);
+/** What put() does: two rows, and a marker when the author pays. */
+function submit(state, author, anchorId) {
+    const payer = ramPayerFor(state, author, 2);
+    if (payer === author) state.selfPaid.add(anchorId);
+    return payer;
+}
 
-describe('contract-paid RAM allowance', () => {
+/** What reclaim() does to a submission once its votes are gone. */
+function reclaimSubmission(state, author, anchorId) {
+    if (state.selfPaid.has(anchorId)) {
+        state.selfPaid.delete(anchorId);
+        return;
+    }
+    ramRelease(state, author, 2);
+}
+
+const vote = (state, who) => ramPayerFor(state, who, 1);
+const clearVote = (state, who) => ramRelease(state, who, 1);
+
+describe('contract-paid RAM', () => {
     describe('a newcomer', () => {
         it('has their first submission paid for by the contract', () => {
             const state = newState();
-            expect(submit(state, 'newbie')).to.equal(SELF);
+            expect(submit(state, 'newbie', 1)).to.equal(SELF);
         });
 
         it('can vote, which is the thing they could not do before', () => {
@@ -67,121 +96,188 @@ describe('contract-paid RAM allowance', () => {
         });
     });
 
-    describe('the allowance runs out', () => {
-        it('covers exactly ten submissions and ten votes at the default', () => {
+    describe('the cap is on work in flight, not on a lifetime ration', () => {
+        it('comes back when a submission is reclaimed', () => {
+            const state = newState({ rows_per_account: 2 });
+            expect(submit(state, 'steady', 1)).to.equal(SELF);
+            expect(submit(state, 'steady', 2)).to.equal('steady');
+
+            reclaimSubmission(state, 'steady', 1);
+            expect(state.credits.steady).to.equal(0);
+            expect(submit(state, 'steady', 3)).to.equal(SELF);
+        });
+
+        it('lets someone submit forever as long as they settle as they go', () => {
+            const state = newState({ rows_per_account: 2 });
+            for (let i = 0; i < 50; i++) {
+                expect(submit(state, 'patient', i), `submission ${i}`).to.equal(SELF);
+                reclaimSubmission(state, 'patient', i);
+            }
+            expect(state.policy.rows_outstanding).to.equal(0);
+        });
+
+        it('stops someone opening fifty at once', () => {
             const state = newState();
-            for (let i = 0; i < 10; i++) {
-                expect(submit(state, 'heavy'), `submission ${i + 1}`).to.equal(SELF);
+            let sponsored = 0;
+            for (let i = 0; i < 50; i++) {
+                if (submit(state, 'eager', i) === SELF) sponsored++;
             }
-            for (let i = 0; i < 10; i++) {
-                expect(vote(state, 'heavy'), `vote ${i + 1}`).to.equal(SELF);
-            }
-            expect(state.credits.heavy).to.equal(30);
-        });
-
-        it('hands the next row to the account itself', () => {
-            const state = newState({ rows_per_account: 2 });
-            expect(submit(state, 'heavy')).to.equal(SELF);
-            expect(submit(state, 'heavy')).to.equal('heavy');
-        });
-
-        it('does not reset — the credit outlives the allowance', () => {
-            // Erasing an exhausted credit row would reclaim a few bytes and
-            // hand out a fresh allowance with them.
-            const state = newState({ rows_per_account: 2 });
-            submit(state, 'heavy');
-            submit(state, 'heavy');
-            submit(state, 'heavy');
-            expect(state.credits.heavy).to.equal(2);
-            expect(submit(state, 'heavy')).to.equal('heavy');
+            expect(sponsored).to.equal(15);
         });
     });
 
-    describe('a submission is two rows or none', () => {
-        it('is paid by the account when only one row of allowance is left', () => {
-            const state = newState({ rows_per_account: 3 });
-            expect(submit(state, 'odd')).to.equal(SELF);
-            expect(submit(state, 'odd')).to.equal('odd');
+    describe('an account at its cap may still act, on its own RAM', () => {
+        it('pays for the rows itself', () => {
+            const state = newState({ rows_per_account: 2 });
+            submit(state, 'determined', 1);
+            expect(submit(state, 'determined', 2)).to.equal('determined');
         });
 
-        it('leaves that last row unspent, so a vote can still use it', () => {
-            // The anchor and its tally are written together. Sponsoring one
-            // and not the other would stand a submission half-written against
-            // an author with no RAM for the rest.
-            const state = newState({ rows_per_account: 3 });
-            submit(state, 'odd');
-            submit(state, 'odd');
-            expect(state.credits.odd).to.equal(2);
-            expect(vote(state, 'odd')).to.equal(SELF);
-            expect(state.credits.odd).to.equal(3);
+        it('is recorded, so reclaim does not credit rows nobody sponsored', () => {
+            const state = newState({ rows_per_account: 2 });
+            submit(state, 'determined', 1);
+            submit(state, 'determined', 2);
+            expect(state.selfPaid.has(2)).to.be.true;
+
+            // Reclaiming the self-paid one frees nothing: those rows were never
+            // the contract's to give back.
+            reclaimSubmission(state, 'determined', 2);
+            expect(state.credits.determined).to.equal(2);
+            expect(state.policy.rows_outstanding).to.equal(2);
+
+            // Reclaiming the sponsored one does.
+            reclaimSubmission(state, 'determined', 1);
+            expect(state.credits.determined).to.equal(0);
+            expect(state.policy.rows_outstanding).to.equal(0);
+        });
+
+        it('closes the farm: self-pay then reclaim does not mint allowance', () => {
+            // Without the marker, paying for your own rows and reclaiming them
+            // would hand back a slot that was never taken — a one-way
+            // conversion of the submitter's RAM into the contract's, repeatable
+            // for as long as they cared to.
+            const state = newState({ rows_per_account: 2 });
+            submit(state, 'farmer', 1);
+            const before = state.policy.rows_outstanding;
+
+            for (let i = 2; i < 12; i++) {
+                submit(state, 'farmer', i);
+                reclaimSubmission(state, 'farmer', i);
+            }
+
+            expect(state.policy.rows_outstanding).to.equal(before);
+            expect(state.credits.farmer).to.equal(2);
+        });
+    });
+
+    describe('rows written before any of this existed', () => {
+        it('reclaim floors at zero rather than inventing allowance', () => {
+            // An anchor from before this change has no marker and was paid for
+            // by its author, so reclaiming it looks exactly like reclaiming a
+            // sponsored one.
+            const state = newState();
+            reclaimSubmission(state, 'oldtimer', 999);
+            expect(state.credits.oldtimer ?? 0).to.equal(0);
+            expect(state.policy.rows_outstanding).to.equal(0);
+        });
+
+        it('does not let the global total go negative', () => {
+            const state = newState();
+            submit(state, 'current', 1);
+            reclaimSubmission(state, 'ancient', 998);
+            expect(state.policy.rows_outstanding).to.equal(2);
+        });
+    });
+
+    describe('votes', () => {
+        it('free their row when the voter changes their mind', () => {
+            const state = newState({ rows_per_account: 1 });
+            expect(vote(state, 'fickle')).to.equal(SELF);
+            clearVote(state, 'fickle');
+            expect(vote(state, 'fickle')).to.equal(SELF);
+        });
+
+        it('and when the submission they are on is reclaimed', () => {
+            const state = newState({ rows_per_account: 1 });
+            vote(state, 'voter');
+            expect(state.policy.rows_outstanding).to.equal(1);
+            clearVote(state, 'voter');
+            expect(state.policy.rows_outstanding).to.equal(0);
         });
     });
 
     describe('the global ceiling', () => {
-        it('stops sponsorship even for an account with allowance left', () => {
+        it('stops sponsorship even for an account with room of its own', () => {
             const state = newState({ max_total_rows: 2 });
-            expect(submit(state, 'first')).to.equal(SELF);
-            expect(submit(state, 'second')).to.equal('second');
+            expect(submit(state, 'first', 1)).to.equal(SELF);
+            expect(submit(state, 'second', 2)).to.equal('second');
             expect(state.credits.second).to.be.undefined;
         });
 
         it('is checked against the whole request, not one row of it', () => {
             const state = newState({ max_total_rows: 1 });
-            expect(submit(state, 'first')).to.equal('first');
-            expect(state.policy.rows_sponsored).to.equal(0);
+            expect(submit(state, 'first', 1)).to.equal('first');
+            expect(state.policy.rows_outstanding).to.equal(0);
         });
 
-        it('still allows a request that exactly reaches it', () => {
+        it('recovers as rows are reclaimed, unlike a lifetime budget', () => {
+            // The whole reason the counter measures what is open: otherwise the
+            // contract sits on free RAM and refuses to use it because a tally
+            // of past generosity says it is spent.
             const state = newState({ max_total_rows: 2 });
-            expect(submit(state, 'first')).to.equal(SELF);
-            expect(state.policy.rows_sponsored).to.equal(2);
+            submit(state, 'first', 1);
+            expect(submit(state, 'second', 2)).to.equal('second');
+
+            reclaimSubmission(state, 'first', 1);
+            expect(submit(state, 'third', 3)).to.equal(SELF);
         });
     });
 
     describe('the off switch', () => {
-        it('bills the account and consumes nothing', () => {
+        it('bills the account and opens nothing', () => {
             const state = newState({ enabled: false });
-            expect(submit(state, 'anyone')).to.equal('anyone');
-            expect(state.policy.rows_sponsored).to.equal(0);
+            expect(submit(state, 'anyone', 1)).to.equal('anyone');
+            expect(state.policy.rows_outstanding).to.equal(0);
             expect(state.credits.anyone).to.be.undefined;
         });
 
-        it('does not disturb allowance already spent', () => {
-            // Winding sponsorship down stops new grants; it does not claw back
-            // rows that exist and are in use.
+        it('leaves rows already open alone, to come back as they are reclaimed', () => {
             const state = newState();
-            submit(state, 'early');
+            submit(state, 'early', 1);
             state.policy.enabled = false;
+
             expect(state.credits.early).to.equal(2);
-            expect(submit(state, 'early')).to.equal('early');
-            expect(state.credits.early).to.equal(2);
+            expect(submit(state, 'early', 2)).to.equal('early');
+
+            reclaimSubmission(state, 'early', 1);
+            expect(state.policy.rows_outstanding).to.equal(0);
         });
     });
 
     describe('what it costs, at the measured price', () => {
         // Measured on Jungle4, 2026-10-14: one release submission moved
-        // polaristest2's RAM usage by 896 bytes across its anchor and tally,
-        // at a spot price of 0.208658 EOS/KiB.
+        // polaristest2's RAM usage by 896 bytes across its anchor and tally, at
+        // a spot price of 0.208658 EOS/KiB.
         const BYTES_PER_SUBMISSION = 896;
         const EOS_PER_KIB = 0.208658;
+        const bytesToEos = (bytes) => (bytes / 1024) * EOS_PER_KIB;
 
         it('is about 448 bytes a row', () => {
             expect(BYTES_PER_SUBMISSION / 2).to.equal(448);
         });
 
-        it('is about 13 KiB for one account at the default allowance', () => {
-            const bytes = (defaultPolicy().rows_per_account) * (BYTES_PER_SUBMISSION / 2);
+        it('is about 13 KiB held open per account at the cap', () => {
+            const bytes = defaultPolicy().rows_per_account * (BYTES_PER_SUBMISSION / 2);
             expect(bytes).to.equal(13440);
             expect(bytes / 1024).to.be.closeTo(13.1, 0.1);
         });
 
-        it('is about 2.7 EOS an account, and 273 at the default ceiling', () => {
-            // The ceiling is the bill. Worth seeing in the same units it is
-            // paid in before setting it from a round number of rows.
-            const perAccount = (30 * 448 / 1024) * EOS_PER_KIB;
-            const atCeiling = (3000 * 448 / 1024) * EOS_PER_KIB;
-            expect(perAccount).to.be.closeTo(2.74, 0.05);
-            expect(atCeiling).to.be.closeTo(273.9, 1);
+        it('is about 274 EOS of RAM the contract must own at the ceiling', () => {
+            // Own, not spend: RAM is an asset and sells back. This is the
+            // number the ceiling is really set from, and rows are a poor unit
+            // to choose it in.
+            expect(bytesToEos(defaultPolicy().max_total_rows * 448)).to.be.closeTo(273.9, 1);
+            expect(bytesToEos(30 * 448)).to.be.closeTo(2.74, 0.05);
         });
     });
 });

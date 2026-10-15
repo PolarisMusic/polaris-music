@@ -165,10 +165,10 @@ public:
         // author, type, hash, event_cid, parent, ts and tags are all `put`
         // arguments, which is how the substreams module reads them already.
         if (anchored) {
-            // One decision for both rows. ram_payer_for consumes the allowance
-            // as it answers, so it is asked once and the answer used twice —
-            // see the helper for why a half-sponsored submission is not a
-            // thing that should be able to happen.
+            // One decision for both rows. ram_payer_for counts them as
+            // outstanding as it answers, so it is asked once and the answer
+            // used twice — see the helper for why a half-sponsored submission
+            // is not a thing that should be able to happen.
             name row_payer = ram_payer_for(author, 2);
 
             anchors.emplace(row_payer, [&](auto& a) {
@@ -197,6 +197,16 @@ public:
                 t.down_voter_count = 0;
                 t.updated_at = current_time_point();
             });
+
+            if (row_payer == author) {
+                // Over the cap and going ahead anyway. Record it, so reclaim
+                // does not hand these rows back to a sponsorship that never
+                // paid for them. Billed to the author, who chose this.
+                self_paid_table selfpaid(get_self(), get_self().value);
+                selfpaid.emplace(author, [&](auto& sp) {
+                    sp.anchor_id = anchor_id;
+                });
+            }
         }
 
         // NOW increment global submission counter AFTER capturing submission_x
@@ -516,18 +526,18 @@ public:
     /**
      * @brief Set how much RAM the contract buys on a newcomer's behalf
      *
-     * See the ram_policy table for what this is for and why it is a lifetime
-     * count. Tunable without a redeploy because the right numbers depend on
-     * the RAM price and on how much of it has actually been bought, neither of
-     * which the contract can see.
+     * See the ram_policy table for what this is for and why the cap counts
+     * rows open now rather than rows ever granted. Tunable without a redeploy
+     * because the right numbers depend on the RAM price and on how much of it
+     * has actually been bought, neither of which the contract can see.
      *
-     * Leaves rows_sponsored alone: that is a running total of what has been
-     * given away, not a setting, and resetting it would silently reopen a
-     * ceiling that had been reached.
+     * Leaves rows_outstanding alone: that is a measurement of what is open
+     * right now, not a setting, and writing to it would make the ceiling
+     * describe something other than reality.
      *
      * @param enabled           Whether to sponsor anything at all
-     * @param rows_per_account  Lifetime rows the contract pays for, per account
-     * @param max_total_rows    Ceiling on rows sponsored across all accounts
+     * @param rows_per_account  Rows the contract holds open per account at once
+     * @param max_total_rows    Ceiling on rows open across all accounts
      */
     ACTION setrampolicy(bool enabled, uint32_t rows_per_account, uint64_t max_total_rows) {
         require_auth(get_self());
@@ -542,9 +552,10 @@ public:
         ram_policy_singleton policy_table(get_self(), get_self().value);
         auto policy = policy_table.get_or_default(ram_policy{});
 
-        // Lowering the ceiling below what is already given away is allowed and
-        // is how sponsorship is wound down: it stops new grants without
-        // clawing back rows that exist and are in use.
+        // Lowering the ceiling below what is already open is allowed and is
+        // how sponsorship is wound down: it stops new grants without clawing
+        // back rows that exist and are in use. They come back as they are
+        // reclaimed.
         policy.enabled = enabled;
         policy.rows_per_account = rows_per_account;
         policy.max_total_rows = max_total_rows;
@@ -806,6 +817,7 @@ public:
             // Clear vote: erase row, tally already decremented above
             if(has_old_vote) {
                 vote_idx.erase(vote_itr);
+                ram_release(voter, 1);
             }
         } else {
             // Add or update vote row
@@ -974,12 +986,17 @@ public:
         auto vote_itr = vote_hash_idx.lower_bound(tx_hash);
 
         uint32_t erased = 0;
+        uint64_t freed = 0;
         while (vote_itr != vote_hash_idx.end() &&
                vote_itr->tx_hash == tx_hash &&
                erased < max_rows) {
+            // Read the voter before the erase invalidates the row.
+            name voter = vote_itr->voter;
             vote_itr = vote_hash_idx.erase(vote_itr);
+            freed += ram_release_rows(voter, 1);
             ++erased;
         }
+        ram_release_total(freed);
 
         bool votes_remain = (vote_itr != vote_hash_idx.end() && vote_itr->tx_hash == tx_hash);
 
@@ -987,12 +1004,28 @@ public:
         // how a subsequent call finds this submission at all, so erasing it with
         // votes outstanding would strand them permanently.
         if (!votes_remain) {
+            name author = anchor_itr->author;
+
             votetally_table tallies(get_self(), get_self().value);
             auto tally_itr = tallies.find(anchor_id);
             if (tally_itr != tallies.end()) {
                 tallies.erase(tally_itr);
             }
             hash_idx.erase(anchor_itr);
+
+            // Two rows have just gone. Whether they come back to the
+            // sponsorship depends on who bought them, which only self_paid
+            // knows — the chain records a row's payer but does not let a
+            // contract read it.
+            self_paid_table selfpaid(get_self(), get_self().value);
+            auto marked = selfpaid.find(anchor_id);
+            if (marked != selfpaid.end()) {
+                // The author's own rows. Erasing the marker returns its bytes
+                // to them along with the anchor and tally they paid for.
+                selfpaid.erase(marked);
+            } else {
+                ram_release(author, 2);
+            }
         }
     }
 
@@ -1687,6 +1720,33 @@ public:
             nodeagg_itr = nodeagg.erase(nodeagg_itr);
         }
 
+        // The sponsorship bookkeeping goes with the rows it describes. Every
+        // anchor, tally and vote above has just been erased, so every row the
+        // contract was holding open is gone; leaving the counters behind would
+        // have the contract refusing to sponsor against an outstanding total
+        // that no longer corresponds to anything.
+        ram_credits_table credits(get_self(), get_self().value);
+        auto credit_itr = credits.begin();
+        while(credit_itr != credits.end()) {
+            credit_itr = credits.erase(credit_itr);
+        }
+
+        self_paid_table selfpaid(get_self(), get_self().value);
+        auto selfpaid_itr = selfpaid.begin();
+        while(selfpaid_itr != selfpaid.end()) {
+            selfpaid_itr = selfpaid.erase(selfpaid_itr);
+        }
+
+        // The policy itself survives — it is a setting, and an operator who
+        // tuned it does not expect a clear to undo that. Only the measurement
+        // of what is open is reset, to the truth, which is nothing.
+        ram_policy_singleton policy_table(get_self(), get_self().value);
+        if (policy_table.exists()) {
+            auto policy = policy_table.get();
+            policy.rows_outstanding = 0;
+            policy_table.set(policy, get_self());
+        }
+
         // Note: likes and stakes tables are scoped by account and cannot be
         // cleared from contract scope. These would need to be cleared per-account
         // or through a separate cleanup mechanism if needed.
@@ -2069,90 +2129,129 @@ private:
     };
 
     /**
-     * @brief How much RAM the contract will buy on a newcomer's behalf
+     * @brief How much RAM the contract buys on a submitter's behalf
      *
      * Antelope bills a row to the account named at `emplace`, and `put()` and
-     * `vote()` named the submitter. So an account with no RAM can read the
-     * registry and it can `like` — the one action whose body deliberately
-     * writes nothing — and it can do nothing else. Not submit, and not vote,
-     * which is the cheaper and far more common action and the first thing a
-     * newcomer does. Resource providers do not help: they cover CPU and NET by
-     * becoming the first authorizer, while RAM is billed at the emplace call
-     * site whoever else signed.
+     * `vote()` named the submitter. So an account with no RAM could read the
+     * registry and could `like` — the one action whose body deliberately
+     * writes nothing — and nothing else. Not submit, and not vote, which is
+     * the cheaper action and the first one anybody takes. Resource providers
+     * do not reach this: they cover CPU and NET by becoming the first
+     * authorizer, while RAM is billed at the emplace call site whoever else
+     * signed.
      *
-     * So the contract pays, for a while. `emplace(get_self(), …)` bills the
-     * contract account, which needs no extra authorization because the payer
-     * is the executing contract itself. Past the allowance the submitter pays
-     * as before, which is the point at which somebody using the registry in
-     * earnest can be asked to own the RAM their rows occupy.
+     * So the contract pays. Not as an allowance that runs out and leaves the
+     * account stranded, but as the normal case: `emplace(get_self(), …)` bills
+     * the contract account, which needs no extra authorization because the
+     * payer is the executing contract itself.
      *
-     * The allowance is a lifetime count of rows, not a concurrent one. A
-     * concurrent cap — rows freed when a submission is reclaimed — was
-     * considered and is the better behaviour, but it needs to know, at reclaim
-     * time, whether the contract paid for *this* row. eosio does not expose a
-     * row's payer, so that needs either a marker row per sponsored submission
-     * (about 12% more RAM, and another thing to keep in step) or a field on
-     * `anchor`, which cannot be added: a row stored under the old layout fails
-     * to unpack against a longer struct, and there are anchors on testnet
-     * already. Decrementing on every reclaim regardless would let an account
-     * that paid its own way reclaim into free allowance it never spent. A
-     * lifetime count is exact and cannot be gamed, so that is what this is.
+     * What is capped is how much a single account may have *outstanding* at
+     * once — rows the contract is holding open on their behalf right now. A
+     * submission takes two of them and gives them back when it is reclaimed,
+     * so the cap is a limit on unconfirmed work in flight rather than a
+     * lifetime ration. Someone who submits, waits for the vote to close and
+     * reclaims can keep going forever; someone opening fifty submissions at
+     * once cannot.
      *
-     * Deliberately its own singleton rather than fields on `global_state`,
-     * for the reason `lottery_config` gives: that struct is already `set` on
+     * That separation is the point. Who pays is a policy — the contract, so
+     * that nobody meets a wall on their first action. How much you may have in
+     * flight is a rate limit, and it has nothing to do with RAM.
+     *
+     * An account at its cap may still act by paying its own RAM, as everyone
+     * did before this existed. Those rows are recorded in `self_paid`, because
+     * reclaim must not credit them back to an allowance that never funded
+     * them. The exception is marked rather than the rule: sponsorship is the
+     * common case and costs nothing to record, while the bypass writes one
+     * small row, paid by the account that chose it.
+     *
+     * Deliberately its own singleton rather than fields on `global_state`, for
+     * the reason `lottery_config` gives: that struct is already `set` on
      * testnet and eosio unpacks a singleton against the current definition, so
      * stored bytes shorter than the struct is a read failure, not a defaulted
      * field. A new table has no stored rows to be short.
      */
     TABLE ram_policy {
         // The off switch. Immutable code, mutable policy: if sponsorship is
-        // draining faster than expected, this stops it without a redeploy.
+        // draining faster than expected, this stops new grants without a
+        // redeploy and without disturbing rows already open.
         bool enabled = true;
 
-        // Rows the contract will pay for, per account, ever.
+        // Rows the contract will hold open for one account at a time.
         //
         // Measured 2026-10-14 against Jungle4: one release submission costs
         // 896 bytes across its two rows — the anchor and its zeroed tally —
-        // which is about 448 a row. The default here is ten submissions
-        // (20 rows) plus ten votes (one row each), so a newcomer can take part
-        // in curation as well as add to the registry before anything is asked
-        // of them.
+        // which is about 448 a row. The default is ten submissions in flight
+        // (20 rows) plus ten open votes, so a newcomer can take part in
+        // curation as well as add to the registry before anything is asked of
+        // them.
         uint32_t rows_per_account = 30;
 
         // The global ceiling, and the only thing standing between this and an
         // unbounded bill. A contract cannot read its own RAM balance — there
         // is no intrinsic for it — so it cannot stop when the tank runs dry;
-        // it can only stop when it has given away as much as it was told to.
+        // it can only stop when it is holding as much open as it was told to.
         //
-        // 3,000 rows is about 1.3 MB, roughly a hundred accounts at the
-        // default allowance. It is a starting point, not a recommendation:
-        // set it from the RAM you have actually bought.
+        // Outstanding, not granted: rows come back when they are reclaimed, so
+        // this is the high-water mark of concurrent sponsorship rather than a
+        // lifetime budget that erodes while the RAM behind it sits free.
+        //
+        // 3,000 rows is about 1.3 MB, which at the measured price is roughly
+        // 274 EOS of RAM the contract must own — and own, not spend: RAM is an
+        // asset and sells back. A starting point, not a recommendation.
         uint64_t max_total_rows = 3000;
 
-        // Running total of rows sponsored, all accounts, for the ceiling above.
-        // State rather than policy, and setrampolicy leaves it alone.
-        uint64_t rows_sponsored = 0;
+        // Rows the contract is holding open right now, all accounts. State
+        // rather than policy, and setrampolicy leaves it alone.
+        uint64_t rows_outstanding = 0;
 
-        EOSLIB_SERIALIZE(ram_policy, (enabled)(rows_per_account)(max_total_rows)(rows_sponsored))
+        EOSLIB_SERIALIZE(ram_policy, (enabled)(rows_per_account)(max_total_rows)(rows_outstanding))
     };
 
     /**
-     * @brief What one account has spent of its allowance
+     * @brief What one account currently has open on the contract's RAM
      *
-     * The row itself is paid for by the contract, and outside the allowance —
-     * charging an account for the bookkeeping that tracks its own free RAM
-     * would be a strange thing to explain. It is created only when the account
-     * first spends from the allowance, so it is bounded by the same gate as
-     * everything else here, and it outlives the allowance deliberately:
-     * erasing it when exhausted would hand out a fresh one.
+     * The row itself is paid for by the contract, and outside the cap —
+     * charging an account for the bookkeeping that tracks its own sponsorship
+     * would be a strange thing to explain. It is created when the account
+     * first has something sponsored, and kept at zero rather than erased when
+     * everything is reclaimed: a hundred-odd bytes against the alternative of
+     * erasing and re-creating it on every cycle, which costs more in write
+     * traffic than it saves in RAM.
      */
     TABLE ram_credit {
         name     account;
-        uint32_t rows_used = 0;
+        uint32_t rows_outstanding = 0;
 
         uint64_t primary_key() const { return account.value; }
 
-        EOSLIB_SERIALIZE(ram_credit, (account)(rows_used))
+        EOSLIB_SERIALIZE(ram_credit, (account)(rows_outstanding))
+    };
+
+    /**
+     * @brief Submissions whose rows the submitter paid for
+     *
+     * Written only when an account at its cap goes ahead anyway on its own
+     * RAM, and paid for by that account. Reclaim reads it to know not to
+     * credit those rows back to a sponsorship that never funded them, then
+     * erases it — which returns these bytes to the account too.
+     *
+     * The alternative is reading the row's payer, which the chain records and
+     * `get_table_rows` will show you with `show_payer`, but which a contract
+     * cannot see: the database intrinsics return row data and iterators and
+     * never a payer, and multi_index exposes no accessor for it. The fact
+     * exists; the code that needs it cannot reach it.
+     *
+     * Anchors written before this existed have no row here and were paid for
+     * by their authors. Reclaiming one therefore looks like reclaiming a
+     * sponsored submission, and decrements a counter that is already zero,
+     * which floors harmlessly.
+     */
+    TABLE self_paid {
+        uint64_t anchor_id;
+
+        uint64_t primary_key() const { return anchor_id; }
+
+        EOSLIB_SERIALIZE(self_paid, (anchor_id))
     };
 
     // Table type definitions
@@ -2199,6 +2298,7 @@ private:
         indexed_by<"bynode"_n, const_mem_fun<pending_reward, checksum256, &pending_reward::by_node>>
     > pending_rewards_table;
     typedef eosio::multi_index<"ramcredits"_n, ram_credit> ram_credits_table;
+    typedef eosio::multi_index<"selfpaid"_n, self_paid> self_paid_table;
     typedef eosio::singleton<"globals"_n, global_state> globals_singleton;
     typedef eosio::singleton<"lottery"_n, lottery_config> lottery_singleton;
     typedef eosio::singleton<"rampolicy"_n, ram_policy> ram_policy_singleton;
@@ -2209,15 +2309,17 @@ private:
      * @brief Who pays for the next `rows` rows this account is about to write
      *
      * Returns `get_self()` when the contract is covering them, and `account`
-     * otherwise. Consumes the allowance only when it returns `get_self()`, so
-     * asking and not writing is not possible — every caller emplaces exactly
-     * what it asked for, immediately.
+     * otherwise. Counts the rows as outstanding only when it returns
+     * `get_self()`, so asking and not writing is not possible — every caller
+     * emplaces exactly what it asked for, immediately, in the same
+     * transaction, and a failure anywhere in that transaction unwinds this
+     * along with everything else.
      *
      * All-or-nothing by design. A submission is two rows and they are written
-     * together; letting the allowance run out between them would leave an
-     * anchor the contract paid for beside a tally the author did, which is
-     * both confusing to reason about and a way to strand a submission half
-     * written when the author has no RAM for the second half.
+     * together; letting the cap fall between them would leave an anchor the
+     * contract paid for beside a tally the author did, which is both confusing
+     * to reason about and a way to strand a submission half written when the
+     * author has no RAM for the second half.
      *
      * @param account The account that would otherwise pay
      * @param rows    How many rows are about to be written
@@ -2228,30 +2330,97 @@ private:
         auto policy = policy_table.get_or_default(ram_policy{});
 
         if (!policy.enabled) return account;
-        if (policy.rows_sponsored + rows > policy.max_total_rows) return account;
+        if (policy.rows_outstanding + rows > policy.max_total_rows) return account;
 
         ram_credits_table credits(get_self(), get_self().value);
         auto credit = credits.find(account.value);
 
-        uint32_t used = (credit == credits.end()) ? 0 : credit->rows_used;
-        if (used + rows > policy.rows_per_account) return account;
+        uint32_t open = (credit == credits.end()) ? 0 : credit->rows_outstanding;
+        if (open + rows > policy.rows_per_account) return account;
 
         if (credit == credits.end()) {
-            // Paid by the contract and outside the allowance — see ram_credit.
+            // Paid by the contract and outside the cap — see ram_credit.
             credits.emplace(get_self(), [&](auto& c) {
                 c.account = account;
-                c.rows_used = rows;
+                c.rows_outstanding = rows;
             });
         } else {
             credits.modify(credit, same_payer, [&](auto& c) {
-                c.rows_used += rows;
+                c.rows_outstanding += rows;
             });
         }
 
-        policy.rows_sponsored += rows;
+        policy.rows_outstanding += rows;
         policy_table.set(policy, get_self());
 
         return get_self();
+    }
+
+    /**
+     * @brief Give one account's sponsored rows back when they are erased
+     *
+     * The other half of ram_payer_for. Called from every site that erases a
+     * row the contract might have paid for, so the cap measures what is open
+     * now rather than what was ever granted.
+     *
+     * Floors at zero rather than checking, because it is called for rows this
+     * contract did not necessarily sponsor: anchors and votes written before
+     * any of this existed, and rows an account paid for itself. A submission's
+     * self-payment is recorded in `self_paid` and reclaim skips the call
+     * entirely; a vote's is not, so clearing a self-paid vote frees a slot
+     * that was never taken. That is a one-for-one trade of the voter's own
+     * RAM for a row of sponsorship, repeatable only as fast as submissions
+     * finalize, and not worth a second marker table to close.
+     *
+     * Touches only the account's own row; the global total is the caller's to
+     * settle with ram_release_total.
+     *
+     * @param account The account whose rows are going away
+     * @param rows    How many
+     * @return how many were actually released
+     */
+    uint32_t ram_release_rows(name account, uint32_t rows) {
+        ram_credits_table credits(get_self(), get_self().value);
+        auto credit = credits.find(account.value);
+        if (credit == credits.end() || credit->rows_outstanding == 0) return 0;
+
+        uint32_t freed = (credit->rows_outstanding < rows) ? credit->rows_outstanding : rows;
+        credits.modify(credit, same_payer, [&](auto& c) {
+            c.rows_outstanding -= freed;
+        });
+        return freed;
+    }
+
+    /**
+     * @brief Subtract from the global total, once
+     *
+     * Split from ram_release_rows so a caller freeing many rows can write the
+     * policy singleton a single time. reclaim() erases up to a hundred votes
+     * in one action, and a singleton read and write for each of them is a
+     * hundred database operations spent restating the same number — enough CPU
+     * to put the action's own limit in question, on the one path that exists
+     * to give RAM back.
+     *
+     * @param freed Rows released since the last call
+     */
+    void ram_release_total(uint64_t freed) {
+        if (freed == 0) return;
+
+        ram_policy_singleton policy_table(get_self(), get_self().value);
+        auto policy = policy_table.get_or_default(ram_policy{});
+        policy.rows_outstanding = (policy.rows_outstanding < freed)
+            ? 0 : policy.rows_outstanding - freed;
+        policy_table.set(policy, get_self());
+    }
+
+    /**
+     * @brief Release one account's rows and account for them immediately
+     *
+     * For callers freeing rows for a single account. See ram_release_rows and
+     * ram_release_total, which reclaim() uses separately.
+     */
+    void ram_release(name account, uint32_t rows) {
+        ram_release_total(ram_release_rows(account, rows));
     }
 
     /**
