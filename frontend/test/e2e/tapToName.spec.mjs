@@ -33,7 +33,19 @@ function scene(groups = 4, members = 6) {
 
 const SCENE = scene();
 
-async function boot(page) {
+/**
+ * A graph crowded enough to have a real rim.
+ *
+ * The sparse scene above spreads its outermost nodes about fifty pixels
+ * apart, which no finger can confuse. With eight bands of thirty the
+ * Poincare disk packs the outermost pair five pixels apart — measured, not
+ * assumed — and five pixels is less than the distance between two taps
+ * aimed at the same thing. That gap is the whole subject of the second
+ * describe block below.
+ */
+const DENSE = scene(8, 30);
+
+async function boot(page, data = SCENE) {
     await page.route('**/api/**', (route) => {
         const url = decodeURIComponent(route.request().url());
         if (url.includes('/stake/')) {
@@ -45,7 +57,7 @@ async function boot(page) {
         route.fulfill({ contentType: 'application/json', body: '{}' });
     });
     await page.route('**/graph/initial*', (route) =>
-        route.fulfill({ contentType: 'application/json', body: JSON.stringify(SCENE) }));
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) }));
     await page.route('**/graph/sponsored*', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, node: null }) }));
 
@@ -198,6 +210,172 @@ test.describe('on a device that cannot hover', () => {
         await page.touchscreen.tap(point.x, point.y);
         await expect.poll(() => named(page, 'grp:1')).toBe(true);
         expect(await state(page)).toEqual(before);
+    });
+});
+
+/**
+ * The two closest nodes on the canvas, and how far apart they are.
+ *
+ * Found rather than named, because which pair the layout crowds is the
+ * layout's business and changes with the scene.
+ */
+const closestPair = (page) => page.evaluate(() => {
+    const centres = [];
+    window.musicGraph.ht.graph.eachNode((n) => {
+        const c = n.pos.getc().$scale(n.scale);
+        centres.push({ id: n.id, x: c.x, y: c.y });
+    });
+    let best = null;
+    for (let i = 0; i < centres.length; i++) {
+        for (let j = i + 1; j < centres.length; j++) {
+            const d = Math.hypot(centres[i].x - centres[j].x, centres[i].y - centres[j].y);
+            if (!best || d < best.gap) {
+                best = { gap: d, a: centres[i].id, b: centres[j].id };
+            }
+        }
+    }
+    return best;
+});
+
+/** The viewport point a fraction of the way from one node's centre to another's. */
+const pointBetween = (page, aId, bId, t) => page.evaluate(({ aId, bId, t }) => {
+    const ht = window.musicGraph.ht;
+    const centre = (id) => {
+        const n = ht.graph.getNode(id);
+        return n.pos.getc().$scale(n.scale);
+    };
+    const a = centre(aId);
+    const b = centre(bId);
+    const c = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    const canvas = ht.canvas;
+    const pos = canvas.getPos(true);
+    const size = canvas.getSize();
+    return {
+        x: pos.x - window.scrollX + size.width / 2 + c.x * canvas.scaleOffsetX + canvas.translateOffsetX,
+        y: pos.y - window.scrollY + size.height / 2 + c.y * canvas.scaleOffsetY + canvas.translateOffsetY,
+    };
+}, { aId, bId, t });
+
+/**
+ * Which node the resolver gives for a canvas point between two nodes.
+ *
+ * Canvas coordinates rather than viewport ones, because this asks the
+ * resolver directly rather than going through a tap.
+ */
+const resolvedBetween = (page, aId, bId, t) => page.evaluate(({ aId, bId, t }) => {
+    const ht = window.musicGraph.ht;
+    const centre = (id) => {
+        const n = ht.graph.getNode(id);
+        return n.pos.getc().$scale(n.scale);
+    };
+    const a = centre(aId);
+    const b = centre(bId);
+    return window.musicGraph._nodeAt({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+    })?.id ?? null;
+}, { aId, bId, t });
+
+test.describe('out at the rim, where the nodes are a finger-width apart', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+    test('the second tap confirms the named node, not the nearer neighbour', async ({ page }) => {
+        // The bug this exists for, reported from a phone: tap a node at the
+        // edge, see its name, tap again to go there — and land on something
+        // else. Each tap was resolved on its own, nearest-centre-wins, and out
+        // here the nodes are five pixels apart while two taps aimed at the
+        // same thing are not. So the second tap, two or three pixels off,
+        // belonged to the neighbour, and the preview moved instead of the
+        // graph.
+        await boot(page, DENSE);
+        const pair = await closestPair(page);
+        expect(pair.gap).toBeLessThan(12);   // the premise of the test
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, pair.a)));
+        await expect.poll(() => named(page, pair.a)).toBe(true);
+
+        // Seven tenths of the way across: a few pixels of jitter, landing
+        // nearer the neighbour than the node the reader is looking at.
+        const jittered = await pointBetween(page, pair.a, pair.b, 0.7);
+        await page.touchscreen.tap(jittered.x, jittered.y);
+
+        await expect.poll(() => page.evaluate(
+            () => window.musicGraph.selectedNode?.id ?? null)).toBe(pair.a);
+        expect(await named(page, pair.b)).toBe(false);
+    });
+
+    test('and the graph travels, rather than the name moving sideways', async ({ page }) => {
+        await boot(page, DENSE);
+        const pair = await closestPair(page);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, pair.a)));
+        await expect.poll(() => named(page, pair.a)).toBe(true);
+        const jittered = await pointBetween(page, pair.a, pair.b, 0.7);
+        await page.touchscreen.tap(jittered.x, jittered.y);
+
+        await page.waitForFunction(() => !window.musicGraph.ht.busy, { timeout: 15_000 });
+        expect((await state(page)).root).toBe(pair.a);
+    });
+
+    test('the confirmation lasts as long as the name is up', async ({ page }) => {
+        // Not a timer and not a count of taps: the preview is the reader's
+        // standing claim about what they are aiming at, so it holds that aim
+        // for exactly as long as it is on screen.
+        await boot(page, DENSE);
+        const pair = await closestPair(page);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, pair.a)));
+        await expect.poll(() => named(page, pair.a)).toBe(true);
+
+        expect(await resolvedBetween(page, pair.a, pair.b, 0.7)).toBe(pair.a);
+
+        // Name put away, and the same point belongs to whoever is nearest
+        // again — the rule is a property of the preview, not of the geometry.
+        const empty = await emptyPoint(page);
+        await page.touchscreen.tap(empty.x, empty.y);
+        await expect.poll(() => named(page, pair.a)).toBe(false);
+
+        expect(await resolvedBetween(page, pair.a, pair.b, 0.7)).toBe(pair.b);
+    });
+
+    test('a tap further off than a finger still moves the name', async ({ page }) => {
+        // The escape hatch, and it is distance rather than ink: these two
+        // groups are a long way apart, so the second tap is plainly aimed
+        // somewhere else and names it instead of confirming the first.
+        //
+        // Ink was the first attempt at this test's rule and it was wrong. Out
+        // at the rim a node is drawn at the two-pixel floor with its
+        // neighbour's centre five pixels away, so a tap that lands on the
+        // neighbour's ink has not chosen it — it has missed by two pixels.
+        await boot(page, DENSE);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:1')));
+        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:2')));
+
+        await expect.poll(() => named(page, 'grp:2')).toBe(true);
+        expect(await named(page, 'grp:1')).toBe(false);
+        expect(await page.evaluate(
+            () => window.musicGraph.selectedNode?.id ?? null)).toBeNull();
+    });
+
+    test('the name can still be put away by tapping the canvas', async ({ page }) => {
+        // The incumbent holds its aim within a finger's width, not across the
+        // whole canvas: dismissing has to keep working.
+        await boot(page, DENSE);
+        const pair = await closestPair(page);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, pair.a)));
+        await expect.poll(() => named(page, pair.a)).toBe(true);
+
+        const empty = await emptyPoint(page);
+        expect(empty).not.toBeNull();
+        await page.touchscreen.tap(empty.x, empty.y);
+
+        await expect.poll(() => named(page, pair.a)).toBe(false);
+        expect(await page.evaluate(
+            () => window.musicGraph.selectedNode?.id ?? null)).toBeNull();
     });
 });
 
