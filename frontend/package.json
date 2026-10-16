@@ -16,6 +16,7 @@
     "@wharfkit/transact-plugin-resource-provider": "4.0.2",
     "@wharfkit/wallet-plugin-anchor": "4.0.2",
     "@wharfkit/web-renderer": "4.0.2",
+    "@wharfkit/webauthn": "^4.0.2",
     "crypto-js": "4.2.0"
   },
   "devDependencies": {

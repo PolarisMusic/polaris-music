@@ -85,6 +85,19 @@ export const USE_LOCAL_ABI =
     (import.meta.env.VITE_USE_LOCAL_ABI || String(preset.useLocalAbi)) === 'true';
 
 /**
+ * Whether this chain can verify a passkey's signature.
+ *
+ * Antelope's `PUB_WA_` key type needs the WEBAUTHN_KEY protocol feature
+ * activated, and a passkey sign-in offered on a chain without it produces
+ * signatures the chain rejects — a login that looks like it worked and then
+ * cannot sign anything. The profile carries the answer, checked against the
+ * chain rather than assumed; see the typedef in shared/config/chainProfiles.js
+ * for the query.
+ */
+export const WEBAUTHN_KEYS =
+    (import.meta.env.VITE_WEBAUTHN_KEYS || String(preset.webauthnKeys)) === 'true';
+
+/**
  * Ingestion mode — controls how events reach the graph database after
  * a blockchain transaction is broadcast.
  *
@@ -104,6 +117,7 @@ if (import.meta.env.DEV) {
         RPC_URL,
         CONTRACT_ACCOUNT,
         USE_LOCAL_ABI,
+        WEBAUTHN_KEYS,
         INGEST_MODE,
         source: 'shared/config/chainProfiles.js',
     });

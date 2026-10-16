@@ -26,6 +26,13 @@
  * @property {string} ingestMode - 'dev' (direct API) or 'chain' (event-sourced)
  * @property {string} chainSource - 'substreams' or 'ship'
  * @property {boolean} irreversibleOnly - Only process irreversible blocks
+ * @property {boolean} webauthnKeys - Whether the chain has the WEBAUTHN_KEY
+ *   protocol feature activated, and so will accept PUB_WA_ keys and their
+ *   signatures. Passkey sign-in is offered only where this is true, because a
+ *   wallet offered on a chain that cannot verify it is the CloudWallet mistake
+ *   repeated. Check with:
+ *     curl -s -X POST <rpcUrl>/v1/chain/get_activated_protocol_features \
+ *       -H 'Content-Type: application/json' -d '{"limit":200}' | grep -c WEBAUTHN_KEY
  */
 
 export const CHAIN_PROFILES = {
@@ -41,6 +48,10 @@ export const CHAIN_PROFILES = {
         ingestMode: 'dev',
         chainSource: 'ship',
         irreversibleOnly: false,
+        // Unknown for a single node somebody just started, and false is the
+        // answer that fails safely: no passkey option rather than a passkey
+        // option that cannot sign.
+        webauthnKeys: false,
     },
     jungle4: {
         name: 'jungle4',
@@ -54,6 +65,8 @@ export const CHAIN_PROFILES = {
         ingestMode: 'chain',
         chainSource: 'substreams',
         irreversibleOnly: false,
+        // Checked 2026-10-15 against jungle4.greymass.com: activated.
+        webauthnKeys: true,
     },
     mainnet: {
         name: 'mainnet',
@@ -67,6 +80,10 @@ export const CHAIN_PROFILES = {
         ingestMode: 'chain',
         chainSource: 'substreams',
         irreversibleOnly: true,
+        // Not checked. False until somebody runs the query in the typedef
+        // against eos.greymass.com and changes it on the evidence — offering a
+        // sign-in that cannot sign is worse than not offering it.
+        webauthnKeys: false,
     },
 };
 
