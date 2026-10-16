@@ -632,6 +632,20 @@ export class InfoPanelRenderer {
         titleElement.textContent = release.name || 'Unknown Release';
         contentElement.replaceChildren();
 
+        // Everything a release holds as a property of its own can be corrected
+        // here. What cannot: its tracklist, its performers and its guests,
+        // which are relationships rather than fields — an EDIT_CLAIM sets a
+        // property on one node and has nowhere to put an edge. Changing those
+        // means resubmitting the bundle, which is a different thing and says
+        // so rather than offering a button that quietly does less than it
+        // looks like it does.
+        //
+        // The id comes off the release itself because the overlay calls this
+        // with a release object and no separate id. A release without one is a
+        // release nothing can be claimed against, so the rows are simply not
+        // offered.
+        const releaseId = release.release_id;
+
         // Edition switcher, before the artwork so it reads as a control over
         // everything below it — the whole body is re-rendered when it moves.
         // Built inside the rendered body rather than into the static
@@ -644,6 +658,12 @@ export class InfoPanelRenderer {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },
                 this._el('img', { src: release.album_art, alt: release.name })));
         }
+        if (releaseId) {
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'album_art', release.album_art || '', 'Artwork URL');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'name', release.name || '', 'Title');
+        }
 
         if (release.release_date) {
             contentElement.appendChild(this._el('p', { className: 'info-meta' },
@@ -653,6 +673,31 @@ export class InfoPanelRenderer {
         if (release.format) {
             contentElement.appendChild(this._el('p', { className: 'info-meta' },
                 this._el('strong', null, 'Format:'), ' ', release.format));
+        }
+
+        if (release.country) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Country:'), ' ', release.country));
+        }
+
+        if (release.catalog_number) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Catalogue number:'), ' ', release.catalog_number));
+        }
+
+        // Offered whether or not there is a value to show. Half of what a
+        // correction is for is a field that was left empty, and a row that
+        // only appears once something is in it cannot be used to put the first
+        // thing there.
+        if (releaseId) {
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'release_date', release.release_date || '', 'Release date');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'format', release.format || '', 'Format');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'country', release.country || '', 'Country');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'catalog_number', release.catalog_number || '', 'Catalogue number');
         }
 
         // Labels
@@ -735,6 +780,22 @@ export class InfoPanelRenderer {
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Liner Notes'),
                 this._el('p', null, release.liner_notes)));
+        }
+
+        if (release.trivia) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Trivia'),
+                this._el('p', null, release.trivia)));
+        }
+
+        if (releaseId) {
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'liner_notes', release.liner_notes || '', 'Liner notes', true);
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'trivia', release.trivia || '', 'Trivia', true);
+            // Without this the buttons above are decoration: attach is what
+            // turns them into editors.
+            this.inlineEditor.attach(contentElement);
         }
     }
 

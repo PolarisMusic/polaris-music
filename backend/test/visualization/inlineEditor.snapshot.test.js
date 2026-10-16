@@ -106,7 +106,7 @@ afterEach(() => {
 // Stub `this` builder. The methods reach into:
 //   this.claimManager.submitEdit(nodeType, nodeId, field, value)  async
 //   this.callbacks.getSelectedNode()        → JIT node | null
-//   this.callbacks.refreshInfoPanel(node)   async; called after save
+//   this.callbacks.refreshAfterEdit(type, id) async; called after save
 //   this.callbacks.plot()                   redraw after color change
 //   this.callbacks.patchRawGraphColor(id, color) cache patch
 // Intra-cluster delegations:
@@ -117,7 +117,7 @@ afterEach(() => {
 function makeStub({
     submitEdit,
     selectedNode = null,
-    refreshInfoPanel = jest.fn(async () => {}),
+    refreshAfterEdit = jest.fn(async () => {}),
     plot = jest.fn(),
     patchRawGraphColor = jest.fn(),
 } = {}) {
@@ -129,7 +129,7 @@ function makeStub({
         },
         callbacks: {
             getSelectedNode: jest.fn(() => selectedNode),
-            refreshInfoPanel: jest.fn(refreshInfoPanel),
+            refreshAfterEdit: jest.fn(refreshAfterEdit),
             plot,
             patchRawGraphColor: jest.fn(patchRawGraphColor),
         },
@@ -396,7 +396,11 @@ describe('openInlineEditor', () => {
         await flushMicrotasks();
 
         expect(stub.claimManager.submitEdit).toHaveBeenCalledWith('person', 'p:1', 'bio', 'new');
-        expect(stub.callbacks.refreshInfoPanel).toHaveBeenCalledWith(selectedNode);
+        // Named, not implied. What was edited is what decides which panel to
+        // re-render, and the editor is not the thing that knows — a release
+        // panel belongs to the orbit overlay while the selection sits on the
+        // band it orbits.
+        expect(stub.callbacks.refreshAfterEdit).toHaveBeenCalledWith('person', 'p:1');
     });
 
     test('Save: button shows "Saving..." while submitEdit is in flight', async () => {
@@ -422,7 +426,12 @@ describe('openInlineEditor', () => {
         await flushMicrotasks();
     });
 
-    test('Save with changed value, NO selectedNode → submits but does NOT call updateInfoPanel', async () => {
+    test('Save with changed value, NO selectedNode → still reports the edit', async () => {
+        // This used to assert the opposite, and the opposite used to be right:
+        // the editor checked for a selected node and skipped the refresh when
+        // there was none. That check has moved to the caller, which is the
+        // only place that knows a release panel can be open over a selection
+        // that is not the release. The editor's job is to say what changed.
         const stub = makeStub({ selectedNode: null });
         const container = renderRow(stub, { currentValue: 'old' });
         const btn = container.querySelector('.edit-btn');
@@ -435,7 +444,7 @@ describe('openInlineEditor', () => {
         await flushMicrotasks();
 
         expect(stub.claimManager.submitEdit).toHaveBeenCalled();
-        expect(stub.callbacks.refreshInfoPanel).not.toHaveBeenCalled();
+        expect(stub.callbacks.refreshAfterEdit).toHaveBeenCalledWith('person', 'p:1');
     });
 
     test('Save error → restores button, re-attaches listeners, alert + console.error', async () => {

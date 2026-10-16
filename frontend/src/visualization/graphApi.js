@@ -714,6 +714,20 @@ export class GraphAPI {
     }
 
     /**
+     * Forget one release's cached details.
+     *
+     * Narrower than clearCache on purpose. An edit to a release makes exactly
+     * one entry wrong, and emptying the whole cache to fix it would send the
+     * next render back to the network for every group, person and release the
+     * reader had already looked at.
+     *
+     * @param {string} releaseId
+     */
+    forgetRelease(releaseId) {
+        this.cache.delete(`releaseDetails:${releaseId}`);
+    }
+
+    /**
      * Clear cache
      */
     clearCache() {

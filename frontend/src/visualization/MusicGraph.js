@@ -190,7 +190,8 @@ export class MusicGraph {
             claimManager: this.claimManager,
             callbacks: {
                 getSelectedNode: () => this.selectedNode,
-                refreshInfoPanel: (node) => this.updateInfoPanel(node),
+                refreshAfterEdit: (nodeType, nodeId) =>
+                    this._refreshAfterEdit(nodeType, nodeId),
                 plot: () => this.ht?.plot(),
                 patchRawGraphColor: (nodeId, color) => {
                     const raw = this.loader?.rawGraph;
@@ -1955,6 +1956,42 @@ export class MusicGraph {
                 onComplete();
             },
         });
+    }
+
+    /**
+     * Re-render the panel an edit belongs to.
+     *
+     * Two panels can be open over one selection. A node's details belong to
+     * the selected node and come back by re-reading it; a release's belong to
+     * whatever the orbit overlay last opened, which the selection knows
+     * nothing about — selecting a band and then one of its albums leaves
+     * `selectedNode` on the band. Refreshing the selection after editing the
+     * album therefore replaced the album with the band, and the correction,
+     * which had saved perfectly well, looked lost.
+     *
+     * Re-fetched rather than patched locally, because the value that comes
+     * back is the one the graph now holds: the claim pipeline normalises on
+     * the way through, and a locally patched panel would show what was typed
+     * rather than what was stored.
+     *
+     * @param {string} nodeType
+     * @param {string} nodeId
+     * @private
+     */
+    async _refreshAfterEdit(nodeType, nodeId) {
+        if (String(nodeType).toLowerCase() === 'release') {
+            // Release details are cached for a few minutes, and the edit that
+            // just saved is precisely what makes the cached copy wrong.
+            // Without this the panel re-renders from the version that was
+            // there before the correction, which reads as the save having
+            // failed.
+            this.api?.forgetRelease?.(nodeId);
+            await this._switchToEdition(nodeId);
+            return;
+        }
+        if (this.selectedNode) {
+            await this.updateInfoPanel(this.selectedNode);
+        }
     }
 
     /**
