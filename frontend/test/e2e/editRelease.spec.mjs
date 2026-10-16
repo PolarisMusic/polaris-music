@@ -163,6 +163,34 @@ test.describe('a release offers its own fields for correction', () => {
     });
 });
 
+test.describe('a misspelled name', () => {
+    test('is correctable on a person, which a resubmission could not manage', async ({ page }) => {
+        // The fix people reach for first, and until now there was no way to
+        // make it. An EDIT_CLAIM renames the node that is already there, so
+        // every edge it sits on survives. A corrected bundle would instead
+        // mint a second person — identity is a hash of the name — and leave
+        // the misspelled one holding all the relationships.
+        await boot(page);
+        await page.evaluate(() => {
+            const g = window.musicGraph;
+            g.handleNodeClick(g.ht.graph.getNode('per:drums'));
+        });
+        await page.waitForFunction(
+            () => window.musicGraph.selectedNode?.id === 'per:drums' && !window.musicGraph.ht.busy,
+            { timeout: 15_000 }
+        );
+
+        await expect(editButton(page, 'name')).toBeVisible();
+    });
+
+    test('and on a group', async ({ page }) => {
+        await boot(page);
+        await selectBand(page);
+
+        await expect(editButton(page, 'name')).toBeVisible();
+    });
+});
+
 test.describe('saving a correction', () => {
     /**
      * Stub the claim pipeline and the re-read.

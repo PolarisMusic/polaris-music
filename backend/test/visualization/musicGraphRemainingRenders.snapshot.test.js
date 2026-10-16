@@ -195,12 +195,16 @@ describe('Stage K · renderGroupDetails', () => {
         expect(stub.inlineEditor.attach).toHaveBeenCalledWith(contentElement);
         expect(stub.callbacks.attachNavLinkListeners).toHaveBeenCalledWith(contentElement);
 
-        // editableRowHtml was called for: photo, formed_date, disbanded_date, bio, trivia (5 times)
+        // editableRowHtml was called for each editable field, in order.
+        // `name` is here because a misspelling is the correction people reach
+        // for first and a resubmitted bundle cannot make it: identity is a
+        // hash of the name, so a corrected spelling mints a second node rather
+        // than renaming the one that exists.
         expect(stub._editorCalls.map(c => c.field)).toEqual([
-            'photo', 'formed_date', 'disbanded_date', 'bio', 'trivia'
+            'photo', 'name', 'formed_date', 'disbanded_date', 'bio', 'trivia'
         ]);
-        expect(stub._editorCalls[3].isTextarea).toBe(true); // bio
-        expect(stub._editorCalls[4].isTextarea).toBe(true); // trivia
+        expect(stub._editorCalls[4].isTextarea).toBe(true); // bio
+        expect(stub._editorCalls[5].isTextarea).toBe(true); // trivia
     });
 
     test('minimal group (only name) → snapshot', () => {
@@ -301,8 +305,9 @@ describe('Stage K · renderPersonDetails', () => {
 
         expect(stub.inlineEditor.attach).toHaveBeenCalledWith(contentElement);
         expect(stub.callbacks.attachNavLinkListeners).toHaveBeenCalledWith(contentElement);
+        // See renderGroupDetails above for why `name` is editable.
         expect(stub._editorCalls.map(c => c.field)).toEqual([
-            'photo', 'city', 'bio', 'trivia'
+            'photo', 'name', 'city', 'bio', 'trivia'
         ]);
     });
 

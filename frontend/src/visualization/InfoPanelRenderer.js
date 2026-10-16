@@ -388,6 +388,19 @@ export class InfoPanelRenderer {
                 this._el('img', { src: group.photo, alt: group.name })));
         }
         this._appendEditableRow(contentElement, 'group', nodeId, 'photo', group.photo || '', 'Photo URL');
+        // A misspelling is the correction people reach for first, and until
+        // now there was no way to make it. An EDIT_CLAIM sets the property on
+        // the node that is already there, so every edge it sits on survives —
+        // which a resubmitted bundle would not manage: identity is a hash of
+        // the name, so a corrected spelling mints a second node and strands
+        // the first with all its relationships.
+        //
+        // The id does keep the old spelling inside it. That is cosmetic, ids
+        // being opaque; what it does mean is that a later submission spelling
+        // the name correctly resolves to a different id and makes a duplicate,
+        // which is what MERGE_ENTITY exists to settle.
+        this._appendEditableRow(contentElement, 'group', nodeId, 'name',
+            group.name || group.group_name || '', 'Name');
 
         const formed = group.formed_date || '';
         const disbanded = group.disbanded_date || 'present';
@@ -459,6 +472,10 @@ export class InfoPanelRenderer {
                 this._el('img', { src: person.photo, alt: person.name })));
         }
         this._appendEditableRow(contentElement, 'person', nodeId, 'photo', person.photo || '', 'Photo URL');
+        // See renderGroupDetails for why this is an EDIT_CLAIM and not a
+        // resubmission.
+        this._appendEditableRow(contentElement, 'person', nodeId, 'name',
+            person.name || person.person_name || '', 'Name');
         this.appendStakeSection(contentElement, nodeId);
 
         const currentColor = person.color || '#888888';
