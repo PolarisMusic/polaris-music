@@ -258,6 +258,12 @@ class EventProcessor {
             case 'EDIT_CLAIM':
                 await this.processEditClaim(event, hash, author);
                 break;
+
+            case 'EDIT_RELATIONSHIP':
+                // Member/guest correction. Not expressible as a claim: it
+                // moves an edge rather than setting a property.
+                await this.processRelationshipEdit(event, hash, author);
+                break;
                 
             case 'VOTE':
                 await this.processVote(event, hash, author);
@@ -760,6 +766,8 @@ class EventProcessor {
             21: 'CREATE_RELEASE_BUNDLE',
             30: 'ADD_CLAIM',
             31: 'EDIT_CLAIM',
+            // 32 is DELETE_CLAIM: reserved, unimplemented, deliberately absent
+            33: 'EDIT_RELATIONSHIP',
             40: 'VOTE',
             41: 'LIKE',
             42: 'DISCUSS',

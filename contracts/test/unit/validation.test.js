@@ -22,7 +22,7 @@ describe('RAM policy', () => {
         it('should anchor content submissions', () => {
             // These mint, advance g.x, and are voted on — finalize() reads their
             // tally to decide whether to award or redistribute.
-            [21, 22, 23, 30, 31].forEach(t => {
+            [21, 22, 23, 30, 31, 33].forEach(t => {
                 expect(isAnchored(t)).to.be.true;
             });
         });
@@ -478,5 +478,51 @@ describe('Polaris Contract Validation Logic', () => {
                 }
             });
         });
+    });
+});
+
+describe('emission multipliers by event type', () => {
+    // Mirrors get_multiplier(). The defaults are the ones in global_state;
+    // setmults can change them, but not which types map to which field.
+    const MULTIPLIERS = {
+        release: 100000000,
+        mint: 100000,
+        resolve: 5000,
+        add_claim: 1000000,
+        edit_claim: 1000,
+        merge: 20000,
+    };
+
+    const multiplierFor = (type) => {
+        switch (type) {
+            case 21: return MULTIPLIERS.release;
+            case 22: return MULTIPLIERS.mint;
+            case 23: return MULTIPLIERS.resolve;
+            case 30: return MULTIPLIERS.add_claim;
+            case 31: return MULTIPLIERS.edit_claim;
+            case 33: return MULTIPLIERS.edit_claim;
+            case 60: return MULTIPLIERS.merge;
+            default: return 0;
+        }
+    };
+
+    it('pays a relationship correction the same as a field edit', () => {
+        // A type inside the content band that get_multiplier does not name
+        // earns nothing: it is still anchored, voted on and finalizable, and
+        // the submitter is paid zero for it. EDIT_RELATIONSHIP shares
+        // EDIT_CLAIM's multiplier rather than adding a field to the globals
+        // singleton, which cannot gain one without breaking every stored row.
+        expect(multiplierFor(33)).to.equal(MULTIPLIERS.edit_claim);
+        expect(multiplierFor(33)).to.be.greaterThan(0);
+    });
+
+    it('still pays nothing for types outside the content band', () => {
+        [40, 41, 42, 50].forEach(t => expect(multiplierFor(t)).to.equal(0));
+    });
+
+    it('pays nothing for the reserved-but-unimplemented 32', () => {
+        // DELETE_CLAIM. Reserved in docs/03-event-storage.md, no handler, and
+        // deliberately not given a multiplier that would imply one.
+        expect(multiplierFor(32)).to.equal(0);
     });
 });

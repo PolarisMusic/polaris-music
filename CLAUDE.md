@@ -122,6 +122,7 @@ User Submission → Event Creation → Off-chain Storage (IPFS+S3)
 - `21` - CREATE_RELEASE_BUNDLE (full release with groups, tracks)
 - `30` - ADD_CLAIM (add data to entity)
 - `31` - EDIT_CLAIM (modify existing data)
+- `33` - EDIT_RELATIONSHIP (move a person between MEMBER_OF and GUEST_ON)
 - `40` - VOTE (vote on submission)
 - `41` - LIKE (like a node, track path)
 - `50` - FINALIZE (distribute rewards)
@@ -328,7 +329,13 @@ production.
 2. **Hash Determinism**: Same input data must produce same hash
 3. **Idempotency**: Replaying an event should not duplicate data
 4. **Relationship Consistency**:
-   - A Person can't be both MEMBER_OF and GUEST_ON for same track
+   - A Person can't be both MEMBER_OF and GUEST_ON for same track.
+     Correct a wrong one with EDIT_RELATIONSHIP (33), never by resubmitting the
+     bundle: relationship MERGEs are keyed by the submitting event's own
+     claim_id, so a second submission adds an edge beside the first rather than
+     replacing it, and bundle processing deletes no relationships. The person
+     ends up credited as both. `dropContradictoryGuests` only sanitises the
+     bundle body, so it cannot see the edge an earlier submission left behind.
    - Track must RECORDING_OF exactly one Song
    - Release must have at least one Track via IN_RELEASE
 5. **Audit Trail**: Every modification creates a Claim node

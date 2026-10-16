@@ -30,6 +30,11 @@ export const EVENT_TYPES = Object.freeze({
     RESOLVE_ID: 23,            // Map provisional/external ID to canonical
     ADD_CLAIM: 30,
     EDIT_CLAIM: 31,
+    // 32 is DELETE_CLAIM, reserved by docs/03-event-storage.md and not yet
+    // implemented. Skipped rather than reused: a code goes into an anchor row
+    // on chain, where nothing can be rewritten, so the first event of type 32
+    // to be submitted fixes what 32 means for good.
+    EDIT_RELATIONSHIP: 33,     // Move a person between MEMBER_OF and GUEST_ON
     VOTE: 40,
     LIKE: 41,
     FINALIZE: 50,

@@ -107,6 +107,7 @@ function makeStub({ stakeManager = null } = {}) {
             attachNavLinkListeners: jest.fn(),
             playTrack: jest.fn(),
             switchToEdition: jest.fn(),
+            correctRelationship: jest.fn(),
         },
         // Visible inspection points for tests that don't snapshot.
         _editorCalls: editorCalls,
@@ -120,6 +121,11 @@ function makeStub({ stakeManager = null } = {}) {
     // rather than stubbed, so the real markup reaches the snapshots.
     stub._playContextButton = compileMethod('_playContextButton').bind(stub);
     stub._compareTrackPlacement = compileMethod('_compareTrackPlacement').bind(stub);
+    // The member/guest correction, which appears in the member list of a
+    // group, the group list of a person and the guest list of a release.
+    // Compiled rather than stubbed for the same reason as the rest of the
+    // cluster: what the snapshot locks is then the control that ships.
+    stub._relationshipButton = compileMethod('_relationshipButton').bind(stub);
     // Staking decorates both the group and the person panel. Bound from live
     // source for the same reason as the rest of the cluster, and null by
     // default: without a stake manager the section is not rendered at all,
@@ -378,6 +384,49 @@ describe('Stage K · renderReleaseDetails', () => {
         expect(stub.inlineEditor.attach).not.toHaveBeenCalled();
         expect(stub.callbacks.attachNavLinkListeners).not.toHaveBeenCalled();
         expect(stub._editorCalls).toEqual([]);
+    });
+
+    test('a guest with an id, on a release with a named performer, can be corrected', () => {
+        // The promote half of the member/guest correction. It needs three ids
+        // at once — the release to scope the sweep, the person being
+        // re-credited, and the group to credit them to — which is why the
+        // fixture above, carrying none of them, offers no button at all.
+        const stub = makeStub();
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderReleaseDetails').call(stub, {
+            release_id: 'r:abbey',
+            name: 'Abbey Road',
+            groups: [{ group_id: 'g:beatles', name: 'The Beatles' }],
+            guests: [
+                { person_id: 'p:preston', name: 'Billy Preston', roles: ['Organ'] },
+                { name: 'Uncredited' },
+            ],
+        }, titleElement, contentElement);
+
+        const buttons = contentElement.querySelectorAll('.rel-btn');
+        expect(buttons.length).toBe(1);
+        expect(buttons[0].textContent).toBe('Member, not guest');
+        expect(buttons[0].dataset.personId).toBe('p:preston');
+        expect(buttons[0].dataset.groupId).toBe('g:beatles');
+        expect(buttons[0].dataset.releaseId).toBe('r:abbey');
+        expect(buttons[0].dataset.relTo).toBe('MEMBER_OF');
+    });
+
+    test('two performing groups give the guest one button each, named', () => {
+        const stub = makeStub();
+        const { titleElement, contentElement } = makeContainer();
+        compileMethod('renderReleaseDetails').call(stub, {
+            release_id: 'r:split',
+            name: 'Split',
+            groups: [
+                { group_id: 'g:one', name: 'Band One' },
+                { group_id: 'g:two', name: 'Band Two' },
+            ],
+            guests: [{ person_id: 'p:x', name: 'Session Player' }],
+        }, titleElement, contentElement);
+
+        expect([...contentElement.querySelectorAll('.rel-btn')].map(b => b.textContent))
+            .toEqual(['Member of Band One', 'Member of Band Two']);
     });
 
     test('minimal release (just name) → snapshot', () => {

@@ -2466,6 +2466,17 @@ private:
             case 23: return g.multiplier_resolve;     // RESOLVE_ID
             case 30: return g.multiplier_add_claim;   // ADD_CLAIM
             case 31: return g.multiplier_edit_claim;  // EDIT_CLAIM
+            // EDIT_RELATIONSHIP shares EDIT_CLAIM's multiplier rather than
+            // taking one of its own. Not because the work is worth the same —
+            // correcting a member to a guest repairs several edges at once —
+            // but because a new multiplier means a new field on global_state,
+            // and that singleton is unpacked against the current struct. Rows
+            // written before the field existed are shorter than the struct and
+            // fail to read, which bricks every action that touches globals.
+            // Reuse is the safe version of the same decision; a dedicated
+            // multiplier belongs in a new table, with the rest of the config
+            // added since.
+            case 33: return g.multiplier_edit_claim;  // EDIT_RELATIONSHIP
             case 60: return g.multiplier_merge;       // MERGE_ENTITY
             default: return 0;                        // No emission (votes, likes, etc.)
         }

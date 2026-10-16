@@ -117,6 +117,12 @@ function makeStubThis() {
     // invoke them through `this`.
     stub.renderReleaseBundleDetail = compileMethod('renderReleaseBundleDetail').bind(stub);
     stub.renderClaimDetail = compileMethod('renderClaimDetail').bind(stub);
+    // The member/guest correction's detail view, bound for the same reason:
+    // renderCurateDetail reaches it through `this`, and an unbound one reads as
+    // "Unsupported operation type for detailed view" — which is precisely the
+    // failure that hid every release bundle in the feed for a while.
+    stub.renderRelationshipEditDetail =
+        compileMethod('renderRelationshipEditDetail').bind(stub);
     return stub;
 }
 
@@ -154,6 +160,7 @@ describe('Stage H · InfoPanelRenderer methods · drift guard', () => {
         ['renderCurateDetail',        '(container, resp, op)'],
         ['renderReleaseBundleDetail', '(container, detail)'],
         ['renderClaimDetail',         '(container, detail)'],
+        ['renderRelationshipEditDetail', '(container, detail)'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -592,6 +599,65 @@ describe('Stage H · mint_entity and resolve_id detail', () => {
             canonical_id: 'person:x', confidence: null
         });
         expect(container.innerHTML).not.toContain('Confidence');
+    });
+});
+
+describe('Stage H · renderRelationshipEditDetail', () => {
+    const promotion = {
+        type: 'edit_relationship',
+        person_id: 'per:preston',
+        group_id: 'grp:beatles',
+        to: 'MEMBER_OF',
+        release_id: 'rel:abbey',
+        roles: ['organ'],
+    };
+
+    test('a promotion reads as the sentence being claimed', () => {
+        // A curator is voting on one statement, so the panel leads with the
+        // statement rather than with a field table. The ids are underneath for
+        // anyone checking which Preston and which Beatles it names.
+        const fn = compileMethod('renderRelationshipEditDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, promotion);
+
+        expect(container.textContent).toContain('this person was a member of the group');
+        expect(container.textContent).toContain('per:preston');
+        expect(container.textContent).toContain('grp:beatles');
+        expect(container.textContent).toContain('organ');
+    });
+
+    test('a demotion reads as the opposite sentence', () => {
+        const fn = compileMethod('renderRelationshipEditDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, { ...promotion, to: 'GUEST_ON', release_id: null, roles: [] });
+
+        expect(container.textContent).toContain('this person was a guest, not a member');
+        expect(container.textContent).not.toContain('rel:abbey');
+    });
+
+    test('a cited source is shown', () => {
+        const fn = compileMethod('renderRelationshipEditDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, { ...promotion, source: { url: 'https://example.org/liner' } });
+
+        expect(container.textContent).toContain('https://example.org/liner');
+    });
+
+    test('the feed dispatches to it rather than refusing the type', () => {
+        const fn = compileMethod('renderCurateDetail');
+        const stub = makeStubThis();
+        const container = document.createElement('div');
+        fn.call(stub, container, {
+            operation: { type_name: 'EDIT_RELATIONSHIP', author: 'alice', finalized: false },
+            tally: { up_weight: 0, down_weight: 0, up_voter_count: 0, down_voter_count: 0 },
+            viewer_vote: null, votes: [], event: {}, detail: promotion
+        }, { hash: 'opHash', type: 33, author: 'alice' });
+
+        expect(container.textContent).not.toContain('Unsupported operation type');
+        expect(container.textContent).toContain('Member / Guest Correction');
     });
 });
 

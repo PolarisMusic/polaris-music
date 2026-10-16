@@ -93,7 +93,10 @@ jobs:
 
     - name: Run validation tests
       working-directory: contracts/test
-      run: npx mocha unit/validation.test.js --timeout 30000
+      # Every file in unit/, not just validation.test.js. The RAM sponsorship
+      # suite was added beside it and never ran here, which is the quiet way a
+      # test stops being a test.
+      run: npx mocha "unit/*.test.js" --timeout 30000
 
     - name: Security audit
       working-directory: contracts/test

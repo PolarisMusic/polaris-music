@@ -240,6 +240,7 @@ class EventProcessor {
             [EVENT_TYPES.RESOLVE_ID]: this.handleResolveId.bind(this),
             [EVENT_TYPES.ADD_CLAIM]: this.handleAddClaim.bind(this),
             [EVENT_TYPES.EDIT_CLAIM]: this.handleEditClaim.bind(this),
+            [EVENT_TYPES.EDIT_RELATIONSHIP]: this.handleEditRelationship.bind(this),
             [EVENT_TYPES.VOTE]: this.handleVote.bind(this),
             [EVENT_TYPES.LIKE]: this.handleLike.bind(this),
             [EVENT_TYPES.FINALIZE]: this.handleFinalize.bind(this),
@@ -687,6 +688,44 @@ class EventProcessor {
         );
 
         timer.end('handleEditClaim complete', { event_hash: actionData.hash });
+    }
+
+    /**
+     * Handle EDIT_RELATIONSHIP event
+     *
+     * Moves a person between MEMBER_OF and GUEST_ON for one group — the
+     * correction neither an EDIT_CLAIM nor a resubmitted bundle can make. See
+     * GraphSchema.processRelationshipEdit for why, and for what each direction
+     * does to the surrounding edges.
+     *
+     * @private
+     * @param {Object} event - Event data
+     * @param {Object} actionData - Blockchain action data
+     */
+    async handleEditRelationship(event, actionData) {
+        const timer = this.log.startTimer();
+        this.log.info('handleEditRelationship start', {
+            event_hash: actionData.hash,
+            person_id: event.body.person?.id || event.body.person_id,
+            group_id: event.body.group?.id || event.body.group_id,
+            to: event.body.to
+        });
+
+        const eventTimestamp = actionData.ts || event.created_at || null;
+
+        const result = await this.db.processRelationshipEdit(
+            actionData.hash,
+            event.body,
+            actionData.author,  // Use chain account as submitter-of-record
+            eventTimestamp
+        );
+
+        timer.end('handleEditRelationship complete', {
+            event_hash: actionData.hash,
+            to: result?.to,
+            removed: result?.removed,
+            created: result?.created
+        });
     }
 
     /**

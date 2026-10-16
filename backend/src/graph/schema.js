@@ -62,6 +62,34 @@ function toNeo4jEpochMillis(eventTimestamp) {
  *
  * @constant {Object} SAFE_NODE_TYPES
  */
+/**
+ * Read a count out of a Neo4j record.
+ *
+ * Counts come back as the driver's own Integer, which is not a number and
+ * compares unequal to one. `.toNumber()` is the house convention for reading
+ * them; this adds only tolerance for a missing record, so a query that matched
+ * nothing reads as zero rather than throwing.
+ *
+ * @param {Object|undefined} record
+ * @param {string} key
+ * @returns {number}
+ */
+function countOf(record, key) {
+    const value = record?.get?.(key);
+    return typeof value?.toNumber === 'function' ? value.toNumber() : Number(value || 0);
+}
+
+/**
+ * The two relationships an EDIT_RELATIONSHIP event may move a person between.
+ *
+ * A whitelist because the relationship type reaches a Cypher pattern, where it
+ * cannot be parameterised; and a short one because these are the two the
+ * distinction in CLAUDE.md is about. Anything else is a different event.
+ *
+ * @constant {Set<string>}
+ */
+const RELATIONSHIP_EDIT_TARGETS = new Set(['MEMBER_OF', 'GUEST_ON']);
+
 const SAFE_NODE_TYPES = {
     'person': { label: 'Person', idField: 'person_id' },
     'group': { label: 'Group', idField: 'group_id' },
@@ -2064,7 +2092,12 @@ constructor(config = {}) {
                     MATCH (c:Claim {node_type: $nodeType, node_id: $nodeId, field: $field})
                     WHERE c.claim_id <> $newClaimId AND c.superseded_by IS NULL
                     RETURN c.claim_id AS claimId
-                    ORDER BY c.created_ts DESC
+                    // created_at, not created_ts: nothing has ever written
+                    // created_ts, so this ordered every candidate by a null and
+                    // picked whichever the planner happened to hand back first.
+                    // With more than one unsuperseded claim for a field, the
+                    // SUPERSEDES chain was being attached at random.
+                    ORDER BY c.created_at DESC
                     LIMIT 1
                 `, { nodeType, nodeId: String(nodeId), field: normalizedField, newClaimId });
 
@@ -2153,6 +2186,511 @@ constructor(config = {}) {
         } finally {
             await safeClose(session, this.log);
         }
+    }
+
+
+    /**
+     * Process an EDIT_RELATIONSHIP event: move a person between MEMBER_OF and
+     * GUEST_ON for one group.
+     *
+     * This exists because neither of the two edits the registry already had can
+     * make the commonest correction in music credits — "they were in the band,
+     * not a guest on it", or the reverse.
+     *
+     * An EDIT_CLAIM cannot: it sets one property on one node, and membership is
+     * not a property of anybody. It is an edge, and an edge has two ends.
+     *
+     * Resubmitting a corrected bundle cannot either, and it is worth being
+     * precise about why, because it looks like it should. Bundle processing
+     * MERGEs `(p)-[:MEMBER_OF {claim_id}]->(g)` with a claim_id derived from
+     * the submission's own event hash, so a second submission cannot match the
+     * first submission's edge — it adds one beside it. Nothing in bundle
+     * processing deletes a relationship (the single DELETE is for a stale
+     * IN_MASTER link), so the mistaken GUEST_ON stays exactly where it was and
+     * the person ends up both a member and a guest, which CLAUDE.md lists as an
+     * invariant violation. `dropContradictoryGuests` does not save it either:
+     * it sanitises the incoming bundle body, not the graph, so it resolves the
+     * contradiction within one submission and is blind to the edge the previous
+     * one left behind.
+     *
+     * So the correction is its own event, and these are its rules:
+     *
+     *  - **To MEMBER_OF.** The guest credits are retired — every GUEST_ON from
+     *    this person onto the group's own material, which is the tracks the
+     *    group performed on and the releases those tracks sit in, optionally
+     *    narrowed to one release. Membership is then asserted, and the person
+     *    gets the PERFORMED_ON edges a member has, on the tracks their retired
+     *    guest credits named. That the stronger claim wins is not a new
+     *    judgement: `dropContradictoryGuests` already settles it that way.
+     *
+     *  - **To GUEST_ON.** MEMBER_OF is a plain person→group edge with no
+     *    release on it, so demoting is not scoped to one release however the
+     *    submitter got here: the edge goes, and every performance the person
+     *    held through that group becomes a track-scoped guest credit, which
+     *    keeps the credit while removing the membership. A person with no
+     *    performances recorded gets a release-scoped guest credit instead, if
+     *    the event names a release to hang it on.
+     *
+     * Replaying is safe, which takes some care here because the work is
+     * destructive and the second run cannot see what the first run deleted. The
+     * new edges are keyed by a claim_id derived from the event hash, so a
+     * replay MERGEs onto its own earlier edges rather than making more; and
+     * where the first run's scope came from edges it then deleted, the second
+     * run recovers that scope from the edges the first run created.
+     *
+     * @param {string} eventHash
+     * @param {Object} editData - event body
+     * @param {Object} editData.person - `{ id }` (or `person_id`)
+     * @param {Object} editData.group  - `{ id }` (or `group_id`)
+     * @param {string} editData.to     - 'MEMBER_OF' or 'GUEST_ON'
+     * @param {string} [editData.release_id] - narrows a promotion's guest sweep
+     * @param {string[]} [editData.roles]    - carried from the old edge if absent
+     * @param {string} [editData.from_date]  - membership start, MEMBER_OF only
+     * @param {string} [editData.to_date]    - membership end, MEMBER_OF only
+     * @param {Object} [editData.source]     - `{ url, type? }`
+     * @param {string} author
+     * @param {number|string|null} eventTimestamp
+     * @returns {Promise<Object>}
+     */
+    async processRelationshipEdit(eventHash, editData, author, eventTimestamp) {
+        const session = this.driver.session();
+        const tx = session.beginTransaction();
+        const timer = this.log.startTimer();
+
+        const eventTs = toNeo4jEpochMillis(eventTimestamp);
+
+        try {
+            const personId = editData?.person?.id || editData?.person_id || null;
+            const groupId = editData?.group?.id || editData?.group_id || null;
+            const to = String(editData?.to || '').toUpperCase();
+            const releaseId = editData?.release_id || null;
+            const source = editData?.source;
+
+            if (!personId) throw new Error('Invalid relationship edit: missing person id');
+            if (!groupId) throw new Error('Invalid relationship edit: missing group id');
+            if (!RELATIONSHIP_EDIT_TARGETS.has(to)) {
+                throw new Error(
+                    `Invalid relationship edit: to must be one of ${[...RELATIONSHIP_EDIT_TARGETS].join(', ')}, got "${editData?.to}"`
+                );
+            }
+
+            this.log.info('relationship_edit_start', {
+                event_hash: eventHash.substring(0, 16),
+                person_id: String(personId).substring(0, 12),
+                group_id: String(groupId).substring(0, 12),
+                to,
+                release_id: releaseId ? String(releaseId).substring(0, 12) : null
+            });
+
+            // Both ends have to exist. A body naming a person or a group that
+            // is not in the graph is a broken event, not an empty correction,
+            // and MERGE would quietly conjure the missing node rather than say
+            // so.
+            const ends = await tx.run(`
+                MATCH (p:Person {person_id: $personId})
+                MATCH (g:Group {group_id: $groupId})
+                RETURN p.name AS personName, g.name AS groupName
+            `, { personId, groupId });
+
+            if (ends.records.length === 0) {
+                throw new Error(
+                    `Relationship edit target not found: person ${personId} or group ${groupId}`
+                );
+            }
+
+            const claimId = this.generateOpId(eventHash, 0);
+            const requestedRoles = normalizeRoleInput(editData?.roles || editData?.role || []);
+
+            const result = to === 'MEMBER_OF'
+                ? await this._relationshipToMember(tx, {
+                    personId, groupId, releaseId, claimId, requestedRoles, editData
+                })
+                : await this._relationshipToGuest(tx, {
+                    personId, groupId, releaseId, claimId, requestedRoles
+                });
+
+            // Audit trail. The claim is filed against the person rather than
+            // the edge, because an edge cannot hold a CLAIMS_ABOUT link, and
+            // the person is the subject of the sentence being corrected.
+            await this.createClaim(tx, claimId, 'person', personId, 'relationship', {
+                to,
+                group_id: groupId,
+                release_id: releaseId,
+                roles: result.roles
+            }, eventHash, eventTs);
+
+            await tx.run(`
+                MATCH (c:Claim {claim_id: $claimId})
+                MATCH (p:Person {person_id: $personId})
+                MERGE (c)-[:CLAIMS_ABOUT]->(p)
+            `, { claimId, personId });
+
+            // One correction supersedes the last one about the same person and
+            // group, so a promotion that is later reversed reads as a chain
+            // rather than as two claims contradicting each other.
+            const prior = await tx.run(`
+                MATCH (c:Claim {node_type: 'person', node_id: $personId, field: 'relationship'})
+                WHERE c.claim_id <> $claimId
+                  AND c.superseded_by IS NULL
+                  AND c.value CONTAINS $groupId
+                RETURN c.claim_id AS claimId
+                ORDER BY c.created_at DESC
+                LIMIT 1
+            `, { personId: String(personId), claimId, groupId });
+
+            if (prior.records.length > 0) {
+                await tx.run(`
+                    MATCH (newClaim:Claim {claim_id: $claimId})
+                    MATCH (oldClaim:Claim {claim_id: $oldClaimId})
+                    MERGE (newClaim)-[:SUPERSEDES]->(oldClaim)
+                    SET oldClaim.superseded_by = $claimId,
+                        oldClaim.superseded_at = datetime({epochMillis: $eventTs})
+                `, {
+                    claimId,
+                    oldClaimId: prior.records[0].get('claimId'),
+                    eventTs
+                });
+            }
+
+            await tx.run(`
+                MATCH (p:Person {person_id: $personId})
+                SET p.last_updated = datetime({epochMillis: $eventTs}),
+                    p.last_updated_by = $author
+            `, { personId, author, eventTs });
+
+            if (source && source.url) {
+                const sourceId = await this.resolveEntityId(tx, 'source', source);
+                await tx.run(`
+                    MERGE (s:Source {source_id: $sourceId})
+                    SET s.url = $url,
+                        s.type = $type
+
+                    WITH s
+                    MATCH (c:Claim {claim_id: $claimId})
+                    MERGE (c)-[:SOURCED_FROM]->(s)
+                `, {
+                    sourceId,
+                    url: source.url,
+                    type: source.type || 'web',
+                    claimId
+                });
+            }
+
+            await tx.commit();
+
+            timer.end('relationship_edit_end', {
+                claim_id: claimId.substring(0, 12),
+                to,
+                edges_removed: result.removed,
+                edges_created: result.created
+            });
+
+            return {
+                success: true,
+                claimId,
+                to,
+                personId,
+                groupId,
+                roles: result.roles,
+                removed: result.removed,
+                created: result.created,
+                tracks: result.tracks
+            };
+
+        } catch (error) {
+            await safeRollback(tx, this.log);
+            timer.endError('relationship_edit_fail', {
+                event_hash: eventHash.substring(0, 16),
+                error: error.message
+            });
+            throw error;
+        } finally {
+            await safeClose(session, this.log);
+        }
+    }
+
+    /**
+     * Guest to member: retire the guest credits, assert membership, and give
+     * the person the performance edges a member has.
+     *
+     * @private
+     */
+    async _relationshipToMember(tx, { personId, groupId, releaseId, claimId, requestedRoles, editData }) {
+        // The group's own material, which is what a guest credit on this group
+        // can be sitting on. A release is included when it holds a track the
+        // group performed, so a release-scoped guest credit is reachable too.
+        const material = await tx.run(`
+            MATCH (g:Group {group_id: $groupId})-[:PERFORMED_ON]->(t:Track)
+            OPTIONAL MATCH (t)-[:IN_RELEASE]->(r:Release)
+            WITH t, r
+            WHERE $releaseId IS NULL OR r.release_id = $releaseId
+            RETURN collect(DISTINCT t.track_id) AS trackIds,
+                   collect(DISTINCT r.release_id) AS releaseIds
+        `, { groupId, releaseId });
+
+        const groupTrackIds = material.records.length > 0
+            ? material.records[0].get('trackIds').filter(Boolean) : [];
+        const groupReleaseIds = material.records.length > 0
+            ? material.records[0].get('releaseIds').filter(Boolean) : [];
+
+        // Read the guest credits before deleting them: they carry the roles
+        // worth keeping and they name the tracks the person actually played on,
+        // which is better information than "every track the group recorded".
+        const guestRows = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[go:GUEST_ON]->(x)
+            WHERE (x:Track AND x.track_id IN $trackIds)
+               OR (x:Release AND x.release_id IN $releaseIds)
+            RETURN CASE WHEN x:Track THEN x.track_id ELSE null END AS trackId,
+                   go.roles AS roles,
+                   go.role AS role,
+                   go.instruments AS instruments
+        `, { personId, trackIds: groupTrackIds, releaseIds: groupReleaseIds });
+
+        const guestTrackIds = [];
+        const carriedRoles = [];
+        const carriedInstruments = [];
+        for (const row of guestRows.records) {
+            const trackId = row.get('trackId');
+            if (trackId && !guestTrackIds.includes(trackId)) guestTrackIds.push(trackId);
+            for (const role of [...(row.get('roles') || []), row.get('role')]) {
+                if (role && !carriedRoles.includes(role)) carriedRoles.push(role);
+            }
+            for (const instrument of row.get('instruments') || []) {
+                if (instrument && !carriedInstruments.includes(instrument)) {
+                    carriedInstruments.push(instrument);
+                }
+            }
+        }
+
+        const removed = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[go:GUEST_ON]->(x)
+            WHERE (x:Track AND x.track_id IN $trackIds)
+               OR (x:Release AND x.release_id IN $releaseIds)
+            DELETE go
+            RETURN count(*) AS removed
+        `, { personId, trackIds: groupTrackIds, releaseIds: groupReleaseIds });
+
+        // A person is a member of a group once. There may already be a
+        // MEMBER_OF here — that is the state this correction most often
+        // repairs, where a bundle filed somebody as member *and* guest — and
+        // merging a second edge beside it would list them twice in the group
+        // panel, since each edge carries its own roles and dates. So the
+        // existing one is read for what it knows, then retired in favour of
+        // this claim's: one edge out, whatever it had carried kept.
+        const existing = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[m:MEMBER_OF]->(:Group {group_id: $groupId})
+            WHERE m.claim_id IS NULL OR m.claim_id <> $claimId
+            RETURN m.roles AS roles, m.role AS role, m.instruments AS instruments,
+                   m.from_date AS fromDate, m.to_date AS toDate
+        `, { personId, groupId, claimId });
+
+        let priorFrom = null;
+        let priorTo = null;
+        for (const row of existing.records) {
+            priorFrom = priorFrom ?? row.get('fromDate');
+            priorTo = priorTo ?? row.get('toDate');
+            for (const role of [...(row.get('roles') || []), row.get('role')]) {
+                if (role && !carriedRoles.includes(role)) carriedRoles.push(role);
+            }
+            for (const instrument of row.get('instruments') || []) {
+                if (instrument && !carriedInstruments.includes(instrument)) {
+                    carriedInstruments.push(instrument);
+                }
+            }
+        }
+
+        const removedMemberships = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[m:MEMBER_OF]->(:Group {group_id: $groupId})
+            WHERE m.claim_id IS NULL OR m.claim_id <> $claimId
+            DELETE m
+            RETURN count(*) AS removed
+        `, { personId, groupId, claimId });
+
+        const roles = requestedRoles.length > 0
+            ? requestedRoles
+            : normalizeRoles(carriedRoles);
+
+        await tx.run(`
+            MATCH (p:Person {person_id: $personId})
+            MATCH (g:Group {group_id: $groupId})
+            MERGE (p)-[m:MEMBER_OF {claim_id: $claimId}]->(g)
+            SET m.role = $role,
+                m.roles = $roles,
+                m.from_date = $fromDate,
+                m.to_date = $toDate,
+                m.instruments = $instruments,
+                m.corrected_from = 'GUEST_ON'
+        `, {
+            personId,
+            groupId,
+            claimId,
+            role: roles[0] || 'member',
+            roles,
+            fromDate: editData?.from_date || priorFrom || null,
+            toDate: editData?.to_date || priorTo || null,
+            instruments: carriedInstruments
+        });
+
+        // On a replay the guest credits are already gone, so their track scope
+        // is recovered from the performance edges the first run wrote under
+        // this same claim.
+        const alreadyPerformed = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[:PERFORMED_ON {claim_id: $claimId}]->(t:Track)
+            RETURN collect(DISTINCT t.track_id) AS trackIds
+        `, { personId, claimId });
+
+        const replayTrackIds = alreadyPerformed.records.length > 0
+            ? alreadyPerformed.records[0].get('trackIds').filter(Boolean) : [];
+
+        const scoped = [...new Set([...guestTrackIds, ...replayTrackIds])];
+        // A release-scoped guest credit names no tracks at all, and a member of
+        // the group on that release did play on it, so fall back to the group's
+        // material — the same assumption bundle processing makes for a
+        // release-level lineup, and marked `derived` for the same reason.
+        const performedTrackIds = scoped.length > 0 ? scoped : groupTrackIds;
+
+        const created = await tx.run(`
+            MATCH (p:Person {person_id: $personId})
+            UNWIND $trackIds AS trackId
+            MATCH (t:Track {track_id: trackId})
+            MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
+            SET perf.derived = true,
+                perf.roles = $roles,
+                perf.role = $role,
+                perf.instruments = $instruments,
+                perf.lineup_source = 'relationship_edit'
+            RETURN count(*) AS created
+        `, {
+            personId,
+            groupId,
+            claimId,
+            trackIds: performedTrackIds,
+            roles,
+            role: roles[0] || null,
+            instruments: carriedInstruments
+        });
+
+        return {
+            roles,
+            tracks: performedTrackIds,
+            removed: {
+                GUEST_ON: countOf(removed.records[0], 'removed'),
+                MEMBER_OF: countOf(removedMemberships.records[0], 'removed')
+            },
+            created: {
+                MEMBER_OF: 1,
+                PERFORMED_ON: countOf(created.records[0], 'created')
+            }
+        };
+    }
+
+    /**
+     * Member to guest: drop the membership, and keep the performances as
+     * track-scoped guest credits.
+     *
+     * @private
+     */
+    async _relationshipToGuest(tx, { personId, groupId, releaseId, claimId, requestedRoles }) {
+        // Read the membership's roles before dropping it, so a guest credit
+        // that replaces it still says what the person played.
+        const membership = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[m:MEMBER_OF]->(g:Group {group_id: $groupId})
+            RETURN m.roles AS roles, m.role AS role, m.instruments AS instruments
+        `, { personId, groupId });
+
+        const carriedRoles = [];
+        const carriedInstruments = [];
+        for (const row of membership.records) {
+            for (const role of [...(row.get('roles') || []), row.get('role')]) {
+                if (role && !carriedRoles.includes(role)) carriedRoles.push(role);
+            }
+            for (const instrument of row.get('instruments') || []) {
+                if (instrument && !carriedInstruments.includes(instrument)) {
+                    carriedInstruments.push(instrument);
+                }
+            }
+        }
+
+        const roles = requestedRoles.length > 0 ? requestedRoles : normalizeRoles(carriedRoles);
+
+        // Every track held through this group, not just the ones on one
+        // release: the membership being dropped is not release-scoped, and a
+        // performance edge that outlived it would credit a non-member as
+        // playing with the group. The union with this claim's own guest credits
+        // is what makes a replay find the same scope after the performance
+        // edges are gone.
+        const performed = await tx.run(`
+            MATCH (p:Person {person_id: $personId})
+            OPTIONAL MATCH (p)-[:PERFORMED_ON {via_group_id: $groupId}]->(t:Track)
+            OPTIONAL MATCH (p)-[:GUEST_ON {claim_id: $claimId}]->(t2:Track)
+            RETURN collect(DISTINCT t.track_id) + collect(DISTINCT t2.track_id) AS trackIds
+        `, { personId, groupId, claimId });
+
+        const trackIds = [...new Set(
+            (performed.records[0]?.get('trackIds') || []).filter(Boolean)
+        )];
+
+        const removedMembership = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[m:MEMBER_OF]->(:Group {group_id: $groupId})
+            DELETE m
+            RETURN count(*) AS removed
+        `, { personId, groupId });
+
+        const removedPerformances = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[perf:PERFORMED_ON {via_group_id: $groupId}]->(:Track)
+            DELETE perf
+            RETURN count(*) AS removed
+        `, { personId, groupId });
+
+        const created = await tx.run(`
+            MATCH (p:Person {person_id: $personId})
+            UNWIND $trackIds AS trackId
+            MATCH (t:Track {track_id: trackId})
+            MERGE (p)-[go:GUEST_ON {claim_id: $claimId}]->(t)
+            SET go.roles = $roles,
+                go.role = $role,
+                go.instruments = $instruments,
+                go.scope = 'track',
+                go.corrected_from = 'MEMBER_OF'
+            RETURN count(*) AS created
+        `, {
+            personId,
+            claimId,
+            trackIds,
+            roles,
+            role: roles[0] || null,
+            instruments: carriedInstruments
+        });
+
+        // Nothing recorded them playing anything, so there is no track to hang
+        // a credit on. A named release is the next best place for one; without
+        // either, the correction is the removal alone.
+        let releaseCredits = 0;
+        if (trackIds.length === 0 && releaseId) {
+            const releaseCredit = await tx.run(`
+                MATCH (p:Person {person_id: $personId})
+                MATCH (r:Release {release_id: $releaseId})
+                MERGE (p)-[go:GUEST_ON {claim_id: $claimId}]->(r)
+                SET go.roles = $roles,
+                    go.role = $role,
+                    go.scope = 'release',
+                    go.corrected_from = 'MEMBER_OF'
+                RETURN count(*) AS created
+            `, { personId, releaseId, claimId, roles, role: roles[0] || null });
+            releaseCredits = countOf(releaseCredit.records[0], 'created');
+        }
+
+        return {
+            roles,
+            tracks: trackIds,
+            removed: {
+                MEMBER_OF: countOf(removedMembership.records[0], 'removed'),
+                PERFORMED_ON: countOf(removedPerformances.records[0], 'removed')
+            },
+            created: {
+                GUEST_ON: countOf(created.records[0], 'created') + releaseCredits
+            }
+        };
     }
 
     /**
