@@ -2060,8 +2060,58 @@ body.mini-player-visible.mini-player-embed {
         white-space: nowrap;
     }
 
+    /* The box cannot live in the bar at this width: the slack between the
+       logo and the buttons is about 80px, and an 80px search box is a
+       decoration. So it is out of the flow until #search-toggle asks for it,
+       and then it takes the whole bar.
+
+       This rule used to say "search returns via the icon below", and there
+       was no icon. The input sat in the DOM at 0x0 with no offsetParent —
+       present to every test that asked whether it existed, and invisible to
+       everyone holding a phone. */
     .top-bar-center {
-        display: none;   /* search returns via the icon below */
+        display: none;
+    }
+
+    /* Shown in the phone block further down, beside the overflow menu's
+       toggle: the base rule that hides it is declared after this media query,
+       so an override here would lose on source order at equal specificity. */
+
+    /* Open: the bar is the search box and the control that closes it. Done by
+       standing the other groups down rather than by floating the box on top,
+       so there is no stacking order to get wrong and nothing can show through
+       from behind. */
+    #top-bar.search-open .top-bar-left,
+    #top-bar.search-open .user-info,
+    #top-bar.search-open .nav-history,
+    #top-bar.search-open .stats,
+    #top-bar.search-open .show-guests,
+    #top-bar.search-open .btn-top-bar-menu {
+        display: none;
+    }
+
+    #top-bar.search-open .top-bar-center {
+        display: flex;
+        flex: 1;
+        max-width: none;
+        padding: 0;
+        /* The base rule centres a box of its own intrinsic width, which on a
+           phone leaves the input indented with the bar empty either side of
+           it. Open here it takes the width it was given. */
+        justify-content: stretch;
+    }
+
+    #top-bar.search-open #graph-search-container {
+        flex: 1;
+    }
+
+    /* The bar clips its own content on a phone, which is what keeps it from
+       overflowing — and it was also clipping the results list, which hangs
+       below the bar from inside it. Typing worked and the answers were cut off
+       a few pixels down. Nothing is left to clip while the search is open,
+       since every other group in the bar is standing down. */
+    #top-bar.search-open {
+        overflow: visible;
     }
 
     /* Previously display:none, which removed Favorites/Curate/History entirely.
@@ -2779,6 +2829,22 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
    --------------------------------------------------------------------------- */
 
 /* Desktop has the width for everything in the bar, so neither of these shows. */
+/* Opens the search over the bar on a phone; absent where the bar has room
+   for the box itself. Sized to match the overflow menu's control beside it. */
+.btn-top-bar-search {
+    display: none;
+    width: 30px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
 .btn-top-bar-menu {
     display: none;
     width: 30px;
@@ -2863,6 +2929,26 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
 
     .btn-top-bar-menu {
         display: block;
+    }
+
+    .btn-top-bar-search {
+        display: block;
+    }
+}
+
+/* The oldest phones still in use are 320px wide, and the bar is 35px too wide
+   for them once the search control is in it: measured with the overflow menu's
+   ⋯ laid out at 325..355 in a 320px window, which is the same way Favorites,
+   Curate and History were lost before they moved into that menu. The bar's own
+   padding and gaps are the cheapest 48px in it. */
+@media (max-width: 360px) {
+    #top-bar {
+        padding: 0 6px;
+        gap: 4px;
+    }
+
+    .top-bar-right {
+        gap: 10px;
     }
 }
 
