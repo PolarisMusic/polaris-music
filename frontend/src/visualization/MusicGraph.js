@@ -443,6 +443,31 @@ export class MusicGraph {
      * reachable without swallowing their neighbours. Nothing within that
      * distance means empty canvas, which is a real answer.
      *
+     * One thing outranks nearest, and only on a touch device: the node whose
+     * name a first tap is already showing. If that node is a candidate for
+     * this point at all, it wins.
+     *
+     * Nearest-wins answers each tap on its own, which is right for a pointer
+     * and wrong for the second of two taps. A crowded layout puts neighbouring
+     * rim nodes five pixels apart — measured, in a scene of 250 — and two taps
+     * aimed at the same thing land further apart than that. So the confirming
+     * tap resolved to the neighbour, the preview moved sideways, and a reader
+     * who meant to travel got a different node named instead.
+     *
+     * The first attempt at this let another node's *ink* outrank the preview,
+     * on the theory that ink is what you aim at deliberately. The measurement
+     * killed it: out here a node is drawn at the two-pixel floor and its
+     * neighbour's centre is five pixels away, so the ink covers most of the
+     * gap and landing on it is chance rather than choice. The confirming tap
+     * in the test landed 1.8px from the neighbour's centre, inside a 2px disc,
+     * and the escape hatch fired on a tap nobody aimed.
+     *
+     * So the escape hatch is distance, not ink: to name a different node,
+     * tap further than a finger's width from the one already named. That is
+     * no restriction where it matters, because two nodes closer together than
+     * that cannot be told apart by a finger either — and tapping the canvas
+     * clears the aim and starts over.
+     *
      * @param {{x: number, y: number}} pos - canvas coordinates
      * @returns {Object|null}
      * @private
@@ -455,6 +480,11 @@ export class MusicGraph {
         let onInkDistance = Infinity;
         let nearby = null;
         let nearbyDistance = Infinity;
+        // The previewed node, if this point reaches it at all. Kept out of the
+        // comparison above rather than entered into it, because it wins by
+        // being the one already named and not by being close.
+        let previewedInReach = null;
+        const previewed = this._tapPreview;
 
         graph.eachNode((node) => {
             const radius = this._drawnRadius(node);
@@ -464,6 +494,11 @@ export class MusicGraph {
             const distance = Math.sqrt(
                 (centre.x - pos.x) ** 2 + (centre.y - pos.y) ** 2
             );
+
+            if (previewed != null && node.id === previewed
+                && (distance <= radius || distance <= MIN_HIT_RADIUS)) {
+                previewedInReach = node;
+            }
 
             if (distance <= radius) {
                 if (distance < onInkDistance) {
@@ -476,7 +511,7 @@ export class MusicGraph {
             }
         });
 
-        return onInk || nearby;
+        return previewedInReach || onInk || nearby;
     }
 
     /**
