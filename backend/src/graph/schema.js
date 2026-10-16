@@ -2410,6 +2410,53 @@ constructor(config = {}) {
     }
 
     /**
+     * What this claim has already written, if it has run before.
+     *
+     * The replay hole that CI caught. Both directions take their roles from the
+     * edge they are retiring — and on a second run that edge is gone, deleted
+     * by the first run, so the roles came back empty and the MERGE's
+     * `SET r.roles = $roles` overwrote `['organ']` with `[]`. The edge *set*
+     * was replay-stable; the properties on it were not.
+     *
+     * So the edges carrying this claim's own id are read as a last source of
+     * truth. On a first run there are none and this changes nothing; on a
+     * replay they hold exactly what the first run decided, which is what being
+     * idempotent means.
+     *
+     * Matched without a relationship type on purpose: one query covers the
+     * MEMBER_OF and PERFORMED_ON a promotion writes and the GUEST_ON a
+     * demotion writes, and they all carry the same roles by construction.
+     *
+     * @private
+     * @returns {Promise<{roles: string[], instruments: string[], fromDate: string|null, toDate: string|null}>}
+     */
+    async _creditsAlreadyWritten(tx, personId, claimId) {
+        const written = await tx.run(`
+            MATCH (p:Person {person_id: $personId})-[r {claim_id: $claimId}]->()
+            RETURN r.roles AS roles, r.role AS role, r.instruments AS instruments,
+                   r.from_date AS fromDate, r.to_date AS toDate
+        `, { personId, claimId });
+
+        const roles = [];
+        const instruments = [];
+        let fromDate = null;
+        let toDate = null;
+
+        for (const row of written.records) {
+            fromDate = fromDate ?? row.get('fromDate');
+            toDate = toDate ?? row.get('toDate');
+            for (const role of [...(row.get('roles') || []), row.get('role')]) {
+                if (role && !roles.includes(role)) roles.push(role);
+            }
+            for (const instrument of row.get('instruments') || []) {
+                if (instrument && !instruments.includes(instrument)) instruments.push(instrument);
+            }
+        }
+
+        return { roles, instruments, fromDate, toDate };
+    }
+
+    /**
      * Guest to member: retire the guest credits, assert membership, and give
      * the person the performance edges a member has.
      *
@@ -2505,6 +2552,19 @@ constructor(config = {}) {
             DELETE m
             RETURN count(*) AS removed
         `, { personId, groupId, claimId });
+
+        // Last resort, and the one a replay needs: on a second run the guest
+        // credits and any prior membership are both gone, so what this claim
+        // itself wrote the first time is the only record of what it decided.
+        const alreadyWritten = await this._creditsAlreadyWritten(tx, personId, claimId);
+        for (const role of alreadyWritten.roles) {
+            if (!carriedRoles.includes(role)) carriedRoles.push(role);
+        }
+        for (const instrument of alreadyWritten.instruments) {
+            if (!carriedInstruments.includes(instrument)) carriedInstruments.push(instrument);
+        }
+        priorFrom = priorFrom ?? alreadyWritten.fromDate;
+        priorTo = priorTo ?? alreadyWritten.toDate;
 
         const roles = requestedRoles.length > 0
             ? requestedRoles
@@ -2609,6 +2669,17 @@ constructor(config = {}) {
                     carriedInstruments.push(instrument);
                 }
             }
+        }
+
+        // As in the promotion: on a replay the membership this would have read
+        // is already gone, and the guest credits this claim wrote are what hold
+        // the roles it decided on.
+        const alreadyWritten = await this._creditsAlreadyWritten(tx, personId, claimId);
+        for (const role of alreadyWritten.roles) {
+            if (!carriedRoles.includes(role)) carriedRoles.push(role);
+        }
+        for (const instrument of alreadyWritten.instruments) {
+            if (!carriedInstruments.includes(instrument)) carriedInstruments.push(instrument);
         }
 
         const roles = requestedRoles.length > 0 ? requestedRoles : normalizeRoles(carriedRoles);

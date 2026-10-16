@@ -108,6 +108,9 @@ const Q = {
     claimsAbout: 'MERGE (c)-[:CLAIMS_ABOUT]->(p)',
     priorClaim: "field: 'relationship'",
     sourced: 'MERGE (c)-[:SOURCED_FROM]->(s)',
+    // The untyped read of whatever this claim has already written, which is
+    // what a replay has instead of the edge it would otherwise have read.
+    alreadyWritten: '-[r {claim_id: $claimId}]->()',
 };
 
 /** The call that ran a given step, or undefined. */
@@ -341,6 +344,35 @@ describe('EDIT_RELATIONSHIP: guest becomes member', () => {
         expect(callFor(tx, Q.mergePerformed).params.trackIds).toEqual(['trk:2']);
     });
 
+    test('replaying it does not strip the roles either', async () => {
+        // The half of idempotency the first version of this got wrong, and CI
+        // caught against a real Neo4j: the edge *set* was stable, the
+        // properties on it were not. With the guest credits gone there is
+        // nothing left to carry roles from except the edges this claim wrote
+        // the first time, and without reading those the MERGE overwrote
+        // ['organ'] with [].
+        const tx = fakeTx({
+            ...ENDS,
+            [Q.material]: MATERIAL,
+            [Q.guestRows]: [],
+            [Q.deleteGuests]: [rec({ removed: 0 })],
+            [Q.replayPerformed]: [rec({ trackIds: ['trk:2'] })],
+            [Q.alreadyWritten]: [rec({
+                roles: ['organ'], role: 'organ', instruments: ['Hammond'],
+                fromDate: '1969-01-01', toDate: null
+            })],
+            [Q.mergePerformed]: [rec({ created: 1 })],
+        });
+        const result = await db_promote_with(tx, {});
+
+        const merge = callFor(tx, Q.mergeMember);
+        expect(merge.params.roles).toEqual(['organ']);
+        expect(merge.params.instruments).toEqual(['Hammond']);
+        expect(merge.params.fromDate).toBe('1969-01-01');
+        expect(callFor(tx, Q.mergePerformed).params.roles).toEqual(['organ']);
+        expect(result.roles).toEqual(['organ']);
+    });
+
     test('it files a claim about the person and commits', async () => {
         const tx = fakeTx({
             ...ENDS,
@@ -471,6 +503,28 @@ describe('EDIT_RELATIONSHIP: member becomes guest', () => {
         expect(callFor(tx, Q.mergeGuestRelease)).toBeUndefined();
         expect(result.created).toEqual({ GUEST_ON: 0 });
         expect(tx.committed).toBe(true);
+    });
+
+    test('replaying it does not strip the roles off the guest credits', async () => {
+        // Same hole as on the promotion side: the membership whose roles this
+        // reads is gone by the second run, and only the credits this claim
+        // wrote still say what they were.
+        const tx = fakeTx({
+            ...ENDS,
+            [Q.membership]: [],
+            [Q.performedTracks]: [rec({ trackIds: ['trk:1'] })],
+            [Q.deleteMembership]: [rec({ removed: 0 })],
+            [Q.deletePerformances]: [rec({ removed: 0 })],
+            [Q.alreadyWritten]: [rec({
+                roles: ['organ'], role: 'organ', instruments: [],
+                fromDate: null, toDate: null
+            })],
+            [Q.mergeGuestTrack]: [rec({ created: 1 })],
+        });
+        const db = serviceWith(tx);
+        await demote(db);
+
+        expect(callFor(tx, Q.mergeGuestTrack).params.roles).toEqual(['organ']);
     });
 
     test('replaying it does not add a release credit beside the track ones', async () => {
