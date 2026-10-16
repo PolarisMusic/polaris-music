@@ -190,7 +190,8 @@ export class MusicGraph {
             claimManager: this.claimManager,
             callbacks: {
                 getSelectedNode: () => this.selectedNode,
-                refreshInfoPanel: (node) => this.updateInfoPanel(node),
+                refreshAfterEdit: (nodeType, nodeId) =>
+                    this._refreshAfterEdit(nodeType, nodeId),
                 plot: () => this.ht?.plot(),
                 patchRawGraphColor: (nodeId, color) => {
                     const raw = this.loader?.rawGraph;
@@ -217,6 +218,7 @@ export class MusicGraph {
                 playContext: (contextType, contextId) =>
                     this.miniPlayer?.loadContext(contextType, contextId) ?? Promise.resolve(false),
                 switchToEdition: (releaseId) => this._switchToEdition(releaseId),
+                correctRelationship: (correction) => this._correctRelationship(correction),
             },
         });
         this.overlayPositioner = new OverlayPositioner({
@@ -1955,6 +1957,92 @@ export class MusicGraph {
                 onComplete();
             },
         });
+    }
+
+    /**
+     * Re-render the panel an edit belongs to.
+     *
+     * Two panels can be open over one selection. A node's details belong to
+     * the selected node and come back by re-reading it; a release's belong to
+     * whatever the orbit overlay last opened, which the selection knows
+     * nothing about — selecting a band and then one of its albums leaves
+     * `selectedNode` on the band. Refreshing the selection after editing the
+     * album therefore replaced the album with the band, and the correction,
+     * which had saved perfectly well, looked lost.
+     *
+     * Re-fetched rather than patched locally, because the value that comes
+     * back is the one the graph now holds: the claim pipeline normalises on
+     * the way through, and a locally patched panel would show what was typed
+     * rather than what was stored.
+     *
+     * @param {string} nodeType
+     * @param {string} nodeId
+     * @private
+     */
+    async _refreshAfterEdit(nodeType, nodeId) {
+        if (String(nodeType).toLowerCase() === 'release') {
+            // Release details are cached for a few minutes, and the edit that
+            // just saved is precisely what makes the cached copy wrong.
+            // Without this the panel re-renders from the version that was
+            // there before the correction, which reads as the save having
+            // failed.
+            this.api?.forgetRelease?.(nodeId);
+            await this._switchToEdition(nodeId);
+            return;
+        }
+        // Same reason as the release branch above: the panel is re-read, and
+        // the copy held for this node is the one the correction just made
+        // wrong.
+        this.api?.forgetNode?.(nodeType, nodeId);
+        if (this.selectedNode) {
+            await this.updateInfoPanel(this.selectedNode);
+        }
+    }
+
+    /**
+     * Re-credit a person as a member or as a guest.
+     *
+     * The correction the registry had no way to make. An EDIT_CLAIM sets a
+     * property, and membership is not a property of anybody; a resubmitted
+     * bundle adds edges rather than replacing them, so correcting a guest to a
+     * member that way leaves them credited as both — which CLAUDE.md lists as
+     * an invariant violation. EDIT_RELATIONSHIP retires the edge that is wrong.
+     *
+     * Which panel to refresh afterwards follows from where the button was: a
+     * promotion is offered on a release, where the guest list is, and a
+     * demotion on a group or a person, where the membership is. The drawn graph
+     * is not reloaded — a correction is not worth throwing the reader back to
+     * the root node, and the panel is where its effect is legible.
+     *
+     * @private
+     * @param {Object} correction
+     * @param {string} correction.personId
+     * @param {string} correction.groupId
+     * @param {string} correction.to - 'MEMBER_OF' or 'GUEST_ON'
+     * @param {string|null} [correction.releaseId]
+     * @returns {Promise<Object>}
+     */
+    async _correctRelationship({ personId, groupId, to, releaseId }) {
+        const result = await this.claimManager.submitRelationshipEdit({
+            personId, groupId, to, releaseId
+        });
+
+        // Every panel that could be open is now wrong, and all three are read
+        // through caches that hold for minutes: the person's groups, the
+        // group's members, the release's guest list. Forget them all before
+        // re-rendering, or the panel comes back showing what the correction
+        // just replaced and reads as a failed save.
+        this.api?.forgetNode?.('person', personId);
+        this.api?.forgetNode?.('group', groupId);
+        if (releaseId) this.api?.forgetRelease?.(releaseId);
+
+        if (releaseId) {
+            await this._switchToEdition(releaseId);
+        } else if (this.selectedNode) {
+            await this.updateInfoPanel(this.selectedNode);
+        }
+
+        return result;
     }
 
     /**

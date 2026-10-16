@@ -714,6 +714,41 @@ export class GraphAPI {
     }
 
     /**
+     * Forget one release's cached details.
+     *
+     * Narrower than clearCache on purpose. An edit to a release makes exactly
+     * one entry wrong, and emptying the whole cache to fix it would send the
+     * next render back to the network for every group, person and release the
+     * reader had already looked at.
+     *
+     * @param {string} releaseId
+     */
+    forgetRelease(releaseId) {
+        this.cache.delete(`releaseDetails:${releaseId}`);
+    }
+
+    /**
+     * Forget one node's cached details.
+     *
+     * The same hole forgetRelease plugs, on the other read path. A person or
+     * group panel is re-rendered through fetchNodeDetails, which caches for
+     * five minutes — so a correction saved and then re-read inside that window
+     * came back as the value it had replaced, and the save read as a failure.
+     * Releases were given this treatment when per-field editing arrived and
+     * nodes were not, which was an oversight rather than a decision.
+     *
+     * Keyed as fetchNodeDetails keys it, `${type}:${id}`, and lowercased
+     * because the graph feed emits lowercase types while a caller writing the
+     * type by hand may not.
+     *
+     * @param {string} nodeType
+     * @param {string} nodeId
+     */
+    forgetNode(nodeType, nodeId) {
+        this.cache.delete(`${String(nodeType).toLowerCase()}:${nodeId}`);
+    }
+
+    /**
      * Clear cache
      */
     clearCache() {

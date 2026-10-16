@@ -36,7 +36,10 @@ export class InlineEditor {
      * @param {Object} deps.claimManager  - exposes submitEdit(nodeType, nodeId, field, value)
      * @param {Object} deps.callbacks
      * @param {() => Object|null} deps.callbacks.getSelectedNode      - JIT node currently selected
-     * @param {(node: Object) => Promise<void>} deps.callbacks.refreshInfoPanel - re-render after save
+     * @param {(nodeType: string, nodeId: string) => Promise<void>} deps.callbacks.refreshAfterEdit
+     *        Re-render whatever panel the edit belongs to. Takes the subject
+     *        rather than nothing because the open panel is not always the
+     *        selected node's — see the call site.
      * @param {() => void} deps.callbacks.plot                        - request graph redraw
      * @param {(nodeId: string, color: string) => void} deps.callbacks.patchRawGraphColor
      *                                                                - persist the new color in the cached
@@ -125,10 +128,13 @@ export class InlineEditor {
             try {
                 await this.claimManager.submitEdit(nodeType, nodeId, field, newValue);
 
-                const selected = this.callbacks.getSelectedNode();
-                if (selected) {
-                    await this.callbacks.refreshInfoPanel(selected);
-                }
+                // What was edited decides what to re-render, which is not
+                // always the selected node. A release panel is opened by the
+                // orbit overlay while the selection stays on the group it
+                // orbits, so refreshing the selection after a release edit
+                // threw the reader back to the band and left the correction
+                // apparently unsaved.
+                await this.callbacks.refreshAfterEdit(nodeType, nodeId);
             } catch (error) {
                 console.error('Edit submission failed:', error);
                 alert('Edit failed: ' + error.message);

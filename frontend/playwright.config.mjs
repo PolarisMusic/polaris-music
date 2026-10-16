@@ -46,13 +46,30 @@ export default defineConfig({
 
     // Boot vite preview against the production build before tests run.
     // (vite preview serves dist/ and respects the multi-page output.)
-    webServer: {
-        command: 'npx vite preview --host 127.0.0.1 --port 4173',
-        url: 'http://127.0.0.1:4173/',
-        timeout: 30_000,
-        reuseExistingServer: !process.env.CI,
-        cwd: resolve(__dirname),
-    },
+    // The second server exists for one spec. Passkeys cannot be exercised
+    // over http at all: @wharfkit/webauthn reads the origin out of the
+    // credential and refuses anything but https, because an Antelope PUB_WA_
+    // key carries the relying party id the chain checks. And the host has to
+    // be `localhost`, because a relying party id must be a registrable domain
+    // and 127.0.0.1 is not one. See scripts/serveDistHttps.mjs;
+    // passkey.spec.mjs points itself at it and nothing else changes.
+    webServer: [
+        {
+            command: 'npx vite preview --host 127.0.0.1 --port 4173',
+            url: 'http://127.0.0.1:4173/',
+            timeout: 30_000,
+            reuseExistingServer: !process.env.CI,
+            cwd: resolve(__dirname),
+        },
+        {
+            command: 'node scripts/serveDistHttps.mjs 4443',
+            url: 'https://localhost:4443/',
+            ignoreHTTPSErrors: true,
+            timeout: 30_000,
+            reuseExistingServer: !process.env.CI,
+            cwd: resolve(__dirname),
+        },
+    ],
 
     projects: [
         {

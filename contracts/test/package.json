@@ -5,7 +5,8 @@
   "scripts": {
     "test": "mocha polaris.test.js --timeout 30000",
     "test:watch": "mocha polaris.test.js --watch --timeout 30000",
-    "test:verbose": "mocha polaris.test.js --timeout 30000 --reporter spec"
+    "test:verbose": "mocha polaris.test.js --timeout 30000 --reporter spec",
+    "test:unit": "mocha unit/*.test.js --timeout 10000"
   },
   "dependencies": {
     "eosjs": "^22.1.0",

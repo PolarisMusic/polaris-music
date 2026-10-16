@@ -114,6 +114,49 @@ describe('mint_entity and resolve_id are recognized rather than unsupported', ()
     });
 });
 
+describe('EDIT_RELATIONSHIP', () => {
+    const relationshipBody = {
+        person: { id: 'per:preston' },
+        group: { id: 'grp:beatles' },
+        to: 'MEMBER_OF',
+        release_id: 'rel:abbey',
+        roles: ['organ'],
+    };
+
+    test.each(bothShapes('EDIT_RELATIONSHIP', relationshipBody))('%s', (_label, event) => {
+        expect(parseOperationDetail(event)).toEqual({
+            type: 'edit_relationship',
+            person_id: 'per:preston',
+            group_id: 'grp:beatles',
+            to: 'MEMBER_OF',
+            release_id: 'rel:abbey',
+            roles: ['organ'],
+            source: null,
+        });
+    });
+
+    test('the flatter body shape is read too', () => {
+        // Both are accepted on the way in, so both have to come back out: a
+        // curator cannot vote on a claim whose subject the feed renders blank.
+        const detail = parseOperationDetail({
+            type: 'EDIT_RELATIONSHIP',
+            body: { person_id: 'per:preston', group_id: 'grp:beatles', to: 'GUEST_ON' },
+        });
+
+        expect(detail.person_id).toBe('per:preston');
+        expect(detail.group_id).toBe('grp:beatles');
+        expect(detail.to).toBe('GUEST_ON');
+    });
+
+    test('it is not mistaken for the type reserved beside it', () => {
+        // 32 is DELETE_CLAIM, reserved by docs/03-event-storage.md and not
+        // implemented. A correction filed as 32 would be anchored and then
+        // ignored, so the parser must not quietly render it as this.
+        expect(parseOperationDetail({ type: 32, body: relationshipBody }).type)
+            .toBe('type_32');
+    });
+});
+
 describe('inputs the parser cannot make sense of', () => {
     test.each([
         ['null', null],

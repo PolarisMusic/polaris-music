@@ -29,9 +29,18 @@ The contract does not subsidise submissions. In `contracts/polaris.music.cpp`,
 | `aggregates.emplace(account, …)`, `staker_nodes.emplace(account, …)` | a stake | **staker** |
 | `respect.emplace(get_self(), …)`, `pending.emplace(get_self(), …)` | oracle/system rows | contract |
 
-So a brand-new account can browse, `like` (deliberately zero-RAM — the action
-writes no rows) and `vote` (an account with no Respect gets weight 1, no
-Respect required). It **cannot submit** until it owns RAM.
+So a brand-new account can browse and `like` — `like()` is deliberately
+zero-RAM, the action body writes no rows at all and says so. It can do nothing
+else.
+
+**An earlier version of this document said a new account could also vote. That
+was wrong**, and the table above contradicts it on the same page: `vote()`
+reaches `votes.emplace(voter, …)` (`polaris.music.cpp:769`) and that row is
+billed to the voter. The claim conflated two separate gates — Respect, which a
+new account genuinely does not need (weight falls back to 1), and RAM, which it
+does. A zero-RAM account cannot vote and cannot submit. It can read, and it can
+like. That is the whole of it, and it makes the RAM question the gate on
+*participation*, not just on submission.
 
 ### Do not quote a fixed byte cost
 
@@ -43,7 +52,21 @@ against. A comment in `backend/src/chain/reclaimService.js` cites "roughly 461,
 only, with no derivation anywhere in the codebase, and cannot be right as a
 constant for a variable-width row. Treat it as a hypothesis.
 
-Measure it instead, against a real submission:
+**Measured, 2026-10-14, on Jungle4.** One release submission moved
+`polaristest2`'s RAM usage by **896 bytes** — the anchor row and its zeroed
+tally together, about 448 a row — at a spot price of 0.208658 EOS/KiB, so
+roughly **0.18 EOS a submission**.
+
+That is close enough to the "roughly 461, 336 and 552 bytes" in
+`reclaimService.js` (552 + 336 = 888) that the prose figure was substantially
+right, and the scepticism above was misplaced about the magnitude if not about
+the principle: the row *is* variable width, and a release with ten tags carries
+80 bytes of `tags` that one with none does not. Treat 896 as the figure for a
+typical release and expect tens of bytes either way, not hundreds. The vote row
+has not been measured; the same prose puts it at 461, which is the next number
+to check, by voting with the watcher running.
+
+Measure it yourself against a real submission:
 
 ```bash
 cd backend
@@ -141,7 +164,148 @@ CloudWallet finding above is exactly this class of assumption failing on a
 
 ---
 
-## 4. Recommended order
+## 4. Decided: passkeys, and RAM paid by the contract
+
+Decision taken 2026-10-14, replacing the recommended order below where the two
+conflict. Both halves are evidenced against the npm registry on the same date;
+the chain-side checks could not be run from the authoring sandbox, whose egress
+proxy refuses chain endpoints, and are listed as outstanding.
+
+### Login: passkeys (WebAuthn), not email
+
+Email login does not exist for this chain. The three candidates and why:
+
+- `@wharfkit/wallet-plugin-cloudwallet`, which the app already installs, is
+  email and social login — and WAX-only, as §2 records. Dead weight here.
+- `@wharfkit/wallet-plugin-web-authenticator` 4.0.2 is the right architecture
+  (a popup web wallet, which could be email-backed) and its own README says it
+  is "currently under development and not ready for production use". It is also
+  Jungle4-only and expects *us* to host the authenticator service — the default
+  URL in the package is `http://localhost:5174`. Taking this route means
+  building and operating a custodial web wallet.
+- `@wharfkit/webauthn` 4.0.2 wraps Antelope's native `PUB_WA_` key type:
+  Face ID or a fingerprint, no app to install, no seed phrase to lose, and no
+  key for us to hold. It is a key-helper library rather than a wallet plugin,
+  so the SessionKit side is ours to write.
+
+The third is better than what was asked for. No custody, no password, no email
+round trip, and the key never leaves the device's secure element.
+
+**It forces the 4.x upgrade.** On 2026-09-28 the whole `@wharfkit` org
+re-versioned in lockstep to 4.0.2, and `session@4.0.2` now pins
+`@wharfkit/antelope: 4.0.2` exactly rather than by range. `@wharfkit/webauthn`
+exists only at 4.x and pins the same. Mixing it with the app's `session@1.6.1`
+installs two copies of `@wharfkit/antelope`, and every `instanceof` across that
+boundary fails. The predecessor package `@greymass/webauthn@1.0.2` is no escape:
+it depends on `@greymass/eosio@^0.5.0`, the library WharfKit replaced.
+
+**Confirmed 2026-10-15:** Jungle4 has `WEBAUTHN_KEY` activated, so `PUB_WA_`
+keys work there and this path is open. The check, for whenever the chain
+changes or another one is considered:
+
+```bash
+curl -s -X POST https://jungle4.greymass.com/v1/chain/get_activated_protocol_features \
+  -H 'Content-Type: application/json' -d '{"limit":200}' | grep -c WEBAUTHN_KEY
+```
+
+### Account creation does not need the upgrade
+
+Worth recording separately, because it is cheap and independent:
+`SessionKit.createAccount()` already exists in 1.6.1, and
+`@wharfkit/account-creation-plugin-jungle4@1.2.0` declares
+`peerDependencies: {"@wharfkit/session": "^1.1.0"}` with the same implementation
+as its 4.0.2 build — generate a K1 key in the browser, POST to
+`jungle4.greymass.com/account/create` with a random account name, show the user
+a QR of the private key to save. Free account in seconds, no server key, no
+custody. It ends at "now import this into a wallet", which is why it is a
+complement to a login route and not one itself.
+
+### RAM: the contract pays, and the cap is on work in flight
+
+Rather than sponsoring from a server-held key (Path B above, with its permanent
+attack surface), the contract itself pays. `emplace(get_self(), …)` bills the
+contract account and needs no extra authorization, because the payer is the
+executing contract.
+
+**The contract is the default payer, not an allowance that runs out.** What is
+capped is how many rows one account may have *outstanding* — open on the
+contract's RAM right now. A submission takes two and gives them back when it is
+reclaimed, so somebody who submits, waits for the vote to close and reclaims can
+keep going forever, while somebody opening fifty at once cannot. Who pays is a
+policy; how much you may have in flight is a rate limit; they are separate
+questions and the design keeps them separate.
+
+**An account at its cap may still act on its own RAM**, as everyone did before
+this existed. Those rows are recorded in a `selfpaid` marker keyed by anchor id
+and paid for by the account that chose it, so reclaim does not credit them back
+to a sponsorship that never funded them. **The exception is marked, not the
+rule** — sponsorship is the common case and costs nothing to record, while the
+bypass writes one small row at the bypasser's expense. Without the marker there
+is a farm: self-pay, reclaim, collect a slot that was never taken, repeat.
+
+Facts the design rests on:
+
+- **The chain does record a row's payer.** It has to — that is how `erase()`
+  knows whose `ram_usage` to credit back — and `/v1/chain/get_table_rows` will
+  show it with `show_payer: true`. What a contract cannot do is read it from
+  inside WASM: the database intrinsics return row data and iterators and never
+  a payer, and `multi_index` exposes no accessor. The fact exists; the code
+  that needs it cannot reach it. Hence the marker.
+- **`ram_quota` and `ram_usage` are two integers per account**, not a map of
+  bytes to rows. There is nothing to cross-reference.
+- **A contract cannot read its own RAM balance.** No intrinsic. So it cannot
+  stop when the tank runs dry, only when it is holding as much open as it was
+  told to — which is what the global ceiling is for, and why that ceiling counts
+  rows outstanding rather than rows ever granted. A lifetime tally would have
+  the contract sitting on free RAM and refusing to use it.
+- **A row's payer is fixed at `emplace`.** `modify(itr, payer, …)` reassigns it
+  for the whole row, not just for any growth — which is why `vote()` now passes
+  `same_payer`. Naming the voter would move a contract-paid row onto an account
+  that may have no RAM to receive it, turning a change of mind into a failed
+  transaction.
+
+Numbers, from the measurement in §1: 896 bytes a submission, about 448 a row.
+The default cap is 30 rows — ten submissions in flight plus ten open votes —
+which is about 13 KiB and 2.7 EOS an account. The default ceiling of 3,000 rows
+is about 1.3 MB and 274 EOS of RAM the contract must **own**; RAM is an asset
+and sells back, so that is capital tied up rather than money spent. Set the
+ceiling from the RAM you have actually bought, in EOS, not in round numbers of
+rows.
+
+---
+
+### Parked: streaming-service OAuth as the login
+
+Raised 2026-10-15, not scheduled. Sign in with Spotify, Amazon Music,
+SoundCloud, Bandcamp or Deezer, and have that same grant serve as the listen
+link and the player authorisation — so there is one sign-in rather than a login
+followed by a separate "connect your Spotify" step.
+
+What makes it worth building is not the login. It is that the player stops
+being an embed the visitor has to authorise separately: the graph becomes a
+thing you can listen to, queue from and build a playlist in, which is the
+difference between a reference work and something people use. The login is a
+by-product of an authorisation we want anyway.
+
+As abuse prevention it is in the same class as "sign in with Google" — an
+account at a third party that costs something to create in bulk. Weaker than
+payment, far cheaper than a captcha.
+
+Pairing it with the passkey is the interesting part: the OAuth identity says
+who you are to the services, the passkey holds the chain key, and neither alone
+gets you both. That is approximately two-factor without building a second
+factor.
+
+Open questions, none of them answered here: which services allow playback
+control from a third-party web app at all (Spotify's Web Playback SDK needs
+Premium; Bandcamp has no public playback API); how an OAuth identity maps onto
+a chain account, which is the same custody question §4 answers with passkeys
+and does not answer twice; and whether the player's existing per-track `listen`
+data can be reconciled with per-service tokens.
+
+---
+
+## 5. Recommended order (superseded in part by §4)
 
 1. **Measure the RAM cost** (§1). Everything about pricing is guesswork until
    this number exists, and it takes one command plus one submission.

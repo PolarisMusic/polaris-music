@@ -2985,3 +2985,31 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     text-overflow: ellipsis;
     pointer-events: none;
 }
+
+/* Member/guest corrections.
+   Styled like .edit-btn but a separate rule rather than an added class:
+   InlineEditor wires a click handler onto every .edit-btn in the panel, so
+   sharing the class would turn this button into a field editor as well. Sized
+   and spaced to sit inside a list row rather than under a field label. */
+.rel-btn {
+    background: none;
+    border: 1px solid #444;
+    color: #888;
+    border-radius: 4px;
+    margin-left: 8px;
+    font-size: 11px;
+    padding: 1px 6px;
+    vertical-align: baseline;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.rel-btn:hover {
+    color: #ddd;
+    border-color: #666;
+}
+
+.rel-btn:disabled {
+    opacity: 0.5;
+    cursor: progress;
+}

@@ -183,6 +183,21 @@ export function parseOperationDetail(event) {
         };
     }
 
+    if (typeCode === EVENT_TYPES.EDIT_RELATIONSHIP) {
+        // Fields per GraphSchema.processRelationshipEdit. A curator voting on
+        // this needs to see both ends and the direction, because the whole
+        // content of the claim is which of the two it is.
+        return {
+            type: 'edit_relationship',
+            person_id: body.person?.id || body.person_id || null,
+            group_id: body.group?.id || body.group_id || null,
+            to: body.to || null,
+            release_id: body.release_id || null,
+            roles: body.roles || [],
+            source: body.source || null
+        };
+    }
+
     if (typeCode === EVENT_TYPES.MINT_ENTITY) {
         // Fields per handleMintEntity (eventProcessor.js:779).
         return {

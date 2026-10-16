@@ -333,6 +333,65 @@ export class InfoPanelRenderer {
     }
 
     /**
+     * A button that re-credits a person as a member or as a guest.
+     *
+     * The one correction a property edit cannot make. Membership is an edge
+     * rather than a field, so there is nothing for an input box to hold — the
+     * whole content of the claim is which of the two relationships is the right
+     * one, and a button is the honest control for a claim with one bit in it.
+     *
+     * No confirmation step, deliberately: submitting pops the wallet's own
+     * signing dialog, which is a better confirmation than anything this panel
+     * could put in front of it.
+     *
+     * @private
+     * @param {Object} options
+     * @param {string} options.label
+     * @param {string} options.title - the sentence being claimed, in full
+     * @param {string} options.personId
+     * @param {string} options.groupId
+     * @param {string} options.to - 'MEMBER_OF' or 'GUEST_ON'
+     * @param {string} [options.releaseId]
+     * @returns {HTMLElement}
+     */
+    _relationshipButton({ label, title, personId, groupId, to, releaseId }) {
+        return this._el('button', {
+            // `rel-btn` alone, deliberately not `edit-btn` as well. InlineEditor
+            // attaches a listener to every `.edit-btn` inside the panel, so
+            // borrowing the class for the styling also borrowed the behaviour:
+            // the click submitted the correction AND swapped the button for a
+            // text input bound to `data-field=undefined`, which on save would
+            // have filed an EDIT_CLAIM against no field at all. A class here is
+            // a wiring surface, not a paint job.
+            className: 'rel-btn',
+            title,
+            'data-person-id': personId,
+            'data-group-id': groupId,
+            'data-rel-to': to,
+            ...(releaseId ? { 'data-release-id': releaseId } : {}),
+            onClick: async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const button = e.currentTarget;
+                button.disabled = true;
+                try {
+                    await this.callbacks.correctRelationship({
+                        personId, groupId, to, releaseId: releaseId || null
+                    });
+                } catch (error) {
+                    console.error('Relationship correction failed:', error);
+                    alert('Correction failed: ' + error.message);
+                } finally {
+                    // The panel is usually re-rendered out from under this
+                    // button by then; re-enabling matters for the case where
+                    // the submission failed and this one is still on screen.
+                    button.disabled = false;
+                }
+            },
+        }, label);
+    }
+
+    /**
      * Render Group details in info panel.
      */
     /**
@@ -388,6 +447,19 @@ export class InfoPanelRenderer {
                 this._el('img', { src: group.photo, alt: group.name })));
         }
         this._appendEditableRow(contentElement, 'group', nodeId, 'photo', group.photo || '', 'Photo URL');
+        // A misspelling is the correction people reach for first, and until
+        // now there was no way to make it. An EDIT_CLAIM sets the property on
+        // the node that is already there, so every edge it sits on survives —
+        // which a resubmitted bundle would not manage: identity is a hash of
+        // the name, so a corrected spelling mints a second node and strands
+        // the first with all its relationships.
+        //
+        // The id does keep the old spelling inside it. That is cosmetic, ids
+        // being opaque; what it does mean is that a later submission spelling
+        // the name correctly resolves to a different id and makes a duplicate,
+        // which is what MERGE_ENTITY exists to settle.
+        this._appendEditableRow(contentElement, 'group', nodeId, 'name',
+            group.name || group.group_name || '', 'Name');
 
         const formed = group.formed_date || '';
         const disbanded = group.disbanded_date || 'present';
@@ -421,7 +493,21 @@ export class InfoPanelRenderer {
                     }, this._el('strong', null, member.person))
                     : this._el('strong', null, member.person);
                 const roleSuffix = role ? ` - ${role}` : null;
-                list.appendChild(this._el('li', null, name, roleSuffix));
+                // A member who was really a session player. Offered here
+                // because this list is where the mistake is visible, and only
+                // with an id to claim against — a row carrying no person_id
+                // names nobody the correction could be filed about.
+                const correction = personId && nodeId
+                    ? this._relationshipButton({
+                        label: 'Guest, not member',
+                        title: `Correct ${member.person} to a guest credit on `
+                            + `${group.name || 'this group'} rather than membership`,
+                        personId,
+                        groupId: nodeId,
+                        to: 'GUEST_ON',
+                    })
+                    : null;
+                list.appendChild(this._el('li', null, name, roleSuffix, correction));
             }
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Members'), list));
@@ -459,6 +545,10 @@ export class InfoPanelRenderer {
                 this._el('img', { src: person.photo, alt: person.name })));
         }
         this._appendEditableRow(contentElement, 'person', nodeId, 'photo', person.photo || '', 'Photo URL');
+        // See renderGroupDetails for why this is an EDIT_CLAIM and not a
+        // resubmission.
+        this._appendEditableRow(contentElement, 'person', nodeId, 'name',
+            person.name || person.person_name || '', 'Name');
         this.appendStakeSection(contentElement, nodeId);
 
         const currentColor = person.color || '#888888';
@@ -494,7 +584,20 @@ export class InfoPanelRenderer {
                     }, this._el('strong', null, grp.group))
                     : this._el('strong', null, grp.group);
                 const roleSuffix = role ? ` - ${role}` : null;
-                list.appendChild(this._el('li', null, name, roleSuffix));
+                // The same correction from the other end. A reader who knows
+                // this person was only a session player on a record is looking
+                // at them, not at the band.
+                const correction = groupId && nodeId
+                    ? this._relationshipButton({
+                        label: 'Guest, not member',
+                        title: `Correct ${person.name || 'this person'} to a guest `
+                            + `credit on ${grp.group} rather than membership`,
+                        personId: nodeId,
+                        groupId,
+                        to: 'GUEST_ON',
+                    })
+                    : null;
+                list.appendChild(this._el('li', null, name, roleSuffix, correction));
             }
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Groups'), list));
@@ -632,6 +735,20 @@ export class InfoPanelRenderer {
         titleElement.textContent = release.name || 'Unknown Release';
         contentElement.replaceChildren();
 
+        // Everything a release holds as a property of its own can be corrected
+        // here. What cannot: its tracklist, its performers and its guests,
+        // which are relationships rather than fields — an EDIT_CLAIM sets a
+        // property on one node and has nowhere to put an edge. Changing those
+        // means resubmitting the bundle, which is a different thing and says
+        // so rather than offering a button that quietly does less than it
+        // looks like it does.
+        //
+        // The id comes off the release itself because the overlay calls this
+        // with a release object and no separate id. A release without one is a
+        // release nothing can be claimed against, so the rows are simply not
+        // offered.
+        const releaseId = release.release_id;
+
         // Edition switcher, before the artwork so it reads as a control over
         // everything below it — the whole body is re-rendered when it moves.
         // Built inside the rendered body rather than into the static
@@ -644,6 +761,12 @@ export class InfoPanelRenderer {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },
                 this._el('img', { src: release.album_art, alt: release.name })));
         }
+        if (releaseId) {
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'album_art', release.album_art || '', 'Artwork URL');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'name', release.name || '', 'Title');
+        }
 
         if (release.release_date) {
             contentElement.appendChild(this._el('p', { className: 'info-meta' },
@@ -653,6 +776,31 @@ export class InfoPanelRenderer {
         if (release.format) {
             contentElement.appendChild(this._el('p', { className: 'info-meta' },
                 this._el('strong', null, 'Format:'), ' ', release.format));
+        }
+
+        if (release.country) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Country:'), ' ', release.country));
+        }
+
+        if (release.catalog_number) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                this._el('strong', null, 'Catalogue number:'), ' ', release.catalog_number));
+        }
+
+        // Offered whether or not there is a value to show. Half of what a
+        // correction is for is a field that was left empty, and a row that
+        // only appears once something is in it cannot be used to put the first
+        // thing there.
+        if (releaseId) {
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'release_date', release.release_date || '', 'Release date');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'format', release.format || '', 'Format');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'country', release.country || '', 'Country');
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'catalog_number', release.catalog_number || '', 'Catalogue number');
         }
 
         // Labels
@@ -720,12 +868,31 @@ export class InfoPanelRenderer {
         // Guests
         if (release.guests && release.guests.length > 0) {
             const list = this._el('ul', { className: 'info-list' });
+            // The groups a guest could turn out to have been a member of are
+            // the ones that performed on this release. Usually one, so the
+            // button can simply say what it does; on a split or a
+            // collaboration there are several and each gets its own, because
+            // only the submitter knows which band the person was actually in.
+            const performingGroups = (release.groups || []).filter(grp => grp.group_id);
             for (const g of release.guests) {
                 const roles = g.roles && g.roles.length > 0
                     ? ` - ${g.roles.join(', ')}`
                     : null;
+                const corrections = (g.person_id && releaseId)
+                    ? performingGroups.map(grp => this._relationshipButton({
+                        label: performingGroups.length > 1
+                            ? `Member of ${grp.name}`
+                            : 'Member, not guest',
+                        title: `Correct ${g.name} to a member of ${grp.name} `
+                            + 'rather than a guest on this release',
+                        personId: g.person_id,
+                        groupId: grp.group_id,
+                        to: 'MEMBER_OF',
+                        releaseId,
+                    }))
+                    : [];
                 list.appendChild(this._el('li', null,
-                    this._el('strong', null, g.name), roles));
+                    this._el('strong', null, g.name), roles, ...corrections));
             }
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Guests'), list));
@@ -735,6 +902,22 @@ export class InfoPanelRenderer {
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Liner Notes'),
                 this._el('p', null, release.liner_notes)));
+        }
+
+        if (release.trivia) {
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Trivia'),
+                this._el('p', null, release.trivia)));
+        }
+
+        if (releaseId) {
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'liner_notes', release.liner_notes || '', 'Liner notes', true);
+            this._appendEditableRow(contentElement, 'release', releaseId,
+                'trivia', release.trivia || '', 'Trivia', true);
+            // Without this the buttons above are decoration: attach is what
+            // turns them into editors.
+            this.inlineEditor.attach(contentElement);
         }
     }
 
@@ -898,6 +1081,8 @@ export class InfoPanelRenderer {
             this.renderMintEntityDetail(body, detail);
         } else if (detail?.type === 'resolve_id') {
             this.renderResolveIdDetail(body, detail);
+        } else if (detail?.type === 'edit_relationship') {
+            this.renderRelationshipEditDetail(body, detail);
         } else if (detail) {
             body.appendChild(this._el('p', { style: 'color:#888' },
                 'Unsupported operation type for detailed view.'));
@@ -1118,6 +1303,45 @@ export class InfoPanelRenderer {
                 : String(detail.value);
             fields.push(this.detailField('Value', valStr));
         }
+        if (detail.source) {
+            const sourceStr = typeof detail.source === 'object'
+                ? (detail.source.url || JSON.stringify(detail.source))
+                : detail.source;
+            fields.push(this.detailField('Source', sourceStr));
+        }
+
+        for (const f of fields) if (f) section.appendChild(f);
+        container.appendChild(section);
+    }
+
+    /**
+     * EDIT_RELATIONSHIP (type 33): a person moved between member and guest.
+     *
+     * Rendered as a sentence rather than a field table, because the claim is a
+     * sentence — it says one thing, and a curator voting on it is voting on
+     * whether that one thing is true. The ids are underneath for anyone
+     * checking which person and which band it actually names.
+     *
+     * @param {Element} container
+     * @param {Object} detail - As shaped by parseOperationDetail.
+     */
+    renderRelationshipEditDetail(container, detail) {
+        const section = this._el('div', { className: 'curate-section' },
+            this._el('h4', null, 'Member / Guest Correction'));
+
+        const claim = detail.to === 'MEMBER_OF'
+            ? 'A guest credit is wrong: this person was a member of the group.'
+            : 'A membership is wrong: this person was a guest, not a member.';
+        section.appendChild(this._el('p', { className: 'info-meta' }, claim));
+
+        const fields = [
+            this.detailField('Person ID', detail.person_id),
+            this.detailField('Group ID', detail.group_id),
+            this.detailField('Becomes', detail.to),
+            detail.release_id && this.detailField('Release', detail.release_id),
+            detail.roles?.length && this.detailField('Roles', detail.roles.join(', ')),
+        ];
+
         if (detail.source) {
             const sourceStr = typeof detail.source === 'object'
                 ? (detail.source.url || JSON.stringify(detail.source))

@@ -7,10 +7,11 @@
 import { SessionKit } from '@wharfkit/session';
 import { WebRenderer } from '@wharfkit/web-renderer';
 import { WalletPluginAnchor } from '@wharfkit/wallet-plugin-anchor';
-import { WalletPluginCloudWallet } from '@wharfkit/wallet-plugin-cloudwallet';
+import { WalletPluginPasskey } from './WalletPluginPasskey.js';
+import { enrolPasskey, passkeysSupported } from './passkey.js';
 import { TransactPluginResourceProvider } from '@wharfkit/transact-plugin-resource-provider';
 import { POLARIS_ABI } from '../contracts/polarisAbi.js'; // Local ABI fallback for test/dev only
-import { CHAIN_ID, RPC_URL, CONTRACT_ACCOUNT, USE_LOCAL_ABI } from '../config/chain.js';
+import { CHAIN_ID, RPC_URL, CONTRACT_ACCOUNT, USE_LOCAL_ABI, WEBAUTHN_KEYS } from '../config/chain.js';
 import { resolveResourceProvider } from '../config/resourceProvider.js';
 
 export class WalletManager {
@@ -59,11 +60,29 @@ export class WalletManager {
             url: this.config.rpcUrl
         }];
 
-        // Configure wallet plugins
+        // Anchor, and a passkey where both ends can manage it.
+        //
+        // CloudWallet was registered here for years and could never have
+        // worked: its supportedChains holds exactly one entry, WAX mainnet,
+        // while this app runs Jungle4 and EOS. WharfKit filtered it out of
+        // every login modal, so it was an unreachable option that still had to
+        // be installed, bundled and upgraded. docs/13-user-onboarding.md §2
+        // records the finding; the dependency is gone.
+        //
+        // Two conditions on the passkey, and both are that same lesson: the
+        // chain must have WEBAUTHN_KEY activated or the signatures are not
+        // signatures, and the browser must have an authenticator or the option
+        // leads to a dialog that cannot open. supportedChains is set as well
+        // as checked, so WharfKit's own filter agrees with this one.
         const walletPlugins = [
-            new WalletPluginAnchor(),
-            new WalletPluginCloudWallet()
+            new WalletPluginAnchor()
         ];
+
+        if (WEBAUTHN_KEYS && passkeysSupported()) {
+            walletPlugins.push(new WalletPluginPasskey({
+                supportedChains: [this.config.chainId],
+            }));
+        }
 
         // Ask a resource provider to cover CPU and NET, when one answers for
         // this chain. Registered as a transact plugin so it sits in front of
@@ -281,6 +300,42 @@ export class WalletManager {
      * Get current session information
      * @returns {Object|null} Session information or null if not connected
      */
+    /**
+     * Make a passkey on this device for an account.
+     *
+     * The browser half of enrolment, and only that half. The key this returns
+     * authorises nothing until it is added to the account's permission on
+     * chain, which is an `updateauth` somebody else has to sign — the
+     * account's existing key, or the account creation that mints it. Doing the
+     * two halves separately is deliberate: the chain half differs completely
+     * between "I already have an Anchor account" and "make me an account", and
+     * the browser half is identical in both.
+     *
+     * The credential is bound to this site's domain and cannot be moved to
+     * another one. That is the phishing resistance; it also means a passkey
+     * enrolled against a development origin is a development passkey forever.
+     *
+     * @param {string} accountName - the account this passkey will sign for
+     * @returns {Promise<{publicKey: string, credentialId: string}>}
+     *   the key to put on chain, and the credential that will produce its
+     *   signatures
+     */
+    async enrolPasskey(accountName) {
+        if (!passkeysSupported()) {
+            throw new Error('This browser cannot create passkeys');
+        }
+        if (!accountName) {
+            throw new Error('A passkey has to be enrolled against an account name');
+        }
+
+        const { publicKey, credentialId } = await enrolPasskey({
+            accountName,
+            appName: this.config.appName,
+        });
+
+        return { publicKey: String(publicKey), credentialId };
+    }
+
     getSessionInfo() {
         if (!this.session) {
             return null;

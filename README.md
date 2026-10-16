@@ -289,6 +289,7 @@ All data modifications are submitted as canonical events:
 | CREATE_RELEASE_BUNDLE | 21 | Full release with groups and tracks |
 | ADD_CLAIM | 30 | Add data to entity |
 | EDIT_CLAIM | 31 | Modify existing data |
+| EDIT_RELATIONSHIP | 33 | Re-credit a person as a member or a guest |
 | VOTE | 40 | Vote on release submission |
 | FINALIZE | 50 | Finalize and distribute rewards |
 
@@ -1004,6 +1005,7 @@ where:
   - CREATE_RELEASE_BUNDLE: 100,000,000
   - ADD_CLAIM: 1,000,000
   - EDIT_CLAIM: 1,000
+  - EDIT_RELATIONSHIP: 1,000 (shares EDIT_CLAIM's multiplier)
 ```
 
 ## Frontend Visualization

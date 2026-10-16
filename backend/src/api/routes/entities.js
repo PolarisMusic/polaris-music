@@ -281,10 +281,31 @@ export function createEntityRoutes({ db, config }) {
                     name: r.get('name')
                 }));
 
-                // Guests: persons credited via GUEST_ON on tracks in this release
+                // Guests: persons credited via GUEST_ON, at either scope.
+                //
+                // Both branches, because a bundle files guests at two levels:
+                // a track credit onto the Track (schema.js:1395) and a release
+                // credit onto the Release itself (schema.js:957). This read
+                // used to follow tracks only, so a release-scoped guest — the
+                // shape a submitter gets by listing guests on the release
+                // rather than per track — was in the graph and nowhere in the
+                // UI. Invisible was bad enough on its own; it also made them
+                // uncorrectable, since the panel can only offer a button
+                // against someone it is showing.
+                //
+                // Still one session.run(), so the call order the endpoint
+                // snapshot locks is unchanged.
                 const guestResult = await session.run(`
-                    MATCH (t:Track)-[:IN_RELEASE]->(:Release {release_id: $releaseId})
-                    MATCH (p:Person)-[go:GUEST_ON]->(t)
+                    MATCH (rel:Release {release_id: $releaseId})
+                    CALL {
+                        WITH rel
+                        MATCH (p:Person)-[go:GUEST_ON]->(t:Track)-[:IN_RELEASE]->(rel)
+                        RETURN p, go
+                        UNION
+                        WITH rel
+                        MATCH (p:Person)-[go:GUEST_ON]->(rel)
+                        RETURN p, go
+                    }
                     WITH p, collect(DISTINCT coalesce(go.role, go.instrument, '')) as roles
                     RETURN p.person_id as person_id,
                            p.name as name,

@@ -1062,13 +1062,35 @@ So:
 `editionLabel` names the issuing label whenever it is what differs across a
 master's editions — frequently it is the only thing that does.
 
+## Correcting a Relationship
+
+A member who was really a session player, or a guest who was really in the band,
+is corrected with an `EDIT_RELATIONSHIP` event (type 33), processed by
+`processRelationshipEdit`. **Not by resubmitting the bundle.**
+
+Every relationship here is MERGEd on a `claim_id` derived from the submitting
+event's own hash — `MERGE (p)-[m:MEMBER_OF {claim_id: $claimId}]->(g)` — so a
+second submission cannot match the first submission's edge; it creates another
+one beside it. And bundle processing deletes no relationship (its single DELETE
+retires a stale `IN_MASTER` link). So a corrected resubmission leaves the
+mistaken edge exactly where it was, and the person is credited as both a member
+and a guest, in breach of the relationship-consistency invariant.
+
+`dropContradictoryGuests` is not a defence against this. It runs over the
+incoming bundle body during normalization, so it resolves a contradiction
+*within one submission* — a bundle listing someone as both — and cannot see
+what an earlier submission already wrote to the graph.
+
+What the correction does to the surrounding edges, and why it is replay-safe,
+is in `docs/03-event-storage.md` under EDIT_RELATIONSHIP.
+
 ## Relationship Types Summary
 
 | Relationship | From → To | Purpose |
 |--------------|-----------|---------|
 | MEMBER_OF | Person → Group | Group membership with dates |
 | PERFORMED_ON | Group → Track | Group performed this track |
-| GUEST_ON | Person → Track | Guest appearance (not a member) |
+| GUEST_ON | Person → Track or Release | Guest appearance (not a member). `scope` is `track` or `release` |
 | WROTE | Person → Song | Songwriting credit |
 | ARRANGED | Person → Track | Credited arranger for a track (group by default) |
 | PRODUCED | Person → Track | Credited Producer for a track |

@@ -548,7 +548,8 @@ const EventTypes = {
     // Claims and edits
     ADD_CLAIM: 30,
     EDIT_CLAIM: 31,
-    DELETE_CLAIM: 32,
+    DELETE_CLAIM: 32,          // reserved, not implemented
+    EDIT_RELATIONSHIP: 33,
     
     // Voting and curation
     VOTE: 40,
@@ -1106,6 +1107,66 @@ THESE EXAMPLES ARE INTENDED TO BE INTERPRETED AS CANONICAL TO THE DATA STRUCTURE
 }
 ```
 
+
+### EDIT_RELATIONSHIP Event
+
+Moves a person between `MEMBER_OF` and `GUEST_ON` for one group — the one
+correction neither an `EDIT_CLAIM` nor a resubmitted bundle can make.
+
+An `EDIT_CLAIM` sets one property on one node, and membership is not a property
+of anybody; it is an edge, and an edge has two ends. A resubmitted bundle is
+worse than useless here: relationship MERGEs are keyed by the submitting
+event's own `claim_id`, so a second submission cannot match the first's edge and
+adds one beside it, while nothing in bundle processing deletes a relationship.
+The person ends up credited as both a member and a guest, which violates the
+relationship-consistency invariant. (`dropContradictoryGuests` does not catch
+it: it sanitises the incoming bundle body, so it resolves the contradiction
+inside one submission and is blind to the edge an earlier one left behind.)
+
+```json
+{
+    "v": 1,
+    "type": "EDIT_RELATIONSHIP",
+    "author_pubkey": "PUB_K1_...",
+    "created_at": 1760000000,
+    "parents": [],
+    "body": {
+        "person": { "id": "polaris:person:..." },
+        "group":  { "id": "polaris:group:..." },
+        "to": "MEMBER_OF",
+        "release_id": "polaris:release:...",
+        "roles": ["organ"],
+        "source": { "url": "https://example.org/liner-notes" }
+    }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `person`, `group` | Both ends. Flat `person_id` / `group_id` are accepted too. Both must already exist — a body naming a missing node is a broken event, not an empty correction. |
+| `to` | `MEMBER_OF` or `GUEST_ON`. Nothing else; a different relationship is a different event. |
+| `release_id` | Optional. On a promotion it narrows which guest credits are swept. On a demotion it is only the place to hang a credit when the person has no recorded performances. |
+| `roles` | Optional. Absent, the roles on the edge being retired are carried onto the new one. |
+| `source` | Optional. Linked to the claim via `SOURCED_FROM`. |
+
+**To MEMBER_OF.** Every `GUEST_ON` from the person onto the group's own
+material — the tracks the group performed and the releases those tracks sit in —
+is deleted; `MEMBER_OF` is merged; and the person gets the `PERFORMED_ON` edges
+a member has, on the tracks their retired credits named. A release-scoped credit
+names no track, so the group's material is used instead and the edges are marked
+`derived`, as bundle processing marks a release-level lineup.
+
+**To GUEST_ON.** `MEMBER_OF` carries no release, so a demotion is not scoped to
+one: the edge goes, and every performance held through that group becomes a
+track-scoped guest credit, which keeps the credit while removing the membership.
+
+Replaying is safe. New edges are keyed by a `claim_id` derived from the event
+hash, and where a run's scope came from edges it then deleted, a later run
+recovers that scope from the edges the first run created.
+
+**32 is skipped.** `DELETE_CLAIM` is reserved at 32 and unimplemented. A type
+code is written into an anchor row, where nothing can be rewritten, so the first
+event submitted under a code fixes what that code means permanently.
 
 ## Storage Architecture
 
