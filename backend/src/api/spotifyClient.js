@@ -50,9 +50,14 @@ const UPC_SEARCH_LIMIT = 3;
  * @param {number} status
  * @returns {Error}
  */
-function statusError(status) {
-    const error = new Error(`Spotify request failed with status ${status}`);
+function statusError(status, phase = 'request') {
+    const error = new Error(`Spotify ${phase} failed with status ${status}`);
     error.status = status;
+    // Which half of the exchange refused. A token refusal is a credentials
+    // problem an operator fixes; a request refusal is about what was asked
+    // for, with the same credentials Spotify has already accepted. Reporting
+    // them identically sends somebody to check the wrong thing.
+    error.phase = phase;
     return error;
 }
 
@@ -117,7 +122,9 @@ export class SpotifyClient {
      */
     async getAccessToken() {
         if (!this.isConfigured()) {
-            throw new Error('Spotify credentials are not configured');
+            const error = new Error('Spotify credentials are not configured');
+            error.phase = 'token request';
+            throw error;
         }
         if (this._token && Date.now() < this._tokenExpiresAt - TOKEN_EXPIRY_MARGIN_MS) {
             return this._token;
@@ -136,7 +143,7 @@ export class SpotifyClient {
         if (!response.ok) {
             // Deliberately does not include the response body: it can echo the
             // credentials back in an error description.
-            throw new Error(`Spotify token request failed with status ${response.status}`);
+            throw statusError(response.status, 'token request');
         }
 
         const data = await response.json();
@@ -275,7 +282,19 @@ export class SpotifyClient {
             offset += items.length;
         }
 
-        const isrcs = await this.isrcsForTracks(tracks.map(t => t.id));
+        // The ISRCs are a bonus on top of the tracklist, and must not be able
+        // to take it down with them. This is one extra request per fifty
+        // tracks against a *different* endpoint, so it can be refused on its
+        // own — and a submitter asking "does this tracklist match" would then
+        // get nothing at all, having previously got an answer. Degrade to no
+        // ISRCs instead, and say so in the log.
+        let isrcs = new Map();
+        try {
+            isrcs = await this.isrcsForTracks(tracks.map(t => t.id));
+        } catch (error) {
+            console.warn('Spotify ISRC lookup failed, continuing without codes:',
+                error.message);
+        }
 
         return {
             id: album.id,

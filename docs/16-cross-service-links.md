@@ -55,15 +55,41 @@ Neither of Spotify's album endpoints returns an ISRC — both return *simplified
 track objects with no `external_ids` at all — so it costs one extra request per
 fifty tracks, from the full-track endpoint.
 
-### Deployment caveat: /search and development mode
+### When the form says the check is unavailable
 
-The barcode step is the only part of this that uses `/search`. A Spotify app
-still in development mode can be refused there, and the refusal is a property
-of the credentials rather than of the request, so the endpoint reports it as
-`reason: 'search_unavailable'` with an explanation rather than as a server
-fault. If the form says *"Spotify refused the barcode search for this app"*,
-that is this: the album link still works, and the app's quota mode is the thing
-to change.
+There are four distinct ways for this to fail and they want four different
+fixes. Until 2026-10-17 they all reached the submitter as one sentence — "The
+Spotify check is unavailable" — because the route answered 502 and the
+sanitizer strips the message out of a 5xx body. Each now comes back as its own
+reason, with the fix in the text:
+
+| What the form says | reason | Fix |
+|---|---|---|
+| …not configured on this server | `not_configured` | Set `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` |
+| Spotify rejected this server's credentials (HTTP …) | `credentials_rejected` | They are set but wrong, revoked, or from another app |
+| Spotify refused the request for this app (HTTP 403) | `request_refused` | App is in development mode; request extended quota |
+| This server could not reach Spotify | `unreachable` | Container egress or DNS, not credentials |
+| Spotify is rate-limiting this server | `rate_limited` | Wait |
+
+Anything else is still a 502, because anything else really is this server
+failing at its job. That body carries an `errorId`, which the form now shows,
+and it matches a line in the api log.
+
+To find out which without reading logs, from inside the container that holds
+the credentials:
+
+```bash
+docker compose exec api node scripts/checkSpotify.js
+```
+
+It walks the same four steps the client walks — token, album, full tracks,
+barcode search — and names the fix for whichever one fails. It prints the
+credentials as lengths and a last-four fingerprint, never the values.
+
+`/search` is worth calling out separately: it is the only endpoint the barcode
+shortcut needs and the one an app in development mode is most likely to be
+refused for. Album links keep working when it is refused; only the one-click
+Discogs path stops.
 
 ---
 

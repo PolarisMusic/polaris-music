@@ -137,6 +137,63 @@ function barcodeVariants(barcode) {
 }
 
 /**
+ * Turn a client failure into something the submitter can act on.
+ *
+ * The alternative is what this endpoint used to do: a 502 whose sanitized body
+ * carries no message at all, which the form renders as "The Spotify check is
+ * unavailable" — true, unactionable, and identical whether the credentials are
+ * wrong, the app is restricted, the quota is spent or the host cannot be
+ * reached. Each of those has a different fix and only one of them is a fault.
+ *
+ * No secret is disclosed: a status code and which half of the exchange refused,
+ * never a response body (Spotify's token errors can echo the credentials back
+ * in a description).
+ *
+ * @param {Error & {status?: number, phase?: string}} error
+ * @returns {{reason: string, message: string}|null} null when it really is a
+ *   fault and should be reported as one.
+ */
+function describeFailure(error) {
+    if (error?.phase === 'token request') {
+        return {
+            reason: 'credentials_rejected',
+            message: error.status
+                ? `Spotify rejected this server's credentials (HTTP ${error.status}). `
+                    + 'SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET need checking.'
+                : 'Spotify credentials are not configured on this server.',
+        };
+    }
+
+    if (error?.status === 403) {
+        return {
+            reason: 'request_refused',
+            message: 'Spotify refused the request for this app (HTTP 403). An app '
+                + 'still in development mode is refused for some endpoints.',
+        };
+    }
+
+    if (error?.status === 429) {
+        return {
+            reason: 'rate_limited',
+            message: 'Spotify is rate-limiting this server. Try again in a minute.',
+        };
+    }
+
+    // A timeout aborts the fetch; a DNS or egress failure throws a TypeError
+    // whose message is "fetch failed". Neither reaches Spotify at all, so
+    // neither is a fault in the registry or in the submission.
+    if (error?.name === 'AbortError' || /fetch failed/i.test(error?.message ?? '')) {
+        return {
+            reason: 'unreachable',
+            message: 'This server could not reach Spotify. It may have no outbound '
+                + 'access to accounts.spotify.com or api.spotify.com.',
+        };
+    }
+
+    return null;
+}
+
+/**
  * Find the album a barcode names, and prove it before returning it.
  *
  * A search hit is Spotify's word that the barcode matched, not evidence of it:
@@ -268,6 +325,14 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
                 message: 'Could not work out which album those links belong to.',
             });
         } catch (error) {
+            const described = describeFailure(error);
+            if (described) {
+                // Not a 502: none of these are this server failing at its job,
+                // and the form shows the message rather than a shrug.
+                console.warn('Spotify lookup unavailable:', error.message);
+                return res.json({ success: false, ...described });
+            }
+
             console.error('Spotify lookup failed:', error.message);
             res.status(502).json(sanitizeError(error, req.requestId, {
                 success: false,
@@ -280,5 +345,8 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
     return router;
 }
 
-export { parseSpotifyRef, resolveAlbumId, resolveAlbumByUpc, barcodeVariants, sameBarcode };
+export {
+    parseSpotifyRef, resolveAlbumId, resolveAlbumByUpc,
+    barcodeVariants, sameBarcode, describeFailure,
+};
 export default createSpotifyRoutes;

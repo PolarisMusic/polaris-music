@@ -229,3 +229,86 @@ describe('a failed request carries its status', () => {
             .rejects.toThrow(/status 500/);
     });
 });
+
+describe('which half of the exchange refused', () => {
+    /**
+     * The route reports a token refusal as a credentials problem an operator
+     * fixes, and a request refusal as being about what was asked for with
+     * credentials Spotify has already accepted. That distinction is only as
+     * good as the tag the client puts on the error, and nothing else connects
+     * the two halves.
+     */
+    const refusing = (status) => {
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        client.fetch = async () => ({ ok: false, status, json: async () => ({}) });
+        return client;
+    };
+
+    test('a refused token is tagged as the token request', async () => {
+        await expect(refusing(400).getAccessToken())
+            .rejects.toMatchObject({ status: 400, phase: 'token request' });
+    });
+
+    test('credentials that are not there at all are too', async () => {
+        const client = new SpotifyClient({ clientId: '', clientSecret: '' });
+
+        await expect(client.getAccessToken())
+            .rejects.toMatchObject({ phase: 'token request' });
+    });
+
+    test('a refused request is not tagged as a token problem', async () => {
+        // Otherwise a 403 on /search would send an operator to re-check
+        // credentials Spotify had already accepted.
+        const client = refusing(403);
+        client.getAccessToken = async () => 'token';
+
+        await expect(client.albumIdsByUpc('075992733625'))
+            .rejects.toMatchObject({ status: 403, phase: 'request' });
+    });
+});
+
+describe('the codes cannot sink the comparison', () => {
+    /**
+     * The ISRCs are a bonus on top of the tracklist. They come from a second,
+     * different endpoint, so they can be refused on their own — and before
+     * this, a submitter asking "does this tracklist match" would then get
+     * nothing at all, having previously got an answer. A feature that takes a
+     * working one down with it is a bad trade.
+     */
+    const albumServing = (trackResponse) => {
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        client._get = async (path) => {
+            if (path.startsWith('/tracks')) return trackResponse();
+            return {
+                id: 'alb', name: 'Album', release_date: '1981', total_tracks: 2,
+                external_ids: { upc: '075992733625' },
+                tracks: { items: simplified(2) },
+            };
+        };
+        return client;
+    };
+
+    test('a refused ISRC lookup still returns the tracklist', async () => {
+        const album = await albumServing(() => {
+            throw Object.assign(new Error('Spotify request failed with status 403'),
+                { status: 403 });
+        }).getAlbumWithTracks('alb');
+
+        expect(album.tracks).toHaveLength(2);
+        expect(album.tracks.every(t => t.isrc === null)).toBe(true);
+    });
+
+    test('and still returns the album UPC, which came with the album', async () => {
+        const album = await albumServing(() => { throw new Error('nope'); })
+            .getAlbumWithTracks('alb');
+
+        expect(album.upc).toBe('075992733625');
+    });
+
+    test('a working ISRC lookup is still used', async () => {
+        // The degradation must not be the normal path.
+        const album = await albumServing(() => full(['t0', 't1'])).getAlbumWithTracks('alb');
+
+        expect(album.tracks.map(t => t.isrc)).toEqual(['ISRCT0', 'ISRCT1']);
+    });
+});
