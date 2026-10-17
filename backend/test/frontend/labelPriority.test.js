@@ -29,7 +29,11 @@ describe('the tier order', () => {
         expect(LABEL_TIER.SELECTED).toBeLessThan(LABEL_TIER.HOVERED);
         expect(LABEL_TIER.HOVERED).toBeLessThan(LABEL_TIER.NEIGHBOUR);
         expect(LABEL_TIER.NEIGHBOUR).toBeLessThan(LABEL_TIER.GROUP);
-        expect(LABEL_TIER.GROUP).toBeLessThan(LABEL_TIER.OTHER);
+        // A second ring sits under the groups deliberately: groups are the
+        // skeleton a reader navigates by, and a crowded ring of second-hop
+        // names should not bury the landmark it is arranged around.
+        expect(LABEL_TIER.GROUP).toBeLessThan(LABEL_TIER.SECOND_HOP);
+        expect(LABEL_TIER.SECOND_HOP).toBeLessThan(LABEL_TIER.OTHER);
     });
 });
 
