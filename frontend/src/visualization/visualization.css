@@ -766,6 +766,23 @@ body.mini-player-visible.mini-player-embed {
     font-size: 13px;
 }
 
+/* Sixteen pixels, and not for legibility.
+   iOS zooms the page whenever it focuses a text field whose font is smaller
+   than 16px — the search box was 13px, so opening it zoomed the whole page in
+   as if it had been pinched, and iOS does not zoom back out when the field is
+   blurred. Both of these fields are typed into on a phone, so both get the
+   floor; the rule is after their own declarations because it has the same
+   specificity and wins on source order alone.
+   Deliberately not solved with maximum-scale/user-scalable in the viewport
+   meta: that takes pinch-zoom away from everyone to fix one field, and modern
+   iOS ignores it anyway. */
+@media (hover: none) {
+    .node-search-input,
+    .inline-edit-input {
+        font-size: 16px;
+    }
+}
+
 .inline-edit-save,
 .inline-edit-cancel {
     background: #2a2a2a;

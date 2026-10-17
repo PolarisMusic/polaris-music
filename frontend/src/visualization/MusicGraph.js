@@ -59,6 +59,27 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 const HYPERTREE_ANIMATION_MS = 700;
 
 /**
+ * Does this element have a software keyboard open over it?
+ *
+ * Text entry only: a focused checkbox or button raises no keyboard, so a
+ * resize while one has focus is a real one.
+ *
+ * @param {Element|null} element
+ * @returns {boolean}
+ */
+function isTypingTarget(element) {
+    if (!element) return false;
+    if (element.isContentEditable) return true;
+    const tag = element.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag !== 'INPUT') return false;
+    // Everything the platform opens a keyboard for, which is every input type
+    // except the ones that are really buttons or pickers.
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color']
+        .includes((element.type || 'text').toLowerCase());
+}
+
+/**
  * The smallest a node is ever drawn, in canvas pixels.
  *
  * Without a floor the Poincare disk takes nodes to nothing: a person three
@@ -1285,6 +1306,34 @@ export class MusicGraph {
         if (width === this._lastCanvasWidth && height === this._lastCanvasHeight) {
             return;
         }
+
+        // A software keyboard is not a layout change worth redrawing for.
+        // Opening it shortens the container without touching its width, and
+        // the resize that follows rebuilds the canvas at the new height: the
+        // nodes keep the positions they were given and everything drawn from
+        // the canvas dimensions — the edges above all — is laid out again
+        // around them, which is the sloppy half-reflow you see under the
+        // keyboard while typing into the search box.
+        //
+        // The remembered height is deliberately left alone, so that dismissing
+        // the keyboard restores the dimensions this already holds and the bail
+        // above catches it. The graph sits still for both halves of the
+        // gesture rather than flinching at each one.
+        //
+        // Width-unchanged is what distinguishes the keyboard from a rotation
+        // or a window drag, and the touch-only test keeps a pointer device's
+        // ordinary resizes working while a field happens to have focus.
+        //
+        // Measured against the canvas rather than against _lastCanvasWidth:
+        // those are only written by this method, so before it has run once
+        // they are undefined and every comparison with them is false. The
+        // first resize of a session is exactly the keyboard one this is for.
+        const drawnWidth = this.ht.canvas.getSize?.()?.width;
+        if (width === drawnWidth && this._isTouchOnly()
+            && isTypingTarget(document.activeElement)) {
+            return;
+        }
+
         this._lastCanvasWidth = width;
         this._lastCanvasHeight = height;
 
