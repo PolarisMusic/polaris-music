@@ -67,7 +67,20 @@
                 <input type="checkbox" id="show-guests">
                 <span class="stat-label">Guests</span>
             </label>
-            <!-- Phone only. The bar cannot hold the balance and three labelled
+            <!-- Phone only, both of them. -->
+
+            <!-- The search box itself cannot stay in the bar at 390px: the
+                 slack between the logo and the buttons is about 80px, which is
+                 not a search box. So the box moves out of the bar and this
+                 opens it over the top. Before this existed the rule hiding the
+                 box said "search returns via the icon below" and there was no
+                 icon: the input sat in the DOM at 0x0 and the feature was
+                 simply gone on a phone. -->
+            <button id="search-toggle" class="btn-top-bar-search" type="button"
+                    aria-label="Search" aria-expanded="false"
+                    aria-controls="graph-search-container">&#128269;</button>
+
+            <!-- The bar cannot hold the balance and three labelled
                  panels at 390px — measured at 512px of content in 390px of bar,
                  with the balance alone taking 203 of it, which pushed Favorites,
                  Curate and History off-screen entirely. -->
@@ -304,6 +317,45 @@
                 graph.miniPlayer = miniPlayer;
             }
 
+            // Phone search. The box lives in the bar on a desktop and over
+            // the bar on a phone; this is the control that opens it.
+            const searchToggle = document.getElementById('search-toggle');
+            const topBar = document.getElementById('top-bar');
+            const searchInput = () => document.querySelector('.node-search-input');
+            const setSearchOpen = (open) => {
+                if (!topBar || !searchToggle) return;
+                topBar.classList.toggle('search-open', open);
+                searchToggle.setAttribute('aria-expanded', String(open));
+                // The glyph is the affordance: a magnifier to open, a cross to
+                // get the bar back.
+                searchToggle.textContent = open ? '\u2715' : '\u{1F50D}';
+                searchToggle.setAttribute('aria-label', open ? 'Close search' : 'Search');
+                const input = searchInput();
+                if (!input) return;
+                if (open) {
+                    // Focused rather than merely shown, so the keyboard arrives
+                    // with the box and the tap that opened it is the only one
+                    // needed before typing.
+                    input.focus();
+                } else {
+                    input.blur();
+                    input.value = '';
+                    const dropdown = document.querySelector('.node-search-dropdown');
+                    if (dropdown) dropdown.style.display = 'none';
+                }
+            };
+            if (searchToggle) {
+                searchToggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setSearchOpen(!topBar.classList.contains('search-open'));
+                });
+            }
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && topBar?.classList.contains('search-open')) {
+                    setSearchOpen(false);
+                }
+            });
+
             // Search bar in top bar
             const searchContainer = document.getElementById('graph-search-container');
             if (searchContainer) {
@@ -312,6 +364,9 @@
                     placeholder: 'Search nodes...',
                     onSelect: (result) => {
                         graph.navigateToSearchResult(result);
+                        // Left open, the bar would still be a search box over a
+                        // graph that had already moved to the answer.
+                        setSearchOpen(false);
                     }
                 });
             }
