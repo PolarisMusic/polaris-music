@@ -1193,6 +1193,22 @@ export class InfoPanelRenderer {
                         : null);
                 item.appendChild(titleEl);
 
+                // Resolved by the Spotify cross-check rather than typed in, so
+                // this panel is the first place anybody sees them: the
+                // submission form holds both in hidden fields. A reviewer
+                // voting on a bundle should be able to see what was attached
+                // to it on their behalf.
+                const resolved = [
+                    t.isrc ? `ISRC ${t.isrc}` : null,
+                    t.alt_titles?.length
+                        ? `also titled "${t.alt_titles.join('", "')}"`
+                        : null,
+                ].filter(Boolean);
+                if (resolved.length > 0) {
+                    item.appendChild(this._el('div', { className: 'curate-track-credits' },
+                        resolved.join(' · ')));
+                }
+
                 // Track groups
                 if (t.performed_by_groups?.length) {
                     for (const g of t.performed_by_groups) {

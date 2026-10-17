@@ -263,8 +263,11 @@ export class NodeSearchService {
         // Build a label filter clause
         const labelFilter = allowedLabels.map(l => `n:${l}`).join(' OR ');
 
-        // Case-insensitive fallback. alt_names is a list property, so we use
-        // any() to search within the list items rather than CONTAINS on the list itself.
+        // Case-insensitive fallback. alt_names and alt_titles are list
+        // properties, so we use any() to search within the list items rather
+        // than CONTAINS on the list itself. Both are here because the two
+        // halves of the model name them differently: a Person, Group, Release
+        // or Label has alt_names, a Song or Track has alt_titles.
         const result = await session.run(`
             MATCH (n)
             WHERE (${labelFilter})
@@ -272,6 +275,7 @@ export class NodeSearchService {
                 toLower(n.name) CONTAINS toLower($query)
                 OR toLower(n.title) CONTAINS toLower($query)
                 OR any(x IN coalesce(n.alt_names, []) WHERE toLower(x) CONTAINS toLower($query))
+                OR any(x IN coalesce(n.alt_titles, []) WHERE toLower(x) CONTAINS toLower($query))
               )
             RETURN n, labels(n)[0] AS label
             ORDER BY

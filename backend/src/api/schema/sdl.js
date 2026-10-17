@@ -89,6 +89,7 @@ export const typeDefs = `
   type Track {
     track_id: String!
     title: String!
+    alt_titles: [String!]
     isrc: String
     duration: Int
     recording_date: String

@@ -605,11 +605,50 @@ constructor(config = {}) {
             }
 
             // ========== FULLTEXT INDEX FOR SEARCH ==========
+
+            // `IF NOT EXISTS` keeps whatever definition is already in place, so
+            // adding a property to this list changes nothing on any database
+            // that already has the index — which is every deployed one. That is
+            // why Song.alt_titles has never been searchable despite being
+            // written, read and returned everywhere else. So the live
+            // definition is compared against this list, and a stale index is
+            // dropped so the create below can replace it.
+            //
+            // Interpolated rather than parameterized because a property key in
+            // index DDL cannot be a parameter. These are module-local literals,
+            // never user input; nothing from a request reaches this string.
+            const FULLTEXT_PROPERTIES = ['name', 'title', 'alt_names', 'alt_titles'];
+
+            try {
+                const existing = await session.run(`
+                    SHOW INDEXES YIELD name, properties
+                    WHERE name = 'entitySearch'
+                    RETURN properties
+                `);
+                const current = existing.records[0]?.get('properties');
+                const missing = Array.isArray(current)
+                    ? FULLTEXT_PROPERTIES.filter(prop => !current.includes(prop))
+                    : [];
+
+                if (missing.length > 0) {
+                    // Dropping is the only way to change a fulltext index's
+                    // properties. Search falls back to substring matching for
+                    // the moment it takes to repopulate, which is a far smaller
+                    // problem than a property that is never searchable at all.
+                    this.log.info('fulltext_index_rebuild', {
+                        name: 'entitySearch', current, missing
+                    });
+                    await session.run('DROP INDEX entitySearch IF EXISTS');
+                }
+            } catch (error) {
+                this.log.warn('fulltext_index_inspect_failed', { error: error.message });
+            }
+
             try {
                 await session.run(`
                     CREATE FULLTEXT INDEX entitySearch IF NOT EXISTS
                     FOR (n:Person|Group|Release|Track|Song|Label|City)
-                    ON EACH [n.name, n.title, n.alt_names]
+                    ON EACH [${FULLTEXT_PROPERTIES.map(prop => `n.${prop}`).join(', ')}]
                 `);
                 this.log.debug('fulltext_index_created', { name: 'entitySearch' });
             } catch (error) {
@@ -1118,6 +1157,7 @@ constructor(config = {}) {
                     MERGE (t:Track {track_id: $trackId})
                     SET t.id = $trackId,
                         t.title = $title,
+                        t.alt_titles = coalesce($altTitles, t.alt_titles, []),
                         t.isrc = $isrc,
                         t.duration = $duration,
                         t.recording_date = $recordingDate,
@@ -1132,6 +1172,13 @@ constructor(config = {}) {
                     eventTs,
                     trackId,
                     title: track.title,
+                    // Null, not [], so the coalesce above keeps what is already
+                    // on the node. An alternate spelling is additive: a later
+                    // bundle for this release that was filled in without
+                    // running the Spotify check has no opinion about it, and
+                    // must not be read as "there are none". Same idiom as
+                    // Group.alt_names; removing one is EDIT_CLAIM's job.
+                    altTitles: track.alt_titles?.length ? track.alt_titles : null,
                     isrc: track.isrc || null,
                     duration: track.duration || null,
                     recordingDate: track.recording_date || null,

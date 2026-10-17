@@ -264,6 +264,7 @@ export function createResolvers({ db, store }) {
 
                 return {
                     ...track,
+                    alt_titles: track.alt_titles || [],
                     listen_links: track.listen_links || [],
                     recordingOf: song ? song.properties : null,
                     performedBy,

@@ -702,16 +702,44 @@ class PolarisApp {
     }
 
     /**
-     * Write Spotify track links onto the matching track rows.
+     * Write a resolved value into one of a track row's hidden fields.
+     *
+     * Only ever fills an empty field, for the same reason as the links below:
+     * whatever is already there was either typed or resolved earlier, and
+     * neither deserves to be overwritten silently.
+     *
+     * @param {Element} item - A .track-item.
+     * @param {string} name - Input name, e.g. `track-isrc-3`.
+     * @param {string|null|undefined} value
+     * @returns {boolean} Whether anything was written.
+     */
+    fillHiddenField(item, name, value) {
+        if (!value) return false;
+
+        const input = item.querySelector(`[name="${name}"]`);
+        if (!input || input.value.trim()) return false;
+
+        input.value = value;
+        return true;
+    }
+
+    /**
+     * Write Spotify's track links, ISRCs and spellings onto the matching rows.
      *
      * Only ever fills an empty field. Something typed by hand is the more
      * considered entry — it may point at a specific pressing or a different
      * service — and silently replacing it would be the worst outcome here.
      *
+     * The ISRC is the valuable half of this. A listen link is one service's
+     * address for a recording; the ISRC is the recording's own name, which is
+     * what every other service can be asked about it with, and what the
+     * registry prefers as a track's provisional id.
+     *
      * @param {{position?: string, title: string}[]} tracks - In form order,
      *   matching the order they were collected in.
-     * @param {{id: string, name: string, track_number?: number}[]} spotifyTracks
-     * @returns {{filled: number, unmatched: number}}
+     * @param {{id: string, name: string, isrc?: string|null,
+     *          track_number?: number}[]} spotifyTracks
+     * @returns {{filled: number, unmatched: number, codes: number, named: number}}
      */
     fillTrackLinksFromAlbum(tracks, spotifyTracks) {
         const items = [...document.querySelectorAll('.track-item')]
@@ -719,6 +747,8 @@ class PolarisApp {
 
         let filled = 0;
         let unmatched = 0;
+        let codes = 0;
+        let named = 0;
 
         for (const match of matchSpotifyTracks(tracks, spotifyTracks)) {
             const item = items[match.index];
@@ -729,11 +759,26 @@ class PolarisApp {
                 continue;
             }
 
+            const index = item.dataset.index;
+
+            // Written whether or not the link field is free: a link already in
+            // the box is at worst a different pressing of the same recording,
+            // and the ISRC names the recording either way.
+            if (this.fillHiddenField(item, `track-isrc-${index}`, match.spotify.isrc)) {
+                codes++;
+            }
+
+            // Spotify's spelling, where the two differ. Discarding it was the
+            // old behaviour and threw away the one piece of information the
+            // disagreement actually carries.
+            if (this.fillHiddenField(item, `track-alt-title-${index}`, match.alt_title)) {
+                named++;
+            }
+
             // Selected by name, not id: the track row template gives these
             // inputs a name only (FormBuilder.js:351), which is also how
             // getInputValue reads them.
-            const input = item.querySelector(
-                `[name="track-listen-link-${item.dataset.index}"]`);
+            const input = item.querySelector(`[name="track-listen-link-${index}"]`);
             if (!input) continue;
             if (input.value.trim()) continue;
 
@@ -741,7 +786,7 @@ class PolarisApp {
             filled++;
         }
 
-        return { filled, unmatched };
+        return { filled, unmatched, codes, named };
     }
 
     /**
@@ -796,6 +841,20 @@ class PolarisApp {
                 ? `Filled ${filled.filled} track link(s). `
                     + `${filled.unmatched} track(s) had no confident match — left blank.`
                 : `Filled ${filled.filled} track link(s).`;
+            report.appendChild(line);
+        }
+
+        // Stated separately because it is not the same kind of fact: these go
+        // into the submission without appearing in any box on the form, so the
+        // only place a submitter can see them is here.
+        if (filled && (filled.codes > 0 || filled.named > 0)) {
+            const line = document.createElement('p');
+            const parts = [];
+            if (filled.codes > 0) parts.push(`${filled.codes} ISRC(s)`);
+            if (filled.named > 0) {
+                parts.push(`${filled.named} alternate title(s) where Spotify spells it differently`);
+            }
+            line.textContent = `Also recorded ${parts.join(' and ')}.`;
             report.appendChild(line);
         }
 
@@ -900,6 +959,21 @@ class PolarisApp {
             // Emit existing track_id if bound via autocomplete
             const trackId = this.getInputValue(item, `track-id-${index}`);
             if (trackId) track.track_id = trackId;
+
+            // Resolved by the Spotify cross-check rather than typed, which is
+            // why these two have no visible field. The ISRC is the recording's
+            // own identifier: normalizeReleaseBundle prefers it over anything
+            // derived from a title when it has to mint a provisional id, and it
+            // is the key the other streaming services can be asked about this
+            // recording with.
+            const isrc = this.getInputValue(item, `track-isrc-${index}`);
+            if (isrc) track.isrc = isrc;
+
+            // One spelling, carried as a list because that is the shape the
+            // bundle and the graph use. Stored as plain text rather than a
+            // comma-separated list on purpose: "Hey Hey, My My" is a title.
+            const altTitle = this.getInputValue(item, `track-alt-title-${index}`);
+            if (altTitle && altTitle !== title) track.alt_titles = [altTitle];
 
             // Song lookup: if user selected an existing song, use its ID
             const songId = this.getInputValue(item, `track-song-id-${index}`);

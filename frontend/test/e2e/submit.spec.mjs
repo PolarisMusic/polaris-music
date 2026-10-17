@@ -541,6 +541,143 @@ test.describe('filling track links from the release album link', () => {
     });
 });
 
+test.describe('codes and other spellings, from the same check', () => {
+    /**
+     * The Spotify check resolves two things that have no visible field on the
+     * form: the ISRC, which is the recording's own identifier and the key other
+     * services can be asked about it with, and Spotify's spelling of the title
+     * when it differs from the pressing's. Both used to be discarded — the ISRC
+     * was never read off the album response at all, and a title that did not
+     * match exactly lost its link too.
+     *
+     * Driven through the real form because the failure mode is invisible to
+     * unit tests: FormBuilder writes `track-isrc-${index}`, PolarisApp reads it
+     * back by the same string, and nothing checks that those two agree.
+     */
+    const ALBUM = {
+        success: true,
+        album: {
+            id: '1Fv2tUhCRhY3YE1Iqp1oBo',
+            name: 'Fire of Unknown Origin',
+            total_tracks: 2,
+            tracks: [
+                {
+                    id: 'trk1', name: 'Burnin\u2019 For You', track_number: 1,
+                    isrc: 'USSM17900123',
+                },
+                {
+                    // One character from the form's "Veteran Of The Psychic
+                    // Wars" — the disagreement this is all about.
+                    id: 'trk2', name: 'Veteran Of The Psychic War', track_number: 2,
+                    isrc: 'USSM17900124',
+                },
+            ],
+        },
+    };
+
+    async function importWith(page, titles) {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        for (const [index, title] of titles.entries()) {
+            await addOpenTrack(page, index);
+            await page.fill(`[name="track-title-${index}"]`, title);
+            await expect(page.locator(`[name="track-title-${index}"]`)).toHaveValue(title);
+        }
+
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+        await page.click('#import-track-links');
+
+        // The click returns before the check does. Every test below reads form
+        // state the fill leaves behind — a bundle read does not retry, so
+        // without this the assertions race the fetch and a test expecting a
+        // field to be ABSENT would pass whether the code works or not.
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+    }
+
+    test('the ISRC reaches the bundle', async ({ page }) => {
+        await importWith(page, ['Burnin\u2019 For You']);
+
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900123');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0].isrc).toBe('USSM17900123');
+    });
+
+    test('a near-identical title still gets its link', async ({ page }) => {
+        // Previously this row came back empty: exact-match-or-nothing threw
+        // away the link and the other spelling together.
+        await importWith(page, ['Veteran Of The Psychic Wars']);
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+    });
+
+    test('and the other spelling is kept as an alternate title', async ({ page }) => {
+        await importWith(page, ['Veteran Of The Psychic Wars']);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0].alt_titles).toEqual(['Veteran Of The Psychic War']);
+    });
+
+    test('an exact match records no alternate title', async ({ page }) => {
+        // Edition noise is not a spelling. If every "- Remastered" match wrote
+        // an alternate title, the registry would fill with catalogue cruft.
+        await importWith(page, ['Burnin\u2019 For You']);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+
+    test('the report says what it attached', async ({ page }) => {
+        // Neither value has a field on screen, so this is the only place a
+        // submitter can see that anything was added on their behalf.
+        await importWith(page, ['Burnin\u2019 For You', 'Veteran Of The Psychic Wars']);
+
+        const report = page.locator('#listen-link-report');
+        await expect(report).toContainText('2 ISRC(s)');
+        await expect(report).toContainText('1 alternate title(s)');
+    });
+
+    test('the ISRC is attached even to a track whose link was typed', async ({ page }) => {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Burnin\u2019 For You');
+        await page.fill('[name="track-listen-link-0"]', 'https://tidal.com/track/999');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+
+        await page.click('#import-track-links');
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        // The hand-typed link stands — it may be a different pressing — but the
+        // ISRC names the recording either way.
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://tidal.com/track/999');
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900123');
+    });
+
+    test('editing the title afterwards drops both', async ({ page }) => {
+        // They were resolved for the title that was in the box. An ISRC
+        // pointing at the wrong recording is worse than none: it is the key
+        // everything else gets matched by.
+        await importWith(page, ['Veteran Of The Psychic Wars']);
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900124');
+
+        await page.fill('[name="track-title-0"]', 'Something Else Entirely');
+
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('');
+        await expect(page.locator('[name="track-alt-title-0"]')).toHaveValue('');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0]).not.toHaveProperty('isrc');
+        expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+});
+
 test.describe('labels and their catalogue numbers', () => {
     /**
      * A release is issued by one or more labels, and each issuer stamps its own

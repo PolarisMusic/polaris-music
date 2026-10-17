@@ -492,6 +492,18 @@ function normalizeTrack(track) {
     if (track.track_id) normalized.track_id = track.track_id;
     if (track.duration !== undefined) normalized.duration = track.duration;
     if (track.isrc) normalized.isrc = track.isrc;
+
+    // Other spellings of this recording's title — what a streaming catalogue
+    // calls it when it disagrees with the pressing. The canonical title is
+    // dropped from the list if it turns up in it, since holding a title twice
+    // tells a reader nothing and makes the node's own title look disputed.
+    if (Array.isArray(track.alt_titles)) {
+        const altTitles = track.alt_titles
+            .filter(alt => typeof alt === 'string')
+            .map(alt => alt.trim())
+            .filter(alt => alt && alt !== normalized.title);
+        if (altTitles.length > 0) normalized.alt_titles = [...new Set(altTitles)];
+    }
     if (track.performed_by) normalized.performed_by = track.performed_by;
     if (track.recording_of) normalized.recording_of = track.recording_of;
     if (track.recording_date) normalized.recording_date = track.recording_date;

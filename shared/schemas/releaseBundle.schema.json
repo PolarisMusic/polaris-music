@@ -105,6 +105,7 @@
         "title": { "type": "string", "minLength": 1 },
         "duration": { "type": "number", "minimum": 0 },
         "isrc": { "type": "string" },
+        "alt_titles": { "type": "array", "items": { "type": "string" } },
         "performed_by": { "type": "string" },
         "recording_of": { "type": "string" },
         "recording_date": { "type": "string" },
