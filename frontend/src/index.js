@@ -700,8 +700,14 @@ class PolarisApp {
         }
 
         if (!result.success) {
-            report.textContent = `Imported ${imported} link(s). ${result.message
-                || 'The Spotify check is unavailable.'}`;
+            // `error` as well as `message`: a sanitized 5xx carries only the
+            // former, and the errorId with it is what matches this failure to
+            // a line in the server log. "Unavailable" on its own has sent
+            // enough people looking in the wrong place.
+            const detail = result.message || result.error
+                || 'The Spotify check is unavailable.';
+            const reference = result.errorId ? ` (ref ${result.errorId})` : '';
+            report.textContent = `Imported ${imported} link(s). ${detail}${reference}`;
             return;
         }
 

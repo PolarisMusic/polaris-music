@@ -283,6 +283,95 @@ describe('POST /api/spotify/album, by barcode', () => {
     });
 });
 
+describe('a failure the submitter can act on', () => {
+    /**
+     * What this replaces: a 502 whose sanitized body carries no message, which
+     * the form renders as "The Spotify check is unavailable" — true,
+     * unactionable, and identical whether the credentials are wrong, the app
+     * is restricted, the quota is spent, or the host has no outbound access.
+     * Each has a different fix and only one of them is a fault.
+     *
+     * That is not hypothetical: it is exactly what polaris.mu showed on
+     * 2026-10-17, and finding out which of the four it was meant reading the
+     * container logs.
+     */
+    const failing = (error) => appWith({
+        getAlbumWithTracks: async () => { throw error; },
+        getTracks: async () => { throw error; },
+    });
+
+    const ask = (app) => request(app).post('/api/spotify/album')
+        .send({ links: ['https://open.spotify.com/album/alb1'] });
+
+    test('rejected credentials name the credentials', async () => {
+        const res = await ask(failing(Object.assign(
+            new Error('Spotify token request failed with status 400'),
+            { status: 400, phase: 'token request' })));
+
+        expect(res.status).toBe(200);
+        expect(res.body.reason).toBe('credentials_rejected');
+        expect(res.body.message).toMatch(/SPOTIFY_CLIENT_ID/);
+        expect(res.body.message).toMatch(/400/);
+    });
+
+    test('missing credentials say so without inventing a status', async () => {
+        const res = await ask(failing(Object.assign(
+            new Error('Spotify credentials are not configured'),
+            { phase: 'token request' })));
+
+        expect(res.body.reason).toBe('credentials_rejected');
+        expect(res.body.message).not.toMatch(/HTTP/);
+    });
+
+    test('a 403 is reported as a refusal for this app', async () => {
+        const res = await ask(failing(Object.assign(
+            new Error('Spotify request failed with status 403'), { status: 403 })));
+
+        expect(res.body).toMatchObject({ success: false, reason: 'request_refused' });
+    });
+
+    test('a 429 is reported as rate limiting', async () => {
+        const res = await ask(failing(Object.assign(
+            new Error('Spotify request failed with status 429'), { status: 429 })));
+
+        expect(res.body.reason).toBe('rate_limited');
+    });
+
+    test('an unreachable host is not the registry failing', async () => {
+        // What a blocked egress or a bad DNS answer looks like from undici.
+        const res = await ask(failing(new TypeError('fetch failed')));
+
+        expect(res.status).toBe(200);
+        expect(res.body.reason).toBe('unreachable');
+        expect(res.body.message).toMatch(/outbound/);
+    });
+
+    test('a timeout is the same', async () => {
+        const res = await ask(failing(Object.assign(
+            new Error('This operation was aborted'), { name: 'AbortError' })));
+
+        expect(res.body.reason).toBe('unreachable');
+    });
+
+    test('anything else is still a 502', async () => {
+        // The classification must not swallow real faults — a bug in this
+        // server should look like one.
+        const res = await ask(failing(new Error('Cannot read properties of undefined')));
+
+        expect(res.status).toBe(502);
+        expect(res.body.success).toBe(false);
+    });
+
+    test('a 502 still carries something to grep for', async () => {
+        // The sanitized body has no `message`, so the form falls back to
+        // `error` plus the errorId, which is what matches the response to a
+        // line in the container log.
+        const res = await ask(failing(new Error('boom')));
+
+        expect(res.body.error).toBeTruthy();
+    });
+});
+
 describe('parseSpotifyRef', () => {
     test.each([
         ['a plain track URL',   'https://open.spotify.com/track/abc', { type: 'track', id: 'abc' }],
