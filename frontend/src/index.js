@@ -13,6 +13,7 @@ import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
 import { canonicalizeListenLink, normalizeListenLink, sameTarget } from './utils/listenLinks.js';
 import { diffTracklists, describeDifference, matchSpotifyTracks } from './utils/tracklistDiff.js';
+import { barcodesFrom } from './utils/discogsBarcode.js';
 
 class PolarisApp {
     constructor() {
@@ -659,6 +660,12 @@ class PolarisApp {
             return;
         }
 
+        // Read off the Discogs release this form was imported from, if it was.
+        // It is the only identifier a Discogs import can offer — Discogs holds
+        // no streaming ids at all — and it names the edition, which is the
+        // precision this comparison needs.
+        const barcode = this.discogsBarcodes?.[0] ?? null;
+
         // The release-level album link is a lookup key in its own right, and
         // the more useful direction of travel: it can fill in every track's
         // link, where track links can only ever be gathered up. Entering twelve
@@ -669,9 +676,11 @@ class PolarisApp {
 
         // Import the links regardless of whether the check can run: pulling
         // them up to the release is useful on its own.
-        const imported = this.mergeTrackLinksIntoRelease(links, target);
+        // Reassigned below if the check finds an album link to add, so the
+        // count the report prints is what the field actually ends up holding.
+        let imported = this.mergeTrackLinksIntoRelease(links, target);
 
-        if (links.length === 0 && !albumLink) {
+        if (links.length === 0 && !albumLink && !barcode) {
             report.textContent =
                 'No links to work from. Add a Spotify album link above, or a link to a track.';
             return;
@@ -681,7 +690,8 @@ class PolarisApp {
 
         let result;
         try {
-            result = await api.getSpotifyAlbum(albumLink ? [albumLink.url, ...links] : links);
+            result = await api.getSpotifyAlbum(
+                albumLink ? [albumLink.url, ...links] : links, barcode);
         } catch (error) {
             console.warn('Spotify check failed:', error);
             report.textContent =
@@ -697,8 +707,17 @@ class PolarisApp {
 
         const filled = this.fillTrackLinksFromAlbum(tracks, result.album.tracks);
 
+        // The album link belongs on the release, not only on the tracks: it is
+        // what the player uses for the album embed, and after a barcode match
+        // nothing else would ever put it there. Merged rather than assigned, so
+        // a link already in the field survives and its twin is not added twice.
+        if (result.album.id) {
+            imported = this.mergeTrackLinksIntoRelease(
+                [`https://open.spotify.com/album/${result.album.id}`], target);
+        }
+
         this.renderListenLinkReport(report, imported, result.album,
-            diffTracklists(tracks, result.album.tracks), filled);
+            diffTracklists(tracks, result.album.tracks), filled, result.matched_by);
     }
 
     /**
@@ -824,13 +843,21 @@ class PolarisApp {
      * @param {number} importedCount
      * @param {{name: string, total_tracks: number}} album
      * @param {{kind: string}[]} differences
+     * @param {{filled: number, unmatched: number, codes: number, named: number}} [filled]
+     * @param {string|null} [matchedBy] - 'link' or 'upc'; how the album was found.
      */
-    renderListenLinkReport(report, importedCount, album, differences, filled = null) {
+    renderListenLinkReport(report, importedCount, album, differences, filled = null,
+                           matchedBy = null) {
         report.innerHTML = '';
+
+        // Named explicitly when a barcode found it: nothing the submitter typed
+        // points at this release, so "compared against" would otherwise be a
+        // claim with no visible basis.
+        const how = matchedBy === 'upc' ? ', found by barcode' : '';
 
         const summary = document.createElement('p');
         summary.textContent = `Imported ${importedCount} link(s). `
-            + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks).`;
+            + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks)${how}.`;
         report.appendChild(summary);
 
         if (filled && (filled.filled > 0 || filled.unmatched > 0)) {
@@ -1697,6 +1724,20 @@ class PolarisApp {
             this.showDiscogsStatus(`✓ Successfully imported: ${releaseData.title}`, 'success');
             this.showToast(`Imported from Discogs: ${releaseData.title}`, 'success');
 
+            // One click, the whole chain: the barcode just imported is enough
+            // to find the streaming release, and that fills in every track's
+            // listen link, ISRC and alternate spelling. Doing it here rather
+            // than leaving a second button to press is the point — the
+            // submitter has already said which release this is.
+            //
+            // Deliberately not awaited into the import's own error handling: a
+            // failed or unconfigured cross-check must not make a successful
+            // Discogs import report itself as failed.
+            if (this.discogsBarcodes?.length > 0) {
+                this.importTrackListenLinks().catch(error =>
+                    console.warn('Spotify cross-check after import failed:', error));
+            }
+
         } catch (error) {
             console.error('Discogs fetch error:', error);
             this.showDiscogsStatus(`Error: ${error.message}`, 'error');
@@ -1711,6 +1752,10 @@ class PolarisApp {
         console.log('Populating form from Discogs data:', discogsRelease);
 
         // Clear existing dynamic fields
+        // The barcode goes with them: it belongs to the release being replaced,
+        // and if this import fails half-way the previous release's barcode must
+        // not be left behind to match a tracklist it has nothing to do with.
+        this.discogsBarcodes = [];
         document.getElementById('labels-container').innerHTML = '';
         document.getElementById('release-groups-container').innerHTML = '';
         document.getElementById('release-guests-container').innerHTML = '';
@@ -1977,6 +2022,12 @@ class PolarisApp {
         // Add source link
         const sourceLink = `https://www.discogs.com/release/${discogsRelease.id}`;
         document.getElementById('source-links').value = sourceLink;
+
+        // Kept in memory rather than in a field: this is a lookup key for the
+        // Spotify comparison, not part of the submission. No Release property
+        // holds a barcode yet, and inventing a hidden field for one would put
+        // data in the bundle that nothing on the backend reads.
+        this.discogsBarcodes = barcodesFrom(discogsRelease);
 
         console.log('Form populated successfully');
         console.log(`Added: ${mainGroups.length} groups, ${guestIndex} release guests`);

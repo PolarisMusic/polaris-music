@@ -33,6 +33,30 @@ const TOKEN_EXPIRY_MARGIN_MS = 60_000;
 const PAGE_SIZE = 50;
 
 /**
+ * How many albums a barcode search may come back with.
+ *
+ * A UPC identifies one release, so more than a couple of hits means the filter
+ * fell back to loose matching and the extras are not this release.
+ */
+const UPC_SEARCH_LIMIT = 3;
+
+/**
+ * An Error carrying the HTTP status that caused it.
+ *
+ * Callers need to tell apart a refusal they should explain — a 403 from
+ * /search, which a development-mode app gets whatever it asks for — from a
+ * failure they should report as a fault.
+ *
+ * @param {number} status
+ * @returns {Error}
+ */
+function statusError(status) {
+    const error = new Error(`Spotify request failed with status ${status}`);
+    error.status = status;
+    return error;
+}
+
+/**
  * fetch() with an enforced timeout.
  *
  * Mirrors the AbortController pattern in routes/curate.js, utils/verifyChainId.js
@@ -142,14 +166,38 @@ export class SpotifyClient {
             const retry = await this.fetch(`${API_BASE}${path}`, {
                 headers: { Authorization: `Bearer ${retryToken}` },
             });
-            if (!retry.ok) throw new Error(`Spotify request failed with status ${retry.status}`);
+            if (!retry.ok) throw statusError(retry.status);
             return retry.json();
         }
 
         if (!response.ok) {
-            throw new Error(`Spotify request failed with status ${response.status}`);
+            throw statusError(response.status);
         }
         return response.json();
+    }
+
+    /**
+     * Album ids Spotify files under a barcode.
+     *
+     * The `upc:` filter is the only identifier-based way into the catalogue
+     * from outside it: everything else about a release — artist, title, year —
+     * is a string two databases spell differently, which is the guesswork this
+     * avoids.
+     *
+     * The results are *simplified* album objects and carry no `external_ids`,
+     * so nothing here proves the barcode matched. Only the full album says
+     * that, which is why this returns candidates rather than an answer.
+     *
+     * @param {string} upc - Digits, as the sleeve prints them.
+     * @returns {Promise<string[]>} Album ids, Spotify's order.
+     */
+    async albumIdsByUpc(upc) {
+        const digits = String(upc ?? '').replace(/\D/g, '');
+        if (!digits) return [];
+
+        const query = encodeURIComponent(`upc:${digits}`);
+        const data = await this._get(`/search?q=${query}&type=album&limit=${UPC_SEARCH_LIMIT}`);
+        return (data.albums?.items ?? []).map(album => album?.id).filter(Boolean);
     }
 
     /**

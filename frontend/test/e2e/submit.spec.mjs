@@ -678,6 +678,182 @@ test.describe('codes and other spellings, from the same check', () => {
     });
 });
 
+test.describe('importing from Discogs, end to end', () => {
+    /**
+     * One click should do the whole chain: the Discogs release, then the
+     * streaming release it corresponds to, then every track's link, ISRC and
+     * alternate spelling. The bridge is the barcode — Discogs carries no
+     * streaming ids at all, so the alternative is matching on artist and
+     * title, which is the guesswork the cross-check exists to referee.
+     *
+     * Both APIs are stubbed. The Discogs client calls api.discogs.com from the
+     * browser directly (it is in the page's CSP), so that route is intercepted
+     * by its real URL rather than through our own API.
+     */
+    const DISCOGS_RELEASE = {
+        id: 249504,
+        title: 'Fire of Unknown Origin',
+        year: 1981,
+        released: '1981-06-01',
+        formats: [{ name: 'Vinyl' }],
+        labels: [{ name: 'Columbia', catno: 'FC 37389' }],
+        artists: [{ name: 'Blue Öyster Cult', id: 12345 }],
+        identifiers: [
+            { type: 'Matrix / Runout', value: 'AL-37389-1A' },
+            { type: 'Barcode', value: '0 7464-37389-1' },
+        ],
+        tracklist: [
+            { position: 'A1', type_: 'track', title: 'Fire Of Unknown Origin' },
+            // One character from Spotify's spelling, below.
+            { position: 'A2', type_: 'track', title: 'Burnin For You' },
+        ],
+    };
+
+    const SPOTIFY_ALBUM = {
+        success: true,
+        matched_by: 'upc',
+        album: {
+            id: 'AL1', name: 'Fire of Unknown Origin', total_tracks: 2, upc: '07464373891',
+            tracks: [
+                {
+                    id: 'trk1', name: 'Fire Of Unknown Origin', track_number: 1,
+                    isrc: 'USSM19810001',
+                },
+                {
+                    // Discogs drops the g; Spotify keeps it. A real spelling
+                    // difference, unlike an apostrophe — that normalizes away
+                    // and is not worth recording as another title.
+                    id: 'trk2', name: 'Burning For You', track_number: 2,
+                    isrc: 'USSM19810002',
+                },
+            ],
+        },
+    };
+
+    /**
+     * Drive the import, returning what the form sent to the Spotify endpoint.
+     *
+     * @param {import('@playwright/test').Page} page
+     * @param {Object} [options]
+     * @param {Object} [options.release] - The Discogs payload to serve.
+     * @param {Object} [options.album] - The Spotify answer to serve.
+     */
+    async function importFromDiscogs(page, { release = DISCOGS_RELEASE, album = SPOTIFY_ALBUM } = {}) {
+        const sent = [];
+
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) =>
+            route.fulfill({ contentType: 'application/json', body: JSON.stringify(release) }));
+        // The import also asks Discogs for the band's roster, to tell members
+        // from session players. Stubbed so these tests do not wait on a real
+        // request failing, which fetchDiscogsRoster swallows by design.
+        await page.route('https://api.discogs.com/artists/*', (route) =>
+            route.fulfill({ contentType: 'application/json', body: JSON.stringify({ members: [] }) }));
+        await page.route('**/spotify/album', (route) => {
+            sent.push(JSON.parse(route.request().postData() ?? '{}'));
+            return route.fulfill({ contentType: 'application/json', body: JSON.stringify(album) });
+        });
+
+        // The panel is a collapsed <details>, so the input is not visible until
+        // it is opened — Playwright will not type into it otherwise, which is
+        // confirmation the collapse is real rather than cosmetic.
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/249504');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+
+        return sent;
+    }
+
+    test('the barcode off the sleeve is what gets sent', async ({ page }) => {
+        const sent = await importFromDiscogs(page);
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+        // Digits only: the grouping Discogs prints is typography, and the
+        // matrix number in the same array is not a barcode.
+        expect(sent).toHaveLength(1);
+        expect(sent[0].upc).toBe('07464373891');
+    });
+
+    test('every track comes back with its link, without a second click', async ({ page }) => {
+        await importFromDiscogs(page);
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('[name="track-listen-link-1"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+    });
+
+    test('and with its ISRC and the other spelling', async ({ page }) => {
+        await importFromDiscogs(page);
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks.map(t => t.isrc)).toEqual(['USSM19810001', 'USSM19810002']);
+        // Two catalogues, two spellings, one recording: the link is filled
+        // anyway and the other spelling is kept rather than discarded with it.
+        expect(bundle.tracks[1].alt_titles).toEqual(['Burning For You']);
+        expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+
+    test('the matched album lands on the release, for the player', async ({ page }) => {
+        // After a barcode match nothing else would ever put it there, and the
+        // player's album embed reads the release's links, not the tracks'.
+        await importFromDiscogs(page);
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue('https://open.spotify.com/album/AL1');
+    });
+
+    test('the report says the barcode is what found it', async ({ page }) => {
+        // Nothing the submitter typed points at this release, so "compared
+        // against" would otherwise be a claim with no visible basis.
+        await importFromDiscogs(page);
+
+        await expect(page.locator('#listen-link-report')).toContainText('found by barcode');
+    });
+
+    test('a release with no barcode asks Spotify nothing', async ({ page }) => {
+        // There is nothing to look it up by, and guessing from the title is
+        // exactly what this must not do.
+        const sent = await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+        });
+
+        expect(sent).toEqual([]);
+        await expect(page.locator('#listen-link-report')).toBeEmpty();
+    });
+
+    test('a barcode Spotify cannot place leaves the form alone', async ({ page }) => {
+        await importFromDiscogs(page, {
+            album: { success: false, reason: 'upc_not_found', message: 'No release under that barcode.' },
+        });
+
+        await expect(page.locator('#listen-link-report')).toContainText('that barcode');
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue('');
+        // And the import itself still counts as a success.
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+    });
+
+    test('a failed cross-check does not make the import look failed', async ({ page }) => {
+        // The Discogs half succeeded, and that is most of the work. Reporting
+        // it as an error would send the submitter back to re-import.
+        await importFromDiscogs(page, {
+            album: { success: false, reason: 'search_unavailable',
+                message: 'Spotify refused the barcode search for this app.' },
+        });
+
+        await expect(page.locator('#discogs-status')).toHaveClass(/success/);
+        await expect(page.locator('#listen-link-report')).toContainText('refused');
+    });
+});
+
 test.describe('labels and their catalogue numbers', () => {
     /**
      * A release is issued by one or more labels, and each issuer stamps its own

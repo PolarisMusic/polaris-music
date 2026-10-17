@@ -146,3 +146,86 @@ describe('isrcsForTracks', () => {
         expect([...found]).toEqual([['b', 'X']]);
     });
 });
+
+describe('albumIdsByUpc', () => {
+    test('asks Spotify for the barcode, filtered', async () => {
+        const client = clientServing({ '/search': { albums: { items: [{ id: 'alb1' }] } } });
+
+        expect(await client.albumIdsByUpc('075992733625')).toEqual(['alb1']);
+        // The upc: filter is the only identifier-based way into the catalogue;
+        // a plain query would match on title and defeat the point.
+        expect(client.asked[0]).toContain('q=upc%3A075992733625');
+        expect(client.asked[0]).toContain('type=album');
+    });
+
+    test('a printed barcode is reduced to digits first', async () => {
+        const client = clientServing({ '/search': { albums: { items: [] } } });
+
+        await client.albumIdsByUpc('0 7599-27336-2');
+
+        expect(client.asked[0]).toContain('q=upc%3A07599273362');
+    });
+
+    test('asks nothing when there is no barcode', async () => {
+        const client = clientServing({});
+
+        expect(await client.albumIdsByUpc('')).toEqual([]);
+        expect(await client.albumIdsByUpc(null)).toEqual([]);
+        expect(client.asked).toEqual([]);
+    });
+
+    test('returns every candidate, in Spotify’s order', async () => {
+        const client = clientServing({
+            '/search': { albums: { items: [{ id: 'a' }, { id: 'b' }] } },
+        });
+
+        expect(await client.albumIdsByUpc('075992733625')).toEqual(['a', 'b']);
+    });
+
+    test('tolerates a response with no albums at all', async () => {
+        const client = clientServing({ '/search': {} });
+        expect(await client.albumIdsByUpc('075992733625')).toEqual([]);
+    });
+
+    test('drops items with no id rather than passing undefined along', async () => {
+        const client = clientServing({
+            '/search': { albums: { items: [null, { name: 'no id' }, { id: 'c' }] } },
+        });
+
+        expect(await client.albumIdsByUpc('075992733625')).toEqual(['c']);
+    });
+});
+
+describe('a failed request carries its status', () => {
+    /**
+     * The caller has to tell a refusal apart from a fault. Spotify answers 403
+     * to /search from an app still in development mode — a property of the
+     * credentials, not of the request — and reporting that as a server error
+     * sends somebody debugging the wrong machine.
+     */
+    const clientWithStatus = (status) => {
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        client.getAccessToken = async () => 'token';
+        client.fetch = async () => ({
+            ok: false,
+            status,
+            json: async () => ({}),
+        });
+        return client;
+    };
+
+    test('a 403 is reported as a 403', async () => {
+        await expect(clientWithStatus(403).albumIdsByUpc('075992733625'))
+            .rejects.toMatchObject({ status: 403 });
+    });
+
+    test('so is anything else', async () => {
+        await expect(clientWithStatus(503).albumIdsByUpc('075992733625'))
+            .rejects.toMatchObject({ status: 503 });
+    });
+
+    test('the message still names the status, as it always did', async () => {
+        await expect(clientWithStatus(500).albumIdsByUpc('075992733625'))
+            .rejects.toThrow(/status 500/);
+    });
+});

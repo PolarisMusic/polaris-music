@@ -84,6 +84,84 @@ async function resolveAlbumId(refs, client) {
 }
 
 /**
+ * Reduce a printed barcode to digits.
+ *
+ * Duplicated from frontend/src/utils/discogsBarcode.js rather than shared, for
+ * the same reason as parseSpotifyRef above and with the same obligation: the
+ * API image is built from ./backend alone (docker-compose context), so an
+ * import reaching into frontend/ is a file that does not exist in the
+ * container. The forms accepted are kept in step by hand, and both copies have
+ * their own tests.
+ *
+ * @param {string} value
+ * @returns {string} Digits only; '' when there is nothing usable.
+ */
+function barcodeDigits(value) {
+    const digits = String(value ?? '').replace(/\D/g, '');
+    return digits.length >= 8 && digits.length <= 14 ? digits : '';
+}
+
+/**
+ * Whether two barcodes name the same article, ignoring leading zeros.
+ *
+ * A 12-digit UPC-A and its 13-digit EAN form are the same number written for
+ * different scanners, and which one a catalogue stores is a coin toss.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function sameBarcode(a, b) {
+    const left = barcodeDigits(a).replace(/^0+/, '');
+    const right = barcodeDigits(b).replace(/^0+/, '');
+    return left.length > 0 && left === right;
+}
+
+/**
+ * The forms of a barcode worth asking Spotify about.
+ *
+ * The `upc:` filter matches the string it is given, so a UPC-A stored as a
+ * zero-padded EAN-13 is a miss unless both are tried. Two queries at most.
+ *
+ * @param {string} barcode
+ * @returns {string[]}
+ */
+function barcodeVariants(barcode) {
+    const digits = barcodeDigits(barcode);
+    if (!digits) return [];
+
+    const variants = [digits];
+    const padded = digits.replace(/^0+/, '').padStart(13, '0');
+    if (padded !== digits) variants.push(padded);
+    return variants;
+}
+
+/**
+ * Find the album a barcode names, and prove it before returning it.
+ *
+ * A search hit is Spotify's word that the barcode matched, not evidence of it:
+ * search returns *simplified* album objects, which carry no `external_ids` at
+ * all, so nothing in the result can be checked. The full album can be, and is.
+ * An unverified album here would attach a whole tracklist of links, ISRCs and
+ * titles to the wrong edition, silently, which is the one outcome this
+ * endpoint exists to prevent.
+ *
+ * @param {string} upc
+ * @param {SpotifyClient} client
+ * @returns {Promise<Object|null>} The album with its tracklist, or null.
+ */
+async function resolveAlbumByUpc(upc, client) {
+    for (const variant of barcodeVariants(upc)) {
+        const ids = await client.albumIdsByUpc(variant);
+        for (const id of ids) {
+            const album = await client.getAlbumWithTracks(id);
+            if (sameBarcode(album?.upc, upc)) return album;
+        }
+    }
+    return null;
+}
+
+/**
  * @param {Object} ctx - Server context.
  * @param {Object} ctx.config
  * @param {Function} ctx.writeRateLimiter
@@ -117,11 +195,13 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
             }
 
             const links = Array.isArray(req.body?.links) ? req.body.links : [];
-            if (links.length === 0) {
+            const upc = typeof req.body?.upc === 'string' ? req.body.upc : '';
+
+            if (links.length === 0 && !upc) {
                 return res.status(400).json({
                     success: false,
                     reason: 'no_links',
-                    message: 'Provide at least one Spotify link.',
+                    message: 'Provide a Spotify link or a barcode.',
                 });
             }
             if (links.length > MAX_LINKS) {
@@ -133,7 +213,7 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
             }
 
             const refs = links.map(parseSpotifyRef).filter(Boolean);
-            if (refs.length === 0) {
+            if (refs.length === 0 && !upc) {
                 return res.json({
                     success: false,
                     reason: 'no_spotify_links',
@@ -141,17 +221,52 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
                 });
             }
 
-            const albumId = await resolveAlbumId(refs, client);
-            if (!albumId) {
+            // A link the submitter supplied outranks a barcode read off a
+            // Discogs page: it is a statement about which release they mean,
+            // and the barcode is only ever a way of guessing it.
+            const albumId = refs.length > 0 ? await resolveAlbumId(refs, client) : null;
+            if (albumId) {
+                const album = await client.getAlbumWithTracks(albumId);
+                return res.json({ success: true, album, matched_by: 'link' });
+            }
+
+            if (upc) {
+                let album;
+                try {
+                    album = await resolveAlbumByUpc(upc, client);
+                } catch (error) {
+                    // 403 is the documented answer to /search from an app still
+                    // in development mode: a property of this deployment's
+                    // credentials rather than of the request. Reported as a
+                    // reason, because a 502 reads as "the server is broken"
+                    // when the truth is "this app cannot search". Caught here
+                    // rather than below so it only ever explains a search —
+                    // a 403 from anywhere else is still a fault.
+                    if (error?.status !== 403) throw error;
+
+                    return res.json({
+                        success: false,
+                        reason: 'search_unavailable',
+                        message: 'Spotify refused the barcode search for this app. '
+                            + 'Paste a Spotify album link instead.',
+                    });
+                }
+
+                if (album) return res.json({ success: true, album, matched_by: 'upc' });
+
                 return res.json({
                     success: false,
-                    reason: 'album_not_found',
-                    message: 'Could not work out which album those links belong to.',
+                    reason: 'upc_not_found',
+                    message: 'Spotify has no release under that barcode. '
+                        + 'Paste a Spotify album link to compare against instead.',
                 });
             }
 
-            const album = await client.getAlbumWithTracks(albumId);
-            res.json({ success: true, album });
+            return res.json({
+                success: false,
+                reason: 'album_not_found',
+                message: 'Could not work out which album those links belong to.',
+            });
         } catch (error) {
             console.error('Spotify lookup failed:', error.message);
             res.status(502).json(sanitizeError(error, req.requestId, {
@@ -165,5 +280,5 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
     return router;
 }
 
-export { parseSpotifyRef, resolveAlbumId };
+export { parseSpotifyRef, resolveAlbumId, resolveAlbumByUpc, barcodeVariants, sameBarcode };
 export default createSpotifyRoutes;
