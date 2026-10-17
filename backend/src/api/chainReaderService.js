@@ -83,6 +83,28 @@ export class ChainReaderService {
      * @returns {Promise<string>} 64-character block id
      */
     async getBlockId(blockNum) {
+        return (await this.getBlockInfo(blockNum)).id;
+    }
+
+    /**
+     * A block's id and the instant it was produced.
+     *
+     * Both are decided by the chain and fixed forever, so either can be used as
+     * an input a third party recomputes a result from. The timestamp is what
+     * pins the lottery's candidate set to the snapshot block: "the entrants
+     * that existed at block N" is only answerable against a time the chain
+     * agrees on, never against this server's clock.
+     *
+     * Antelope writes the timestamp without a zone — "2026-10-17T20:46:10.500"
+     * — and it is UTC. The Z is appended here rather than left to whatever
+     * reads it next, because Neo4j would otherwise parse it in the database's
+     * default timezone and compare it against UTC `created_at` values, which
+     * is a silent several-hour error in whichever direction the host is set.
+     *
+     * @param {number} blockNum
+     * @returns {Promise<{id: string, timestamp: string|null}>}
+     */
+    async getBlockInfo(blockNum) {
         const resp = await fetch(`${this.rpcUrl}/v1/chain/get_block_info`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -94,7 +116,12 @@ export class ChainReaderService {
         }
         const block = await resp.json();
         if (!block?.id) throw new Error(`get_block_info(${blockNum}) returned no id`);
-        return String(block.id).toLowerCase();
+
+        const stamp = typeof block.timestamp === 'string' ? block.timestamp : null;
+        return {
+            id: String(block.id).toLowerCase(),
+            timestamp: stamp && !/(Z|[+-]\d{2}:?\d{2})$/.test(stamp) ? `${stamp}Z` : stamp,
+        };
     }
 
     /**

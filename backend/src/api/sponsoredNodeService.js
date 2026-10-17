@@ -158,12 +158,44 @@ export class SponsoredNodeService {
     /**
      * @private
      */
+    /**
+     * The instant the snapshot block was produced, if the chain reader can say.
+     *
+     * Degrades to null rather than throwing, and the caller publishes that
+     * null — a draw taken over an unpinned field is weaker, and a verifier
+     * should be able to see that it was rather than having to deduce it.
+     *
+     * @private
+     * @param {number} snapshotBlock
+     * @returns {Promise<string|null>}
+     */
+    async _snapshotTime(snapshotBlock) {
+        if (typeof this.chain.getBlockInfo !== 'function') return null;
+        try {
+            return (await this.chain.getBlockInfo(snapshotBlock))?.timestamp ?? null;
+        } catch (error) {
+            log.warn('snapshot_time_unavailable', { error: error.message });
+            return null;
+        }
+    }
+
+    /**
+     * @private
+     */
     async _draw(period, config) {
-        const [candidates, seedHex, { stakes, stakeSource }] = await Promise.all([
-            this.graph.getLotteryCandidates(),
+        const [snapshotTime, seedHex, { stakes, stakeSource }] = await Promise.all([
+            this._snapshotTime(period.snapshotBlock),
             this.chain.getBlockId(period.seedBlock),
             this._readStakes(period.snapshotBlock),
         ]);
+
+        // Pinned to the snapshot block, which is the whole of what makes a
+        // draw reproducible. Read live — as it was until 2026-10-17 — the field
+        // grows with every submission, and because base_weight is 1 and
+        // scarcely anything is staked, each candidate has weight 1 and the
+        // winning offset indexes this list directly: one more entrant re-rolls
+        // the winner for the rest of the period, visibly, on the next restart.
+        const candidates = await this.graph.getLotteryCandidates(snapshotTime);
 
         if (!candidates?.length) {
             log.debug('no_eligible_candidates');
@@ -183,12 +215,14 @@ export class SponsoredNodeService {
         if (!draw) return null;
 
         const staked = withStakes.filter((c) => c.stakeUnits > 0n).length;
+        const undated = withStakes.filter((c) => c.dated === false).length;
 
         log.info('sponsored_node_drawn', {
             period: period.index,
             node: draw.winner.nodeId,
             candidates: withStakes.length,
             staked,
+            undated,
         });
 
         return {
@@ -203,6 +237,11 @@ export class SponsoredNodeService {
             draw: {
                 period: period.index,
                 snapshot_block: period.snapshotBlock,
+                // The time the chain stamped on that block, and the cutoff the
+                // candidate set was taken at. null means the field could not be
+                // pinned and was read live, which is the weaker draw — stated
+                // rather than left to be deduced from a result that moves.
+                snapshot_time: snapshotTime,
                 seed_block: period.seedBlock,
                 seed: seedHex,
                 base_weight: config.baseWeight.toString(),
@@ -212,6 +251,13 @@ export class SponsoredNodeService {
                 offset: draw.offset.toString(),
                 candidates: withStakes.length,
                 staked_candidates: staked,
+                // Entrants with no creation record, which are in the draw
+                // because excluding them would empty a registry older than the
+                // stamping. They are the part of the field a cutoff cannot
+                // pin, so the number is published rather than hidden: at zero
+                // the draw is fully reproducible, and above it this says by
+                // how much it is not.
+                undated_candidates: undated,
                 // Which read produced these stakes, because the two carry
                 // different guarantees. "snapshot" means they were summed from
                 // the indexed ledger as of snapshot_block — fixed a minute
