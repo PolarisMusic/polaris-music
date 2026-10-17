@@ -4,10 +4,11 @@ How a submission acquires the identifiers and the per-service links that let
 the same recording be found on another platform, what is built, and what is
 blocked on which third party.
 
-**Status**: the Spotify half is built and tested; §1 describes what it does.
-The "every other service" half is not started, and not for want of effort —
-the API everybody used for it was retired in July 2026. §3 is the evidence and
-the options that remain.
+**Status**: the Spotify chain is built (§1), and so is the first other
+service: Deezer, by ISRC, needing no credentials (§3). Apple Music, Tidal and
+YouTube Music each wait on one credential or on a lookup path that does not
+exist; §4.1 says which. Odesli, which would have answered for all of them at
+once, is gone — measured, not assumed (§4).
 
 ---
 
@@ -90,7 +91,36 @@ somebody printed would fill it with catalogue cruft.
 
 ---
 
-## 3. The other services: Odesli is gone
+## 3. And then the other services
+
+```
+each track's ISRC  ──POST /api/links/resolve {isrcs}──▶  provider table
+      → deezer:  GET api.deezer.com/track/isrc:{isrc}
+      → (apple, tidal: unconfigured, so not asked and not named)
+  → links appended to each track's listen-links field, keyed by ISRC
+```
+
+Appended, never replacing: a Spotify link and a Deezer link for the same
+recording both belong on the track. De-duplication is on normalized identity,
+so a locale-prefixed Deezer link with a share token does not get added beside
+its plain twin — which is why `frontend/src/utils/listenLinks.js` now knows
+Deezer's URL forms, including the bare two-letter locale segment (`/en/track/…`)
+that Spotify writes as `/intl-de/`.
+
+This runs *after* the tracklist report is rendered. It is a second round of
+requests to another service, and the comparison — the part a submitter is
+waiting on — should not sit behind it.
+
+Failures are quiet by design. A recording Deezer does not have is the common
+case, not an error: a 1981 B-side is frequently absent from a streaming
+catalogue entirely. A provider that throws costs only that provider; a
+provider with no credentials is not asked and does not appear in the
+`services` list, so a caller can tell "Deezer has not got it" from "Deezer was
+never asked".
+
+---
+
+## 4. Where the other services stand: Odesli is gone, Deezer is in
 
 The plan was Odesli (song.link): give it one platform's URL, get back the same
 recording on Apple Music, Deezer, Tidal, YouTube Music and others. One request
@@ -104,34 +134,52 @@ so the shutdown may be staged rather than clean. Either way it cannot be built
 on: an integration whose provider has announced its own removal is a dependency
 with a known expiry.
 
-Verified from this container: nothing. Outbound access to api.song.link and
-api.deezer.com is blocked by the dev environment's network policy, so the
-status above is from the announcement and from third-party reports, not from a
-request. **Before building any of §3.1, run the one-line check for that
-provider on the VPS, where egress is real.**
+**Measured from the production host on 2026-10-17**, since the dev container's
+egress to both hosts is blocked by policy:
 
-### 3.1 What is left, per service
+```
+$ curl -s -o /dev/null -w '%{http_code}\n' \
+    "https://api.song.link/v1-alpha.1/links?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F0Fl6Pl6w89IL1FWt8Uvg01"
+401
+
+$ curl -s "https://api.deezer.com/2.0/track/isrc:USSM17900123"
+{"error":{"type":"DataException","message":"no data","code":800}}
+```
+
+So: Odesli refuses an unauthenticated request outright, and Deezer answers one
+without credentials. The Deezer body there is a *miss* — that ISRC was made up
+— and its shape is the one `deezerClient.js` reads: HTTP 200 with an `error`
+object and no `id`. A client trusting the status code would take it for a hit.
+
+An access request was sent to Odesli on 2026-10-17; if a key arrives it becomes
+one more provider in the table rather than the thing the table depends on.
+
+### 4.1 What is left, per service
 
 | Service | Lookup by ISRC | What it needs | Verdict |
 |---|---|---|---|
-| Deezer | `GET api.deezer.com/2.0/track/isrc:{isrc}` | nothing | The only keyless option. Build first. |
+| Deezer | `GET api.deezer.com/track/isrc:{isrc}` | nothing | **Built.** `api/deezerClient.js` |
 | Apple Music | `/v1/catalog/{storefront}/songs?filter[isrc]=` | developer token (ES256 JWT, paid account) | Same credential MusicKit playback needs — see §4 of `13-user-onboarding.md` |
 | Tidal | `filter[isrc]` on its v2 API | OAuth client credentials | Free developer app, but another secret to hold |
 | YouTube Music | none | YouTube Data API key, then a *search* | No identifier path exists; a search is a guess |
 | MusicBrainz | ISRC → recording | nothing | Has the ISRC, rarely has streaming URLs |
 
-The shape this wants is a provider table — one function per service, each
-independently configured and independently skippable — rather than one resolver
-with a hard dependency. That is also what makes a retirement survivable: the
-Odesli lesson is that a single aggregator is a single point of failure for
-every service at once.
+The shape is a provider table — one client per service, each independently
+configured and independently skippable — rather than one resolver with a hard
+dependency. That is what makes a retirement survivable, and it is the Odesli
+lesson: a single aggregator is a single point of failure for every service at
+once. Adding a provider means a client with `isConfigured()` and
+`tracksByIsrcs()`, and one line in `createLinkRoutes`.
 
-Rate limits matter more than the code. Deezer allows roughly 50 requests per 5
-seconds per IP, so a fourteen-track album is one modest burst. Odesli's keyless
-tier was ~10 requests per minute, which was never going to fill a tracklist in
-one click — another reason the aggregator was the wrong shape for this.
+Odesli's keyless tier was ~10 requests per minute, which was never going to
+fill a tracklist in one click — another reason the aggregator was the wrong
+shape for this, quite apart from its retirement.
 
-### 3.2 Why bother, given the listen link already works
+Concurrency, not rate limits, is what the code worries about: Deezer allows
+roughly 50 requests per 5 seconds per IP, and this server has one IP for every
+submitter, so lookups run four at a time rather than as one burst per album.
+
+### 4.2 Why bother, given the listen link already works
 
 Because a Spotify URL is one service's address for a recording, and a visitor
 who does not use Spotify gets a dead end. The ISRC is already being recorded
@@ -142,16 +190,34 @@ anything.
 
 ---
 
-## 4. Open
+## 5. Open
 
 - **Release barcode.** The UPC is fetched, used, and thrown away. It identifies
   the pressing, which is exactly what a `Release` node is. Adding it means a
   property, a schema entry in both copies, a normalizer line and a doc row.
-- **Per-track resolution for one service** (Deezer, per §3.1) as a batch job
-  over `Track.isrc`, not as another call in the submission path.
+- **Backfill**: every `Track` already holding an ISRC predates this and has no
+  Deezer link. The resolver is a POST with a list of ISRCs, so a backfill is a
+  query for `Track.isrc` plus an ADD_CLAIM per answer — no submitter involved.
 - **Apple Music** is the one worth the credential, because the same developer
   token answers both this and playback — see the parked section in
   `13-user-onboarding.md`.
+
+---
+
+## Verifying it on a deployment
+
+```bash
+# Deezer needs no credentials, so this works on any host with egress.
+curl -s "https://api.deezer.com/track/isrc:USSM17900123" | head -c 200; echo
+#   {"error":…,"code":800}  → reachable, that ISRC is simply not in Deezer
+#   {"id":…,"title":…}      → reachable, and a hit
+
+# Through our own endpoint, which is what the form uses:
+curl -s -X POST http://127.0.0.1:3000/api/links/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"isrcs":["USSM17900123"]}'
+#   {"success":true,"links":{…},"services":["deezer"]}
+```
 
 ---
 

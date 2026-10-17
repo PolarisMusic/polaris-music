@@ -28,7 +28,8 @@ const GROUP_RESULT = {
     score: 10,
 };
 
-async function gotoForm(page, { searchResults = [], spotifyAlbum = null } = {}) {
+async function gotoForm(page,
+    { searchResults = [], spotifyAlbum = null, crossServiceLinks = null } = {}) {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(`${e.name}: ${e.message}`));
 
@@ -40,6 +41,12 @@ async function gotoForm(page, { searchResults = [], spotifyAlbum = null } = {}) 
         route.fulfill({
             contentType: 'application/json',
             body: JSON.stringify({ success: true, results: searchResults }),
+        }));
+    await page.route('**/links/resolve', (route) =>
+        route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify(crossServiceLinks
+                ?? { success: false, reason: 'not_configured', services: [] }),
         }));
     await page.route('**/spotify/album', (route) =>
         route.fulfill({
@@ -575,8 +582,8 @@ test.describe('codes and other spellings, from the same check', () => {
         },
     };
 
-    async function importWith(page, titles) {
-        await gotoForm(page, { spotifyAlbum: ALBUM });
+    async function importWith(page, titles, crossServiceLinks = null) {
+        await gotoForm(page, { spotifyAlbum: ALBUM, crossServiceLinks });
 
         for (const [index, title] of titles.entries()) {
             await addOpenTrack(page, index);
@@ -658,6 +665,155 @@ test.describe('codes and other spellings, from the same check', () => {
         await expect(page.locator('[name="track-listen-link-0"]'))
             .toHaveValue('https://tidal.com/track/999');
         await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900123');
+    });
+
+    test('the ISRC is what other services get looked up by', async ({ page }) => {
+        // The reason the ISRC is collected at all: a Spotify URL is one
+        // service's address for a recording, and a visitor who does not use
+        // Spotify gets a dead end.
+        const sent = [];
+        await gotoForm(page, {
+            spotifyAlbum: ALBUM,
+            crossServiceLinks: {
+                success: true,
+                services: ['deezer'],
+                links: { USSM17900123: { deezer: 'https://www.deezer.com/track/3135556' } },
+            },
+        });
+        page.on('request', (req) => {
+            if (req.url().includes('/links/resolve')) sent.push(JSON.parse(req.postData() ?? '{}'));
+        });
+
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Burnin\u2019 For You');
+        await expect(page.locator('[name="track-title-0"]')).toHaveValue('Burnin\u2019 For You');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+        await page.click('#import-track-links');
+
+        // The Deezer link lands beside the Spotify one rather than replacing it.
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue(
+            'https://open.spotify.com/track/trk1, https://www.deezer.com/track/3135556');
+        expect(sent).toEqual([{ isrcs: ['USSM17900123'] }]);
+    });
+
+    test('a track with no ISRC is not asked about', async ({ page }) => {
+        // Nothing to ask by: the row did not match Spotify, so no ISRC was
+        // written. Sending an empty string would spend a request on it.
+        const sent = [];
+        await gotoForm(page, {
+            spotifyAlbum: ALBUM,
+            crossServiceLinks: {
+                success: true,
+                services: ['deezer'],
+                links: { USSM17900123: { deezer: 'https://www.deezer.com/track/3135556' } },
+            },
+        });
+        page.on('request', (req) => {
+            if (req.url().includes('/links/resolve')) sent.push(JSON.parse(req.postData() ?? '{}'));
+        });
+
+        for (const [index, title] of [[0, 'Burnin\u2019 For You'],
+                                      [1, 'A Vinyl-Only Bonus']]) {
+            await addOpenTrack(page, index);
+            await page.fill(`[name="track-title-${index}"]`, title);
+            await expect(page.locator(`[name="track-title-${index}"]`)).toHaveValue(title);
+        }
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+        await page.click('#import-track-links');
+        // Wait for the resolution itself, not the report: the report is
+        // rendered before the lookup runs, so asserting on it would race.
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue(/deezer\.com/);
+
+        await expect(page.locator('#listen-link-report')).toContainText('no confident match');
+        expect(sent).toEqual([{ isrcs: ['USSM17900123'] }]);
+        await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
+    });
+
+    test('each row gets its own recording\u2019s link', async ({ page }) => {
+        // Keyed by ISRC, not by position: the answer comes back as a map and
+        // reading the first entry for every row would put one recording's link
+        // on another's — silently, and on a release where both are plausible.
+        await importWith(page, ['Burnin\u2019 For You', 'Veteran Of The Psychic Wars'], {
+            success: true,
+            services: ['deezer'],
+            links: {
+                USSM17900123: { deezer: 'https://www.deezer.com/track/111' },
+                USSM17900124: { deezer: 'https://www.deezer.com/track/222' },
+            },
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue(/track\/111$/);
+        await expect(page.locator('[name="track-listen-link-1"]'))
+            .toHaveValue(/track\/222$/);
+    });
+
+    test('the report names the service and the count', async ({ page }) => {
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['deezer'],
+            links: { USSM17900123: { deezer: 'https://www.deezer.com/track/3135556' } },
+        });
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Added 1 link(s) on deezer, matched by ISRC');
+    });
+
+    test('a recording another service does not have keeps what it had', async ({ page }) => {
+        // A B-side from 1981 is frequently absent from a streaming catalogue
+        // entirely, which is ordinary, not a failure.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true, services: ['deezer'], links: {},
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('#listen-link-report')).not.toContainText('matched by ISRC');
+    });
+
+    test('a link the field already holds is not added twice', async ({ page }) => {
+        // Deduplication is on normalized identity, so a locale-prefixed link
+        // with a share token matches its plain twin.
+        await gotoForm(page, {
+            spotifyAlbum: ALBUM,
+            crossServiceLinks: {
+                success: true,
+                services: ['deezer'],
+                links: { USSM17900123: { deezer: 'https://www.deezer.com/track/3135556' } },
+            },
+        });
+
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Burnin\u2019 For You');
+        await page.fill('[name="track-listen-link-0"]',
+            'https://www.deezer.com/en/track/3135556?utm_source=share');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+        await page.click('#import-track-links');
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        // Nothing added, and nothing rewritten either: what a submitter typed
+        // stays as they typed it, and extractTracks canonicalizes on the way
+        // into the bundle — so the registry gets one link, not two spellings.
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://www.deezer.com/en/track/3135556?utm_source=share');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0].listen_links).toEqual(['https://www.deezer.com/track/3135556']);
+    });
+
+    test('no providers configured adds nothing and says nothing', async ({ page }) => {
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: false, reason: 'not_configured', services: [],
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('#listen-link-report')).not.toContainText('matched by ISRC');
     });
 
     test('editing the title afterwards drops both', async ({ page }) => {

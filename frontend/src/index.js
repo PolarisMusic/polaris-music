@@ -718,6 +718,17 @@ class PolarisApp {
 
         this.renderListenLinkReport(report, imported, result.album,
             diffTracklists(tracks, result.album.tracks), filled, result.matched_by);
+
+        // After the report rather than before it: this is a second round of
+        // requests to other services, and the tracklist comparison — the part
+        // a submitter is waiting on — should not sit behind it.
+        const crossService = await this.importCrossServiceLinks();
+        if (crossService && crossService.added > 0) {
+            const line = document.createElement('p');
+            line.textContent = `Added ${crossService.added} link(s) on `
+                + `${crossService.services.join(', ')}, matched by ISRC.`;
+            report.appendChild(line);
+        }
     }
 
     /**
@@ -819,18 +830,90 @@ class PolarisApp {
      * @returns {number} How many distinct links the field now holds.
      */
     mergeTrackLinksIntoRelease(links, target) {
-        const existing = this.parseCommaSeparated(target.value);
+        this.appendListenLinks(target, links);
+        return this.parseCommaSeparated(target.value).length;
+    }
+
+    /**
+     * Add links to a listen-links field, skipping ones already there.
+     *
+     * De-duplication is on normalized identity rather than string equality, so
+     * a locale-prefixed link and its plain twin collapse into one. Nothing is
+     * ever removed or rewritten: whatever is in the field was put there by a
+     * submitter or by an earlier resolution, and both outrank this.
+     *
+     * @param {HTMLInputElement} input
+     * @param {string[]} links
+     * @returns {number} How many were actually added.
+     */
+    appendListenLinks(input, links) {
+        const existing = this.parseCommaSeparated(input.value);
+        let added = 0;
 
         for (const link of links) {
             const canonical = canonicalizeListenLink(link);
             if (!canonical) continue;
-            if (!existing.some(current => sameTarget(current, canonical))) {
-                existing.push(canonical);
-            }
+            if (existing.some(current => sameTarget(current, canonical))) continue;
+
+            existing.push(canonical);
+            added++;
         }
 
-        target.value = existing.join(', ');
-        return existing.length;
+        input.value = existing.join(', ');
+        return added;
+    }
+
+    /**
+     * Fill in what the same recordings are called on other services.
+     *
+     * Keyed on the ISRCs the Spotify check just wrote, which is the whole
+     * reason those are collected: a Spotify URL is one service's address for a
+     * recording, and a visitor who does not use Spotify gets a dead end. The
+     * ISRC is the recording's own name, so every other catalogue can be asked
+     * the same question.
+     *
+     * Appends; never replaces. Returns null when there was nothing to ask
+     * about or the answer was unusable — this is an extra, and a submission
+     * that cannot have it is not a submission in trouble.
+     *
+     * @returns {Promise<{added: number, services: string[]}|null>}
+     */
+    async importCrossServiceLinks() {
+        const rows = [...document.querySelectorAll('.track-item')]
+            .map(item => ({
+                item,
+                isrc: this.getInputValue(item, `track-isrc-${item.dataset.index}`),
+            }))
+            .filter(row => row.isrc);
+
+        if (rows.length === 0) return null;
+
+        let result;
+        try {
+            result = await api.resolveCrossServiceLinks(rows.map(row => row.isrc));
+        } catch (error) {
+            console.warn('Cross-service link lookup failed:', error);
+            return null;
+        }
+
+        // No check on `result.success`: every failure shape the endpoint
+        // returns — unconfigured, rejected, a sanitized 502 — simply has no
+        // `links`, so the lookup below finds nothing and nothing is written.
+        // A second guard saying the same thing is one no test could hold.
+
+        let added = 0;
+        for (const { item, isrc } of rows) {
+            const urls = Object.values(result.links?.[isrc] ?? {});
+            if (urls.length === 0) continue;
+
+            const input = item.querySelector(
+                `[name="track-listen-link-${item.dataset.index}"]`);
+            if (!input) continue;
+
+            added += this.appendListenLinks(input, urls);
+        }
+
+        return { added, services: result.services ?? [] };
     }
 
     /**

@@ -160,3 +160,79 @@ describe('sameTarget', () => {
         expect(sameTarget('not a url', 'also not a url')).toBe(false);
     });
 });
+
+describe('Deezer', () => {
+    /**
+     * Recognized because the backend resolves Deezer links from a track's
+     * ISRC. An unrecognized link is only tracking-stripped, so two spellings
+     * of the same track compare unequal and the field ends up holding both.
+     */
+    test('a track link canonicalizes', () => {
+        expect(normalizeListenLink('https://www.deezer.com/track/3135556')).toEqual({
+            service: 'deezer', type: 'track', id: '3135556',
+            url: 'https://www.deezer.com/track/3135556',
+        });
+    });
+
+    test('a bare locale segment is not the type', () => {
+        // Deezer writes /en/track/123 where Spotify writes /intl-de/track/123.
+        expect(normalizeListenLink('https://www.deezer.com/en/track/3135556')?.url)
+            .toBe('https://www.deezer.com/track/3135556');
+    });
+
+    test('the www is optional', () => {
+        expect(normalizeListenLink('https://deezer.com/track/3135556')?.url)
+            .toBe('https://www.deezer.com/track/3135556');
+    });
+
+    test('a share token is dropped', () => {
+        expect(normalizeListenLink('https://www.deezer.com/en/track/3135556?utm_source=share')?.url)
+            .toBe('https://www.deezer.com/track/3135556');
+    });
+
+    test('an album link is kept as an album link', () => {
+        expect(normalizeListenLink('https://www.deezer.com/album/302127')).toMatchObject({
+            service: 'deezer', type: 'album', id: '302127',
+        });
+    });
+
+    test('two spellings of the same track are the same target', () => {
+        // The reason any of this matters: without it, resolving a Deezer link
+        // for a track that already has one appends a near-duplicate.
+        expect(sameTarget(
+            'https://www.deezer.com/en/track/3135556?utm_source=share',
+            'https://deezer.com/track/3135556',
+        )).toBe(true);
+    });
+
+    test('a Deezer track and a Spotify track are not the same target', () => {
+        expect(sameTarget(
+            'https://www.deezer.com/track/3135556',
+            'https://open.spotify.com/track/3135556',
+        )).toBe(false);
+    });
+
+    test('a short link is not parsed into an id', () => {
+        // deezer.page.link/xyz is an opaque token only a redirect resolves.
+        // It is kept, tracking-stripped, rather than turned into a guess.
+        expect(normalizeListenLink('https://deezer.page.link/abc123')).toBeNull();
+        expect(canonicalizeListenLink('https://deezer.page.link/abc123?utm_source=x'))
+            .toBe('https://deezer.page.link/abc123');
+    });
+
+    test('a lookalike host is not Deezer', () => {
+        expect(normalizeListenLink('https://deezer.com.evil.test/track/1')).toBeNull();
+    });
+
+    test('a page with no type and id is not a link to anything', () => {
+        expect(normalizeListenLink('https://www.deezer.com/en')).toBeNull();
+        expect(normalizeListenLink('https://www.deezer.com/')).toBeNull();
+    });
+
+    test('Spotify still refuses a bare locale, which it does not use', () => {
+        // The locale rule is per service on purpose. Widening it for everyone
+        // would make /us/album/foo parse as an album on a host that means
+        // something else by that path.
+        expect(normalizeListenLink('https://open.spotify.com/en/track/abc')).toBeNull();
+    });
+});
