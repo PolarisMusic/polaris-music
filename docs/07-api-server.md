@@ -148,6 +148,7 @@ class APIServer {
             type Track {
                 id: String!
                 title: String!
+                alt_titles: [String!]
                 duration: Int
                 isrc: String
                 performedByGroup: Group
