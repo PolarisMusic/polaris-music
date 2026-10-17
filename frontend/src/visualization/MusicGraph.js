@@ -59,6 +59,27 @@ const GROUP_LABEL_PROXIMITY_RADIUS = 0.9;
 const HYPERTREE_ANIMATION_MS = 700;
 
 /**
+ * Does this element have a software keyboard open over it?
+ *
+ * Text entry only: a focused checkbox or button raises no keyboard, so a
+ * resize while one has focus is a real one.
+ *
+ * @param {Element|null} element
+ * @returns {boolean}
+ */
+function isTypingTarget(element) {
+    if (!element) return false;
+    if (element.isContentEditable) return true;
+    const tag = element.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag !== 'INPUT') return false;
+    // Everything the platform opens a keyboard for, which is every input type
+    // except the ones that are really buttons or pickers.
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color']
+        .includes((element.type || 'text').toLowerCase());
+}
+
+/**
  * The smallest a node is ever drawn, in canvas pixels.
  *
  * Without a floor the Poincare disk takes nodes to nothing: a person three
@@ -136,6 +157,23 @@ const SETTLE_MS = 640;
 const GROUP_LABEL_PROXIMITY_RADIUS_PHONE = 0.68;
 
 /** Rough width of a label character, for a label that has never been drawn. */
+/**
+ * How far from the selection a node is labelled whatever its radius.
+ *
+ * The radius rule alone is a statement about the layout, not about what the
+ * reader asked for, and the two part company at exactly the wrong moment: a
+ * band's own members land at a squared norm of 0.26 against a person's
+ * threshold of 0.25 — measured, in a six-node scene — so selecting a band
+ * leaves every one of its members an unnamed dot, by a hundredth.
+ *
+ * Hops say what the reader means. One hop is what they just asked about and
+ * is always labelled. Two is the ring beyond it, offered at a low priority so
+ * the collision pass keeps it where there is room and drops it where there is
+ * not — which is what stops a hub with thirty members from turning the disk
+ * into a wall of text.
+ */
+const LABEL_HOP_DEPTH = 2;
+
 const LABEL_CHAR_WIDTH_PX = 5.6;
 const LABEL_HEIGHT_PX = 14;
 
@@ -1285,6 +1323,34 @@ export class MusicGraph {
         if (width === this._lastCanvasWidth && height === this._lastCanvasHeight) {
             return;
         }
+
+        // A software keyboard is not a layout change worth redrawing for.
+        // Opening it shortens the container without touching its width, and
+        // the resize that follows rebuilds the canvas at the new height: the
+        // nodes keep the positions they were given and everything drawn from
+        // the canvas dimensions — the edges above all — is laid out again
+        // around them, which is the sloppy half-reflow you see under the
+        // keyboard while typing into the search box.
+        //
+        // The remembered height is deliberately left alone, so that dismissing
+        // the keyboard restores the dimensions this already holds and the bail
+        // above catches it. The graph sits still for both halves of the
+        // gesture rather than flinching at each one.
+        //
+        // Width-unchanged is what distinguishes the keyboard from a rotation
+        // or a window drag, and the touch-only test keeps a pointer device's
+        // ordinary resizes working while a field happens to have focus.
+        //
+        // Measured against the canvas rather than against _lastCanvasWidth:
+        // those are only written by this method, so before it has run once
+        // they are undefined and every comparison with them is false. The
+        // first resize of a session is exactly the keyboard one this is for.
+        const drawnWidth = this.ht.canvas.getSize?.()?.width;
+        if (width === drawnWidth && this._isTouchOnly()
+            && isTypingTarget(document.activeElement)) {
+            return;
+        }
+
         this._lastCanvasWidth = width;
         this._lastCanvasHeight = height;
 
@@ -1493,8 +1559,7 @@ export class MusicGraph {
             return;
         }
 
-        const selected = this.selectedNode;
-        const neighbours = this._selectionNeighbourIds();
+        const hops = this._selectionHopIds(LABEL_HOP_DEPTH);
         const candidates = [];
 
         this.ht.graph.eachNode((node) => {
@@ -1508,7 +1573,11 @@ export class MusicGraph {
             // leaves the node you came from at whatever radius its tree depth
             // dictates, which is usually past every threshold here, and an
             // anonymous dot is not a landmark.
-            const eligible = isSelected || hovered || isPrevious
+            // Connectedness earns a label as surely as proximity does: what is
+            // one or two hops from the selection is what the reader is asking
+            // about, wherever the layout happened to put it.
+            const hop = hops.get(node.id) || 0;
+            const eligible = isSelected || hovered || isPrevious || hop > 0
                 || centrality < this.labelThresholdFor(node);
             if (!eligible) return;
 
@@ -1516,8 +1585,9 @@ export class MusicGraph {
             if (isSelected) tier = LABEL_TIER.SELECTED;
             else if (hovered) tier = LABEL_TIER.HOVERED;
             else if (isPrevious) tier = LABEL_TIER.PREVIOUS;
-            else if (selected && neighbours.has(node.id)) tier = LABEL_TIER.NEIGHBOUR;
+            else if (hop === 1) tier = LABEL_TIER.NEIGHBOUR;
             else if ((node.data?.type || '').toLowerCase() === 'group') tier = LABEL_TIER.GROUP;
+            else if (hop > 1) tier = LABEL_TIER.SECOND_HOP;
             else tier = LABEL_TIER.OTHER;
 
             candidates.push({ id: node.id, tier, centrality, box: this._labelBox(node) });
@@ -1527,21 +1597,45 @@ export class MusicGraph {
     }
 
     /**
-     * The ids one hop from the selection.
+     * How many hops each nearby node is from the selection.
+     *
+     * A breadth-first walk out to `depth`, so the first distance found for a
+     * node is its shortest. Synthetic ROOT edges are skipped: they join
+     * everything to a node that is not part of the music, and following them
+     * would make the whole graph two hops from anywhere.
+     *
+     * Recomputed per plot, like the one-hop walk it replaces. The cost is the
+     * edges inside the neighbourhood rather than the size of the graph, and a
+     * plot is already redrawing every node on the canvas.
      *
      * @private
-     * @returns {Set<string>}
+     * @param {number} depth
+     * @returns {Map<string, number>} id -> hop count, 1-based; the selection
+     *   itself is not in the map
      */
-    _selectionNeighbourIds() {
-        const ids = new Set();
+    _selectionHopIds(depth) {
+        const hops = new Map();
         const selected = this.selectedNode;
-        if (!selected) return ids;
+        if (!selected || depth < 1) return hops;
 
-        selected.eachAdjacency?.((adj) => {
-            if ((adj.data?.type || '') === 'ROOT') return;
-            ids.add(adj.nodeFrom.id === selected.id ? adj.nodeTo.id : adj.nodeFrom.id);
-        });
-        return ids;
+        const seen = new Set([selected.id]);
+        let frontier = [selected];
+
+        for (let hop = 1; hop <= depth && frontier.length > 0; hop++) {
+            const next = [];
+            for (const node of frontier) {
+                node.eachAdjacency?.((adj) => {
+                    if ((adj.data?.type || '') === 'ROOT') return;
+                    const other = adj.nodeFrom.id === node.id ? adj.nodeTo : adj.nodeFrom;
+                    if (!other || seen.has(other.id)) return;
+                    seen.add(other.id);
+                    hops.set(other.id, hop);
+                    next.push(other);
+                });
+            }
+            frontier = next;
+        }
+        return hops;
     }
 
     /**

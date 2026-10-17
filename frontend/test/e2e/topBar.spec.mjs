@@ -251,6 +251,94 @@ test.describe('the bar on a phone', () => {
         expect(scroll).toBeLessThanOrEqual(client);
     });
 
+    test('the input is big enough that iOS will not zoom the page', async ({ page }) => {
+        // Reported from a phone: opening the search zoomed the whole page in,
+        // as if pinched, and stayed zoomed after the field was blurred.
+        //
+        // That is iOS doing it, not us: WebKit zooms the page whenever it
+        // focuses a text field whose font is under 16px, and the box was 13px.
+        // Sixteen is the threshold, so sixteen is what it gets. Chromium does
+        // not have the behaviour, so what is asserted here is the rule rather
+        // than the symptom — but the rule is the whole fix.
+        await boot(page);
+        await page.locator('#search-toggle').click();
+
+        const size = await page.locator('.node-search-input').evaluate(
+            (el) => parseFloat(getComputedStyle(el).fontSize));
+        expect(size).toBeGreaterThanOrEqual(16);
+    });
+
+    test('the same floor applies to the field editors', async ({ page }) => {
+        // Same mechanism, same page, and reached from the same phone: an
+        // inline editor opens a 13px input, so correcting a name would have
+        // zoomed the page too.
+        await boot(page);
+        const size = await page.evaluate(() => {
+            const probe = document.createElement('input');
+            probe.className = 'inline-edit-input';
+            document.body.appendChild(probe);
+            const value = parseFloat(getComputedStyle(probe).fontSize);
+            probe.remove();
+            return value;
+        });
+        expect(size).toBeGreaterThanOrEqual(16);
+    });
+
+    test('the keyboard coming up does not resize the graph', async ({ page }) => {
+        // The other half of the report: with the keyboard up the nodes stayed
+        // where they were while the edges were laid out again to fit what was
+        // left of the window. The keyboard shortens the container without
+        // touching its width, and the resize that followed rebuilt the canvas
+        // around node positions that had not moved.
+        await boot(page);
+        await page.locator('#search-toggle').click();
+        await expect(page.locator('.node-search-input')).toBeFocused();
+
+        const before = await page.evaluate(() => window.musicGraph.ht.canvas.getSize());
+        // What a keyboard does to the viewport: shorter, same width.
+        await page.setViewportSize({ width: 390, height: 500 });
+        await page.waitForTimeout(400);
+
+        expect(await page.evaluate(() => window.musicGraph.ht.canvas.getSize())).toEqual(before);
+    });
+
+    test('and dismissing it does not resize the graph either', async ({ page }) => {
+        // Counted rather than compared. The canvas ends the gesture at the
+        // size it started, with or without the fix — shrink it and grow it
+        // back and the numbers agree — so an end-state assertion passes while
+        // the reader watches the graph reflow twice. What is wrong is the
+        // flinching, so the flinches are what this counts.
+        await boot(page);
+        await page.locator('#search-toggle').click();
+        await page.evaluate(() => {
+            const canvas = window.musicGraph.ht.canvas;
+            window.__resizes = 0;
+            const real = canvas.resize.bind(canvas);
+            canvas.resize = (...args) => { window.__resizes++; return real(...args); };
+        });
+
+        await page.setViewportSize({ width: 390, height: 500 });   // keyboard up
+        await page.waitForTimeout(300);
+        await page.setViewportSize({ width: 390, height: 844 });   // keyboard away
+        await page.waitForTimeout(400);
+
+        expect(await page.evaluate(() => window.__resizes)).toBe(0);
+    });
+
+    test('but a real resize is still a real resize', async ({ page }) => {
+        // The guard is for the keyboard, not a licence to ignore the window.
+        // Nothing focused, same height-only change, and the canvas follows.
+        await boot(page);
+        const before = await page.evaluate(() => window.musicGraph.ht.canvas.getSize());
+
+        await page.setViewportSize({ width: 390, height: 500 });
+
+        await expect.poll(
+            () => page.evaluate(() => window.musicGraph.ht.canvas.getSize().height),
+            { timeout: 5000 }
+        ).not.toBe(before.height);
+    });
+
     test('a menu item opens its panel and closes the menu', async ({ page }) => {
         await boot(page);
         await page.locator('#top-bar-menu-toggle').click();

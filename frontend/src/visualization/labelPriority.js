@@ -10,8 +10,9 @@
  * Suppressing rather than stacking means something has to lose, so the order
  * matters more than the geometry. The order is what the visitor is doing: the
  * node they chose, the one they are pointing at, the ones connected to their
- * choice, then groups, then everybody else. Within a tier the one nearer the
- * centre of the disk wins, because that is the one they can actually read.
+ * choice, then groups, then what is two hops out, then everybody else. Within
+ * a tier the one nearer the centre of the disk wins, because that is the one
+ * they can actually read.
  *
  * Pure: boxes and ranks in, a set of survivors out. The measuring and the DOM
  * belong to the caller.
@@ -38,7 +39,14 @@ export const LABEL_TIER = {
     PREVIOUS: 2,
     NEIGHBOUR: 3,
     GROUP: 4,
-    OTHER: 5,
+    /*
+     * Two hops from the selection: the bands of the people in the band you
+     * are looking at, and the people in them. Below GROUP on purpose —
+     * groups are the skeleton a reader navigates by, and a crowded second
+     * ring should not bury the landmark it is arranged around.
+     */
+    SECOND_HOP: 5,
+    OTHER: 6,
 };
 
 /** Pixels of clear space required between two labels. */
