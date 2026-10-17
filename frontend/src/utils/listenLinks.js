@@ -27,6 +27,26 @@ const SERVICES = [
         hosts: ['open.spotify.com', 'play.spotify.com'],
         types: ['track', 'album', 'playlist', 'artist', 'episode', 'show'],
         canonical: (type, id) => `https://open.spotify.com/${type}/${id}`
+    },
+    {
+        // Recognized because the backend now resolves Deezer links from a
+        // track's ISRC, and an unrecognized link is only ever tracking-stripped
+        // — which leaves two spellings of the same track comparing unequal, so
+        // the same link gets stored twice.
+        //
+        // Deezer puts a bare two-letter locale in the path, as /en/track/123,
+        // where Spotify writes /intl-de/. Handled per service rather than by
+        // widening LOCALE_SEGMENT for everyone: a two-letter path segment is
+        // only meaningless here because Deezer says so.
+        service: 'deezer',
+        // Not deezer.page.link: a dynamic short link's path is an opaque token
+        // that only a redirect resolves, so claiming to parse it would mean
+        // inventing an id. Those fall through to being tracking-stripped,
+        // which is the honest answer for a link we cannot read.
+        hosts: ['deezer.com'],
+        types: ['track', 'album', 'playlist', 'artist'],
+        locale: /^[a-z]{2}$/i,
+        canonical: (type, id) => `https://www.deezer.com/${type}/${id}`
     }
 ];
 
@@ -66,9 +86,14 @@ export function normalizeListenLink(url) {
     if (!definition) return null;
 
     // Drop the locale prefix and the /embed/ marker, then expect type/id.
+    // A service's own `locale` pattern is consulted too, and only for that
+    // service — Deezer's bare /en/ would otherwise have to be allowed
+    // everywhere, which would make /us/album/... parse as type "album" on a
+    // host that means something else by it.
     const segments = parsed.pathname.split('/')
         .filter(Boolean)
-        .filter(seg => !LOCALE_SEGMENT.test(seg) && seg.toLowerCase() !== 'embed');
+        .filter(seg => !LOCALE_SEGMENT.test(seg) && seg.toLowerCase() !== 'embed')
+        .filter(seg => !(definition.locale?.test(seg) && !definition.types.includes(seg.toLowerCase())));
 
     const [type, id] = segments;
     if (!type || !id) return null;

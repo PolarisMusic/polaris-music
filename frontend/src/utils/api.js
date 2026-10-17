@@ -363,6 +363,27 @@ class APIClient {
         // to the submitter — so read the body rather than throwing on status.
         return response.json();
     }
+
+    /**
+     * Ask what the same recordings are called on other services.
+     *
+     * By ISRC, because that is the recording's own identifier rather than one
+     * service's address for it. The answer is keyed by ISRC and then by
+     * service, and a recording a service does not have is simply absent.
+     *
+     * @param {string[]} isrcs
+     * @returns {Promise<{success: boolean, reason?: string, message?: string,
+     *                    links?: Record<string, Record<string, string>>,
+     *                    services?: string[]}>}
+     */
+    async resolveCrossServiceLinks(isrcs) {
+        const response = await fetch(`${API_BASE_URL}/links/resolve`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ isrcs }),
+        });
+        return response.json();
+    }
 }
 
 export const api = new APIClient();

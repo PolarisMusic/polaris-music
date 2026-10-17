@@ -46,6 +46,7 @@ import { createCryptoRoutes } from './routes/crypto.js';
 import { createEntityRoutes } from './routes/entities.js';
 import { createSearchRoutes } from './routes/search.js';
 import { createSpotifyRoutes } from './routes/spotify.js';
+import { createLinkRoutes } from './routes/links.js';
 import { createCurateRoutes } from './routes/curate.js';
 import { createPlayerRoutes } from './routes/player.js';
 import { createGraphRoutes } from './routes/graph.js';
@@ -172,6 +173,11 @@ class APIServer {
         this.app.use('/api/search', createSearchRoutes(ctx));
         // Optional: reports itself unconfigured when SPOTIFY_* is unset.
         this.app.use('/api/spotify', createSpotifyRoutes(ctx));
+
+        // The same recording on other services, from the ISRCs the Spotify
+        // check records. Deezer needs no credentials, so this one answers on
+        // any deployment with outbound HTTPS.
+        this.app.use('/api/links', createLinkRoutes(ctx));
 
         // Curation
         this.app.use('/api/curate', createCurateRoutes(ctx));
