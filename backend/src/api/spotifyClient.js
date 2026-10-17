@@ -33,6 +33,30 @@ const TOKEN_EXPIRY_MARGIN_MS = 60_000;
 const PAGE_SIZE = 50;
 
 /**
+ * How many albums a barcode search may come back with.
+ *
+ * A UPC identifies one release, so more than a couple of hits means the filter
+ * fell back to loose matching and the extras are not this release.
+ */
+const UPC_SEARCH_LIMIT = 3;
+
+/**
+ * An Error carrying the HTTP status that caused it.
+ *
+ * Callers need to tell apart a refusal they should explain — a 403 from
+ * /search, which a development-mode app gets whatever it asks for — from a
+ * failure they should report as a fault.
+ *
+ * @param {number} status
+ * @returns {Error}
+ */
+function statusError(status) {
+    const error = new Error(`Spotify request failed with status ${status}`);
+    error.status = status;
+    return error;
+}
+
+/**
  * fetch() with an enforced timeout.
  *
  * Mirrors the AbortController pattern in routes/curate.js, utils/verifyChainId.js
@@ -142,14 +166,38 @@ export class SpotifyClient {
             const retry = await this.fetch(`${API_BASE}${path}`, {
                 headers: { Authorization: `Bearer ${retryToken}` },
             });
-            if (!retry.ok) throw new Error(`Spotify request failed with status ${retry.status}`);
+            if (!retry.ok) throw statusError(retry.status);
             return retry.json();
         }
 
         if (!response.ok) {
-            throw new Error(`Spotify request failed with status ${response.status}`);
+            throw statusError(response.status);
         }
         return response.json();
+    }
+
+    /**
+     * Album ids Spotify files under a barcode.
+     *
+     * The `upc:` filter is the only identifier-based way into the catalogue
+     * from outside it: everything else about a release — artist, title, year —
+     * is a string two databases spell differently, which is the guesswork this
+     * avoids.
+     *
+     * The results are *simplified* album objects and carry no `external_ids`,
+     * so nothing here proves the barcode matched. Only the full album says
+     * that, which is why this returns candidates rather than an answer.
+     *
+     * @param {string} upc - Digits, as the sleeve prints them.
+     * @returns {Promise<string[]>} Album ids, Spotify's order.
+     */
+    async albumIdsByUpc(upc) {
+        const digits = String(upc ?? '').replace(/\D/g, '');
+        if (!digits) return [];
+
+        const query = encodeURIComponent(`upc:${digits}`);
+        const data = await this._get(`/search?q=${query}&type=album&limit=${UPC_SEARCH_LIMIT}`);
+        return (data.albums?.items ?? []).map(album => album?.id).filter(Boolean);
     }
 
     /**
@@ -165,15 +213,53 @@ export class SpotifyClient {
     }
 
     /**
+     * The ISRC of each of these tracks, where Spotify knows one.
+     *
+     * Not available from either album endpoint: both return *simplified* track
+     * objects, which carry no `external_ids` at all. The ISRC lives on the full
+     * object, so it costs one extra request per fifty tracks — a dozen-track
+     * album pays for one, a box set for two.
+     *
+     * Worth the request because an ISRC is how the registry names a recording:
+     * `prov:track:isrc:{isrc}` is the first choice of provisional id, ahead of
+     * anything derived from a title, and it is the key every other streaming
+     * service can be asked about the same recording with.
+     *
+     * @param {string[]} ids - Spotify track ids.
+     * @returns {Promise<Map<string, string>>} track id -> ISRC, absent where
+     *   Spotify has none.
+     */
+    async isrcsForTracks(ids) {
+        const found = new Map();
+        const real = (ids ?? []).filter(Boolean);
+
+        for (let offset = 0; offset < real.length; offset += PAGE_SIZE) {
+            const batch = await this.getTracks(real.slice(offset, offset + PAGE_SIZE));
+            for (const track of batch) {
+                const isrc = track?.external_ids?.isrc;
+                if (track?.id && isrc) found.set(track.id, isrc);
+            }
+        }
+        return found;
+    }
+
+    /**
      * Fetch an album with its complete tracklist.
      *
      * Spotify pages album tracks, and the album object itself carries only the
      * first page — a release longer than 50 tracks would silently come back
      * truncated, which for a comparison tool would read as "tracks missing".
      *
+     * The codes come back too, and they are not the same code: a UPC names the
+     * release and an ISRC names each recording on it. Confusing the two is easy
+     * and expensive — matching a whole album by one of its tracks' ISRCs finds
+     * whichever release that recording also appears on, which for a hit single
+     * is a compilation nobody asked about.
+     *
      * @param {string} albumId
      * @returns {Promise<{id: string, name: string, release_date: string,
-     *                    total_tracks: number, tracks: Object[]}>}
+     *                    total_tracks: number, upc: string|null,
+     *                    tracks: Object[]}>}
      */
     async getAlbumWithTracks(albumId) {
         const album = await this._get(`/albums/${encodeURIComponent(albumId)}`);
@@ -189,17 +275,21 @@ export class SpotifyClient {
             offset += items.length;
         }
 
+        const isrcs = await this.isrcsForTracks(tracks.map(t => t.id));
+
         return {
             id: album.id,
             name: album.name,
             release_date: album.release_date,
             total_tracks: album.total_tracks,
+            upc: album.external_ids?.upc ?? null,
             tracks: tracks.map(t => ({
                 id: t.id,
                 name: t.name,
                 track_number: t.track_number,
                 disc_number: t.disc_number,
                 duration_ms: t.duration_ms,
+                isrc: isrcs.get(t.id) ?? null,
             })),
         };
     }

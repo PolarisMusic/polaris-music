@@ -357,6 +357,10 @@ class MusicGraphDatabase {
                 await tx.run(`
                     MERGE (t:Track {track_id: $trackId})
                     SET t.title = $title,
+                        // coalesce, not assign: an alternate spelling is
+                        // additive, and a later bundle that says nothing about
+                        // it must not be read as "there are none".
+                        t.alt_titles = coalesce($altTitles, t.alt_titles, []),
                         t.isrc = $isrc,
                         t.duration = $duration,
                         t.recording_date = $recordingDate,
@@ -367,6 +371,7 @@ class MusicGraphDatabase {
                 `, {
                     trackId,
                     title: track.title,
+                    altTitles: track.alt_titles?.length ? track.alt_titles : null,
                     isrc: track.isrc,
                     duration: track.duration,
                     recordingDate: track.recording_date,
@@ -935,8 +940,8 @@ CONSIDER THIS SECTION CANONICAL
 |-----------|---------|----------------|
 | Person | Individual musician/artist | person_id, name, bio, status |
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
-| Song | Musical composition | song_id, title, iswc, writers |
-| Track | Recording of a song | track_id, title, isrc, duration, listen_links, lyrics, trivia |
+| Song | Musical composition | song_id, title, alt_titles, iswc, writers |
+| Track | Recording of a song | track_id, title, alt_titles, isrc, duration, listen_links, lyrics, trivia |
 | Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, country, catalog_number *(release-wide fallback; see below)*, listen_links, master_id, is_master_release |
 | Master | Canonical album grouping | master_id, name, status |
 | Label | Record label | label_id, name |

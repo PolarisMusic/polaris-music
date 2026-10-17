@@ -541,6 +541,319 @@ test.describe('filling track links from the release album link', () => {
     });
 });
 
+test.describe('codes and other spellings, from the same check', () => {
+    /**
+     * The Spotify check resolves two things that have no visible field on the
+     * form: the ISRC, which is the recording's own identifier and the key other
+     * services can be asked about it with, and Spotify's spelling of the title
+     * when it differs from the pressing's. Both used to be discarded — the ISRC
+     * was never read off the album response at all, and a title that did not
+     * match exactly lost its link too.
+     *
+     * Driven through the real form because the failure mode is invisible to
+     * unit tests: FormBuilder writes `track-isrc-${index}`, PolarisApp reads it
+     * back by the same string, and nothing checks that those two agree.
+     */
+    const ALBUM = {
+        success: true,
+        album: {
+            id: '1Fv2tUhCRhY3YE1Iqp1oBo',
+            name: 'Fire of Unknown Origin',
+            total_tracks: 2,
+            tracks: [
+                {
+                    id: 'trk1', name: 'Burnin\u2019 For You', track_number: 1,
+                    isrc: 'USSM17900123',
+                },
+                {
+                    // One character from the form's "Veteran Of The Psychic
+                    // Wars" — the disagreement this is all about.
+                    id: 'trk2', name: 'Veteran Of The Psychic War', track_number: 2,
+                    isrc: 'USSM17900124',
+                },
+            ],
+        },
+    };
+
+    async function importWith(page, titles) {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        for (const [index, title] of titles.entries()) {
+            await addOpenTrack(page, index);
+            await page.fill(`[name="track-title-${index}"]`, title);
+            await expect(page.locator(`[name="track-title-${index}"]`)).toHaveValue(title);
+        }
+
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+        await page.click('#import-track-links');
+
+        // The click returns before the check does. Every test below reads form
+        // state the fill leaves behind — a bundle read does not retry, so
+        // without this the assertions race the fetch and a test expecting a
+        // field to be ABSENT would pass whether the code works or not.
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+    }
+
+    test('the ISRC reaches the bundle', async ({ page }) => {
+        await importWith(page, ['Burnin\u2019 For You']);
+
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900123');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0].isrc).toBe('USSM17900123');
+    });
+
+    test('a near-identical title still gets its link', async ({ page }) => {
+        // Previously this row came back empty: exact-match-or-nothing threw
+        // away the link and the other spelling together.
+        await importWith(page, ['Veteran Of The Psychic Wars']);
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+    });
+
+    test('and the other spelling is kept as an alternate title', async ({ page }) => {
+        await importWith(page, ['Veteran Of The Psychic Wars']);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0].alt_titles).toEqual(['Veteran Of The Psychic War']);
+    });
+
+    test('an exact match records no alternate title', async ({ page }) => {
+        // Edition noise is not a spelling. If every "- Remastered" match wrote
+        // an alternate title, the registry would fill with catalogue cruft.
+        await importWith(page, ['Burnin\u2019 For You']);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+
+    test('the report says what it attached', async ({ page }) => {
+        // Neither value has a field on screen, so this is the only place a
+        // submitter can see that anything was added on their behalf.
+        await importWith(page, ['Burnin\u2019 For You', 'Veteran Of The Psychic Wars']);
+
+        const report = page.locator('#listen-link-report');
+        await expect(report).toContainText('2 ISRC(s)');
+        await expect(report).toContainText('1 alternate title(s)');
+    });
+
+    test('the ISRC is attached even to a track whose link was typed', async ({ page }) => {
+        await gotoForm(page, { spotifyAlbum: ALBUM });
+
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Burnin\u2019 For You');
+        await page.fill('[name="track-listen-link-0"]', 'https://tidal.com/track/999');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+
+        await page.click('#import-track-links');
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        // The hand-typed link stands — it may be a different pressing — but the
+        // ISRC names the recording either way.
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://tidal.com/track/999');
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900123');
+    });
+
+    test('editing the title afterwards drops both', async ({ page }) => {
+        // They were resolved for the title that was in the box. An ISRC
+        // pointing at the wrong recording is worse than none: it is the key
+        // everything else gets matched by.
+        await importWith(page, ['Veteran Of The Psychic Wars']);
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('USSM17900124');
+
+        await page.fill('[name="track-title-0"]', 'Something Else Entirely');
+
+        await expect(page.locator('[name="track-isrc-0"]')).toHaveValue('');
+        await expect(page.locator('[name="track-alt-title-0"]')).toHaveValue('');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0]).not.toHaveProperty('isrc');
+        expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+});
+
+test.describe('importing from Discogs, end to end', () => {
+    /**
+     * One click should do the whole chain: the Discogs release, then the
+     * streaming release it corresponds to, then every track's link, ISRC and
+     * alternate spelling. The bridge is the barcode — Discogs carries no
+     * streaming ids at all, so the alternative is matching on artist and
+     * title, which is the guesswork the cross-check exists to referee.
+     *
+     * Both APIs are stubbed. The Discogs client calls api.discogs.com from the
+     * browser directly (it is in the page's CSP), so that route is intercepted
+     * by its real URL rather than through our own API.
+     */
+    const DISCOGS_RELEASE = {
+        id: 249504,
+        title: 'Fire of Unknown Origin',
+        year: 1981,
+        released: '1981-06-01',
+        formats: [{ name: 'Vinyl' }],
+        labels: [{ name: 'Columbia', catno: 'FC 37389' }],
+        artists: [{ name: 'Blue Öyster Cult', id: 12345 }],
+        identifiers: [
+            { type: 'Matrix / Runout', value: 'AL-37389-1A' },
+            { type: 'Barcode', value: '0 7464-37389-1' },
+        ],
+        tracklist: [
+            { position: 'A1', type_: 'track', title: 'Fire Of Unknown Origin' },
+            // One character from Spotify's spelling, below.
+            { position: 'A2', type_: 'track', title: 'Burnin For You' },
+        ],
+    };
+
+    const SPOTIFY_ALBUM = {
+        success: true,
+        matched_by: 'upc',
+        album: {
+            id: 'AL1', name: 'Fire of Unknown Origin', total_tracks: 2, upc: '07464373891',
+            tracks: [
+                {
+                    id: 'trk1', name: 'Fire Of Unknown Origin', track_number: 1,
+                    isrc: 'USSM19810001',
+                },
+                {
+                    // Discogs drops the g; Spotify keeps it. A real spelling
+                    // difference, unlike an apostrophe — that normalizes away
+                    // and is not worth recording as another title.
+                    id: 'trk2', name: 'Burning For You', track_number: 2,
+                    isrc: 'USSM19810002',
+                },
+            ],
+        },
+    };
+
+    /**
+     * Drive the import, returning what the form sent to the Spotify endpoint.
+     *
+     * @param {import('@playwright/test').Page} page
+     * @param {Object} [options]
+     * @param {Object} [options.release] - The Discogs payload to serve.
+     * @param {Object} [options.album] - The Spotify answer to serve.
+     */
+    async function importFromDiscogs(page, { release = DISCOGS_RELEASE, album = SPOTIFY_ALBUM } = {}) {
+        const sent = [];
+
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) =>
+            route.fulfill({ contentType: 'application/json', body: JSON.stringify(release) }));
+        // The import also asks Discogs for the band's roster, to tell members
+        // from session players. Stubbed so these tests do not wait on a real
+        // request failing, which fetchDiscogsRoster swallows by design.
+        await page.route('https://api.discogs.com/artists/*', (route) =>
+            route.fulfill({ contentType: 'application/json', body: JSON.stringify({ members: [] }) }));
+        await page.route('**/spotify/album', (route) => {
+            sent.push(JSON.parse(route.request().postData() ?? '{}'));
+            return route.fulfill({ contentType: 'application/json', body: JSON.stringify(album) });
+        });
+
+        // The panel is a collapsed <details>, so the input is not visible until
+        // it is opened — Playwright will not type into it otherwise, which is
+        // confirmation the collapse is real rather than cosmetic.
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/249504');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+
+        return sent;
+    }
+
+    test('the barcode off the sleeve is what gets sent', async ({ page }) => {
+        const sent = await importFromDiscogs(page);
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+        // Digits only: the grouping Discogs prints is typography, and the
+        // matrix number in the same array is not a barcode.
+        expect(sent).toHaveLength(1);
+        expect(sent[0].upc).toBe('07464373891');
+    });
+
+    test('every track comes back with its link, without a second click', async ({ page }) => {
+        await importFromDiscogs(page);
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('[name="track-listen-link-1"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+    });
+
+    test('and with its ISRC and the other spelling', async ({ page }) => {
+        await importFromDiscogs(page);
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks.map(t => t.isrc)).toEqual(['USSM19810001', 'USSM19810002']);
+        // Two catalogues, two spellings, one recording: the link is filled
+        // anyway and the other spelling is kept rather than discarded with it.
+        expect(bundle.tracks[1].alt_titles).toEqual(['Burning For You']);
+        expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+
+    test('the matched album lands on the release, for the player', async ({ page }) => {
+        // After a barcode match nothing else would ever put it there, and the
+        // player's album embed reads the release's links, not the tracks'.
+        await importFromDiscogs(page);
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue('https://open.spotify.com/album/AL1');
+    });
+
+    test('the report says the barcode is what found it', async ({ page }) => {
+        // Nothing the submitter typed points at this release, so "compared
+        // against" would otherwise be a claim with no visible basis.
+        await importFromDiscogs(page);
+
+        await expect(page.locator('#listen-link-report')).toContainText('found by barcode');
+    });
+
+    test('a release with no barcode asks Spotify nothing', async ({ page }) => {
+        // There is nothing to look it up by, and guessing from the title is
+        // exactly what this must not do.
+        const sent = await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+        });
+
+        expect(sent).toEqual([]);
+        await expect(page.locator('#listen-link-report')).toBeEmpty();
+    });
+
+    test('a barcode Spotify cannot place leaves the form alone', async ({ page }) => {
+        await importFromDiscogs(page, {
+            album: { success: false, reason: 'upc_not_found', message: 'No release under that barcode.' },
+        });
+
+        await expect(page.locator('#listen-link-report')).toContainText('that barcode');
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue('');
+        // And the import itself still counts as a success.
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+    });
+
+    test('a failed cross-check does not make the import look failed', async ({ page }) => {
+        // The Discogs half succeeded, and that is most of the work. Reporting
+        // it as an error would send the submitter back to re-import.
+        await importFromDiscogs(page, {
+            album: { success: false, reason: 'search_unavailable',
+                message: 'Spotify refused the barcode search for this app.' },
+        });
+
+        await expect(page.locator('#discogs-status')).toHaveClass(/success/);
+        await expect(page.locator('#listen-link-report')).toContainText('refused');
+    });
+});
+
 test.describe('labels and their catalogue numbers', () => {
     /**
      * A release is issued by one or more labels, and each issuer stamps its own

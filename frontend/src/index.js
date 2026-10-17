@@ -13,6 +13,7 @@ import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
 import { canonicalizeListenLink, normalizeListenLink, sameTarget } from './utils/listenLinks.js';
 import { diffTracklists, describeDifference, matchSpotifyTracks } from './utils/tracklistDiff.js';
+import { barcodesFrom } from './utils/discogsBarcode.js';
 
 class PolarisApp {
     constructor() {
@@ -659,6 +660,12 @@ class PolarisApp {
             return;
         }
 
+        // Read off the Discogs release this form was imported from, if it was.
+        // It is the only identifier a Discogs import can offer — Discogs holds
+        // no streaming ids at all — and it names the edition, which is the
+        // precision this comparison needs.
+        const barcode = this.discogsBarcodes?.[0] ?? null;
+
         // The release-level album link is a lookup key in its own right, and
         // the more useful direction of travel: it can fill in every track's
         // link, where track links can only ever be gathered up. Entering twelve
@@ -669,9 +676,11 @@ class PolarisApp {
 
         // Import the links regardless of whether the check can run: pulling
         // them up to the release is useful on its own.
-        const imported = this.mergeTrackLinksIntoRelease(links, target);
+        // Reassigned below if the check finds an album link to add, so the
+        // count the report prints is what the field actually ends up holding.
+        let imported = this.mergeTrackLinksIntoRelease(links, target);
 
-        if (links.length === 0 && !albumLink) {
+        if (links.length === 0 && !albumLink && !barcode) {
             report.textContent =
                 'No links to work from. Add a Spotify album link above, or a link to a track.';
             return;
@@ -681,7 +690,8 @@ class PolarisApp {
 
         let result;
         try {
-            result = await api.getSpotifyAlbum(albumLink ? [albumLink.url, ...links] : links);
+            result = await api.getSpotifyAlbum(
+                albumLink ? [albumLink.url, ...links] : links, barcode);
         } catch (error) {
             console.warn('Spotify check failed:', error);
             report.textContent =
@@ -697,21 +707,58 @@ class PolarisApp {
 
         const filled = this.fillTrackLinksFromAlbum(tracks, result.album.tracks);
 
+        // The album link belongs on the release, not only on the tracks: it is
+        // what the player uses for the album embed, and after a barcode match
+        // nothing else would ever put it there. Merged rather than assigned, so
+        // a link already in the field survives and its twin is not added twice.
+        if (result.album.id) {
+            imported = this.mergeTrackLinksIntoRelease(
+                [`https://open.spotify.com/album/${result.album.id}`], target);
+        }
+
         this.renderListenLinkReport(report, imported, result.album,
-            diffTracklists(tracks, result.album.tracks), filled);
+            diffTracklists(tracks, result.album.tracks), filled, result.matched_by);
     }
 
     /**
-     * Write Spotify track links onto the matching track rows.
+     * Write a resolved value into one of a track row's hidden fields.
+     *
+     * Only ever fills an empty field, for the same reason as the links below:
+     * whatever is already there was either typed or resolved earlier, and
+     * neither deserves to be overwritten silently.
+     *
+     * @param {Element} item - A .track-item.
+     * @param {string} name - Input name, e.g. `track-isrc-3`.
+     * @param {string|null|undefined} value
+     * @returns {boolean} Whether anything was written.
+     */
+    fillHiddenField(item, name, value) {
+        if (!value) return false;
+
+        const input = item.querySelector(`[name="${name}"]`);
+        if (!input || input.value.trim()) return false;
+
+        input.value = value;
+        return true;
+    }
+
+    /**
+     * Write Spotify's track links, ISRCs and spellings onto the matching rows.
      *
      * Only ever fills an empty field. Something typed by hand is the more
      * considered entry — it may point at a specific pressing or a different
      * service — and silently replacing it would be the worst outcome here.
      *
+     * The ISRC is the valuable half of this. A listen link is one service's
+     * address for a recording; the ISRC is the recording's own name, which is
+     * what every other service can be asked about it with, and what the
+     * registry prefers as a track's provisional id.
+     *
      * @param {{position?: string, title: string}[]} tracks - In form order,
      *   matching the order they were collected in.
-     * @param {{id: string, name: string, track_number?: number}[]} spotifyTracks
-     * @returns {{filled: number, unmatched: number}}
+     * @param {{id: string, name: string, isrc?: string|null,
+     *          track_number?: number}[]} spotifyTracks
+     * @returns {{filled: number, unmatched: number, codes: number, named: number}}
      */
     fillTrackLinksFromAlbum(tracks, spotifyTracks) {
         const items = [...document.querySelectorAll('.track-item')]
@@ -719,6 +766,8 @@ class PolarisApp {
 
         let filled = 0;
         let unmatched = 0;
+        let codes = 0;
+        let named = 0;
 
         for (const match of matchSpotifyTracks(tracks, spotifyTracks)) {
             const item = items[match.index];
@@ -729,11 +778,26 @@ class PolarisApp {
                 continue;
             }
 
+            const index = item.dataset.index;
+
+            // Written whether or not the link field is free: a link already in
+            // the box is at worst a different pressing of the same recording,
+            // and the ISRC names the recording either way.
+            if (this.fillHiddenField(item, `track-isrc-${index}`, match.spotify.isrc)) {
+                codes++;
+            }
+
+            // Spotify's spelling, where the two differ. Discarding it was the
+            // old behaviour and threw away the one piece of information the
+            // disagreement actually carries.
+            if (this.fillHiddenField(item, `track-alt-title-${index}`, match.alt_title)) {
+                named++;
+            }
+
             // Selected by name, not id: the track row template gives these
             // inputs a name only (FormBuilder.js:351), which is also how
             // getInputValue reads them.
-            const input = item.querySelector(
-                `[name="track-listen-link-${item.dataset.index}"]`);
+            const input = item.querySelector(`[name="track-listen-link-${index}"]`);
             if (!input) continue;
             if (input.value.trim()) continue;
 
@@ -741,7 +805,7 @@ class PolarisApp {
             filled++;
         }
 
-        return { filled, unmatched };
+        return { filled, unmatched, codes, named };
     }
 
     /**
@@ -779,13 +843,21 @@ class PolarisApp {
      * @param {number} importedCount
      * @param {{name: string, total_tracks: number}} album
      * @param {{kind: string}[]} differences
+     * @param {{filled: number, unmatched: number, codes: number, named: number}} [filled]
+     * @param {string|null} [matchedBy] - 'link' or 'upc'; how the album was found.
      */
-    renderListenLinkReport(report, importedCount, album, differences, filled = null) {
+    renderListenLinkReport(report, importedCount, album, differences, filled = null,
+                           matchedBy = null) {
         report.innerHTML = '';
+
+        // Named explicitly when a barcode found it: nothing the submitter typed
+        // points at this release, so "compared against" would otherwise be a
+        // claim with no visible basis.
+        const how = matchedBy === 'upc' ? ', found by barcode' : '';
 
         const summary = document.createElement('p');
         summary.textContent = `Imported ${importedCount} link(s). `
-            + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks).`;
+            + `Compared against Spotify's "${album.name}" (${album.total_tracks} tracks)${how}.`;
         report.appendChild(summary);
 
         if (filled && (filled.filled > 0 || filled.unmatched > 0)) {
@@ -796,6 +868,20 @@ class PolarisApp {
                 ? `Filled ${filled.filled} track link(s). `
                     + `${filled.unmatched} track(s) had no confident match — left blank.`
                 : `Filled ${filled.filled} track link(s).`;
+            report.appendChild(line);
+        }
+
+        // Stated separately because it is not the same kind of fact: these go
+        // into the submission without appearing in any box on the form, so the
+        // only place a submitter can see them is here.
+        if (filled && (filled.codes > 0 || filled.named > 0)) {
+            const line = document.createElement('p');
+            const parts = [];
+            if (filled.codes > 0) parts.push(`${filled.codes} ISRC(s)`);
+            if (filled.named > 0) {
+                parts.push(`${filled.named} alternate title(s) where Spotify spells it differently`);
+            }
+            line.textContent = `Also recorded ${parts.join(' and ')}.`;
             report.appendChild(line);
         }
 
@@ -900,6 +986,21 @@ class PolarisApp {
             // Emit existing track_id if bound via autocomplete
             const trackId = this.getInputValue(item, `track-id-${index}`);
             if (trackId) track.track_id = trackId;
+
+            // Resolved by the Spotify cross-check rather than typed, which is
+            // why these two have no visible field. The ISRC is the recording's
+            // own identifier: normalizeReleaseBundle prefers it over anything
+            // derived from a title when it has to mint a provisional id, and it
+            // is the key the other streaming services can be asked about this
+            // recording with.
+            const isrc = this.getInputValue(item, `track-isrc-${index}`);
+            if (isrc) track.isrc = isrc;
+
+            // One spelling, carried as a list because that is the shape the
+            // bundle and the graph use. Stored as plain text rather than a
+            // comma-separated list on purpose: "Hey Hey, My My" is a title.
+            const altTitle = this.getInputValue(item, `track-alt-title-${index}`);
+            if (altTitle && altTitle !== title) track.alt_titles = [altTitle];
 
             // Song lookup: if user selected an existing song, use its ID
             const songId = this.getInputValue(item, `track-song-id-${index}`);
@@ -1623,6 +1724,20 @@ class PolarisApp {
             this.showDiscogsStatus(`✓ Successfully imported: ${releaseData.title}`, 'success');
             this.showToast(`Imported from Discogs: ${releaseData.title}`, 'success');
 
+            // One click, the whole chain: the barcode just imported is enough
+            // to find the streaming release, and that fills in every track's
+            // listen link, ISRC and alternate spelling. Doing it here rather
+            // than leaving a second button to press is the point — the
+            // submitter has already said which release this is.
+            //
+            // Deliberately not awaited into the import's own error handling: a
+            // failed or unconfigured cross-check must not make a successful
+            // Discogs import report itself as failed.
+            if (this.discogsBarcodes?.length > 0) {
+                this.importTrackListenLinks().catch(error =>
+                    console.warn('Spotify cross-check after import failed:', error));
+            }
+
         } catch (error) {
             console.error('Discogs fetch error:', error);
             this.showDiscogsStatus(`Error: ${error.message}`, 'error');
@@ -1637,6 +1752,10 @@ class PolarisApp {
         console.log('Populating form from Discogs data:', discogsRelease);
 
         // Clear existing dynamic fields
+        // The barcode goes with them: it belongs to the release being replaced,
+        // and if this import fails half-way the previous release's barcode must
+        // not be left behind to match a tracklist it has nothing to do with.
+        this.discogsBarcodes = [];
         document.getElementById('labels-container').innerHTML = '';
         document.getElementById('release-groups-container').innerHTML = '';
         document.getElementById('release-guests-container').innerHTML = '';
@@ -1903,6 +2022,12 @@ class PolarisApp {
         // Add source link
         const sourceLink = `https://www.discogs.com/release/${discogsRelease.id}`;
         document.getElementById('source-links').value = sourceLink;
+
+        // Kept in memory rather than in a field: this is a lookup key for the
+        // Spotify comparison, not part of the submission. No Release property
+        // holds a barcode yet, and inventing a hidden field for one would put
+        // data in the bundle that nothing on the backend reads.
+        this.discogsBarcodes = barcodesFrom(discogsRelease);
 
         console.log('Form populated successfully');
         console.log(`Added: ${mainGroups.length} groups, ${guestIndex} release guests`);

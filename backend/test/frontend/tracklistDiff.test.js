@@ -10,7 +10,8 @@
 
 import { describe, test, expect } from '@jest/globals';
 import {
-    normalizeTitle, sameTitle, diffTracklists, describeDifference, matchSpotifyTracks
+    normalizeTitle, displayTitle, sameTitle, nearlySameTitle,
+    diffTracklists, describeDifference, matchSpotifyTracks
 } from '../../../frontend/src/utils/tracklistDiff.js';
 
 const discogs = (...titles) => titles.map((title, i) => ({ position: `A${i + 1}`, title }));
@@ -116,6 +117,7 @@ describe('describeDifference', () => {
             { kind: 'count', discogs: '13', spotify: '12', position: null },
             { kind: 'title', position: 'A2', discogs: 'Wrong', spotify: 'Two' },
             { kind: 'order', position: 'A1', discogs: 'One', spotify: 'Two' },
+            { kind: 'spelling', position: 'A3', discogs: 'Mystic Lover', spotify: 'Mystic Lovers' },
             { kind: 'missing_on_spotify', position: 'B7', discogs: 'Hidden', spotify: null },
             { kind: 'missing_locally', position: null, discogs: null, spotify: 'Extra' },
         ];
@@ -264,5 +266,198 @@ describe('matchSpotifyTracks', () => {
 
     test('non-array input is tolerated', () => {
         expect(matchSpotifyTracks(undefined, undefined)).toEqual([]);
+    });
+
+    describe('titles the two services spell differently', () => {
+        test('a one-character difference still gets its link', () => {
+            const [result] = matchSpotifyTracks(
+                form('Mystic Lover'), spot('Mystic Lovers'));
+
+            expect(result.spotify?.id).toBe('id1');
+            expect(result.reason).toBe('near_match');
+        });
+
+        test("the other spelling comes back, so it can be kept", () => {
+            // The point of the whole second pass: the information Discogs and
+            // Spotify disagree about is itself worth recording, as an alternate
+            // title, rather than being discarded along with the link.
+            const [result] = matchSpotifyTracks(
+                form('Mystic Lover'), spot('Mystic Lovers'));
+
+            expect(result.alt_title).toBe('Mystic Lovers');
+        });
+
+        test('the alternate title carries no edition decoration', () => {
+            // Otherwise "Mystic Lovers - Remastered 2011" is written into the
+            // registry as a title somebody once printed, which nobody did.
+            const [result] = matchSpotifyTracks(
+                form('Mystic Lover'), spot('Mystic Lovers - Remastered 2011'));
+
+            expect(result.reason).toBe('near_match');
+            expect(result.alt_title).toBe('Mystic Lovers');
+        });
+
+        test('an exact match records no alternate title', () => {
+            // Edition noise is not a spelling: "Lithium - Remaster" matches
+            // exactly once normalized, and recording it as an alternate title
+            // would fill the registry with catalogue cruft.
+            const [result] = matchSpotifyTracks(form('Lithium'), spot('Lithium - Remaster'));
+
+            expect(result.reason).toBe('matched');
+            expect(result.alt_title).toBeNull();
+        });
+
+        test('a short title gets no tolerance at all', () => {
+            // One edit apart and a different song. This is why the budget
+            // scales with length instead of being a constant.
+            const [result] = matchSpotifyTracks(form('Intro'), spot('Outro'));
+
+            expect(result.spotify).toBeNull();
+            expect(result.reason).toBe('no_match');
+        });
+
+        test('two edits on a twelve-character title is too many', () => {
+            const [result] = matchSpotifyTracks(form('Mystic Lover'), spot('Mystik Loverz'));
+
+            expect(result.spotify).toBeNull();
+        });
+
+        test('two plausible candidates match nothing', () => {
+            // Both are within budget of the row and nothing chooses between
+            // them. Picking either writes a link onto a recording the
+            // submitter never saw.
+            const [result] = matchSpotifyTracks(
+                form('Mystic Lover'), spot('Mystic Lovers', 'Mystic Loverr'));
+
+            expect(result.spotify).toBeNull();
+            expect(result.reason).toBe('ambiguous');
+        });
+
+        test('two rows reaching for the same recording match nothing', () => {
+            // The mirror image of the case above, and the reason the pass
+            // requires mutual uniqueness: first-come-first-served here would
+            // make the answer depend on tracklist order.
+            const result = matchSpotifyTracks(
+                form('Mystic Lover', 'Mystic Loverr'), spot('Mystic Lovers'));
+
+            expect(result.filter(r => r.spotify).length).toBe(0);
+            expect(result.map(r => r.reason)).toEqual(['ambiguous', 'ambiguous']);
+        });
+
+        test('the answer does not depend on which row comes first', () => {
+            const forwards = matchSpotifyTracks(
+                form('Mystic Lover', 'Mystic Loverr'), spot('Mystic Lovers'));
+            const backwards = matchSpotifyTracks(
+                form('Mystic Loverr', 'Mystic Lover'), spot('Mystic Lovers'));
+
+            expect(forwards.map(r => r.reason)).toEqual(backwards.map(r => r.reason));
+        });
+
+        test('a near match never steals a recording already matched exactly', () => {
+            // Row 1 holds Spotify's exact spelling. The near-identical row 0
+            // must not take that link away from it.
+            const result = matchSpotifyTracks(
+                form('Mystic Lover', 'Mystic Lovers'), spot('Mystic Lovers'));
+
+            expect(result[1].spotify?.id).toBe('id1');
+            expect(result[1].reason).toBe('matched');
+            expect(result[0].spotify).toBeNull();
+        });
+
+        test('a row left ambiguous by the exact pass stays ambiguous', () => {
+            // Three "Untitled" rows against one "Untitled" recording was
+            // already judged unresolvable; a weaker match is no way to resolve
+            // it.
+            const result = matchSpotifyTracks(
+                form('Untitled', 'Untitled', 'Untitled'), spot('Untitled'));
+
+            expect(result.filter(r => r.spotify).length).toBe(0);
+        });
+
+        test('an ambiguous row does not spoil another row\u2019s near match', () => {
+            // Rows 0 and 1 share a title Spotify has once, so the exact pass
+            // gives up on both. If they were still in the running here they
+            // would contest the same recording row 2 is a clean near match
+            // for, and all three would come back empty — one unresolvable
+            // group would have cost a match it has no claim on.
+            const result = matchSpotifyTracks(
+                form('Mystic Lovers', 'Mystic Lovers', 'Mystic Loverz'),
+                spot('Mystic Lovers'));
+
+            expect(result[2].spotify?.id).toBe('id1');
+            expect(result[2].reason).toBe('near_match');
+            expect(result[2].alt_title).toBe('Mystic Lovers');
+            expect(result.slice(0, 2).every(r => r.reason === 'ambiguous')).toBe(true);
+        });
+    });
+});
+
+describe('titles that are the same recording spelled differently', () => {
+    test.each([
+        ['a plural',          'Mystic Lover',  'Mystic Lovers'],
+        ['a dropped letter',  'Smells Like Teen Spirit', 'Smells Like Teen Spirt'],
+        ['a transposition',   'Everything In Its Right Place',
+                              'Everyhting In Its Right Place'],
+    ])('%s is a near match', (_label, ours, theirs) => {
+        expect(nearlySameTitle(ours, theirs)).toBe(true);
+        // And must not be mistaken for the same string.
+        expect(sameTitle(ours, theirs)).toBe(false);
+    });
+
+    test.each([
+        ['one edit on a short title', 'The Wait',     'The Weit'],
+        ['a different short word',    'Intro',        'Outro'],
+        ['two edits at twelve',       'Mystic Lover', 'Mystik Loverz'],
+        ['different songs',           'In Bloom',     'Breed'],
+        ['an empty title',            '',             'Lithium'],
+    ])('%s is not a near match', (_label, ours, theirs) => {
+        expect(nearlySameTitle(ours, theirs)).toBe(false);
+    });
+
+    test('the tolerance is one edit per ten characters of the shorter title', () => {
+        // Stated outright because every case above depends on it: nine
+        // characters buy nothing, and a long title is allowed proportionally
+        // more slack rather than a fixed amount.
+        expect(nearlySameTitle('Lithiu', 'Lithium')).toBe(false);
+        expect(nearlySameTitle('Lithium Ion', 'Lithium Eon')).toBe(true);
+    });
+
+    test('an ampersand is not a spelling difference', () => {
+        // "Rock & Roll" against "Rock and Roll" is four characters of edit
+        // distance and the same title; it is normalized away rather than
+        // spent out of the tolerance budget.
+        expect(sameTitle('Rock & Roll', 'Rock and Roll')).toBe(true);
+    });
+
+    test('displayTitle keeps the spelling and drops the decoration', () => {
+        expect(displayTitle('Mystic Lovers - Remastered 2011')).toBe('Mystic Lovers');
+        expect(displayTitle('Drain You (feat. Someone)')).toBe('Drain You');
+        expect(displayTitle("Rock 'n Roll")).toBe("Rock 'n Roll");
+        expect(displayTitle(null)).toBe('');
+    });
+
+    test('diffTracklists calls it a spelling, not a wrong title', () => {
+        const [difference] = diffTracklists(
+            discogs('Mystic Lover'), spotify('Mystic Lovers'));
+
+        expect(difference.kind).toBe('spelling');
+        expect(difference.discogs).toBe('Mystic Lover');
+        expect(difference.spotify).toBe('Mystic Lovers');
+    });
+
+    test('a genuinely wrong title is still reported as one', () => {
+        const [difference] = diffTracklists(discogs('In Bloom'), spotify('Breed'));
+        expect(difference.kind).toBe('title');
+    });
+
+    test('a transposition is still reported as one', () => {
+        // Both rows are near matches of what sits at their position, but each
+        // title appears exactly elsewhere — which says the list shifted, not
+        // that anybody misspelled anything.
+        const differences = diffTracklists(
+            discogs('Mystic Lover', 'Mystic Lovers'),
+            spotify('Mystic Lovers', 'Mystic Lover'));
+
+        expect(differences.map(d => d.kind)).toEqual(['order', 'order']);
     });
 });

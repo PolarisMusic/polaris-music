@@ -1075,3 +1075,81 @@ describe('a track is a recording on a release, not a title', () => {
         })).toThrow(/release/);
     });
 });
+
+describe('a track can carry the other spellings of its title', () => {
+    /**
+     * These arrive from the Spotify cross-check on the submission form, which
+     * pairs "Mystic Lover" on a Discogs pressing with "Mystic Lovers" in a
+     * streaming catalogue. Before it existed the disagreement was discarded
+     * along with the link; the point of carrying it is that the alternate
+     * spelling is how somebody else will search for the recording.
+     */
+    const bundleWith = (track) => ({
+        release: { name: 'Fire of Unknown Origin', release_date: '1981', format: 'LP' },
+        tracks: [track],
+        tracklist: [{ position: '1', track_title: track.title }]
+    });
+
+    it('keeps an alternate title through normalization', () => {
+        const normalized = normalizeReleaseBundle(bundleWith({
+            title: 'Veteran Of The Psychic Wars',
+            alt_titles: ['Veteran of the Psychic War']
+        }));
+
+        expect(normalized.tracks[0].alt_titles).toEqual(['Veteran of the Psychic War']);
+    });
+
+    it('drops the track’s own title from the list', () => {
+        // Holding a title twice says nothing, and makes the node's own title
+        // look like one candidate among several.
+        const normalized = normalizeReleaseBundle(bundleWith({
+            title: 'Burnin’ For You',
+            alt_titles: ['Burnin’ For You', 'Burning For You']
+        }));
+
+        expect(normalized.tracks[0].alt_titles).toEqual(['Burning For You']);
+    });
+
+    it('drops blanks, whitespace and non-strings', () => {
+        const normalized = normalizeReleaseBundle(bundleWith({
+            title: 'Joan Crawford',
+            alt_titles: ['  Joan Crawford Has Risen  ', '', '   ', null, 42, { title: 'no' }]
+        }));
+
+        expect(normalized.tracks[0].alt_titles).toEqual(['Joan Crawford Has Risen']);
+    });
+
+    it('does not repeat the same alternate title', () => {
+        const normalized = normalizeReleaseBundle(bundleWith({
+            title: 'Vengeance',
+            alt_titles: ['Vengeance (The Pact)', 'Vengeance (The Pact)']
+        }));
+
+        expect(normalized.tracks[0].alt_titles).toEqual(['Vengeance (The Pact)']);
+    });
+
+    it('omits the field entirely when nothing survives', () => {
+        // Rather than an empty array: the bundle is hashed and anchored, so a
+        // key that carries no information should not be in it.
+        const normalized = normalizeReleaseBundle(bundleWith({
+            title: 'Sole Survivor',
+            alt_titles: ['Sole Survivor', '']
+        }));
+
+        expect(normalized.tracks[0].alt_titles).toBeUndefined();
+    });
+
+    it('is absent when the submission says nothing about it', () => {
+        const normalized = normalizeReleaseBundle(bundleWith({ title: 'Heavy Metal' }));
+        expect(normalized.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+
+    it('tolerates a non-array', () => {
+        const normalized = normalizeReleaseBundle(bundleWith({
+            title: 'Don’t Turn Your Back',
+            alt_titles: 'Dont Turn Your Back'
+        }));
+
+        expect(normalized.tracks[0].alt_titles).toBeUndefined();
+    });
+});

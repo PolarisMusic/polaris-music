@@ -345,6 +345,13 @@ export class FormBuilder {
                 <label>Track Title *</label>
                 <input type="text" name="track-title-${index}" required placeholder="Track title">
                 <input type="hidden" name="track-id-${index}" data-lookup-type="Track" data-lookup-pair="track-title-${index}">
+                <!-- Filled by the Spotify cross-check, never typed: the ISRC
+                     Spotify holds for this recording, and its spelling of the
+                     title when that differs from the one above. Both are
+                     cleared if the title is edited afterwards, because both
+                     were resolved against the title as it stood. -->
+                <input type="hidden" name="track-isrc-${index}">
+                <input type="hidden" name="track-alt-title-${index}">
             </div>
 
             <div class="form-group">
@@ -526,6 +533,17 @@ export class FormBuilder {
             el.addEventListener('input', syncSummary);
             el.addEventListener('change', syncSummary);
         }
+
+        // The ISRC and the alternate spelling were resolved for the title that
+        // was in the box at the time. Editing the title makes them claims about
+        // a different recording, and an ISRC pointing at the wrong recording is
+        // worse than none: it is the key everything else is matched by.
+        const resolvedByTitle = ['isrc', 'alt-title']
+            .map(field => div.querySelector(`[name="track-${field}-${trackIndex}"]`))
+            .filter(Boolean);
+        const dropResolved = () => resolvedByTitle.forEach((el) => { el.value = ''; });
+        titleInput.addEventListener('input', dropResolved);
+        titleInput.addEventListener('change', dropResolved);
 
         // "Same as release" is a typing shortcut, not a data shortcut: the
         // section is greyed out here, and extractTracks() materializes the

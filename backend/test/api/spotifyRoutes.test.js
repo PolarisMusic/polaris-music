@@ -22,6 +22,7 @@ function appWith(overrides = {}) {
         isConfigured: () => true,
         getTracks: async () => [],
         getAlbumWithTracks: async () => ({ id: 'alb', name: 'Album', tracks: [] }),
+        albumIdsByUpc: async () => [],
         ...overrides,
     };
     const app = express();
@@ -117,6 +118,167 @@ describe('POST /api/spotify/album', () => {
 
     test('a missing body does not throw', async () => {
         const res = await request(appWith()).post('/api/spotify/album').send();
+        expect(res.status).toBe(400);
+    });
+});
+
+describe('POST /api/spotify/album, by barcode', () => {
+    /**
+     * The barcode is how a Discogs import reaches the streaming release
+     * without guessing. Discogs carries no streaming ids, so the alternative
+     * is matching on artist and title — two strings two community databases
+     * spell differently, which is the very comparison this endpoint exists to
+     * referee.
+     *
+     * The cost of a wrong answer is high and silent: a whole tracklist of
+     * links, ISRCs and alternate titles attached to the wrong edition. So a
+     * barcode match is only accepted when the album Spotify returns says the
+     * same barcode itself.
+     */
+    const UPC = '075992733625';
+    const WITH_UPC = { ...NEVERMIND, upc: UPC };
+
+    test('a barcode alone finds the album', async () => {
+        const res = await request(appWith({
+            albumIdsByUpc: async () => ['alb1'],
+            getAlbumWithTracks: async () => WITH_UPC,
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(res.body).toMatchObject({
+            success: true, matched_by: 'upc', album: { name: 'Nevermind' },
+        });
+    });
+
+    test('a printed barcode works as printed', async () => {
+        const asked = [];
+        const res = await request(appWith({
+            albumIdsByUpc: async (upc) => { asked.push(upc); return ['alb1']; },
+            getAlbumWithTracks: async () => WITH_UPC,
+        })).post('/api/spotify/album').send({ upc: '0 7599-27336-25' });
+
+        expect(asked[0]).toBe(UPC);
+        expect(res.body.success).toBe(true);
+    });
+
+    test('an album that does not carry that barcode is refused', async () => {
+        // Spotify falls back to loose matching, so a hit is a candidate rather
+        // than an answer. Accepting it unverified is the silent-wrong-edition
+        // failure this guards.
+        const res = await request(appWith({
+            albumIdsByUpc: async () => ['other'],
+            getAlbumWithTracks: async () => ({ ...NEVERMIND, upc: '999999999999' }),
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(res.body).toMatchObject({ success: false, reason: 'upc_not_found' });
+        expect(res.body.album).toBeUndefined();
+    });
+
+    test('an album with no barcode of its own is refused too', async () => {
+        const res = await request(appWith({
+            albumIdsByUpc: async () => ['alb1'],
+            getAlbumWithTracks: async () => ({ ...NEVERMIND, upc: null }),
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(res.body).toMatchObject({ success: false, reason: 'upc_not_found' });
+    });
+
+    test('a second candidate gets its turn', async () => {
+        const res = await request(appWith({
+            albumIdsByUpc: async () => ['wrong', 'right'],
+            getAlbumWithTracks: async (id) => (id === 'right'
+                ? { ...WITH_UPC, id }
+                : { ...NEVERMIND, id, upc: '000000000000' }),
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(res.body.album.id).toBe('right');
+    });
+
+    test('the EAN-13 spelling is tried when the UPC-A misses', async () => {
+        // Which of the two a catalogue stores is a coin toss, and the upc:
+        // filter matches the string it is given.
+        const asked = [];
+        const res = await request(appWith({
+            albumIdsByUpc: async (upc) => {
+                asked.push(upc);
+                return upc === '0075992733625' ? ['alb1'] : [];
+            },
+            getAlbumWithTracks: async () => WITH_UPC,
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(asked).toEqual([UPC, '0075992733625']);
+        expect(res.body.success).toBe(true);
+    });
+
+    test('a link the submitter supplied outranks the barcode', async () => {
+        // The link is a statement about which release they mean; the barcode is
+        // only ever a way of guessing it.
+        const byUpc = jest.fn(async () => ['alb1']);
+        const res = await request(appWith({
+            albumIdsByUpc: byUpc,
+            getAlbumWithTracks: async (id) => ({ ...WITH_UPC, id }),
+        })).post('/api/spotify/album')
+            .send({ links: ['https://open.spotify.com/album/linked'], upc: UPC });
+
+        expect(res.body).toMatchObject({ matched_by: 'link', album: { id: 'linked' } });
+        expect(byUpc).not.toHaveBeenCalled();
+    });
+
+    test('a barcode is enough on its own — no link needed', async () => {
+        const res = await request(appWith({
+            albumIdsByUpc: async () => ['alb1'],
+            getAlbumWithTracks: async () => WITH_UPC,
+        })).post('/api/spotify/album').send({ upc: UPC, links: [] });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+    });
+
+    test('neither a link nor a barcode is a 400', async () => {
+        const res = await request(appWith()).post('/api/spotify/album').send({ links: [] });
+        expect(res.status).toBe(400);
+        expect(res.body.reason).toBe('no_links');
+    });
+
+    test('a refused search is a reason, not a fault', async () => {
+        // 403 is the documented answer to /search from an app still in
+        // development mode. A 502 here reads as "the server is broken" when
+        // the truth is "this deployment's Spotify app cannot search".
+        const refused = Object.assign(new Error('Spotify request failed with status 403'),
+            { status: 403 });
+        const res = await request(appWith({
+            albumIdsByUpc: async () => { throw refused; },
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ success: false, reason: 'search_unavailable' });
+    });
+
+    test('any other failure is still a 502', async () => {
+        const res = await request(appWith({
+            albumIdsByUpc: async () => { throw Object.assign(new Error('boom'), { status: 503 }); },
+        })).post('/api/spotify/album').send({ upc: UPC });
+
+        expect(res.status).toBe(502);
+    });
+
+    test.each([
+        ['the word submitters type for no barcode', 'none'],
+        ['a catalogue number', 'SP 34'],
+        ['a price code', '7.98'],
+    ])('%s asks Spotify nothing', async (_label, value) => {
+        // Discogs identifiers are free text and submitters put all of these in
+        // the barcode field. A digit run too short to be an article number is
+        // not one, and searching for it would return somebody else's release.
+        const byUpc = jest.fn(async () => []);
+        const res = await request(appWith({ albumIdsByUpc: byUpc }))
+            .post('/api/spotify/album').send({ upc: value });
+
+        expect(byUpc).not.toHaveBeenCalled();
+        expect(res.body).toMatchObject({ success: false, reason: 'upc_not_found' });
+    });
+
+    test('a non-string barcode is ignored rather than coerced', async () => {
+        const res = await request(appWith()).post('/api/spotify/album').send({ upc: 75992733625 });
         expect(res.status).toBe(400);
     });
 });

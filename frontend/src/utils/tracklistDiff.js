@@ -24,8 +24,36 @@
  */
 const EDITION_SUFFIX = /\s*[-–—]\s*(remaster(ed)?|mono|stereo|live|radio edit|single version|album version|deluxe|bonus track|\d{4} (remaster|mix|version))\b.*$/i;
 
-/** Parenthetical additions that likewise do not change the recording. */
-const PARENTHETICAL = /\s*[([](feat\.?|featuring|with|remaster(ed)?|mono|stereo|bonus|explicit|deluxe)[^)\]]*[)\]]/gi;
+/**
+ * Parenthetical additions that likewise do not change the recording.
+ *
+ * Kept in step with EDITION_SUFFIX above, which already discounted "- Album
+ * Version" and "- 2011 Remaster" while the bracketed forms of the same words
+ * went through as differences. A catalogue writes both.
+ *
+ * Deliberately not "any trailing bracket": "(Live)", "(Demo)", "(Acoustic)"
+ * and "(Remix)" name *different recordings*, and pairing one of those with the
+ * studio take would be the confidently-wrong match this module exists to avoid.
+ */
+const PARENTHETICAL = /\s*[([](feat\.?|featuring|with|remaster(ed)?|mono|stereo|bonus|explicit|deluxe|lp version|album version|single version|original mix|\d{4} (remaster|mix|version))[^)\]]*[)\]]/gi;
+
+/**
+ * A title with edition decoration removed but its spelling left alone.
+ *
+ * This is what gets recorded when the two services spell a title differently:
+ * normalizeTitle's output is lowercased and stripped of punctuation, which is
+ * fine for comparing and wrong for storing, while the raw catalogue string
+ * drags "- Remastered 2011" along with it.
+ *
+ * @param {string} title
+ * @returns {string}
+ */
+export function displayTitle(title) {
+    return String(title ?? '')
+        .replace(PARENTHETICAL, '')
+        .replace(EDITION_SUFFIX, '')
+        .trim();
+}
 
 /**
  * Reduce a title to what is being compared.
@@ -37,10 +65,12 @@ const PARENTHETICAL = /\s*[([](feat\.?|featuring|with|remaster(ed)?|mono|stereo|
  * @returns {string}
  */
 export function normalizeTitle(title) {
-    return String(title ?? '')
-        .replace(PARENTHETICAL, '')
-        .replace(EDITION_SUFFIX, '')
+    return displayTitle(title)
         .replace(/['’`]/g, '')
+        // Before punctuation goes, because losing the ampersand outright makes
+        // "Rock & Roll" and "Rock and Roll" four characters apart instead of
+        // identical — far enough apart to defeat the tolerance below.
+        .replace(/\s*&\s*/g, ' and ')
         .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .trim()
         .toLowerCase();
@@ -56,6 +86,71 @@ export function normalizeTitle(title) {
 export function sameTitle(a, b) {
     const left = normalizeTitle(a);
     return left.length > 0 && left === normalizeTitle(b);
+}
+
+/**
+ * How much disagreement a title of a given length is allowed.
+ *
+ * Roughly one edit per ten characters, measured on the shorter of the two. A
+ * fixed budget cannot work: one edit is a plural on "Mystic Lover" and a
+ * different song entirely on "Intro" — which is two edits from "Outro" and
+ * must stay that way.
+ */
+const FUZZY_CHARS_PER_EDIT = 10;
+
+/**
+ * Levenshtein distance, two rows at a time.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function editDistance(a, b) {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+        const current = [i];
+        for (let j = 1; j <= b.length; j++) {
+            current[j] = Math.min(
+                previous[j] + 1,
+                current[j - 1] + 1,
+                previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+            );
+        }
+        previous = current;
+    }
+    return previous[b.length];
+}
+
+/**
+ * Whether two titles are the same recording spelled differently.
+ *
+ * Discogs is typed by hand and a streaming catalogue is typed by somebody else:
+ * "Mystic Lover" against "Mystic Lovers", a dropped article, a transliterated
+ * accent. Demanding an exact match after normalising discards that pairing
+ * entirely — no link gets filled, and the better of the two spellings is thrown
+ * away rather than recorded.
+ *
+ * The tolerance scales with length, and short titles get none, because the
+ * cost of being wrong is not symmetric: an unfilled field is visible and costs
+ * a moment, while a link written against the wrong recording is invisible and
+ * anchored.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+export function nearlySameTitle(a, b) {
+    const left = normalizeTitle(a);
+    const right = normalizeTitle(b);
+    if (!left || !right) return false;
+    if (left === right) return true;
+
+    const budget = Math.floor(Math.min(left.length, right.length) / FUZZY_CHARS_PER_EDIT);
+    return budget > 0 && editDistance(left, right) <= budget;
 }
 
 /**
@@ -98,8 +193,16 @@ export function diffTracklists(discogsTracks = [], spotifyTracks = []) {
         // earlier in the list and everything after it has shifted.
         const elsewhere = theirs.findIndex(t => sameTitle(mine.title, t.name));
 
+        // A transposition outranks a misspelling, deliberately: an exact match
+        // somewhere else in the list is stronger evidence about what happened
+        // than a near match here, and an offset tracklist of near-identical
+        // titles would otherwise be reported as a page of misspellings.
+        const kind = elsewhere >= 0
+            ? 'order'
+            : (nearlySameTitle(mine.title, other.name) ? 'spelling' : 'title');
+
         differences.push({
-            kind: elsewhere >= 0 ? 'order' : 'title',
+            kind,
             index: i,
             position: mine.position ?? null,
             discogs: mine.title ?? null,
@@ -143,6 +246,8 @@ export function describeDifference(difference) {
             return `Track count differs — this form has ${difference.discogs}, Spotify has ${difference.spotify}.`;
         case 'order':
             return `${where}"${difference.discogs}" appears here, but Spotify has "${difference.spotify}" at this position — the order may have shifted.`;
+        case 'spelling':
+            return `${where}"${difference.discogs}" is spelled "${difference.spotify}" on Spotify — close enough to be the same recording, so both spellings are kept.`;
         case 'title':
             return `${where}"${difference.discogs}" does not match Spotify's "${difference.spotify}".`;
         case 'missing_on_spotify':
@@ -170,11 +275,17 @@ export function describeDifference(difference) {
  * matching the row's ordinal decides. Getting that wrong swaps two identically
  * named tracks, which is a far smaller error than mismatching a title.
  *
+ * A second pass then pairs what is left by near-identical title, so a row the
+ * two services spell differently still gets its link — see below.
+ *
  * @param {{position?: string, title: string}[]} formTracks - In form order.
  * @param {{id: string, name: string, track_number?: number}[]} spotifyTracks
- * @returns {{index: number, spotify: Object|null, reason: string}[]}
- *   One entry per form track. `reason` is 'matched', 'ambiguous' when several
- *   candidates shared the title and none could be chosen, or 'no_match'.
+ * @returns {{index: number, spotify: Object|null, alt_title: string|null,
+ *            reason: string}[]}
+ *   One entry per form track. `reason` is 'matched', 'near_match' when the
+ *   titles differ only in spelling, 'ambiguous' when several candidates were
+ *   plausible and none could be chosen, or 'no_match'. `alt_title` is Spotify's
+ *   spelling, present only on a near match and only when it really differs.
  */
 export function matchSpotifyTracks(formTracks = [], spotifyTracks = []) {
     const ours = Array.isArray(formTracks) ? formTracks : [];
@@ -199,19 +310,24 @@ export function matchSpotifyTracks(formTracks = [], spotifyTracks = []) {
         if (key) group(key).tracks.push(track);
     }
 
-    const results = ours.map((_, index) => ({ index, spotify: null, reason: 'no_match' }));
+    const results = ours.map((_, index) => (
+        { index, spotify: null, alt_title: null, reason: 'no_match' }));
 
     for (const { rows, tracks } of groups.values()) {
         if (rows.length === 0 || tracks.length === 0) continue;
 
         if (rows.length === 1 && tracks.length === 1) {
-            results[rows[0]] = { index: rows[0], spotify: tracks[0], reason: 'matched' };
+            results[rows[0]] = {
+                index: rows[0], spotify: tracks[0], alt_title: null, reason: 'matched',
+            };
             continue;
         }
 
         if (rows.length === tracks.length) {
             rows.forEach((row, i) => {
-                results[row] = { index: row, spotify: tracks[i], reason: 'matched' };
+                results[row] = {
+                    index: row, spotify: tracks[i], alt_title: null, reason: 'matched',
+                };
             });
             continue;
         }
@@ -221,7 +337,9 @@ export function matchSpotifyTracks(formTracks = [], spotifyTracks = []) {
             // at least one row has no counterpart and nothing says which. An
             // ordinal here would be a coin toss dressed up as a match.
             for (const row of rows) {
-                results[row] = { index: row, spotify: null, reason: 'ambiguous' };
+                results[row] = {
+                    index: row, spotify: null, alt_title: null, reason: 'ambiguous',
+                };
             }
             continue;
         }
@@ -232,9 +350,65 @@ export function matchSpotifyTracks(formTracks = [], spotifyTracks = []) {
         for (const row of rows) {
             const byNumber = tracks.find(t => Number(t?.track_number) === row + 1);
             results[row] = byNumber
-                ? { index: row, spotify: byNumber, reason: 'matched' }
-                : { index: row, spotify: null, reason: 'ambiguous' };
+                ? { index: row, spotify: byNumber, alt_title: null, reason: 'matched' }
+                : { index: row, spotify: null, alt_title: null, reason: 'ambiguous' };
         }
+    }
+
+    // ===== Second pass: the same recording, spelled differently =====
+    //
+    // Discogs is typed by hand; a streaming catalogue is typed by somebody
+    // else. "Mystic Lover" against "Mystic Lovers" is one character and two
+    // sources that agree about everything else, and stopping at the exact
+    // comparison throws away both the link and the other spelling.
+    //
+    // Only a *mutually* unique pairing is accepted: one candidate for the row,
+    // and that candidate reached by no other row. Taking the first plausible
+    // pair instead would make the answer depend on tracklist order, which is
+    // the one signal this module refuses to trust.
+    const claimed = new Set(results.map(r => r.spotify).filter(Boolean));
+    const openTracks = theirs.filter(t => !claimed.has(t) && normalizeTitle(t?.name));
+
+    /** @type {Map<number, Object[]>} form row -> its near candidates */
+    const candidates = new Map();
+    /** @type {Map<Object, number>} spotify track -> how many rows reached it */
+    const reachedBy = new Map();
+
+    for (const result of results) {
+        // Only rows nothing was decided about. A row left 'ambiguous' had an
+        // exact title group that was rejected as unresolvable, and a weaker
+        // match is no way to resolve it.
+        if (result.reason !== 'no_match') continue;
+        const title = ours[result.index]?.title;
+        if (!normalizeTitle(title)) continue;
+
+        const near = openTracks.filter(t => nearlySameTitle(title, t.name));
+        if (near.length === 0) continue;
+
+        candidates.set(result.index, near);
+        for (const track of near) reachedBy.set(track, (reachedBy.get(track) ?? 0) + 1);
+    }
+
+    for (const [row, near] of candidates) {
+        if (near.length > 1 || reachedBy.get(near[0]) > 1) {
+            results[row] = { index: row, spotify: null, alt_title: null, reason: 'ambiguous' };
+            continue;
+        }
+
+        // Spotify's spelling, with edition decoration removed: it is the one
+        // that differs from what the form holds, and the form's title is the
+        // one about to be submitted as canonical.
+        const theirSpelling = displayTitle(near[0].name);
+        const ourSpelling = String(ours[row]?.title ?? '').trim();
+
+        results[row] = {
+            index: row,
+            spotify: near[0],
+            alt_title: theirSpelling && theirSpelling !== ourSpelling
+                ? theirSpelling
+                : null,
+            reason: 'near_match',
+        };
     }
 
     return results;
