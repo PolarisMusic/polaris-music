@@ -942,11 +942,12 @@ CONSIDER THIS SECTION CANONICAL
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
 | Song | Musical composition | song_id, title, alt_titles, iswc, writers |
 | Track | Recording of a song | track_id, title, alt_titles, isrc, duration, listen_links, lyrics, trivia |
-| Release | Album/EP/Single/LivePerformance | release_id, name, release_date, format, country, catalog_number *(release-wide fallback; see below)*, listen_links, master_id, is_master_release |
+| Release | Album/EP/Single/LivePerformance | release_id, name, barcode, release_date, format, country, catalog_number *(release-wide fallback; see below)*, listen_links, master_id, is_master_release |
 | Master | Canonical album grouping | master_id, name, status |
 | Label | Record label | label_id, name |
 | Account | Blockchain account | account_id |
 | City | Geographic location | city_id, name, lat, lon |
+| Genre | What a record sounds like | genre_id, key *(the identity)*, name |
 | Claim | Audit trail | claim_id, node_id, field, value |
 | Source | External reference | source_id, url |
 <!-- Media should link to a URL and then fetches the media from the URL to produce an IPFS address for the media -->
@@ -1105,6 +1106,7 @@ is in `docs/03-event-storage.md` under EDIT_RELATIONSHIP.
 | IN_RELEASE | Track → Release | Track appears on release |
 | IN_MASTER | Release → Master | Release variant of master (**exactly one per Release**) |
 | RELEASED | Label → Release | Released by label. Carries `catalog_number` — the number **this** label issued |
+| TAGGED | Group|Release → Genre | What a source says it sounds like. Keyed by `origin` (`musicbrainz:genre`, `musicbrainz:tag`, `account:<name>`); carries `count`, `source_url`, `claim_id` |
 | ORIGIN | Person|Group|Release|Label → City | Geographic origin |
 | SUBMITTED | Account → Any | Who submitted data |
 | REPRESENTS | Media → Any | What is represented in the linked media |
@@ -1132,3 +1134,65 @@ MATCH (g:Group {name: "The Beatles"})-[:PERFORMED_ON]->(total:Track)
 WITH p, track_count, count(distinct total) as total_tracks
 RETURN p.name, toFloat(track_count) / toFloat(total_tracks) * 100 as percentage
 ```
+---
+
+## Genre tags
+
+CONSIDER THIS SECTION CANONICAL
+
+A genre is the one thing in this schema that is not a fact about who did what.
+It is either a catalogue's editorial judgement or somebody's opinion, and the
+schema is built so a reader can always tell which.
+
+**Identity.** A `Genre` is its normalized key — `graph/genreVocabulary.js`
+reduces case, accents, punctuation, `&` and a short table of orthographic
+variants ("prog rock" → "progressive rock"). That table deliberately refuses
+judgements: `R&B` is **not** merged into `rhythm and blues`, because doing so
+merges 1950s jump blues with 1990s contemporary R&B, which is a claim about
+music rather than about spelling. Claims about music belong in something
+somebody signs.
+
+Two spellings therefore share one node, which is the point: the overlap between
+two genres is computed over sets, and a genre that splits in two halves every
+overlap silently.
+
+**Provenance lives on the edge, not the node.** `TAGGED` is keyed by `origin`:
+
+| origin | What it means | Anchored? |
+|---|---|---|
+| `musicbrainz:genre` | MusicBrainz's controlled, voted genre list | No |
+| `musicbrainz:tag` | MusicBrainz folksonomy — where "melancholy" lives, and the noise | No |
+| `account:<name>` | A person's own tag, from a signed event | Yes |
+
+`setGenreTags` replaces **only the given origin's** edges for a node. So
+re-running the import reflects a genre MusicBrainz has since dropped without
+touching a word anybody here typed, and one submitter retracting a tag cannot
+remove another's.
+
+**Why the imported half is not on chain.** It is a mirror, not an assertion: its
+provenance is the MBID and the fetch date, anyone can verify it at the source,
+and re-running the import reproduces it — which is the test for what may live in
+the projection without being anchored. A tag somebody invents is the opposite,
+and is anchored.
+
+**Why not ADD_CLAIM for the human half.** `multiplier_add_claim` is 1,000,000
+against `multiplier_edit_claim`'s 1,000, so a tag would mint as much as a real
+credit — the cheapest possible emission faucet. ADD_CLAIM also *sets a field*,
+so two taggers would overwrite each other instead of accumulating. A tag event
+wants its own type in the 20–39 band, where the deployed contract anchors and
+votes on it while `get_multiplier`'s `default: return 0` pays nothing for it.
+Zero is arguably the right permanent setting: tags are wanted because people
+want the tags.
+
+**How a tag is reached.** By identifier, never by name — `api/genreImport.js`:
+
+```
+Release.barcode  →  MusicBrainz release (query=barcode:…)
+                 →  its release-group  → genres for the Release
+                 →  its artist-credit  → genres for the Group
+```
+
+Two release-groups under one barcode, or a release whose MusicBrainz artists
+and whose registry Groups are not one-to-one, are **skipped and reported**
+rather than guessed at. A gap in the data is visible and fixable; a wrong genre
+attached to a band is neither.

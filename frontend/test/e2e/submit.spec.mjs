@@ -967,6 +967,26 @@ test.describe('importing from Discogs, end to end', () => {
             .toHaveValue('https://open.spotify.com/album/AL1');
     });
 
+    test('the barcode reaches the bundle, not just the lookup', async ({ page }) => {
+        // It identifies this pressing rather than describing it, which is what
+        // a Release node is for — and stored, it is also the key MusicBrainz
+        // can be asked about the same edition with. Until now it was read,
+        // used for the Spotify match, and dropped.
+        await importFromDiscogs(page);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.barcode).toBe('07464373891');
+    });
+
+    test('a release with no barcode sends no barcode', async ({ page }) => {
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+        });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release).not.toHaveProperty('barcode');
+    });
+
     test('the report says the barcode is what found it', async ({ page }) => {
         // Nothing the submitter typed points at this release, so "compared
         // against" would otherwise be a claim with no visible basis.

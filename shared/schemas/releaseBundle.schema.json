@@ -19,6 +19,7 @@
         "format": { "type": "string" },
         "country": { "type": "string" },
         "catalog_number": { "type": "string" },
+        "barcode": { "type": "string" },
         "liner_notes": { "type": "string" },
         "trivia": { "type": "string" },
         "album_art": { "type": "string", "format": "uri" },

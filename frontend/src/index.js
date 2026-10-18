@@ -285,6 +285,18 @@ class PolarisApp {
         const country = (formData.get('release_country') || '').trim();
         if (country) release.country = country;
 
+        // The barcode the Discogs import read off the sleeve. It has been in
+        // memory since then — it is what finds the streaming release — and it
+        // belongs in the bundle for the same reason it was useful there: it
+        // identifies this pressing rather than describing it, which is what a
+        // Release node is for, and it is the key MusicBrainz can be asked
+        // about the same edition with.
+        //
+        // Not a visible field: nobody types a barcode, and a submitter who
+        // wants to correct one can do it with a claim against the node.
+        const barcode = this.discogsBarcodes?.[0];
+        if (barcode) release.barcode = barcode;
+
         const linerNotes = formData.get('liner_notes');
         if (linerNotes) release.liner_notes = linerNotes;
 

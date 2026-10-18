@@ -1153,3 +1153,60 @@ describe('a track can carry the other spellings of its title', () => {
         expect(normalized.tracks[0].alt_titles).toBeUndefined();
     });
 });
+
+describe('a release carries the barcode off its sleeve', () => {
+    /**
+     * The barcode is the registry's one identifier-based route into another
+     * catalogue. It already found the streaming release at submission time;
+     * stored on the node it also finds the MusicBrainz release, whose
+     * artist-credit then names the artists by MBID — so genre tags for both a
+     * Release and its Groups resolve from an identifier rather than from
+     * matching artist and title, which is the guesswork this registry exists
+     * to referee.
+     *
+     * It belongs on Release and not on Master: it identifies an edition, and a
+     * reissue carries its own.
+     */
+    const bundleWith = (release) => ({
+        release: { name: 'Fire of Unknown Origin', release_date: '1981', format: 'LP', ...release },
+        tracks: [{ title: 'Burnin For You' }],
+        tracklist: [{ position: '1', track_title: 'Burnin For You' }]
+    });
+
+    it('keeps a plain barcode', () => {
+        const normalized = normalizeReleaseBundle(bundleWith({ barcode: '07464373891' }));
+        expect(normalized.release.barcode).toBe('07464373891');
+    });
+
+    it('reduces a printed barcode to digits', () => {
+        // "0 7464-37389-1" on the cover and 07464373891 in a catalogue are the
+        // same article; two spellings of one key are no use as a lookup.
+        const normalized = normalizeReleaseBundle(bundleWith({ barcode: '0 7464-37389-1' }));
+        expect(normalized.release.barcode).toBe('07464373891');
+    });
+
+    it.each([
+        ['the word submitters type for none', 'none'],
+        ['a catalogue number',                'FC 37389'],
+        ['a price code',                      '7.98'],
+        ['too few digits',                    '1234567'],
+        ['too many digits',                   '123456789012345'],
+        ['an empty string',                   ''],
+    ])('drops %s', (_label, value) => {
+        // The same length rule the barcode helpers use: a digit run shorter
+        // than an EAN-8 is a catalogue number or a price, and looking one up
+        // returns somebody else's release.
+        expect(normalizeReleaseBundle(bundleWith({ barcode: value })).release)
+            .not.toHaveProperty('barcode');
+    });
+
+    it('is absent when the submission says nothing about it', () => {
+        expect(normalizeReleaseBundle(bundleWith({})).release).not.toHaveProperty('barcode');
+    });
+
+    it('tolerates a number rather than a string', () => {
+        // FormData gives strings, but a programmatic caller may not.
+        const normalized = normalizeReleaseBundle(bundleWith({ barcode: 7464373891 }));
+        expect(normalized.release.barcode).toBe('7464373891');
+    });
+});
