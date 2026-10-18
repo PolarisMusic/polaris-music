@@ -207,6 +207,23 @@ the drift it fixes. So they remain eligible and the endpoint publishes
 `undated_candidates`: at zero the draw is fully reproducible, and above zero
 that number says by how much it is not.
 
+Measured on the live registry the day the cutoff landed: 276 candidates, 233
+of them inside a cutoff one day old, **13 undated**. So the cutoff pins 95% of
+the field, and the remaining 13 — nodes predating the stamp, or loaded by
+script rather than submitted — are what `scripts/backfillCreatedAt.js` dates,
+from evidence already in the graph and in this order:
+
+1. the earliest `SUBMITTED` edge from the submitting Account
+2. the earliest `Claim` about the node
+3. the earliest `created_at` among its immediate neighbours
+
+The third only says *no later than*, which is all a cutoff needs but is not
+the node's own history, so anything dated that way is marked
+`created_at_inferred`. A node no evidence reaches is left undated and
+reported: a wrong date is worse than a missing one, because the draw already
+copes with missing and a wrong one pins the field to a fiction. The script
+reports by default and writes only with `--execute`.
+
 ### 4.2 Identity is not permanent, and stake must follow it
 
 The chain keys stake by `sha256(graph_node_id)`. A graph id is not stable: a
