@@ -29,10 +29,25 @@ const blockId = (n) => createHash('sha256').update(`blk${n}`).digest('hex');
 function makeService({
     candidates = CANDIDATES, stakes = new Map(), configRow = null,
     overrides = {}, ledger = null,
+    // null means a chain reader that predates getBlockInfo — the draw must
+    // still work, unpinned, rather than failing.
+    blockInfo = '2026-10-17T20:00:00.000Z',
 } = {}) {
-    const calls = { candidates: 0, blockId: 0, stakes: 0, ledger: 0, ledgerBlock: null };
+    const calls = {
+        candidates: 0, blockId: 0, stakes: 0, ledger: 0, ledgerBlock: null,
+        candidatesAsOf: undefined, blockInfoFor: [],
+    };
     const graph = {
-        getLotteryCandidates: async () => { calls.candidates++; return candidates; },
+        getLotteryCandidates: async (asOf) => {
+            calls.candidates++;
+            calls.candidatesAsOf = asOf;
+            // Honours the cutoff the way the real query does, so the contract
+            // between the two halves is what is under test rather than a fake
+            // that agrees with whatever it is given.
+            if (asOf == null) return candidates;
+            return candidates.filter(
+                (c) => c.createdAt == null || c.createdAt <= asOf);
+        },
         // Absent unless a test supplies one, so the existing cases still
         // exercise the contract-table fallback.
         ...(ledger ? {
@@ -46,6 +61,14 @@ function makeService({
         getLotteryConfig: async () => configRow,
         getChainInfo: async () => ({ lastIrreversibleBlock: LIB }),
         getBlockId: async (n) => { calls.blockId++; return blockId(n); },
+        ...(blockInfo === null ? {} : {
+            getBlockInfo: async (n) => {
+                calls.blockInfoFor.push(n);
+                return typeof blockInfo === 'function'
+                    ? blockInfo(n)
+                    : { id: blockId(n), timestamp: blockInfo };
+            },
+        }),
         getNodeStakes: async () => { calls.stakes++; return stakes; },
         ...overrides,
     };
@@ -313,5 +336,120 @@ describe('failing softly', () => {
         const result = await service.getSponsoredNode();
         expect(result).not.toBeNull();
         expect(result.draw.period_blocks).toBe(172800);
+    });
+});
+
+describe('the field is pinned to the snapshot block', () => {
+    /**
+     * The bug this exists for, as seen on polaris.mu on 2026-10-17: the node
+     * changed several times in a day under a 24h period. The draw arithmetic
+     * was right — published offset 210, and `seed mod 272` is 210 — but the
+     * candidate set was read at draw time rather than as of the snapshot, and
+     * the per-period cache lives only as long as the process. So every deploy
+     * recomputed the draw against a registry that had grown since.
+     *
+     * With base_weight 1 and nothing staked, every candidate has weight 1 and
+     * the offset indexes the ordered list directly, so there is no "nearly the
+     * same answer": 272 candidates put the offset at 210, 273 put it at 120.
+     * One submission anywhere re-rolls the winner.
+     */
+    const DATED = [
+        { nodeId: 'polaris:group:alpha', name: 'Alpha', type: 'group',
+            createdAt: '2026-10-01T00:00:00.000Z', dated: true },
+        { nodeId: 'polaris:person:bravo', name: 'Bravo', type: 'person',
+            createdAt: '2026-10-02T00:00:00.000Z', dated: true },
+        { nodeId: 'polaris:group:charlie', name: 'Charlie', type: 'group',
+            createdAt: '2026-10-03T00:00:00.000Z', dated: true },
+    ];
+
+    /** Submitted after the snapshot: in the registry, out of this draw. */
+    const LATE = {
+        nodeId: 'polaris:group:delta', name: 'Delta', type: 'group',
+        createdAt: '2026-10-18T00:00:00.000Z', dated: true,
+    };
+
+    test('the cutoff is the snapshot block, not the seed block', async () => {
+        // A minute's difference, and the wrong one would pin the field after
+        // the seed is public — which is the property the whole design turns on.
+        const { service, calls } = makeService({ candidates: DATED });
+        await service.getSponsoredNode();
+
+        const period = Math.floor(LIB / 172800);
+        expect(calls.blockInfoFor).toEqual([period * 172800]);
+    });
+
+    test('the snapshot time reaches the candidate query', async () => {
+        const { service, calls } = makeService({ candidates: DATED });
+        await service.getSponsoredNode();
+
+        expect(calls.candidatesAsOf).toBe('2026-10-17T20:00:00.000Z');
+    });
+
+    test('a later submission does not change the winner', async () => {
+        // The regression test proper. Same period, same seed, one more
+        // candidate in the registry — and the answer has to be identical.
+        const before = await makeService({ candidates: DATED })
+            .service.getSponsoredNode();
+        const after = await makeService({ candidates: [...DATED, LATE] })
+            .service.getSponsoredNode();
+
+        expect(after.node).toEqual(before.node);
+        expect(after.draw.total_weight).toBe(before.draw.total_weight);
+        expect(after.draw.candidates).toBe(before.draw.candidates);
+    });
+
+    test('and would have, before this', async () => {
+        // Guards the guard: if the cutoff stopped being applied, the test above
+        // has to be able to fail. An unpinned reader is exactly that case.
+        const before = await makeService({ candidates: DATED, blockInfo: null })
+            .service.getSponsoredNode();
+        const after = await makeService({ candidates: [...DATED, LATE], blockInfo: null })
+            .service.getSponsoredNode();
+
+        expect(after.draw.candidates).toBe(before.draw.candidates + 1);
+    });
+
+    test('the cutoff is published, so a verifier can reuse it', async () => {
+        const result = await makeService({ candidates: DATED }).service.getSponsoredNode();
+
+        expect(result.draw.snapshot_time).toBe('2026-10-17T20:00:00.000Z');
+    });
+
+    test('a chain reader that cannot say so says null, and still draws', async () => {
+        // An older ChainReaderService has no getBlockInfo. The draw is weaker
+        // without a cutoff, and that is reported rather than hidden behind a
+        // result that quietly moves.
+        const result = await makeService({ candidates: DATED, blockInfo: null })
+            .service.getSponsoredNode();
+
+        expect(result.node).toBeTruthy();
+        expect(result.draw.snapshot_time).toBeNull();
+    });
+
+    test('a failed block read does not take the draw down with it', async () => {
+        const result = await makeService({
+            candidates: DATED,
+            blockInfo: () => { throw new Error('rpc exploded'); },
+        }).service.getSponsoredNode();
+
+        expect(result.node).toBeTruthy();
+        expect(result.draw.snapshot_time).toBeNull();
+    });
+
+    test('candidates with no creation record stay in, and are counted', async () => {
+        // Excluding them would empty any registry older than the stamping,
+        // which is worse than the drift. Publishing the count is what keeps
+        // the remaining imprecision honest.
+        const result = await makeService({
+            candidates: [DATED[0], { ...DATED[1], createdAt: null, dated: false }],
+        }).service.getSponsoredNode();
+
+        expect(result.draw.candidates).toBe(2);
+        expect(result.draw.undated_candidates).toBe(1);
+    });
+
+    test('a fully dated field reports none undated', async () => {
+        const result = await makeService({ candidates: DATED }).service.getSponsoredNode();
+        expect(result.draw.undated_candidates).toBe(0);
     });
 });

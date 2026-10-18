@@ -805,6 +805,14 @@ constructor(config = {}) {
 
                 await tx.run(`
                     MERGE (g:Group {group_id: $groupId})
+                    // When this node first appeared, which nothing recorded
+                    // until now: every other write here is an update, and
+                    // updated_at moves every time the group is touched. The
+                    // sponsored-node draw has to know which candidates existed
+                    // at a past block, and a group with no creation record
+                    // cannot answer that. ON CREATE, so replaying the event
+                    // does not move it.
+                    ON CREATE SET g.created_at = datetime({epochMillis: $eventTs})
                     SET g.id = $groupId,
                         g.name = $name,
                         g.alt_names = coalesce($altNames, g.alt_names, []),
@@ -4035,28 +4043,57 @@ constructor(config = {}) {
      *
      * @returns {Promise<Array<{nodeId: string, name: string, type: string, aliasIds: string[]}>>}
      */
-    async getLotteryCandidates() {
+    async getLotteryCandidates(asOf = null) {
         const session = this.driver.session();
         try {
+            // `asOf` pins the field to the entrants that existed at the
+            // snapshot block, which is what makes a draw reproducible. Without
+            // it the set is read live, and since base_weight is 1 and almost
+            // nothing is staked, every candidate has weight 1 and the winning
+            // offset is a direct index into this list — so one submission
+            // anywhere re-rolls the winner for the whole period. Measured on
+            // the live registry: 272 candidates, offset 210; at 273 the offset
+            // is 120, an unrelated node.
+            //
+            // Provenance differs by type, because the write paths do. A Person
+            // carries created_at from its own MERGE; a Group did not until
+            // 2026-10-17, so its earliest SUBMITTED edge stands in for the
+            // groups that predate the fix. Either way the comparison is against
+            // a *block's* timestamp, which the chain decides and anyone can
+            // re-read — not against this server's clock.
+            //
+            // A candidate with no provenance at all stays IN the draw. The
+            // alternative silently empties the field on any registry older than
+            // the stamping, which is a worse failure than the drift; the
+            // service counts them so the gap is visible in the published draw.
+            const bounded = asOf != null;
             const result = await session.run(`
                 MATCH (g:Group)
                 WHERE g.group_id IS NOT NULL AND NOT (g)-[:MERGED_INTO]->()
                 OPTIONAL MATCH (mergedGroup:Group)-[:MERGED_INTO*1..10]->(g)
+                OPTIONAL MATCH (:Account)-[sub:SUBMITTED]->(g)
+                WITH g,
+                     collect(DISTINCT mergedGroup.group_id) AS aliasIds,
+                     coalesce(g.created_at, min(sub.timestamp)) AS firstSeen
+                ${bounded ? 'WHERE firstSeen IS NULL OR firstSeen <= datetime($asOf)' : ''}
                 RETURN g.group_id AS nodeId,
                        g.name AS name,
                        'group' AS type,
-                       collect(DISTINCT mergedGroup.group_id) AS aliasIds
+                       aliasIds,
+                       firstSeen IS NOT NULL AS dated
 
                 UNION
 
                 MATCH (p:Person)-[:MEMBER_OF]->(:Group)
                 WHERE p.person_id IS NOT NULL AND NOT (p)-[:MERGED_INTO]->()
+                  ${bounded ? 'AND (p.created_at IS NULL OR p.created_at <= datetime($asOf))' : ''}
                 OPTIONAL MATCH (mergedPerson:Person)-[:MERGED_INTO*1..10]->(p)
                 RETURN p.person_id AS nodeId,
                        p.name AS name,
                        'person' AS type,
-                       collect(DISTINCT mergedPerson.person_id) AS aliasIds
-            `);
+                       collect(DISTINCT mergedPerson.person_id) AS aliasIds,
+                       p.created_at IS NOT NULL AS dated
+            `, bounded ? { asOf } : {});
 
             return result.records
                 .map((record) => ({
@@ -4064,6 +4101,7 @@ constructor(config = {}) {
                     name: record.get('name'),
                     type: record.get('type'),
                     aliasIds: (record.get('aliasIds') || []).filter(Boolean),
+                    dated: record.get('dated') === true,
                 }))
                 // Ordered here as well as in the draw. The draw's ordering is
                 // the one that decides the winner; this one only makes two

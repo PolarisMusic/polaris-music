@@ -167,7 +167,47 @@ In this data model:
 This happens to line up with what is already on screen: `/graph/initial`
 returns exactly groups and their members.
 
-### 4.1 Identity is not permanent, and stake must follow it
+### 4.1 As of when — the field is pinned to the snapshot block
+
+Eligibility is a question about a *past* block, not about now. The candidate
+set is read with a cutoff: the instant the chain stamped on `snapshot_block`,
+which is fixed forever and which anyone can re-read with `get_block_info`. It
+is not this server's clock, so it costs the draw none of its reproducibility.
+
+**This was wrong until 2026-10-17 and the symptom was visible on the front
+page.** The set was read live, and because the per-period cache is in-process,
+every API restart recomputed the draw against a registry that had grown since.
+The node changed several times in a day under a 24h period.
+
+What makes it severe rather than untidy is the weighting. With `base_weight` 1
+and nothing staked, every candidate has weight exactly 1, so `total_weight`
+equals the candidate count and the offset is a *direct index* into the ordered
+list. Modular arithmetic has no locality — one more entrant does not move the
+answer slightly, it re-rolls it. From the live draw on 2026-10-17:
+
+```
+seed   = 116ff77827e4bb1d60425897b6063417fed1a83f60c37bb76a2667c0f65c73d2
+272 candidates -> offset 210        ← the published result
+273 candidates -> offset 120        ← one submission later: unrelated node
+271 candidates -> offset   4
+```
+
+Provenance differs by node type, because the write paths do:
+
+| Node | Dated by |
+|---|---|
+| Person | its own `created_at`, set `ON CREATE` in the bundle path |
+| Group (from 2026-10-17) | its own `created_at`, now set `ON CREATE` too |
+| Group (earlier) | the earliest `SUBMITTED` edge from the submitting Account |
+| Anything with neither | **nothing — stays in the draw, counted as undated** |
+
+That last row is deliberate. Excluding undated candidates would empty the
+field on any registry older than the stamping, which is a worse failure than
+the drift it fixes. So they remain eligible and the endpoint publishes
+`undated_candidates`: at zero the draw is fully reproducible, and above zero
+that number says by how much it is not.
+
+### 4.2 Identity is not permanent, and stake must follow it
 
 The chain keys stake by `sha256(graph_node_id)`. A graph id is not stable: a
 provisional id becomes canonical when it resolves, and two nodes become one
@@ -228,6 +268,26 @@ seed block id and the `nodeagg` rows at that block, the draw is reproducible
 by anyone with this document. The endpoint therefore publishes its inputs
 alongside its answer — seed block number, seed, total weight, offset — so a
 sceptic can check the arithmetic without trusting the API.
+
+Reproducible means *every* input is pinned, which is a higher bar than it
+looks and which this failed for its first months: the arithmetic was checkable
+and the field it ran over was not (§4.1). Three fields in the published `draw`
+are what make the claim auditable rather than decorative:
+
+- `snapshot_time` — the cutoff the candidate set was taken at. `null` means
+  the chain reader could not supply it and the field was read live, so the
+  result is not reproducible. Stated, rather than left to be inferred from an
+  answer that moves.
+- `undated_candidates` — how much of the field the cutoff could not pin.
+- `stake_source` — `snapshot` when stakes came from the indexed ledger as of
+  `snapshot_block`, `current_state` when the ledger was empty and the
+  contract's running total was read instead. The second is read *after* the
+  seed is public and is therefore the weaker guarantee; it is also what a
+  deployment with nothing staked yet reports, which is harmless because
+  nothing is weighted either way.
+
+A verifier who recomputes a draw and gets a different winner should check
+those three before concluding anything about the arithmetic.
 
 Recording the winner on chain becomes necessary only if the contract must
 *pay* the winner. That is a later phase and it needs a written action, RAM,
@@ -334,6 +394,15 @@ will weight the retired identity rather than the survivor.
 ## 8. Settled
 
 - **Period length:** 24h — `period_blocks` 172800, retunable via `setlottery`.
+  Counted in blocks, so a chain that misses rounds stretches it: the boundary
+  drifts later in wall-clock terms and never drifts back. That is the price of
+  a boundary anyone can recompute from a block number with no clock and no
+  agreement about time zones.
+- **Nothing triggers a draw.** There is no job and no cron. The endpoint
+  computes it on request and caches it per period, per process. A new period's
+  winner appears on the first request after its seed block becomes
+  irreversible — the seed delay plus the LIB lag, so roughly the first few
+  minutes of a period still answer with the previous one.
 - **Base weight:** on chain and governable, default 1.
 - **When it applies:** every fresh load. Nothing is stored client-side; a
   visitor returning within the period sees the same node because the draw is
