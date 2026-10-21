@@ -1156,6 +1156,18 @@ Two spellings therefore share one node, which is the point: the overlap between
 two genres is computed over sets, and a genre that splits in two halves every
 overlap silently.
 
+`genre_id` is `prov:genre:{hash}`, hashed from that key and nothing else
+(`IdentityService.makeGenreId`). A genre is deliberately **not** an
+`EntityType`, which is the one place this schema's identity machinery does not
+apply to a node it contains: every other entity can acquire a canonical id
+later, because two rows about one person may turn out to be the same person and
+`MERGE_NODE` says so. A genre cannot — it is already defined by its key — and
+both doors the identity service would open onto it (minting
+`polaris:genre:{uuid}`, or resolving a MusicBrainz genre MBID through the
+identity map) end in one genre holding two ids, which is the split this section
+exists to prevent. The `prov:` shape is kept so that ids in this registry have
+one of three documented forms and `parseId` still classifies them.
+
 **Provenance lives on the edge, not the node.** `TAGGED` is keyed by `origin`:
 
 | origin | What it means | Anchored? |

@@ -3768,18 +3768,6 @@ constructor(config = {}) {
                 };
                 break;
 
-            case 'genre':
-                // A genre IS its normalized key, which is what separates it
-                // from the other entity types here: two people called Bill
-                // Evans are two nodes, while two sources writing "Hip-Hop" and
-                // "hip hop" mean one genre. The key arrives already normalized
-                // from genreVocabulary.js, so this is only hashing it.
-                fingerprint = {
-                    type: 'genre',
-                    key: data.key
-                };
-                break;
-
             default:
                 throw new Error(`Unknown entity type: ${type}`);
         }
@@ -4152,7 +4140,13 @@ constructor(config = {}) {
             for (const genre of genres ?? []) {
                 if (!genre?.key) continue;
 
-                const genreId = await this.resolveEntityId(tx, 'genre', { key: genre.key });
+                // Straight from the key, not through resolveEntityId: a
+                // genre IS its normalized key, so there is nothing to resolve
+                // and an external id must not get a say. Two people called
+                // Bill Evans are two nodes; two sources writing "Hip-Hop" and
+                // "hip hop" mean one genre, and a second id for it would halve
+                // every overlap between two genres silently.
+                const genreId = IdentityService.makeGenreId(genre.key);
 
                 await tx.run(`
                     MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
