@@ -738,13 +738,15 @@ class PolarisApp {
             diffTracklists(tracks, result.album.tracks), filled, result.matched_by);
 
         // After the report rather than before it: this is a second round of
-        // requests to other services, and the tracklist comparison — the part
-        // a submitter is waiting on — should not sit behind it.
-        const crossService = await this.importCrossServiceLinks();
+        // requests to other services — one per track plus one for the release —
+        // and the tracklist comparison, which is the part a submitter is
+        // waiting on, should not sit behind it.
+        const crossService = await this.importCrossServiceLinks(
+            result.album.id ? `https://open.spotify.com/album/${result.album.id}` : null);
         if (crossService && crossService.added > 0) {
             const line = document.createElement('p');
             line.textContent = `Added ${crossService.added} link(s) on `
-                + `${crossService.services.join(', ')}, matched by ISRC.`;
+                + `${crossService.services.join(', ')}.`;
             report.appendChild(line);
         }
     }
@@ -896,19 +898,38 @@ class PolarisApp {
      *
      * @returns {Promise<{added: number, services: string[]}|null>}
      */
-    async importCrossServiceLinks() {
-        const rows = [...document.querySelectorAll('.track-item')]
-            .map(item => ({
-                item,
-                isrc: this.getInputValue(item, `track-isrc-${item.dataset.index}`),
-            }))
-            .filter(row => row.isrc);
+    async importCrossServiceLinks(albumUrl = null) {
+        const rows = [...document.querySelectorAll('.track-item')].map((item) => {
+            const index = item.dataset.index;
+            const isrc = this.getInputValue(item, `track-isrc-${index}`);
 
-        if (rows.length === 0) return null;
+            // The Spotify track link the cross-check just filled in. Odesli has
+            // no other way in — it resolves by link, not by code — and the
+            // identity question is already settled: that link was matched by
+            // barcode or by title under the rules in tracklistDiff.js, so
+            // resolving from it inherits that match rather than making a new
+            // guess.
+            const url = this.parseCommaSeparated(
+                this.getInputValue(item, `track-listen-link-${index}`))
+                .map(normalizeListenLink)
+                .find(link => link?.service === 'spotify' && link.type === 'track')?.url ?? '';
+
+            return { item, index, id: isrc || url, isrc, url };
+        }).filter(row => row.id);
+
+        // The release gets a row of its own: one more request returns the album
+        // on every service, which is what the player reads for its embed and
+        // what nothing else would ever put there.
+        const releaseRow = albumUrl ? { id: 'release', url: albumUrl } : null;
+
+        if (rows.length === 0 && !releaseRow) return null;
 
         let result;
         try {
-            result = await api.resolveCrossServiceLinks(rows.map(row => row.isrc));
+            result = await api.resolveCrossServiceLinks([
+                ...rows.map(({ id, isrc, url }) => ({ id, isrc, url })),
+                ...(releaseRow ? [releaseRow] : []),
+            ]);
         } catch (error) {
             console.warn('Cross-service link lookup failed:', error);
             return null;
@@ -920,15 +941,20 @@ class PolarisApp {
         // A second guard saying the same thing is one no test could hold.
 
         let added = 0;
-        for (const { item, isrc } of rows) {
-            const urls = Object.values(result.links?.[isrc] ?? {});
+        for (const { item, index, id } of rows) {
+            const urls = Object.values(result.links?.[id] ?? {});
             if (urls.length === 0) continue;
 
-            const input = item.querySelector(
-                `[name="track-listen-link-${item.dataset.index}"]`);
+            const input = item.querySelector(`[name="track-listen-link-${index}"]`);
             if (!input) continue;
 
             added += this.appendListenLinks(input, urls);
+        }
+
+        if (releaseRow) {
+            const target = document.getElementById('release-listen-links');
+            const urls = Object.values(result.links?.release ?? {});
+            if (target && urls.length > 0) added += this.appendListenLinks(target, urls);
         }
 
         return { added, services: result.services ?? [] };

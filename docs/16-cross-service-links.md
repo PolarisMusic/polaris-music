@@ -4,11 +4,12 @@ How a submission acquires the identifiers and the per-service links that let
 the same recording be found on another platform, what is built, and what is
 blocked on which third party.
 
-**Status**: the Spotify chain is built (§1), and so is the first other
-service: Deezer, by ISRC, needing no credentials (§3). Apple Music, Tidal and
-YouTube Music each wait on one credential or on a lookup path that does not
-exist; §4.1 says which. Odesli, which would have answered for all of them at
-once, is gone — measured, not assumed (§4).
+**Status**: built end to end. Odesli granted this deployment a key on
+2026-10-21, so one request now returns Apple Music, Tidal, YouTube Music,
+Amazon Music, Deezer and SoundCloud together (§3). The keyless Deezer lookup
+stays as the provider that answers when no key is configured. §4 is the history
+of getting here, kept because it is the reason the design is a provider table
+rather than one integration.
 
 ---
 
@@ -119,6 +120,49 @@ somebody printed would fill it with catalogue cruft.
 
 ## 3. And then the other services
 
+### 3.1 Odesli, with a key
+
+```
+each track's Spotify link ──POST /api/links/resolve {tracks}──▶ provider table
+      → odesli:  GET api.song.link/v1-alpha.1/links?url=…&key=…
+          → apple, tidal, youtubeMusic, youtube, amazonMusic, deezer,
+            soundcloud, pandora — all from one request
+      → deezer:  the keyless fallback, for a deployment with no key
+  → every link appended to the track, and the album to the release
+```
+
+Odesli resolves by **link**, not by code, which is why the request carries both
+an ISRC and a URL per row. That suits the registry: the Spotify link a
+submission holds was itself matched by barcode or by title under the rules in
+`tracklistDiff.js`, so resolving from it inherits that match rather than making
+a new guess. Nothing is ever matched by name.
+
+Three things about the service are set by the grant rather than by the code,
+and all three are environment variables so correcting one is a restart:
+`ODESLI_API_KEY`, `ODESLI_API_BASE` (they announced v1-alpha.1's retirement) and
+`ODESLI_REQUESTS_PER_MINUTE` (the keyless tier was 10; a key raises it). A 401
+is reported as *the key is not being accepted* rather than as an outage,
+because keyless access is retired and with a key configured there is no other
+reading — and a rejected key stops the batch rather than spending the rate
+limit proving the point once per track.
+
+**Store pages are not listen links.** `itunes`, `amazonStore` and `googleStore`
+come back in the same response and are deliberately dropped: the field is
+called listen_links, and a purchase page is a different claim about a
+recording.
+
+**Everything stored is parsed.** Apple, Amazon and both YouTubes keep the thing
+being linked to in a *query parameter*, so `utils/listenLinks.js` grew a
+per-service parser — a path-only read turns every Apple track link into its
+album and collapses every song on a record into one identity. Apple's slug is
+dropped (it changes when a title is edited) and its storefront is kept in the
+URL but left out of the identity (the same recording in two storefronts is one
+recording). Pandora is the one service left unparsed: its links are slugs with
+no id to key on, so they are stored tracking-stripped and work, just without
+deduplication.
+
+
+
 ```
 each track's ISRC  ──POST /api/links/resolve {isrcs}──▶  provider table
       → deezer:  GET api.deezer.com/track/isrc:{isrc}
@@ -146,13 +190,16 @@ never asked".
 
 ---
 
-## 4. Where the other services stand: Odesli is gone, Deezer is in
+## 4. How this got here: Odesli went away, then came back
 
 The plan was Odesli (song.link): give it one platform's URL, get back the same
 recording on Apple Music, Deezer, Tidal, YouTube Music and others. One request
-per track, no per-service credentials.
+per track, no per-service credentials. That is what §3.1 now does — with a key,
+granted 2026-10-21 after a request. What follows is why the key mattered, and
+why the thing built around it is a table of providers rather than one
+integration.
 
-**It was retired.** Linktree, which owns Songlink/Odesli, announced the sunset
+**Keyless access was retired.** Linktree, which owns Songlink/Odesli, announced the sunset
 of the public API on 2026-05-21 with a retirement date of 2026-07-31, and
 stopped issuing API keys. Reports from early October 2026 are that keyless
 calls now answer 401; one API aggregator recorded a 200 as late as 2026-08-12,
@@ -177,14 +224,18 @@ without credentials. The Deezer body there is a *miss* — that ISRC was made up
 — and its shape is the one `deezerClient.js` reads: HTTP 200 with an `error`
 object and no `id`. A client trusting the status code would take it for a hit.
 
-An access request was sent to Odesli on 2026-10-17; if a key arrives it becomes
-one more provider in the table rather than the thing the table depends on.
+An access request was sent to Odesli on 2026-10-17 and **granted on
+2026-10-21**. It is one more provider in the table, not the thing the table
+depends on: with no key configured it drops out of the answer and the keyless
+Deezer lookup carries on alone. That is the shape the retirement argued for,
+and it survives the next one.
 
 ### 4.1 What is left, per service
 
 | Service | Lookup by ISRC | What it needs | Verdict |
 |---|---|---|---|
-| Deezer | `GET api.deezer.com/track/isrc:{isrc}` | nothing | **Built.** `api/deezerClient.js` |
+| *(all of them)* | — Odesli, by link | an API key, granted 2026-10-21 | **Built.** `api/odesliClient.js` |
+| Deezer | `GET api.deezer.com/track/isrc:{isrc}` | nothing | **Built**, and the fallback with no key |
 | Apple Music | `/v1/catalog/{storefront}/songs?filter[isrc]=` | developer token (ES256 JWT, paid account) | Same credential MusicKit playback needs — see §4 of `13-user-onboarding.md` |
 | Tidal | `filter[isrc]` on its v2 API | OAuth client credentials | Free developer app, but another secret to hold |
 | YouTube Music | none | YouTube Data API key, then a *search* | No identifier path exists; a search is a guess |
@@ -238,11 +289,19 @@ curl -s "https://api.deezer.com/track/isrc:USSM17900123" | head -c 200; echo
 #   {"error":…,"code":800}  → reachable, that ISRC is simply not in Deezer
 #   {"id":…,"title":…}      → reachable, and a hit
 
-# Through our own endpoint, which is what the form uses:
+# Odesli needs the key, and answers 401 without one.
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "https://api.song.link/v1-alpha.1/links?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F0Fl6Pl6w89IL1FWt8Uvg01&key=$ODESLI_API_KEY"
+#   200 → the key works
+#   401 → the key is missing, wrong, or not yet active
+#   410 → the namespace moved; set ODESLI_API_BASE
+
+# Through our own endpoint, which is what the form uses. `providers` says who
+# was asked, `services` what came back:
 curl -s -X POST http://127.0.0.1:3000/api/links/resolve \
   -H 'Content-Type: application/json' \
-  -d '{"isrcs":["USSM17900123"]}'
-#   {"success":true,"links":{…},"services":["deezer"]}
+  -d '{"tracks":[{"isrc":"USSM17900123","url":"https://open.spotify.com/track/0Fl6Pl6w89IL1FWt8Uvg01"}]}'
+#   {"success":true,"links":{…},"services":["apple","deezer",…],"providers":["odesli","deezer"]}
 ```
 
 ---

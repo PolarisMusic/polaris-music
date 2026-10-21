@@ -367,20 +367,25 @@ class APIClient {
     /**
      * Ask what the same recordings are called on other services.
      *
-     * By ISRC, because that is the recording's own identifier rather than one
-     * service's address for it. The answer is keyed by ISRC and then by
+     * By ISRC where a catalogue can be asked that way, and by platform link
+     * where it cannot — Odesli resolves every service at once and takes only a
+     * link. The answer is keyed by the id each row was sent under, then by
      * service, and a recording a service does not have is simply absent.
      *
-     * @param {string[]} isrcs
+     * @param {Array<{id: string, isrc?: string, url?: string}>} tracks
      * @returns {Promise<{success: boolean, reason?: string, message?: string,
      *                    links?: Record<string, Record<string, string>>,
-     *                    services?: string[]}>}
+     *                    services?: string[], providers?: string[]}>}
      */
-    async resolveCrossServiceLinks(isrcs) {
+    async resolveCrossServiceLinks(tracks) {
         const response = await fetch(`${API_BASE_URL}/links/resolve`, {
             method: 'POST',
             headers: JSON_HEADERS,
-            body: JSON.stringify({ isrcs }),
+            // Both identifiers per row, because the providers disagree about
+            // which they take: a catalogue is asked by ISRC, Odesli by link.
+            // The id is this caller's handle on the row, so the answer comes
+            // back addressed to it whichever identifier resolved it.
+            body: JSON.stringify({ tracks }),
         });
         return response.json();
     }

@@ -16,6 +16,7 @@
 
 import express from 'express';
 import { DeezerClient } from '../deezerClient.js';
+import { OdesliClient } from '../odesliClient.js';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
 
 /**
@@ -27,6 +28,42 @@ import { sanitizeError } from '../../utils/errorSanitizer.js';
 const MAX_ISRCS = 60;
 
 /**
+ * Read the request into the one shape every provider is asked in.
+ *
+ * Two bodies are accepted. `{isrcs: [...]}` is what the form sent before
+ * Odesli, and is kept working because the answer it produces is identical: the
+ * ISRC doubles as the id. `{tracks: [{isrc, url}]}` is the shape that can also
+ * carry a platform URL, which is the only way into Odesli — it resolves by link
+ * rather than by code.
+ *
+ * The id is the caller's handle on a row, so the answer can be mapped back to
+ * it without the caller having to know which identifier each provider used.
+ *
+ * @param {Object} body
+ * @returns {Array<{id: string, isrc?: string, url?: string}>}
+ */
+function itemsFrom(body) {
+    if (Array.isArray(body?.tracks)) {
+        return body.tracks
+            .map((track) => {
+                const isrc = typeof track?.isrc === 'string' ? track.isrc.trim() : '';
+                const url = typeof track?.url === 'string' ? track.url.trim() : '';
+                const id = (typeof track?.id === 'string' && track.id) || isrc || url;
+                return id ? { id, isrc: isrc || undefined, url: url || undefined } : null;
+            })
+            .filter(Boolean);
+    }
+
+    if (Array.isArray(body?.isrcs)) {
+        return body.isrcs
+            .filter((isrc) => typeof isrc === 'string' && isrc.trim())
+            .map((isrc) => ({ id: isrc.trim(), isrc: isrc.trim() }));
+    }
+
+    return [];
+}
+
+/**
  * @param {Object} ctx - Server context.
  * @param {Object} ctx.config
  * @param {Function} ctx.writeRateLimiter
@@ -35,7 +72,15 @@ const MAX_ISRCS = 60;
  */
 export function createLinkRoutes({ config, writeRateLimiter, linkProviders } = {}) {
     const router = express.Router();
-    const providers = linkProviders ?? { deezer: new DeezerClient() };
+    // Odesli first: one request answers for every service at once, so a key
+    // that works makes the per-service providers a fallback rather than the
+    // mechanism. Deezer stays because it needs no credentials and therefore
+    // answers on a deployment that has no Odesli key — which, until the key was
+    // granted, was this one.
+    const providers = linkProviders ?? {
+        odesli: new OdesliClient(),
+        deezer: new DeezerClient(),
+    };
 
     /**
      * POST /api/links/resolve
@@ -50,16 +95,16 @@ export function createLinkRoutes({ config, writeRateLimiter, linkProviders } = {
      */
     router.post('/resolve', writeRateLimiter ?? ((req, res, next) => next()), async (req, res) => {
         try {
-            const isrcs = Array.isArray(req.body?.isrcs) ? req.body.isrcs : [];
+            const items = itemsFrom(req.body);
 
-            if (isrcs.length === 0) {
+            if (items.length === 0) {
                 return res.status(400).json({
                     success: false,
                     reason: 'no_isrcs',
-                    message: 'Provide at least one ISRC.',
+                    message: 'Provide at least one ISRC or track link.',
                 });
             }
-            if (isrcs.length > MAX_ISRCS) {
+            if (items.length > MAX_ISRCS) {
                 return res.status(400).json({
                     success: false,
                     reason: 'too_many_isrcs',
@@ -86,27 +131,38 @@ export function createLinkRoutes({ config, writeRateLimiter, linkProviders } = {
 
             /** @type {Record<string, Record<string, string>>} */
             const links = {};
-            const services = [];
+            const providersAsked = [];
 
-            for (const [service, client] of asked) {
-                services.push(service);
+            for (const [name, client] of asked) {
+                providersAsked.push(name);
 
                 // One provider failing is not the request failing. The others
                 // have answers, and a partial result is worth returning.
                 let found;
                 try {
-                    found = await client.tracksByIsrcs(isrcs);
+                    found = await client.resolveLinks(items);
                 } catch (error) {
-                    console.warn(`Link provider ${service} failed:`, error.message);
+                    console.warn(`Link provider ${name} failed:`, error.message);
                     continue;
                 }
 
-                for (const [isrc, url] of found) {
-                    links[isrc] = { ...(links[isrc] ?? {}), [service]: url };
+                for (const [id, services] of found) {
+                    // Earlier providers win a collision. Odesli runs first and
+                    // answers for every service at once, so a later per-service
+                    // provider only ever fills a gap it left.
+                    links[id] = { ...services, ...(links[id] ?? {}) };
                 }
             }
 
-            res.json({ success: true, links, services });
+            res.json({
+                success: true,
+                links,
+                // What is in the answer, not who was asked for it: a caller
+                // telling a submitter what was added means the services, and
+                // one provider can answer for nine of them.
+                services: [...new Set(Object.values(links).flatMap(Object.keys))].sort(),
+                providers: providersAsked,
+            });
         } catch (error) {
             console.error('Link resolution failed:', error.message);
             res.status(502).json(sanitizeError(error, req.requestId, {

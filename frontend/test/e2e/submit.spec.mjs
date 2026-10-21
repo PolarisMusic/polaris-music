@@ -694,7 +694,16 @@ test.describe('codes and other spellings, from the same check', () => {
         // The Deezer link lands beside the Spotify one rather than replacing it.
         await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue(
             'https://open.spotify.com/track/trk1, https://www.deezer.com/track/3135556');
-        expect(sent).toEqual([{ isrcs: ['USSM17900123'] }]);
+        // Both identifiers per row, because the providers disagree about which
+        // they take — a catalogue by code, Odesli by link — plus the release
+        // itself, since one more request returns the album on every service.
+        expect(sent).toEqual([{
+            tracks: [
+                { id: 'USSM17900123', isrc: 'USSM17900123',
+                    url: 'https://open.spotify.com/track/trk1' },
+                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
+            ],
+        }]);
     });
 
     test('a track with no ISRC is not asked about', async ({ page }) => {
@@ -728,7 +737,15 @@ test.describe('codes and other spellings, from the same check', () => {
             .toHaveValue(/deezer\.com/);
 
         await expect(page.locator('#listen-link-report')).toContainText('no confident match');
-        expect(sent).toEqual([{ isrcs: ['USSM17900123'] }]);
+        // The unmatched row has neither identifier — no ISRC was written and no
+        // Spotify link was filled — so it is dropped rather than asked about.
+        expect(sent).toEqual([{
+            tracks: [
+                { id: 'USSM17900123', isrc: 'USSM17900123',
+                    url: 'https://open.spotify.com/track/trk1' },
+                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
+            ],
+        }]);
         await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
     });
 
@@ -751,6 +768,117 @@ test.describe('codes and other spellings, from the same check', () => {
             .toHaveValue(/track\/222$/);
     });
 
+    test('every service Odesli answers for lands on the track', async ({ page }) => {
+        // The point of the key: one request returns the lot, where the
+        // per-service clients needed a credential and a rate limit each.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple', 'deezer', 'tidal', 'youtubeMusic'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/x/1443000516?i=1443000890',
+                    deezer: 'https://www.deezer.com/track/3135556',
+                    tidal: 'https://tidal.com/browse/track/99',
+                    youtubeMusic: 'https://music.youtube.com/watch?v=abc',
+                },
+            },
+        });
+
+        // The report's "Added" line is appended after the resolution, so it is
+        // the barrier: inputValue() reads once and would otherwise race it.
+        await expect(page.locator('#listen-link-report')).toContainText('Added ');
+
+        const value = await page.locator('[name="track-listen-link-0"]').inputValue();
+        for (const fragment of ['open.spotify.com/track/trk1', 'music.apple.com',
+            'deezer.com/track/3135556', 'tidal.com/browse/track/99',
+            'music.youtube.com/watch?v=abc']) {
+            expect(value).toContain(fragment);
+        }
+    });
+
+    test('an Apple link is stored canonically, not as it arrived', async ({ page }) => {
+        // Otherwise a second import appends a near-duplicate: the slug changes
+        // when a title is edited, and the identity must not move with it.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/fire-of-unknown-origin/1443000516?i=1443000890&uo=4',
+                },
+            },
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue(
+            'https://open.spotify.com/track/trk1, '
+            + 'https://music.apple.com/us/album/1443000516?i=1443000890');
+        // The tracking parameter and the slug are both gone.
+        await expect(page.locator('[name="track-listen-link-0"]')).not.toHaveValue(/uo=4/);
+    });
+
+    test('the release gets the album on every service too', async ({ page }) => {
+        // One more request, and it is what the player reads for its embed —
+        // nothing else would ever put an Apple album link there.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple'],
+            links: { release: { apple: 'https://music.apple.com/us/album/1443000516' } },
+        });
+
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue(/music\.apple\.com\/us\/album\/1443000516/);
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue(/open\.spotify\.com\/album\/1Fv2tUhCRhY3YE1Iqp1oBo/);
+    });
+
+    test('the resolved links reach the bundle that gets anchored', async ({ page }) => {
+        // The form field is not the deliverable: listen_links on the Track is
+        // what gets hashed and anchored, and extractTracks canonicalizes on the
+        // way in — so what the registry stores is the identity, not whatever
+        // query string the link arrived with.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple', 'tidal'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/fire/1443000516?i=1443000890&uo=4',
+                    tidal: 'https://listen.tidal.com/track/99',
+                },
+                release: { apple: 'https://music.apple.com/us/album/1443000516' },
+            },
+        });
+        await expect(page.locator('#listen-link-report')).toContainText('Added ');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+
+        expect(bundle.tracks[0].listen_links).toEqual([
+            'https://open.spotify.com/track/trk1',
+            'https://music.apple.com/us/album/1443000516?i=1443000890',
+            'https://tidal.com/browse/track/99',
+        ]);
+        expect(bundle.release.listen_links).toContain(
+            'https://music.apple.com/us/album/1443000516');
+    });
+
+    test('the report names the services, not the provider', async ({ page }) => {
+        // "odesli" is not a place anybody listens to music.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple', 'tidal'],
+            providers: ['odesli'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/x/1?i=2',
+                    tidal: 'https://tidal.com/browse/track/99',
+                },
+            },
+        });
+
+        const report = page.locator('#listen-link-report');
+        await expect(report).toContainText('Added 2 link(s) on apple, tidal');
+        await expect(report).not.toContainText('odesli');
+    });
+
     test('the report names the service and the count', async ({ page }) => {
         await importWith(page, ['Burnin\u2019 For You'], {
             success: true,
@@ -759,7 +887,7 @@ test.describe('codes and other spellings, from the same check', () => {
         });
 
         await expect(page.locator('#listen-link-report'))
-            .toContainText('Added 1 link(s) on deezer, matched by ISRC');
+            .toContainText('Added 1 link(s) on deezer');
     });
 
     test('a recording another service does not have keeps what it had', async ({ page }) => {
@@ -771,7 +899,7 @@ test.describe('codes and other spellings, from the same check', () => {
 
         await expect(page.locator('[name="track-listen-link-0"]'))
             .toHaveValue('https://open.spotify.com/track/trk1');
-        await expect(page.locator('#listen-link-report')).not.toContainText('matched by ISRC');
+        await expect(page.locator('#listen-link-report')).not.toContainText('Added ');
     });
 
     test('a link the field already holds is not added twice', async ({ page }) => {
@@ -813,7 +941,7 @@ test.describe('codes and other spellings, from the same check', () => {
 
         await expect(page.locator('[name="track-listen-link-0"]'))
             .toHaveValue('https://open.spotify.com/track/trk1');
-        await expect(page.locator('#listen-link-report')).not.toContainText('matched by ISRC');
+        await expect(page.locator('#listen-link-report')).not.toContainText('Added ');
     });
 
     test('editing the title afterwards drops both', async ({ page }) => {

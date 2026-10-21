@@ -47,8 +47,135 @@ const SERVICES = [
         types: ['track', 'album', 'playlist', 'artist'],
         locale: /^[a-z]{2}$/i,
         canonical: (type, id) => `https://www.deezer.com/${type}/${id}`
+    },
+    {
+        // Apple names a track as a song *inside* an album: the path is the
+        // album and `?i=` is the track, so a path-only parser reads every track
+        // link as its album and two different songs from one record collapse
+        // into one identity.
+        //
+        // The storefront stays in the URL and out of the identity. It is part
+        // of a working link, but the same recording in two storefronts is one
+        // recording, and dedup has to agree with that.
+        service: 'apple',
+        hosts: ['music.apple.com', 'geo.music.apple.com'],
+        parse: (parsed) => {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            const storefront = /^[a-z]{2}$/i.test(segments[0] ?? '') ? segments[0] : null;
+            const rest = storefront ? segments.slice(1) : segments;
+            const [kind, ...tail] = rest;
+            // The last path segment is the id; the slug before it is decoration
+            // Apple ignores, and keeping it would fork the identity on a rename.
+            const pathId = tail[tail.length - 1];
+            if (!kind || !pathId) return null;
+
+            const track = parsed.searchParams.get('i');
+            if (kind === 'album' && track) {
+                return { type: 'track', id: track, extra: { storefront, album: pathId } };
+            }
+            if (['album', 'artist', 'playlist', 'song'].includes(kind)) {
+                return { type: kind === 'song' ? 'track' : kind, id: pathId, extra: { storefront } };
+            }
+            return null;
+        },
+        canonical: (type, id, extra = {}) => {
+            const store = extra.storefront ?? 'us';
+            if (type === 'track' && extra.album) {
+                return `https://music.apple.com/${store}/album/${extra.album}?i=${id}`;
+            }
+            return `https://music.apple.com/${store}/${type}/${id}`;
+        }
+    },
+    {
+        service: 'tidal',
+        hosts: ['tidal.com', 'listen.tidal.com'],
+        types: ['track', 'album', 'playlist', 'artist', 'video', 'mix'],
+        // Their share links carry /browse/ and their player does not; both name
+        // the same thing.
+        locale: /^browse$/i,
+        canonical: (type, id) => `https://tidal.com/browse/${type}/${id}`
+    },
+    {
+        // Both YouTubes put the id in `?v=`, so neither can be read from a path.
+        service: 'youtubeMusic',
+        hosts: ['music.youtube.com'],
+        parse: (parsed) => fromYouTube(parsed),
+        canonical: (type, id) => (type === 'playlist'
+            ? `https://music.youtube.com/playlist?list=${id}`
+            : `https://music.youtube.com/watch?v=${id}`)
+    },
+    {
+        service: 'youtube',
+        hosts: ['youtube.com', 'm.youtube.com', 'youtu.be'],
+        parse: (parsed) => fromYouTube(parsed),
+        canonical: (type, id) => (type === 'playlist'
+            ? `https://www.youtube.com/playlist?list=${id}`
+            : `https://www.youtube.com/watch?v=${id}`)
+    },
+    {
+        // Amazon files a track as an album plus `?trackAsin=`, the same shape
+        // as Apple and for the same reason.
+        service: 'amazonMusic',
+        hosts: ['music.amazon.com', 'music.amazon.co.uk', 'music.amazon.de'],
+        parse: (parsed) => {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            const [kind, id] = segments;
+            const track = parsed.searchParams.get('trackAsin');
+            if (kind === 'albums' && id && track) {
+                return { type: 'track', id: track, extra: { album: id } };
+            }
+            if (kind === 'albums' && id) return { type: 'album', id };
+            if (kind === 'tracks' && id) return { type: 'track', id };
+            if (kind === 'artists' && id) return { type: 'artist', id };
+            return null;
+        },
+        canonical: (type, id, extra = {}) => (type === 'track' && extra.album
+            ? `https://music.amazon.com/albums/${extra.album}?trackAsin=${id}`
+            : `https://music.amazon.com/${type === 'track' ? 'tracks' : `${type}s`}/${id}`)
+    },
+    {
+        // SoundCloud's path *is* the identity: /artist/track, with /sets/ for a
+        // playlist. Nothing here is a numeric id, which is why it is kept whole.
+        service: 'soundcloud',
+        hosts: ['soundcloud.com', 'm.soundcloud.com'],
+        parse: (parsed) => {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            if (segments.length === 1) return { type: 'artist', id: segments[0] };
+            if (segments[1] === 'sets' && segments[2]) {
+                return { type: 'playlist', id: `${segments[0]}/sets/${segments[2]}` };
+            }
+            if (segments.length >= 2) return { type: 'track', id: `${segments[0]}/${segments[1]}` };
+            return null;
+        },
+        canonical: (type, id) => `https://soundcloud.com/${id}`
     }
 ];
+
+/**
+ * Both YouTube hosts, which agree about everything except the domain.
+ *
+ * A youtu.be link carries the id as its whole path; everywhere else it is `?v=`,
+ * and a playlist is `?list=`. Checked in that order because a link can carry
+ * both — a track *within* a playlist — and the track is what it points at.
+ *
+ * @param {URL} parsed
+ * @returns {{type: string, id: string}|null}
+ * @private
+ */
+function fromYouTube(parsed) {
+    if (parsed.hostname.toLowerCase().replace(/^www\./, '') === 'youtu.be') {
+        const id = parsed.pathname.split('/').filter(Boolean)[0];
+        return id ? { type: 'track', id } : null;
+    }
+
+    const video = parsed.searchParams.get('v');
+    if (video) return { type: 'track', id: video };
+
+    const list = parsed.searchParams.get('list');
+    if (list) return { type: 'playlist', id: list };
+
+    return null;
+}
 
 /** Query params that describe the sharer rather than the music. */
 const TRACKING_PARAMS = /^(si|utm_[a-z_]+|nd|_branch_match_id|context|go|sp_cid|referrer)$/i;
@@ -84,6 +211,21 @@ export function normalizeListenLink(url) {
     const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
     const definition = SERVICES.find(s => s.hosts.includes(host));
     if (!definition) return null;
+
+    // A service that cannot be read from its path brings its own parser. Apple,
+    // Amazon and both YouTubes keep the thing being linked to in a query
+    // parameter, so the shared path walk below would read an Apple track link
+    // as its album — collapsing every song on a record into one identity.
+    if (definition.parse) {
+        const read = definition.parse(parsed);
+        if (!read?.id) return null;
+        return {
+            service: definition.service,
+            type: read.type,
+            id: read.id,
+            url: definition.canonical(read.type, read.id, read.extra),
+        };
+    }
 
     // Drop the locale prefix and the /embed/ marker, then expect type/id.
     // A service's own `locale` pattern is consulted too, and only for that
