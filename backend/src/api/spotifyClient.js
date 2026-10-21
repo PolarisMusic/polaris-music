@@ -41,6 +41,16 @@ const PAGE_SIZE = 50;
 const UPC_SEARCH_LIMIT = 3;
 
 /**
+ * How many albums a name search may come back with.
+ *
+ * Each one costs an album fetch and an ISRC page to judge, and the judgement
+ * happens on candidates rather than on an answer, so this is a quota bound as
+ * much as a relevance one. Spotify orders exact field matches first; past the
+ * third hit a name search is not going to be right.
+ */
+const NAME_SEARCH_LIMIT = 3;
+
+/**
  * An Error carrying the HTTP status that caused it.
  *
  * Callers need to tell apart a refusal they should explain — a 403 from
@@ -80,6 +90,27 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_M
     } finally {
         clearTimeout(timer);
     }
+}
+
+/**
+ * A catalogue string reduced to something safe to put inside a search filter.
+ *
+ * Double quotes and colons are the query language's own punctuation: left in,
+ * they would turn `album:"Nevermind: Live"` into a filter that ends mid-title
+ * and a second one Spotify does not have. Apostrophes stay — they are part of
+ * how titles are spelled, and Spotify's tokenizer handles them. Length is
+ * capped because no release title is a paragraph, and a long one is a sign the
+ * caller sent the wrong field.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function searchTerm(value) {
+    return String(value ?? '')
+        .replace(/["\u201c\u201d:]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 100);
 }
 
 export class SpotifyClient {
@@ -205,6 +236,39 @@ export class SpotifyClient {
         const query = encodeURIComponent(`upc:${digits}`);
         const data = await this._get(`/search?q=${query}&type=album&limit=${UPC_SEARCH_LIMIT}`);
         return (data.albums?.items ?? []).map(album => album?.id).filter(Boolean);
+    }
+
+    /**
+     * Albums Spotify files under an artist and a title.
+     *
+     * Strings, which is the whole problem with this route into the catalogue:
+     * two databases spell the same release differently and a search hit is an
+     * opinion about relevance, not an identifier. It is offered anyway because
+     * the caller has independent evidence to check it against — a tracklist —
+     * and because the alternative for a release with no barcode is nothing at
+     * all. Returns candidates, never an answer.
+     *
+     * Field filters are used rather than a bare query so that a title is
+     * matched as a title: `q=bleed american` also ranks tracks called that on
+     * other people's albums.
+     *
+     * @param {string} artist - Optional; narrows the search when present.
+     * @param {string} album - Release title.
+     * @returns {Promise<string[]>} Album ids, Spotify's relevance order.
+     */
+    async albumIdsByName(artist, album) {
+        const title = searchTerm(album);
+        if (!title) return [];
+
+        // Quotes would close the filter early and a colon would open another
+        // one, so searchTerm drops both; what is left is matched as a phrase.
+        const filters = [`album:"${title}"`];
+        const who = searchTerm(artist);
+        if (who) filters.push(`artist:"${who}"`);
+
+        const query = encodeURIComponent(filters.join(' '));
+        const data = await this._get(`/search?q=${query}&type=album&limit=${NAME_SEARCH_LIMIT}`);
+        return (data.albums?.items ?? []).map(item => item?.id).filter(Boolean);
     }
 
     /**

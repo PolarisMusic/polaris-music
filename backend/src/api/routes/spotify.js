@@ -11,6 +11,12 @@
  * where it is pure and unit-testable. Putting the diff here would make it
  * reachable only through a network call.
  *
+ * There are three ways in, in descending order of how much they prove: a
+ * Spotify link the submitter supplied, a barcode read off the Discogs release,
+ * and the artist and title. The first two identify one release; the last is
+ * guesswork, so it returns several candidates with their tracklists and lets
+ * the caller's own tracklist decide between them.
+ *
  * @module api/routes/spotify
  */
 
@@ -219,6 +225,63 @@ async function resolveAlbumByUpc(upc, client) {
 }
 
 /**
+ * How many name-search hits are fetched in full for the caller to judge.
+ *
+ * Each costs an album request and an ISRC page, and all of them may turn out
+ * to be the wrong record, so this is deliberately small. It also bounds what a
+ * caller can spend by sending a title.
+ */
+const MAX_NAME_CANDIDATES = 3;
+
+/**
+ * Albums that might be the one a name describes, with their tracklists.
+ *
+ * Returns candidates rather than a match, and that is the whole design: a
+ * barcode names one release and can be verified here, while a title and an
+ * artist name a shelf of them and cannot be verified by anything this endpoint
+ * knows. What *can* decide is the tracklist already sitting in the submitter's
+ * form, which lives in the browser — so the evidence goes back with the
+ * candidates and frontend/src/utils/tracklistDiff.js makes the call.
+ *
+ * Returning one album and calling it a match would be the confidently-wrong
+ * answer this whole cross-check exists to prevent: it would attach a
+ * tracklist's worth of links, ISRCs and spellings to whichever reissue Spotify
+ * ranked first.
+ *
+ * @param {{artist: string, album: string}} name
+ * @param {SpotifyClient} client
+ * @returns {Promise<Object[]>}
+ */
+async function resolveAlbumCandidatesByName(name, client) {
+    const ids = await client.albumIdsByName(name.artist, name.album);
+
+    const candidates = [];
+    for (const id of ids.slice(0, MAX_NAME_CANDIDATES)) {
+        candidates.push(await client.getAlbumWithTracks(id));
+    }
+    return candidates;
+}
+
+/**
+ * Read an artist and a title out of a request body.
+ *
+ * The title is required: an artist on its own is a discography, not a
+ * proposal. An artist is optional because the acceptance test is the
+ * tracklist either way, and a form that has a title but no group filled in
+ * still deserves an attempt.
+ *
+ * @param {Object} body
+ * @returns {{artist: string, album: string}|null}
+ */
+function nameFrom(body) {
+    const album = typeof body?.album === 'string' ? body.album.trim() : '';
+    if (!album) return null;
+
+    const artist = typeof body?.artist === 'string' ? body.artist.trim() : '';
+    return { artist, album };
+}
+
+/**
  * @param {Object} ctx - Server context.
  * @param {Object} ctx.config
  * @param {Function} ctx.writeRateLimiter
@@ -232,9 +295,12 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
     /**
      * POST /api/spotify/album
      *
-     * Body: { links: string[] }
-     * Returns the album those links belong to, with its full tracklist, for the
-     * caller to compare against.
+     * Body: { links?: string[], upc?: string, artist?: string, album?: string }
+     *
+     * Returns `{album}` when something identified one release — a Spotify link
+     * or a barcode Spotify confirms — and `{candidates}` when only the artist
+     * and title were available, for the caller to choose between by tracklist.
+     * `matched_by` says which it was.
      *
      * Rate-limited because it spends Spotify's quota, not ours.
      */
@@ -253,12 +319,13 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
 
             const links = Array.isArray(req.body?.links) ? req.body.links : [];
             const upc = typeof req.body?.upc === 'string' ? req.body.upc : '';
+            const name = nameFrom(req.body);
 
-            if (links.length === 0 && !upc) {
+            if (links.length === 0 && !upc && !name) {
                 return res.status(400).json({
                     success: false,
                     reason: 'no_links',
-                    message: 'Provide a Spotify link or a barcode.',
+                    message: 'Provide a Spotify link, a barcode, or a release title.',
                 });
             }
             if (links.length > MAX_LINKS) {
@@ -270,7 +337,7 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
             }
 
             const refs = links.map(parseSpotifyRef).filter(Boolean);
-            if (refs.length === 0 && !upc) {
+            if (refs.length === 0 && !upc && !name) {
                 return res.json({
                     success: false,
                     reason: 'no_spotify_links',
@@ -287,34 +354,65 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
                 return res.json({ success: true, album, matched_by: 'link' });
             }
 
+            // 403 is the documented answer to /search from an app still in
+            // development mode: a property of this deployment's credentials
+            // rather than of the request, and it refuses every search the same
+            // way — so the second search is not attempted after the first one
+            // is turned down. Reported as a reason, because a 502 reads as
+            // "the server is broken" when the truth is "this app cannot
+            // search". Caught around the searches only: a 403 from anywhere
+            // else is still a fault.
+            let searchRefused = false;
+
             if (upc) {
-                let album;
                 try {
-                    album = await resolveAlbumByUpc(upc, client);
+                    const album = await resolveAlbumByUpc(upc, client);
+                    if (album) return res.json({ success: true, album, matched_by: 'upc' });
                 } catch (error) {
-                    // 403 is the documented answer to /search from an app still
-                    // in development mode: a property of this deployment's
-                    // credentials rather than of the request. Reported as a
-                    // reason, because a 502 reads as "the server is broken"
-                    // when the truth is "this app cannot search". Caught here
-                    // rather than below so it only ever explains a search —
-                    // a 403 from anywhere else is still a fault.
                     if (error?.status !== 403) throw error;
-
-                    return res.json({
-                        success: false,
-                        reason: 'search_unavailable',
-                        message: 'Spotify refused the barcode search for this app. '
-                            + 'Paste a Spotify album link instead.',
-                    });
+                    searchRefused = true;
                 }
+            }
 
-                if (album) return res.json({ success: true, album, matched_by: 'upc' });
+            // Last resort, and the only one a release with no barcode has.
+            // Candidates, not a match — see resolveAlbumCandidatesByName.
+            if (name && !searchRefused) {
+                try {
+                    const candidates = await resolveAlbumCandidatesByName(name, client);
+                    if (candidates.length > 0) {
+                        return res.json({ success: true, candidates, matched_by: 'name' });
+                    }
+                } catch (error) {
+                    if (error?.status !== 403) throw error;
+                    searchRefused = true;
+                }
+            }
 
+            if (searchRefused) {
                 return res.json({
                     success: false,
-                    reason: 'upc_not_found',
-                    message: 'Spotify has no release under that barcode. '
+                    reason: 'search_unavailable',
+                    message: 'Spotify refused the catalogue search for this app. '
+                        + 'Paste a Spotify album link instead.',
+                });
+            }
+
+            // Say what was looked for, not just that it was not found: the
+            // barcode and the title come from different places and a submitter
+            // who cannot see which was used cannot tell a wrong barcode from a
+            // release Spotify does not carry.
+            const tried = [];
+            if (upc) tried.push('under that barcode');
+            if (name) {
+                tried.push(`called "${name.album}"`
+                    + (name.artist ? ` by "${name.artist}"` : ''));
+            }
+
+            if (tried.length > 0) {
+                return res.json({
+                    success: false,
+                    reason: name ? 'name_not_found' : 'upc_not_found',
+                    message: `Spotify has no release ${tried.join(' or ')}. `
                         + 'Paste a Spotify album link to compare against instead.',
                 });
             }
@@ -347,6 +445,7 @@ export function createSpotifyRoutes({ config, writeRateLimiter, spotifyClient } 
 
 export {
     parseSpotifyRef, resolveAlbumId, resolveAlbumByUpc,
+    resolveAlbumCandidatesByName, nameFrom,
     barcodeVariants, sameBarcode, describeFailure,
 };
 export default createSpotifyRoutes;

@@ -23,6 +23,7 @@ function appWith(overrides = {}) {
         getTracks: async () => [],
         getAlbumWithTracks: async () => ({ id: 'alb', name: 'Album', tracks: [] }),
         albumIdsByUpc: async () => [],
+        albumIdsByName: async () => [],
         ...overrides,
     };
     const app = express();
@@ -280,6 +281,185 @@ describe('POST /api/spotify/album, by barcode', () => {
     test('a non-string barcode is ignored rather than coerced', async () => {
         const res = await request(appWith()).post('/api/spotify/album').send({ upc: 75992733625 });
         expect(res.status).toBe(400);
+    });
+});
+
+describe('POST /api/spotify/album, by name', () => {
+    /**
+     * The last resort, and the only one a release with no printed barcode has.
+     * Most records pressed before the mid-80s have none, and until this existed
+     * a Discogs import of one produced no request, no report and no message —
+     * the chain silently did not happen, which from the form looks exactly like
+     * it being broken.
+     *
+     * The endpoint deliberately does not answer it. A title and an artist are
+     * two strings two community databases spell differently; what decides is
+     * the tracklist already in the submitter's form, which lives in the
+     * browser. So this returns the candidates with their tracklists and no
+     * verdict, and frontend/src/utils/tracklistDiff.js makes the call. The one
+     * thing that must never happen here is a single album returned as if the
+     * name had identified it.
+     */
+    const asked = (name) => ({ artist: 'Jimmy Eat World', album: 'Bleed American', ...name });
+
+    test('returns candidates, never a match', async () => {
+        const res = await request(appWith({
+            albumIdsByName: async () => ['alb1'],
+            getAlbumWithTracks: async (id) => ({ ...NEVERMIND, id }),
+        })).post('/api/spotify/album').send(asked());
+
+        expect(res.body).toMatchObject({ success: true, matched_by: 'name' });
+        expect(res.body.candidates).toHaveLength(1);
+        // No verdict: a name does not identify a release, and returning one
+        // album under this key would attach a tracklist of links, ISRCs and
+        // spellings to whichever reissue Spotify ranked first.
+        expect(res.body.album).toBeUndefined();
+    });
+
+    test('the candidates carry the tracklists the caller judges them on', async () => {
+        const res = await request(appWith({
+            albumIdsByName: async () => ['alb1'],
+            getAlbumWithTracks: async (id) => ({ ...NEVERMIND, id }),
+        })).post('/api/spotify/album').send(asked());
+
+        expect(res.body.candidates[0].tracks.map((t) => t.name))
+            .toEqual(['Smells Like Teen Spirit', 'In Bloom']);
+    });
+
+    test('a link still outranks the name', async () => {
+        const byName = jest.fn(async () => ['alb1']);
+        const res = await request(appWith({
+            albumIdsByName: byName,
+            getAlbumWithTracks: async (id) => ({ ...NEVERMIND, id }),
+        })).post('/api/spotify/album')
+            .send({ ...asked(), links: ['https://open.spotify.com/album/linked'] });
+
+        expect(res.body).toMatchObject({ matched_by: 'link', album: { id: 'linked' } });
+        expect(byName).not.toHaveBeenCalled();
+    });
+
+    test('a barcode Spotify confirms outranks the name', async () => {
+        const byName = jest.fn(async () => ['alb1']);
+        const res = await request(appWith({
+            albumIdsByUpc: async () => ['alb1'],
+            albumIdsByName: byName,
+            getAlbumWithTracks: async (id) => ({ ...NEVERMIND, id, upc: '075992733625' }),
+        })).post('/api/spotify/album').send({ ...asked(), upc: '075992733625' });
+
+        expect(res.body.matched_by).toBe('upc');
+        expect(byName).not.toHaveBeenCalled();
+    });
+
+    test('a barcode Spotify does not carry falls through to the name', async () => {
+        // The common case for a reissued record: the sleeve's barcode belongs
+        // to a pressing, and the streaming release is filed under a digital
+        // UPC nobody printed. Before this, that dead-ended at "no release
+        // under that barcode" with a perfectly findable album one search away.
+        const res = await request(appWith({
+            albumIdsByUpc: async () => [],
+            albumIdsByName: async () => ['alb1'],
+            getAlbumWithTracks: async (id) => ({ ...NEVERMIND, id }),
+        })).post('/api/spotify/album').send({ ...asked(), upc: '075992733625' });
+
+        expect(res.body).toMatchObject({ success: true, matched_by: 'name' });
+    });
+
+    test('at most three candidates are fetched in full', async () => {
+        const fetched = [];
+        const res = await request(appWith({
+            albumIdsByName: async () => ['a', 'b', 'c', 'd', 'e'],
+            getAlbumWithTracks: async (id) => { fetched.push(id); return { ...NEVERMIND, id }; },
+        })).post('/api/spotify/album').send(asked());
+
+        // Each costs an album request and an ISRC page, on somebody else's
+        // quota, and past the third hit a name search is not going to be right.
+        expect(fetched).toEqual(['a', 'b', 'c']);
+        expect(res.body.candidates).toHaveLength(3);
+    });
+
+    test('nothing under that name says what was looked for', async () => {
+        const res = await request(appWith({ albumIdsByName: async () => [] }))
+            .post('/api/spotify/album').send(asked());
+
+        expect(res.body).toMatchObject({ success: false, reason: 'name_not_found' });
+        expect(res.body.message).toContain('Bleed American');
+        expect(res.body.message).toContain('Jimmy Eat World');
+    });
+
+    test('and says the barcode was tried too, when it was', async () => {
+        // Which of the two failed is the whole diagnosis: a barcode that finds
+        // nothing is usually a pressing's, while a title that finds nothing
+        // means Spotify does not carry the record at all.
+        const res = await request(appWith({
+            albumIdsByUpc: async () => [],
+            albumIdsByName: async () => [],
+        })).post('/api/spotify/album').send({ ...asked(), upc: '075992733625' });
+
+        expect(res.body.reason).toBe('name_not_found');
+        expect(res.body.message).toMatch(/barcode/);
+        expect(res.body.message).toContain('Bleed American');
+    });
+
+    test('a title with no artist is still a search', async () => {
+        const res = await request(appWith({
+            albumIdsByName: async (artist, album) => (album === 'Patent Pending' ? ['alb1'] : []),
+            getAlbumWithTracks: async (id) => ({ ...NEVERMIND, id }),
+        })).post('/api/spotify/album').send({ album: 'Patent Pending' });
+
+        expect(res.body.matched_by).toBe('name');
+    });
+
+    test('a blank title is not a search', async () => {
+        const byName = jest.fn(async () => []);
+        const res = await request(appWith({ albumIdsByName: byName }))
+            .post('/api/spotify/album').send({ album: '   ', artist: 'Heaven' });
+
+        expect(res.status).toBe(400);
+        expect(byName).not.toHaveBeenCalled();
+    });
+
+    test('a non-string title is ignored rather than coerced', async () => {
+        const res = await request(appWith()).post('/api/spotify/album').send({ album: 1991 });
+        expect(res.status).toBe(400);
+    });
+
+    test('a refused search is not asked a second time', async () => {
+        // 403 is the answer a development-mode app gets from /search whatever
+        // it asks for, so the name search would be refused identically —
+        // spending a request to re-learn it, and reporting the second refusal
+        // instead of the first.
+        const refused = Object.assign(new Error('Spotify request failed with status 403'),
+            { status: 403 });
+        const byName = jest.fn(async () => ['alb1']);
+        const res = await request(appWith({
+            albumIdsByUpc: async () => { throw refused; },
+            albumIdsByName: byName,
+        })).post('/api/spotify/album').send({ ...asked(), upc: '075992733625' });
+
+        expect(res.body).toMatchObject({ success: false, reason: 'search_unavailable' });
+        expect(byName).not.toHaveBeenCalled();
+    });
+
+    test('a name search refused on its own is a reason, not a fault', async () => {
+        const res = await request(appWith({
+            albumIdsByName: async () => {
+                throw Object.assign(new Error('Spotify request failed with status 403'),
+                    { status: 403 });
+            },
+        })).post('/api/spotify/album').send(asked());
+
+        expect(res.status).toBe(200);
+        expect(res.body.reason).toBe('search_unavailable');
+    });
+
+    test('any other failure during a name search is still a 502', async () => {
+        const res = await request(appWith({
+            albumIdsByName: async () => {
+                throw Object.assign(new Error('boom'), { status: 503 });
+            },
+        })).post('/api/spotify/album').send(asked());
+
+        expect(res.status).toBe(502);
     });
 });
 

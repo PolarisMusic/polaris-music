@@ -11,7 +11,8 @@
 import { describe, test, expect } from '@jest/globals';
 import {
     normalizeTitle, displayTitle, sameTitle, nearlySameTitle,
-    diffTracklists, describeDifference, matchSpotifyTracks
+    diffTracklists, describeDifference, matchSpotifyTracks,
+    chooseAlbumByTracklist, describeAlbumChoice
 } from '../../../frontend/src/utils/tracklistDiff.js';
 
 const discogs = (...titles) => titles.map((title, i) => ({ position: `A${i + 1}`, title }));
@@ -459,5 +460,191 @@ describe('titles that are the same recording spelled differently', () => {
             spotify('Mystic Lovers', 'Mystic Lover'));
 
         expect(differences.map(d => d.kind)).toEqual(['order', 'order']);
+    });
+});
+
+describe('choosing an album a name search only proposed', () => {
+    /**
+     * Artist-and-title search is the last way into the catalogue, used when
+     * there is no Spotify link and no barcode — which is the normal state of a
+     * record pressed before the mid-80s, and of plenty of Discogs entries for
+     * ones pressed after.
+     *
+     * A search hit is an opinion about relevance. What makes it safe to use
+     * anyway is that it does not have to be trusted: the tracklist in the
+     * submitter's form is independent evidence, and eleven titles agreeing in
+     * order is not something two unrelated releases do. These tests are mostly
+     * about the proposals that must be refused, because the cost of accepting
+     * one is a whole tracklist of links and ISRCs silently attached to the
+     * wrong record.
+     */
+    const album = (id, name, titles) => ({
+        id,
+        name,
+        tracks: titles.map((title, i) => ({ id: `${id}-${i}`, name: title, track_number: i + 1 })),
+    });
+
+    const BLEED = ['Bleed American', 'A Praise Chorus', 'The Middle', 'Your House',
+        'Sweetness', 'Hear You Me', 'If You Don\'t, Don\'t', 'Get It Faster',
+        'Cautioners', 'The Authority Song', 'My Sundown'];
+    const form = BLEED.map((title, i) => ({ position: String(i + 1), title }));
+
+    test('the record whose tracklist agrees is chosen', async () => {
+        const choice = chooseAlbumByTracklist(form, [album('a', 'Bleed American', BLEED)]);
+
+        expect(choice.reason).toBe('matched');
+        expect(choice.album.id).toBe('a');
+    });
+
+    test('a compilation that happens to carry the singles is refused', () => {
+        // The failure this guards against: "The Middle" is on every Jimmy Eat
+        // World compilation there is, and a greatest-hits package ranks well
+        // for the artist. Accounting for two of eleven rows while leaving
+        // eighteen tracks unexplained is not this album.
+        const hits = album('h', 'Greatest Hits', [
+            'The Middle', 'Sweetness', 'Pain', 'Work', 'Futures', 'Big Casino',
+            'Lucky Denver Mint', 'Chase This Light', 'My Best Theory', 'Damage',
+            'Sure and Certain', 'Get Right', 'Always Be', 'Coffee and Cigarettes',
+            'Dizzy', 'Here It Goes', 'Let It Happen', 'Invented', 'Action Needs an Audience',
+            'Movielike']);
+
+        const choice = chooseAlbumByTracklist(form, [hits]);
+
+        expect(choice.album).toBeNull();
+        expect(choice.reason).toBe('weak');
+        // The rejected front-runner still comes back: "this is the closest
+        // thing Spotify has and here is why it was not used" is actionable,
+        // where "no match" leaves a submitter with nothing to do.
+        expect(choice.best.id).toBe('h');
+        expect(choice.accounted).toBe(2);
+    });
+
+    test('a live album of the same name, half the same songs, is refused', () => {
+        // The case the share bar exists for, and the one the unexplained-track
+        // guard cannot see: eleven tracks, six of them this album's, five of
+        // them not, so neither side is mostly unaccounted for. Six songs in
+        // common is two bands' worth of overlap, not an edition of this record.
+        const live = album('l', 'Bleed American (Live)', [
+            ...BLEED.slice(0, 6), 'Lucky Denver Mint', 'For Me This Is Heaven',
+            'Blister', 'Goodbye Sky Harbor', 'Table for Glasses']);
+
+        const choice = chooseAlbumByTracklist(form, [live]);
+
+        expect(choice.album).toBeNull();
+        expect(choice.accounted).toBe(6);
+        expect(choice.required).toBe(9);
+    });
+
+    test('a missing bonus track or two does not lose the match', () => {
+        // Discogs lists the LP; Spotify sells the edition with the B-sides on
+        // the end. Demanding a clean sweep would reject the right album for
+        // the same reason the diff exists to report.
+        const deluxe = album('d', 'Bleed American', [...BLEED, 'No Sensitivity', 'Spangle']);
+
+        expect(chooseAlbumByTracklist(form, [deluxe]).album.id).toBe('d');
+    });
+
+    test('the tightest fit wins, so a standard edition beats its own reissue', () => {
+        const standard = album('std', 'Bleed American', BLEED);
+        const deluxe = album('dx', 'Bleed American (Deluxe Edition)',
+            [...BLEED, 'No Sensitivity', 'Spangle', 'Drugs or Me (Demo)']);
+
+        // Ordered deluxe-first deliberately: the choice must come from the
+        // evidence, not from Spotify's ranking.
+        expect(chooseAlbumByTracklist(form, [deluxe, standard]).album.id).toBe('std');
+    });
+
+    test('two different records that fit equally well are refused', () => {
+        // The coin toss this module refuses everywhere else. Each accounts for
+        // ten of the eleven rows and leaves one track unexplained, and they are
+        // not the same record.
+        const one = album('a', 'Bleed American',
+            [...BLEED.slice(0, 10), 'Firestarter']);
+        const two = album('b', 'Bleed American',
+            [...BLEED.slice(0, 9), 'My Sundown', 'Softer']);
+
+        const choice = chooseAlbumByTracklist(form, [one, two]);
+
+        expect(choice.album).toBeNull();
+        expect(choice.reason).toBe('ambiguous');
+    });
+
+    test('two pressings of the one record are not a coin toss', () => {
+        // Same tracklist, two catalogue rows — a territory split or a reissue.
+        // Refusing here would mean refusing the right answer twice over.
+        const choice = chooseAlbumByTracklist(form, [
+            album('us', 'Bleed American', BLEED),
+            album('eu', 'Bleed American', BLEED),
+        ]);
+
+        expect(choice.reason).toBe('matched');
+        expect(choice.album.id).toBe('us');
+    });
+
+    test('spelling differences still count as agreement', () => {
+        // The same tolerance matchSpotifyTracks uses for filling in links: one
+        // edit per ten characters, and the remaster suffixes discounted.
+        const theirs = album('a', 'Bleed American', [
+            'Bleed American - Remastered', 'A Praise Chorus', 'The Middle',
+            'Your House', 'Sweetness', 'Hear You Me (feat. Nobody)',
+            'If You Dont, Dont', 'Get It Faster', 'Cautioners',
+            'The Authority Song', 'My Sundown']);
+
+        expect(chooseAlbumByTracklist(form, [theirs]).reason).toBe('matched');
+    });
+
+    test('one title in common is never enough, however short the form', () => {
+        // A single-row form clears any percentage on the first album that
+        // carries that title, which is why the share is not the whole test.
+        const single = [{ position: '1', title: 'The Middle' }];
+        const hits = album('h', 'Greatest Hits',
+            ['The Middle', 'Pain', 'Work', 'Futures', 'Sweetness']);
+
+        expect(chooseAlbumByTracklist(single, [hits]).album).toBeNull();
+    });
+
+    test('a short release still matches when the whole of it agrees', () => {
+        const ep = [{ position: '1', title: 'Firestarter' }, { position: '2', title: 'Molotov' }];
+        const theirs = album('e', 'Firestarter', ['Firestarter', 'Molotov']);
+
+        expect(chooseAlbumByTracklist(ep, [theirs]).album.id).toBe('e');
+    });
+
+    test('nothing to judge with is not a match', () => {
+        expect(chooseAlbumByTracklist([], [album('a', 'A', BLEED)]).reason).toBe('none');
+        expect(chooseAlbumByTracklist(form, []).reason).toBe('none');
+        expect(chooseAlbumByTracklist(form, [{ id: 'x', name: 'X', tracks: [] }]).reason)
+            .toBe('none');
+        expect(chooseAlbumByTracklist().album).toBeNull();
+    });
+
+    test('untitled rows do not count against the form', () => {
+        // An empty row can never match anything, so counting it in the
+        // denominator would make a tracklist with a blank line unmatchable.
+        const withBlank = [...form, { position: '12', title: '  ' }];
+
+        expect(chooseAlbumByTracklist(withBlank, [album('a', 'Bleed American', BLEED)]).album)
+            .not.toBeNull();
+    });
+
+    test('the rejection names the album and links it', () => {
+        const hits = album('h', 'Greatest Hits', ['The Middle', 'Pain', 'Work', 'Futures']);
+        const message = describeAlbumChoice(chooseAlbumByTracklist(form, [hits]));
+
+        expect(message).toContain('Greatest Hits');
+        expect(message).toContain('https://open.spotify.com/album/h');
+        expect(message).toContain('11');
+    });
+
+    test('an ambiguous rejection says how many there were', () => {
+        const message = describeAlbumChoice(
+            { reason: 'ambiguous', considered: 2, best: null, accounted: 10, rows: 11 });
+
+        expect(message).toContain('2 releases');
+    });
+
+    test('an empty result says Spotify has nothing, not that the match failed', () => {
+        expect(describeAlbumChoice({ reason: 'none' })).toMatch(/nothing/i);
+        expect(describeAlbumChoice()).toMatch(/nothing/i);
     });
 });

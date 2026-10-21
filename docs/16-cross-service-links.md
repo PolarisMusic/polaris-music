@@ -7,8 +7,10 @@ blocked on which third party.
 **Status**: built end to end. Odesli granted this deployment a key on
 2026-10-21, so one request now returns Apple Music, Tidal, YouTube Music,
 Amazon Music, Deezer and SoundCloud together (§3). The keyless Deezer lookup
-stays as the provider that answers when no key is configured. §4 is the history
-of getting here, kept because it is the reason the design is a provider table
+stays as the provider that answers when no key is configured. A release with no
+usable barcode is found by artist and title and accepted on its tracklist
+(§1), which is what the chain used to stop dead on. §4 is the history of
+getting here, kept because it is the reason the design is a provider table
 rather than one integration.
 
 ---
@@ -19,30 +21,87 @@ rather than one integration.
 paste a Discogs URL
   → Discogs release (api.discogs.com, from the browser)
       → tracklist, labels, credits, barcode
-  → barcode  ──POST /api/spotify/album {upc}──▶  Spotify search upc:…
-      → album id → full album + full tracks
-          → UPC (the release) and an ISRC per track
+  → POST /api/spotify/album {links, upc, artist, album}
+      → a Spotify link the submitter pasted           → that album
+      → else barcode    ──▶ search upc:…              → album, verified
+      → else artist+title ──▶ search album:… artist:… → up to 3 candidates
+          → full album + full tracks for each
+              → UPC (the release) and an ISRC per track
   → match Spotify's tracklist to the form's, by title
+      → candidates: accept one only if the tracklists agree
       → per-track listen link, ISRC, and Spotify's spelling where it differs
 ```
 
 One click. The submitter presses *Fetch Data* and the form fills in.
 
-**The barcode is the bridge.** Discogs carries no streaming ids of any kind, so
-the alternative is matching on artist and title — two strings that two
-community databases spell differently, which is the guesswork
-`frontend/src/utils/tracklistDiff.js` exists to referee. The UPC on the sleeve
-is the UPC in Spotify's `external_ids`, and it names the *edition* rather than
-the music, which is the precision wanted: a different pressing is a different
-row in this registry.
+**Three ways in, in descending order of what they prove.** Discogs carries no
+streaming ids of any kind, so nothing here is a shared key; what differs is how
+much each route has to be trusted.
 
-A barcode match is only accepted when the album Spotify returns carries that
-same barcode itself (`resolveAlbumByUpc` in `backend/src/api/routes/spotify.js`).
-A search hit is Spotify's word that the barcode matched, not evidence of it:
-search returns *simplified* album objects, which carry no `external_ids` at
-all. The full album does, so that is what gets checked — an unverified match
-would attach a whole tracklist of links, codes and titles to the wrong edition,
-silently.
+A **link** the submitter pasted is a statement about which release they mean,
+and it is taken at its word.
+
+A **barcode** is the next best thing, and the usual one after a Discogs import.
+The UPC on the sleeve is the UPC in Spotify's `external_ids`, and it names the
+*edition* rather than the music, which is the precision wanted: a different
+pressing is a different row in this registry. A barcode match is accepted only
+when the album Spotify returns carries that same barcode itself
+(`resolveAlbumByUpc` in `backend/src/api/routes/spotify.js`). A search hit is
+Spotify's word that the barcode matched, not evidence of it: search returns
+*simplified* album objects, which carry no `external_ids` at all. The full album
+does, so that is what gets checked — an unverified match would attach a whole
+tracklist of links, codes and titles to the wrong edition, silently.
+
+The **artist and title** are the last resort, and the only route a release with
+no barcode has. See below: the name only proposes, and the tracklist decides.
+
+### When there is no barcode
+
+Which is often. Nothing was printed on a sleeve before the mid-80s, and plenty
+of Discogs entries for later pressings have left the field blank or filled it
+with `none`, a catalogue number or a price code. Until 2026-10-21 the chain
+simply stopped there: the form sent no request, printed no report, and said
+nothing at all, which from the submitter's side is indistinguishable from the
+feature being broken. That silence is what two "it didn't work" reports on
+2026-10-21 came down to, and it is the reason the no-barcode case now always
+produces a message of its own, whether or not the fallback below finds
+anything. (The other way to land in the same place: a CD barcode that is not
+the digital UPC Spotify files the album under, which is the normal state of a
+reissued record and dead-ended at "no release under that barcode" with a
+perfectly findable album one search away.)
+
+A title and an artist cannot identify a release: they are two strings two
+community databases spell differently, which is the guesswork
+`frontend/src/utils/tracklistDiff.js` exists to referee. So the search is used
+for what it can do — *propose* — and the acceptance test is evidence the form
+already holds, namely the imported tracklist. Eleven titles agreeing in order is
+not something two unrelated releases do.
+
+Mechanically: the endpoint returns up to three candidates with their full
+tracklists and **no verdict** (`matched_by: "name"`, `candidates`, no `album`),
+and `chooseAlbumByTracklist` in the browser accepts one only if
+
+- it accounts for at least three quarters of the form's titles, and at least
+  three of them (so a one-track form cannot be matched by a greatest-hits
+  package that happens to carry that track), and
+- the form accounts for at least as much of the candidate as it leaves
+  unexplained (so a thirty-track compilation carrying four of these songs is
+  not this album), and
+- no second candidate explains the tracklist equally well, unless the two are
+  the same list of recordings — two editions of one record are not a choice,
+  while two different records scoring alike are a coin toss and are refused.
+
+Ties on the first test are broken by the tightest fit, so a standard edition
+wins over the deluxe reissue that contains it. Titles are compared with the
+same tolerance used for filling in links: edition suffixes discounted, one edit
+per ten characters.
+
+A refusal is reported with the rejected front-runner named and linked —
+"Spotify's closest release by name is *X*, which accounts for 4 of this form's
+11 tracks" — because that is something a submitter can act on, where "no match"
+is not. A name match that is accepted says so in the report too, along with
+whether the barcode was missing or simply not in Spotify's catalogue; a filled
+field with no visible basis is the thing to avoid.
 
 **Two codes, not one.** A UPC names the release; an ISRC names each recording on
 it. Matching an album by one of its tracks' ISRCs finds whichever release that
@@ -87,10 +146,13 @@ It walks the same four steps the client walks — token, album, full tracks,
 barcode search — and names the fix for whichever one fails. It prints the
 credentials as lengths and a last-four fingerprint, never the values.
 
-`/search` is worth calling out separately: it is the only endpoint the barcode
-shortcut needs and the one an app in development mode is most likely to be
-refused for. Album links keep working when it is refused; only the one-click
-Discogs path stops.
+`/search` is worth calling out separately: it is the endpoint both the barcode
+shortcut and the name fallback need, and the one an app in development mode is
+most likely to be refused for. Album links keep working when it is refused;
+only the one-click Discogs path stops. A 403 from it comes back as
+`search_unavailable` rather than a 502, and the second search is not attempted
+once the first has been refused — the refusal is a property of the credentials,
+so it would be refused identically.
 
 ---
 
@@ -101,7 +163,7 @@ Discogs path stops.
 | `track.isrc` | `Track.isrc` | Hidden form field; preferred provisional id |
 | `track.alt_titles` | `Track.alt_titles` | Spotify's spelling, when it differs |
 | `track.listen_links` | `Track.listen_links` | Only ever fills an empty field |
-| album UPC | *nowhere yet* | No Release property holds a barcode |
+| `release.barcode` | `Release.barcode` | Digits only; also the MusicBrainz key |
 
 The first two have no visible field on the form, because neither is something a
 submitter types. Both are dropped if the title is edited afterwards — they were
@@ -269,9 +331,11 @@ anything.
 
 ## 5. Open
 
-- **Release barcode.** The UPC is fetched, used, and thrown away. It identifies
-  the pressing, which is exactly what a `Release` node is. Adding it means a
-  property, a schema entry in both copies, a normalizer line and a doc row.
+- **A name match is never written back.** The album a name search resolved to is
+  not recorded as such, so a later import of the same release repeats the
+  search and the comparison. Storing the Spotify album id on the `Release`
+  would make it a one-time cost, and would also give the player an embed for
+  releases matched this way.
 - **Backfill**: every `Track` already holding an ISRC predates this and has no
   Deezer link. The resolver is a POST with a list of ISRCs, so a backfill is a
   query for `Track.isrc` plus an ADD_CLAIM per answer — no submitter involved.

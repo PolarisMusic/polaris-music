@@ -346,18 +346,28 @@ class APIClient {
      * @param {string[]} links - Spotify links gathered from the form.
      * @param {string|null} [upc] - A barcode to fall back on, from the Discogs
      *   import. Ignored when a link already names the album.
+     * @param {{artist?: string, album: string}|null} [name] - Artist and title
+     *   to fall back on when there is no barcode either. Answers with
+     *   `candidates` rather than an `album`: see chooseAlbumByTracklist.
      * @returns {Promise<{success: boolean, reason?: string, message?: string,
-     *                    matched_by?: string, album?: Object}>}
+     *                    matched_by?: string, album?: Object,
+     *                    candidates?: Object[]}>}
      */
-    async getSpotifyAlbum(links, upc = null) {
+    async getSpotifyAlbum(links, upc = null, name = null) {
         const response = await fetch(`${API_BASE_URL}/spotify/album`, {
             method: 'POST',
             headers: JSON_HEADERS,
-            // The barcode is the fallback: with no Spotify link to go on it is
-            // the only identifier a Discogs import can offer, and matching on
-            // artist and title instead is the guesswork this whole check
-            // exists to referee.
-            body: JSON.stringify(upc ? { links, upc } : { links }),
+            // Three keys, in descending order of what they prove, and all sent
+            // together because the server stops at the first one that works. A
+            // link names a release; a barcode names a release and is checked;
+            // artist and title are guesswork, which is why that route comes
+            // back as candidates for the tracklist in the form to referee
+            // rather than as an answer.
+            body: JSON.stringify({
+                links,
+                ...(upc ? { upc } : {}),
+                ...(name?.album ? { album: name.album, artist: name.artist ?? '' } : {}),
+            }),
         });
         // A 4xx/5xx here still carries a usable reason, and the caller shows it
         // to the submitter — so read the body rather than throwing on status.

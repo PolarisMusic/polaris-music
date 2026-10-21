@@ -966,9 +966,16 @@ test.describe('importing from Discogs, end to end', () => {
     /**
      * One click should do the whole chain: the Discogs release, then the
      * streaming release it corresponds to, then every track's link, ISRC and
-     * alternate spelling. The bridge is the barcode — Discogs carries no
-     * streaming ids at all, so the alternative is matching on artist and
-     * title, which is the guesswork the cross-check exists to referee.
+     * alternate spelling. Discogs carries no streaming ids at all, so the
+     * bridge is the barcode where there is one — and where there is not, the
+     * artist and title, with the imported tracklist as the thing that decides
+     * whether the album those found is the right one.
+     *
+     * That second route exists because the first one silently did nothing
+     * rather often: a record pressed before the mid-80s has no barcode printed
+     * on it, and plenty of Discogs entries for ones that do have left the field
+     * blank. The chain then stopped with no request, no report and no message,
+     * which from the form is indistinguishable from the feature being broken.
      *
      * Both APIs are stubbed. The Discogs client calls api.discogs.com from the
      * browser directly (it is in the page's CSP), so that route is intercepted
@@ -1012,6 +1019,18 @@ test.describe('importing from Discogs, end to end', () => {
                 },
             ],
         },
+    };
+
+    /**
+     * The same album, offered the way a name search has to offer it: as
+     * candidates with their tracklists and no verdict. A title and an artist
+     * cannot identify a release, so nothing is filled in until the imported
+     * tracklist agrees with one of these — see chooseAlbumByTracklist.
+     */
+    const SPOTIFY_CANDIDATES = {
+        success: true,
+        matched_by: 'name',
+        candidates: [SPOTIFY_ALBUM.album],
     };
 
     /**
@@ -1123,15 +1142,101 @@ test.describe('importing from Discogs, end to end', () => {
         await expect(page.locator('#listen-link-report')).toContainText('found by barcode');
     });
 
-    test('a release with no barcode asks Spotify nothing', async ({ page }) => {
-        // There is nothing to look it up by, and guessing from the title is
-        // exactly what this must not do.
+    test('a release with no barcode is looked up by name instead', async ({ page }) => {
+        // This is the case that used to do nothing at all. The name is not
+        // trusted — the server answers it with candidates and the imported
+        // tracklist decides — but it is asked.
         const sent = await importFromDiscogs(page, {
             release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: SPOTIFY_CANDIDATES,
         });
 
-        expect(sent).toEqual([]);
-        await expect(page.locator('#listen-link-report')).toBeEmpty();
+        expect(sent).toHaveLength(1);
+        expect(sent[0].upc).toBeUndefined();
+        expect(sent[0]).toMatchObject({
+            album: 'Fire of Unknown Origin', artist: 'Blue Öyster Cult',
+        });
+    });
+
+    test('and the tracklist it finds that way is filled in', async ({ page }) => {
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: SPOTIFY_CANDIDATES,
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('[name="track-listen-link-1"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+        await expect(page.locator('#listen-link-report')).toContainText('found by name');
+    });
+
+    test('and the report says why the barcode was not used', async ({ page }) => {
+        // Otherwise the barcode's fate is invisible: a submitter cannot tell
+        // whether it was missing, wrong, or never looked at.
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: SPOTIFY_CANDIDATES,
+        });
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Discogs lists no barcode');
+    });
+
+    test('a barcode Spotify does not carry falls through to the name', async ({ page }) => {
+        // The usual state of a reissued record: the sleeve's barcode belongs to
+        // a pressing and the streaming release is filed under a digital one. The
+        // report says so, because that is the diagnosis.
+        await importFromDiscogs(page, { album: SPOTIFY_CANDIDATES });
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('no release under the barcode');
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+    });
+
+    test('a name match the tracklist does not support fills nothing', async ({ page }) => {
+        // The whole safeguard. A compilation carrying one of these titles ranks
+        // perfectly well for the artist, and accepting it would attach a
+        // tracklist of links and ISRCs to the wrong record, silently.
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: {
+                success: true,
+                matched_by: 'name',
+                candidates: [{
+                    id: 'HITS', name: 'Workshop of the Telescopes', total_tracks: 3,
+                    tracks: [
+                        { id: 'h1', name: '(Don\'t Fear) The Reaper', track_number: 1 },
+                        { id: 'h2', name: 'Godzilla', track_number: 2 },
+                        { id: 'h3', name: 'Burnin For You', track_number: 3 },
+                    ],
+                }],
+            },
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue('');
+        await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
+        await expect(page.locator('#listen-link-report')).toContainText('too few');
+        // Named and linked: "no match" leaves a submitter nothing to do.
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Workshop of the Telescopes');
+    });
+
+    test('the title is sent without its edition decoration', async ({ page }) => {
+        // "(Deluxe Edition)" in the search string is two words Spotify matches
+        // against the title, and the standard edition is what a Discogs
+        // tracklist usually describes.
+        const sent = await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                title: 'Fire of Unknown Origin (Deluxe Edition)',
+                identifiers: [],
+            },
+            album: SPOTIFY_CANDIDATES,
+        });
+
+        expect(sent[0].album).toBe('Fire of Unknown Origin');
     });
 
     test('a barcode Spotify cannot place leaves the form alone', async ({ page }) => {

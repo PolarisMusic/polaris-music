@@ -12,7 +12,10 @@ import { discogsClient } from './utils/discogsClient.js';
 import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
 import { canonicalizeListenLink, normalizeListenLink, sameTarget } from './utils/listenLinks.js';
-import { diffTracklists, describeDifference, matchSpotifyTracks } from './utils/tracklistDiff.js';
+import {
+    diffTracklists, describeDifference, matchSpotifyTracks,
+    chooseAlbumByTracklist, describeAlbumChoice, displayTitle,
+} from './utils/tracklistDiff.js';
 import { barcodesFrom } from './utils/discogsBarcode.js';
 
 class PolarisApp {
@@ -686,13 +689,22 @@ class PolarisApp {
             .map(normalizeListenLink)
             .find(link => link?.service === 'spotify' && link.type === 'album');
 
+        // What this form says the release is called, for when there is no
+        // barcode to go on. Most records pressed before the mid-80s have none
+        // printed, and plenty of Discogs entries for ones that do have left the
+        // field blank — until now that meant this check silently did nothing at
+        // all, which is indistinguishable from it being broken. A name is
+        // guesswork, so the server answers it with candidates and the tracklist
+        // below decides; see chooseAlbumByTracklist.
+        const identity = this.releaseIdentityForSearch();
+
         // Import the links regardless of whether the check can run: pulling
         // them up to the release is useful on its own.
         // Reassigned below if the check finds an album link to add, so the
         // count the report prints is what the field actually ends up holding.
         let imported = this.mergeTrackLinksIntoRelease(links, target);
 
-        if (links.length === 0 && !albumLink && !barcode) {
+        if (links.length === 0 && !albumLink && !barcode && !identity) {
             report.textContent =
                 'No links to work from. Add a Spotify album link above, or a link to a track.';
             return;
@@ -703,7 +715,7 @@ class PolarisApp {
         let result;
         try {
             result = await api.getSpotifyAlbum(
-                albumLink ? [albumLink.url, ...links] : links, barcode);
+                albumLink ? [albumLink.url, ...links] : links, barcode, identity);
         } catch (error) {
             console.warn('Spotify check failed:', error);
             report.textContent =
@@ -723,32 +735,116 @@ class PolarisApp {
             return;
         }
 
-        const filled = this.fillTrackLinksFromAlbum(tracks, result.album.tracks);
+        // A link or a barcode identifies one release and the server returns
+        // it. A name cannot, so it returns the few releases it ranked under
+        // that name and the tracklist in this form decides between them —
+        // nothing is filled in on a name alone.
+        const album = result.album
+            ?? this.chooseCandidate(tracks, result.candidates, report, imported);
+        if (!album) return;
+
+        const filled = this.fillTrackLinksFromAlbum(tracks, album.tracks);
 
         // The album link belongs on the release, not only on the tracks: it is
-        // what the player uses for the album embed, and after a barcode match
-        // nothing else would ever put it there. Merged rather than assigned, so
-        // a link already in the field survives and its twin is not added twice.
-        if (result.album.id) {
+        // what the player uses for the album embed, and after a match made from
+        // a barcode or a name nothing else would ever put it there. Merged
+        // rather than assigned, so a link already in the field survives and its
+        // twin is not added twice.
+        if (album.id) {
             imported = this.mergeTrackLinksIntoRelease(
-                [`https://open.spotify.com/album/${result.album.id}`], target);
+                [`https://open.spotify.com/album/${album.id}`], target);
         }
 
-        this.renderListenLinkReport(report, imported, result.album,
-            diffTracklists(tracks, result.album.tracks), filled, result.matched_by);
+        this.renderListenLinkReport(report, imported, album,
+            diffTracklists(tracks, album.tracks), filled, result.matched_by);
+
+        // Why the name was used rather than the barcode. Stated because the
+        // barcode's fate is invisible otherwise: a submitter who pasted a
+        // Discogs link and got a name match cannot tell whether the barcode was
+        // missing, wrong, or never looked at — and the difference matters,
+        // since a barcode Spotify does not carry is usually a pressing's,
+        // where the streaming release is filed under a digital one.
+        if (result.matched_by === 'name') {
+            this.appendReportLine(report, barcode
+                ? `Spotify has no release under the barcode Discogs lists (${barcode}), `
+                    + 'so it was looked up by name instead.'
+                : 'Discogs lists no barcode for this release, so it was looked up by name.');
+        }
 
         // After the report rather than before it: this is a second round of
         // requests to other services — one per track plus one for the release —
         // and the tracklist comparison, which is the part a submitter is
         // waiting on, should not sit behind it.
         const crossService = await this.importCrossServiceLinks(
-            result.album.id ? `https://open.spotify.com/album/${result.album.id}` : null);
+            album.id ? `https://open.spotify.com/album/${album.id}` : null);
         if (crossService && crossService.added > 0) {
-            const line = document.createElement('p');
-            line.textContent = `Added ${crossService.added} link(s) on `
-                + `${crossService.services.join(', ')}.`;
-            report.appendChild(line);
+            this.appendReportLine(report, `Added ${crossService.added} link(s) on `
+                + `${crossService.services.join(', ')}.`);
         }
+    }
+
+    /**
+     * Add a line to the listen-link report.
+     *
+     * textContent rather than innerHTML throughout: these lines quote release
+     * and track titles straight out of two community-edited catalogues.
+     *
+     * @param {HTMLElement} report
+     * @param {string} text
+     */
+    appendReportLine(report, text) {
+        const line = document.createElement('p');
+        line.textContent = text;
+        report.appendChild(line);
+    }
+
+    /**
+     * Choose between albums a name search proposed, or explain why none was.
+     *
+     * The decision itself is in tracklistDiff.js where it is pure and tested;
+     * this is the part that touches the page. Returning null means the report
+     * already says what happened and the caller should stop.
+     *
+     * @param {{position?: string, title: string}[]} tracks
+     * @param {Object[]|undefined} candidates - Absent is treated as none: a
+     *   success with neither an album nor candidates still has to say something.
+     * @param {HTMLElement} report
+     * @param {number} imported
+     * @returns {Object|null}
+     */
+    chooseCandidate(tracks, candidates, report, imported) {
+        const choice = chooseAlbumByTracklist(tracks, candidates);
+        if (choice.album) return choice.album;
+
+        report.textContent = `Imported ${imported} link(s). ${describeAlbumChoice(choice)}`;
+        return null;
+    }
+
+    /**
+     * What this form says the release is called, for a name search.
+     *
+     * Read off the form rather than out of the Discogs payload, deliberately:
+     * the import has already stripped Discogs' disambiguating suffix from the
+     * artist ("Heaven (2)" becomes "Heaven"), which is noise in a search, and a
+     * submitter who corrected either field meant the correction.
+     *
+     * @returns {{artist: string, album: string}|null} null when the form does
+     *   not yet say what the release is called.
+     */
+    releaseIdentityForSearch() {
+        const album = displayTitle(document.getElementById('release-name')?.value ?? '');
+        if (!album) return null;
+
+        // The first release-level group. A release credited to several is a
+        // split or a compilation, and naming one of them is still true — the
+        // search only has to put the right album in front of the tracklist
+        // check, not describe the credits.
+        const item = document.querySelector('[data-type="release-group"]');
+        const artist = item
+            ? this.getInputValue(item, `release-group-name-${item.dataset.index}`)
+            : '';
+
+        return { album, artist };
     }
 
     /**
@@ -971,16 +1067,20 @@ class PolarisApp {
      * @param {{name: string, total_tracks: number}} album
      * @param {{kind: string}[]} differences
      * @param {{filled: number, unmatched: number, codes: number, named: number}} [filled]
-     * @param {string|null} [matchedBy] - 'link' or 'upc'; how the album was found.
+     * @param {string|null} [matchedBy] - 'link', 'upc' or 'name'; how the album
+     *   was found.
      */
     renderListenLinkReport(report, importedCount, album, differences, filled = null,
                            matchedBy = null) {
         report.innerHTML = '';
 
-        // Named explicitly when a barcode found it: nothing the submitter typed
-        // points at this release, so "compared against" would otherwise be a
-        // claim with no visible basis.
-        const how = matchedBy === 'upc' ? ', found by barcode' : '';
+        // Named explicitly whenever the submitter did not point at this release
+        // themselves: "compared against" would otherwise be a claim with no
+        // visible basis. A name match says on what basis it was accepted, since
+        // the name alone is not one.
+        const how = matchedBy === 'upc' ? ', found by barcode'
+            : matchedBy === 'name' ? ', found by name and accepted on its tracklist'
+                : '';
 
         const summary = document.createElement('p');
         summary.textContent = `Imported ${importedCount} link(s). `
@@ -1851,19 +1951,23 @@ class PolarisApp {
             this.showDiscogsStatus(`✓ Successfully imported: ${releaseData.title}`, 'success');
             this.showToast(`Imported from Discogs: ${releaseData.title}`, 'success');
 
-            // One click, the whole chain: the barcode just imported is enough
-            // to find the streaming release, and that fills in every track's
-            // listen link, ISRC and alternate spelling. Doing it here rather
-            // than leaving a second button to press is the point — the
+            // One click, the whole chain: what was just imported is enough to
+            // find the streaming release — a barcode where Discogs lists one,
+            // the artist and title where it does not — and that fills in every
+            // track's listen link, ISRC and alternate spelling. Doing it here
+            // rather than leaving a second button to press is the point: the
             // submitter has already said which release this is.
+            //
+            // Run unconditionally, where it used to be gated on a barcode
+            // having been imported. The gate meant a release with no barcode
+            // produced no request, no report and no message — the chain simply
+            // did not happen, and nothing on the page said so.
             //
             // Deliberately not awaited into the import's own error handling: a
             // failed or unconfigured cross-check must not make a successful
             // Discogs import report itself as failed.
-            if (this.discogsBarcodes?.length > 0) {
-                this.importTrackListenLinks().catch(error =>
-                    console.warn('Spotify cross-check after import failed:', error));
-            }
+            this.importTrackListenLinks().catch(error =>
+                console.warn('Spotify cross-check after import failed:', error));
 
         } catch (error) {
             console.error('Discogs fetch error:', error);
