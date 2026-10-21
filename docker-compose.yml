@@ -253,6 +253,19 @@ services:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
 
+      # Odesli / song.link (optional) — one request returns the same recording
+      # on Apple Music, Tidal, YouTube Music, Amazon Music, Deezer and
+      # SoundCloud. Keyless access is retired, so without a key the provider
+      # drops out of the answer and the keyless Deezer lookup carries on alone.
+      - ODESLI_API_KEY=${ODESLI_API_KEY:-}
+      - ODESLI_API_BASE=${ODESLI_API_BASE:-}
+      - ODESLI_REQUESTS_PER_MINUTE=${ODESLI_REQUESTS_PER_MINUTE:-}
+      - ODESLI_USER_COUNTRY=${ODESLI_USER_COUNTRY:-}
+
+      # MusicBrainz (optional) — genre tags, reached by barcode. No credentials;
+      # they ask for a User-Agent naming the application and a contact address.
+      - MUSICBRAINZ_USER_AGENT=${MUSICBRAINZ_USER_AGENT:-}
+
       # External Pinning Provider (optional, best-effort)
       - PIN_PROVIDER=${PIN_PROVIDER:-none}
       - PIN_PROVIDER_TOKEN=${PIN_PROVIDER_TOKEN:-}
@@ -346,6 +359,19 @@ services:
       # Spotify Web API (optional) — tracklist cross-check on the submit form
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+
+      # Odesli / song.link (optional) — one request returns the same recording
+      # on Apple Music, Tidal, YouTube Music, Amazon Music, Deezer and
+      # SoundCloud. Keyless access is retired, so without a key the provider
+      # drops out of the answer and the keyless Deezer lookup carries on alone.
+      - ODESLI_API_KEY=${ODESLI_API_KEY:-}
+      - ODESLI_API_BASE=${ODESLI_API_BASE:-}
+      - ODESLI_REQUESTS_PER_MINUTE=${ODESLI_REQUESTS_PER_MINUTE:-}
+      - ODESLI_USER_COUNTRY=${ODESLI_USER_COUNTRY:-}
+
+      # MusicBrainz (optional) — genre tags, reached by barcode. No credentials;
+      # they ask for a User-Agent naming the application and a contact address.
+      - MUSICBRAINZ_USER_AGENT=${MUSICBRAINZ_USER_AGENT:-}
 
       # External Pinning Provider (optional, best-effort)
       - PIN_PROVIDER=${PIN_PROVIDER:-none}

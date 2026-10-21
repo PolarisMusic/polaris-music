@@ -34,6 +34,29 @@ export const EntityType = {
 };
 
 /**
+ * Hash a fingerprint into the 16 hex characters an id carries.
+ *
+ * Shared so the provisional ids below and the vocabulary ids cannot drift
+ * apart: both are content addresses of a fingerprint object, and two
+ * functions hashing "the same way" is a promise nothing would check.
+ *
+ * Uses the same canonicalization library as the event-store hash path, so two
+ * equivalent fingerprints (regardless of nested key ordering) produce the same
+ * hash. An earlier implementation used JSON.stringify with a top-level-keys
+ * replacer array, which does NOT recurse — equivalent fingerprints with nested
+ * objects silently produced different ids, and nested keys were dropped.
+ *
+ * @param {Object} fingerprint
+ * @returns {string} 16 lowercase hex characters.
+ */
+function fingerprintHash(fingerprint) {
+    return createHash('sha256')
+        .update(stringify(fingerprint))
+        .digest('hex')
+        .substring(0, 16);      // First 16 chars, for readability.
+}
+
+/**
  * ID kinds
  */
 export const IDKind = {
@@ -75,21 +98,41 @@ export class IdentityService {
             throw new Error(`Invalid entity type: ${entityType}`);
         }
 
-        // Create deterministic hash from fingerprint. Uses the same
-        // canonicalization library as the event-store hash path so two
-        // equivalent fingerprints (regardless of nested key ordering)
-        // produce the same provisional ID. The previous implementation
-        // used JSON.stringify with a top-level-keys replacer-array, which
-        // does NOT recurse — equivalent fingerprints with nested objects
-        // would silently produce different IDs (and nested keys would be
-        // dropped entirely).
-        const canonical = stringify(fingerprint);
-        const hash = createHash('sha256')
-            .update(canonical)
-            .digest('hex')
-            .substring(0, 16); // Use first 16 chars for readability
+        return `prov:${entityType}:${fingerprintHash(fingerprint)}`;
+    }
 
-        return `prov:${entityType}:${hash}`;
+    /**
+     * The id of a genre.
+     *
+     * Deliberately not routed through makeProvisionalId, and `genre`
+     * deliberately absent from EntityType: a genre is not an entity this
+     * service is allowed to mint or merge. Everything else here can acquire a
+     * canonical id later — two rows about one person turn out to be the same
+     * person, and MERGE_NODE says so — whereas a genre is *defined* by its
+     * normalized key (docs/02-graph-database-schema.md, "Genre tags"). Two
+     * spellings must land on one node, forever.
+     *
+     * Admitting `genre` to EntityType would open two doors onto that
+     * invariant: mintCanonicalId('genre'), which would hand a genre a second
+     * identity, and the external-id resolution in
+     * MusicGraphDatabase.resolveEntityId, which would answer with whatever a
+     * MusicBrainz genre MBID had been mapped to. Either splits a genre in two,
+     * and a split genre halves every overlap between two genres silently —
+     * which is the one failure the vocabulary module exists to prevent.
+     *
+     * The shape stays `prov:genre:{hash}` so parseId keeps classifying it
+     * (nothing there validates the type), and so every node id in the registry
+     * still has one of three documented forms.
+     *
+     * @param {string} key - Normalized key from graph/genreVocabulary.js.
+     * @returns {string} prov:genre:{hash}
+     * @throws {Error} If the key is empty — a genre with no key is not a genre.
+     */
+    static makeGenreId(key) {
+        const normalized = String(key ?? '').trim();
+        if (!normalized) throw new Error('Genre id needs a key');
+
+        return `prov:genre:${fingerprintHash({ type: 'genre', key: normalized })}`;
     }
 
     /**

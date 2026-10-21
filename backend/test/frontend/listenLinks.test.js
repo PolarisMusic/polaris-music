@@ -74,7 +74,7 @@ describe('normalizeListenLink', () => {
     });
 
     test.each([
-        ['an unmodelled service', 'https://music.apple.com/us/album/foo/123'],
+        ['an unmodelled service', 'https://artist.bandcamp.com/track/foo'],
         ['a URL with no id', 'https://open.spotify.com/track'],
         ['an unknown path type', `https://open.spotify.com/nonsense/${TRACK}`],
         ['plain text', 'not a url'],
@@ -108,9 +108,11 @@ describe('canonicalizeListenLink', () => {
     });
 
     test('an unmodelled service is kept but cleaned', () => {
-        // The submitter took the trouble to add it; drop the tracking, not the link.
-        expect(canonicalizeListenLink('https://music.apple.com/us/album/foo/123?utm_source=x'))
-            .toBe('https://music.apple.com/us/album/foo/123');
+        // The submitter took the trouble to add it; drop the tracking, not the
+        // link. Bandcamp rather than Apple Music, which is now modelled — the
+        // services Odesli answers for are each parsed properly.
+        expect(canonicalizeListenLink('https://artist.bandcamp.com/track/foo?utm_source=x'))
+            .toBe('https://artist.bandcamp.com/track/foo');
     });
 
     test('something that is not a URL at all is rejected', () => {
@@ -234,5 +236,164 @@ describe('Deezer', () => {
         // would make /us/album/foo parse as an album on a host that means
         // something else by that path.
         expect(normalizeListenLink('https://open.spotify.com/en/track/abc')).toBeNull();
+    });
+});
+
+describe('the services Odesli answers for', () => {
+    /**
+     * Each of these is stored because Odesli resolves it, and each is parsed
+     * because an unparsed link is only tracking-stripped — which means two
+     * spellings of one track compare unequal and a second import appends a
+     * near-duplicate beside the first.
+     *
+     * Apple, Amazon and both YouTubes keep the thing being linked to in a query
+     * parameter, which is the whole reason the table grew a per-service parser:
+     * a path-only read turns every Apple track link into its album, collapsing
+     * every song on a record into one identity.
+     */
+    describe('Apple Music', () => {
+        const TRACK = 'https://music.apple.com/us/album/fire-of-unknown-origin/1443000516?i=1443000890';
+
+        test('a track is the song, not the album it sits in', () => {
+            expect(normalizeListenLink(TRACK)).toEqual({
+                service: 'apple',
+                type: 'track',
+                id: '1443000890',
+                url: 'https://music.apple.com/us/album/1443000516?i=1443000890',
+            });
+        });
+
+        test('two songs from one album are two identities', () => {
+            // The failure a path-only parser causes, stated as a test.
+            const other = TRACK.replace('i=1443000890', 'i=1443000891');
+            expect(sameTarget(TRACK, other)).toBe(false);
+        });
+
+        test('an album link stays an album link', () => {
+            expect(normalizeListenLink('https://music.apple.com/gb/album/x/1443000516'))
+                .toMatchObject({ type: 'album', id: '1443000516' });
+        });
+
+        test('the slug is decoration and does not fork the identity', () => {
+            // Apple ignores it, and it changes when a title is edited.
+            expect(sameTarget(TRACK, TRACK.replace('fire-of-unknown-origin', 'anything-else')))
+                .toBe(true);
+        });
+
+        test('the same song in two storefronts is one song', () => {
+            // The storefront is part of a working link and no part of what the
+            // link points at.
+            expect(sameTarget(TRACK, TRACK.replace('/us/', '/gb/'))).toBe(true);
+        });
+
+        test('a storefront is kept in the canonical url, since a link needs one', () => {
+            expect(normalizeListenLink(TRACK.replace('/us/', '/gb/')).url)
+                .toContain('/gb/album/');
+        });
+    });
+
+    describe('Tidal', () => {
+        test('browse and bare paths are the same track', () => {
+            expect(sameTarget('https://tidal.com/browse/track/12345',
+                'https://tidal.com/track/12345')).toBe(true);
+        });
+
+        test('canonicalizes to the share form', () => {
+            expect(normalizeListenLink('https://listen.tidal.com/track/12345').url)
+                .toBe('https://tidal.com/browse/track/12345');
+        });
+    });
+
+    describe('YouTube Music', () => {
+        test('the id comes out of the query, not the path', () => {
+            expect(normalizeListenLink('https://music.youtube.com/watch?v=dQw4w9WgXcQ'))
+                .toMatchObject({ service: 'youtubeMusic', type: 'track', id: 'dQw4w9WgXcQ' });
+        });
+
+        test('a tracking parameter does not change the identity', () => {
+            expect(sameTarget(
+                'https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=abc&t=42',
+                'https://music.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true);
+        });
+
+        test('a track inside a playlist is the track', () => {
+            // A link can carry both; what it points at is the song.
+            expect(normalizeListenLink('https://music.youtube.com/watch?v=abc&list=PL123'))
+                .toMatchObject({ type: 'track', id: 'abc' });
+        });
+
+        test('a playlist on its own is a playlist', () => {
+            expect(normalizeListenLink('https://music.youtube.com/playlist?list=PL123'))
+                .toMatchObject({ type: 'playlist', id: 'PL123' });
+        });
+
+        test('YouTube proper is a different service from YouTube Music', () => {
+            // Same id, different place to listen; the registry stores both.
+            expect(sameTarget('https://music.youtube.com/watch?v=abc',
+                'https://www.youtube.com/watch?v=abc')).toBe(false);
+        });
+
+        test('a youtu.be short link carries the id as its path', () => {
+            expect(normalizeListenLink('https://youtu.be/dQw4w9WgXcQ'))
+                .toMatchObject({ service: 'youtube', type: 'track', id: 'dQw4w9WgXcQ' });
+        });
+    });
+
+    describe('Amazon Music', () => {
+        test('a track is the trackAsin, not the album', () => {
+            expect(normalizeListenLink(
+                'https://music.amazon.com/albums/B01N4OBGK4?trackAsin=B01N2V1OTO'))
+                .toMatchObject({ type: 'track', id: 'B01N2V1OTO' });
+        });
+
+        test('an album without one is the album', () => {
+            expect(normalizeListenLink('https://music.amazon.com/albums/B01N4OBGK4'))
+                .toMatchObject({ type: 'album', id: 'B01N4OBGK4' });
+        });
+
+        test('a regional host is the same service', () => {
+            expect(normalizeListenLink('https://music.amazon.co.uk/albums/B01N4OBGK4')?.service)
+                .toBe('amazonMusic');
+        });
+    });
+
+    describe('SoundCloud', () => {
+        test('the path is the identity', () => {
+            expect(normalizeListenLink('https://soundcloud.com/artist/some-track'))
+                .toEqual({
+                    service: 'soundcloud', type: 'track', id: 'artist/some-track',
+                    url: 'https://soundcloud.com/artist/some-track',
+                });
+        });
+
+        test('a set is a playlist', () => {
+            expect(normalizeListenLink('https://soundcloud.com/artist/sets/an-ep'))
+                .toMatchObject({ type: 'playlist', id: 'artist/sets/an-ep' });
+        });
+
+        test('an artist page is not a track', () => {
+            expect(normalizeListenLink('https://soundcloud.com/artist'))
+                .toMatchObject({ type: 'artist', id: 'artist' });
+        });
+    });
+
+    test('every service Odesli answers for is recognized or deliberately not', () => {
+        // Pandora is the one left out: its links are slug soup with no id to
+        // key on, so it falls through to being tracking-stripped — stored and
+        // working, just not deduplicated.
+        const resolved = {
+            spotify: 'https://open.spotify.com/track/abc',
+            apple: 'https://music.apple.com/us/album/x/1?i=2',
+            deezer: 'https://www.deezer.com/track/1',
+            tidal: 'https://tidal.com/browse/track/1',
+            youtubeMusic: 'https://music.youtube.com/watch?v=a',
+            youtube: 'https://www.youtube.com/watch?v=a',
+            amazonMusic: 'https://music.amazon.com/albums/B01?trackAsin=B02',
+            soundcloud: 'https://soundcloud.com/a/b',
+        };
+
+        for (const [service, url] of Object.entries(resolved)) {
+            expect(normalizeListenLink(url)?.service).toBe(service);
+        }
     });
 });

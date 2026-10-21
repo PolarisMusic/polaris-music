@@ -102,6 +102,18 @@ const SAFE_NODE_TYPES = {
 };
 
 /**
+ * Node types that carry genre tags.
+ *
+ * Group and Release, because that is where a genre is a property of the thing:
+ * MusicBrainz's data is densest there, and it is what the graph draws. A Song
+ * is the tempting wrong answer — a composition has no production aesthetic —
+ * and a Track's mood is a different claim, for later.
+ *
+ * @constant {Set<string>}
+ */
+const TAGGABLE = new Set(['Group', 'Release']);
+
+/**
  * Protected fields that cannot be modified via ADD_CLAIM events.
  * Prevents graph corruption by protecting identity, audit, and system fields.
  *
@@ -472,6 +484,18 @@ constructor(config = {}) {
                     query: 'CREATE CONSTRAINT media_id IF NOT EXISTS FOR (m:Media) REQUIRE m.media_id IS UNIQUE'
                 },
 
+                {
+                    name: 'genre_id',
+                    query: 'CREATE CONSTRAINT genre_id IF NOT EXISTS FOR (g:Genre) REQUIRE g.genre_id IS UNIQUE'
+                },
+                {
+                    // The key is the identity, so it is unique in its own
+                    // right: two Genre nodes with one key would split a set
+                    // and quietly halve every overlap computed from it.
+                    name: 'genre_key',
+                    query: 'CREATE CONSTRAINT genre_key IF NOT EXISTS FOR (g:Genre) REQUIRE g.key IS UNIQUE'
+                },
+
                 // IdentityMap: Maps external IDs to canonical IDs
                 {
                     name: 'identity_map_key',
@@ -577,6 +601,7 @@ constructor(config = {}) {
                 { name: 'song_id_lookup', query: 'CREATE INDEX song_id_lookup IF NOT EXISTS FOR (s:Song) ON (s.song_id)' },
                 { name: 'track_id_lookup', query: 'CREATE INDEX track_id_lookup IF NOT EXISTS FOR (t:Track) ON (t.track_id)' },
                 { name: 'label_id_lookup', query: 'CREATE INDEX label_id_lookup IF NOT EXISTS FOR (l:Label) ON (l.label_id)' },
+                { name: 'tagged_origin', query: 'CREATE INDEX tagged_origin IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.origin)' },
 
                 // Relationship property indexes for role searchability (Neo4j 5.x+)
                 { name: 'performed_on_role', query: 'CREATE INDEX performed_on_role IF NOT EXISTS FOR ()-[r:PERFORMED_ON]-() ON (r.role)' },
@@ -976,6 +1001,13 @@ constructor(config = {}) {
                     r.format = $format,
                     r.country = $country,
                     r.catalog_number = $catalogNumber,
+                    // The barcode on the sleeve. Fetched, used and thrown away
+                    // until now: it is what matches this pressing to a
+                    // streaming release and to a MusicBrainz release, and it
+                    // identifies the *edition*, which is what a Release node
+                    // is. coalesce so a later bundle that was filled in by hand
+                    // does not erase one an import supplied.
+                    r.barcode = coalesce($barcode, r.barcode),
                     r.liner_notes = $linerNotes,
                     r.trivia = $trivia,
                     r.album_art = $albumArt,
@@ -1002,6 +1034,7 @@ constructor(config = {}) {
                 format: normalizedBundle.release.format || [],
                 country: normalizedBundle.release.country || null,
                 catalogNumber: normalizedBundle.release.catalog_number || null,
+                barcode: normalizedBundle.release.barcode || null,
                 listenLinks: normalizedBundle.release.listen_links || [],
                 linerNotes: normalizedBundle.release.liner_notes || null,
                 trivia: normalizedBundle.release.trivia || null,
@@ -4043,6 +4076,150 @@ constructor(config = {}) {
      *
      * @returns {Promise<Array<{nodeId: string, name: string, type: string, aliasIds: string[]}>>}
      */
+    /**
+     * Record what one source says a Group or Release sounds like.
+     *
+     * Tags are scoped by `origin` — 'musicbrainz', or 'account:<name>' — and
+     * this replaces only that origin's tags for this node. An import can
+     * therefore be re-run and will reflect a genre MusicBrainz has since
+     * dropped, without touching a word anybody here typed, and one submitter
+     * retracting a tag cannot remove another's.
+     *
+     * The edge carries the provenance rather than the node, which is what lets
+     * an imported tag and a human one coexist on the same Genre: the same
+     * discipline as `stake_source` on the lottery draw. A reader can then ask
+     * for the overlap between two genres and know whether the answer rests on a
+     * catalogue's editorial judgement or on somebody's opinion.
+     *
+     * Not anchored on chain. An imported tag is a mirror, not an assertion:
+     * its provenance is the MBID and the fetch date, anyone can verify it at
+     * the source, and re-running the import reproduces it — which is the test
+     * for what may live only in the projection. A tag somebody invents is the
+     * opposite and belongs in a signed event; that path writes through here
+     * with an `account:` origin and a claim id.
+     *
+     * @param {string} nodeType - 'group' or 'release'
+     * @param {string} nodeId
+     * @param {Array<{key: string, name: string, count?: number}>} genres -
+     *   Already canonicalized by genreVocabulary.canonicalGenres().
+     * @param {Object} options
+     * @param {string} options.origin - 'musicbrainz' | `account:${name}`
+     * @param {string} [options.sourceUrl] - Where an import read them.
+     * @param {string} [options.claimId] - For an account origin, the event's claim.
+     * @param {number} [options.eventTs] - Epoch millis; defaults to now.
+     * @returns {Promise<{added: number, removed: number}>}
+     */
+    async setGenreTags(nodeType, nodeId, genres, { origin, sourceUrl = null,
+        claimId = null, eventTs = null } = {}) {
+        const mapping = SAFE_NODE_TYPES[String(nodeType).toLowerCase()];
+        if (!mapping) throw new Error(`Cannot tag a ${nodeType}`);
+        if (!TAGGABLE.has(mapping.label)) {
+            // Tracks and Songs are deliberately out for now: a recording's mood
+            // is a different claim from a release's genre, and MusicBrainz's
+            // genre data is thin at the recording level. Adding them later is a
+            // line in this set, not a change here.
+            throw new Error(`${mapping.label} does not carry genre tags`);
+        }
+        if (!origin) throw new Error('setGenreTags needs an origin');
+
+        const session = this.driver.session();
+        const tx = session.beginTransaction();
+        try {
+            const stamp = toNeo4jEpochMillis(eventTs);
+
+            // Everything this origin said before, so a re-run is a replacement
+            // rather than an accumulation of corrections.
+            const dropped = await tx.run(`
+                MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})-[r:TAGGED]->(:Genre)
+                WHERE r.origin = $origin
+                DELETE r
+                RETURN count(r) AS removed
+            `, { nodeId, origin });
+
+            let added = 0;
+            for (const genre of genres ?? []) {
+                if (!genre?.key) continue;
+
+                // Straight from the key, not through resolveEntityId: a
+                // genre IS its normalized key, so there is nothing to resolve
+                // and an external id must not get a say. Two people called
+                // Bill Evans are two nodes; two sources writing "Hip-Hop" and
+                // "hip hop" mean one genre, and a second id for it would halve
+                // every overlap between two genres silently.
+                const genreId = IdentityService.makeGenreId(genre.key);
+
+                await tx.run(`
+                    MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
+                    MERGE (g:Genre {genre_id: $genreId})
+                    ON CREATE SET g.id = $genreId,
+                                  g.key = $key,
+                                  g.name = $name,
+                                  g.created_at = datetime({epochMillis: $stamp})
+                    // The display name is whatever the first source called it.
+                    // Later sources do not restyle it: the registry records
+                    // what somebody wrote, and MusicBrainz's lower case is its
+                    // editorial choice rather than a mistake to correct.
+                    MERGE (n)-[r:TAGGED {origin: $origin}]->(g)
+                    SET r.count = $count,
+                        r.source_url = $sourceUrl,
+                        r.claim_id = $claimId,
+                        r.updated_at = datetime({epochMillis: $stamp})
+                `, {
+                    nodeId,
+                    genreId,
+                    key: genre.key,
+                    name: genre.name ?? genre.key,
+                    count: Number(genre.count) || 0,
+                    origin,
+                    sourceUrl,
+                    claimId,
+                    stamp,
+                });
+                added++;
+            }
+
+            await tx.commit();
+
+            return { added, removed: countOf(dropped.records[0], 'removed') };
+        } catch (error) {
+            await safeRollback(tx, this.log);
+            this.log?.error?.('genre_tags_failed', { node_id: nodeId, error: error.message });
+            throw error;
+        } finally {
+            await safeClose(session, this.log);
+        }
+    }
+
+    /**
+     * Every genre on a node, with where each came from.
+     *
+     * @param {string} nodeType - 'group' or 'release'
+     * @param {string} nodeId
+     * @returns {Promise<Array<{key: string, name: string, origin: string, count: number}>>}
+     */
+    async getGenreTags(nodeType, nodeId) {
+        const mapping = SAFE_NODE_TYPES[String(nodeType).toLowerCase()];
+        if (!mapping) throw new Error(`Cannot tag a ${nodeType}`);
+
+        const session = this.driver.session();
+        try {
+            const result = await session.run(`
+                MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})-[r:TAGGED]->(g:Genre)
+                RETURN g.key AS key, g.name AS name, r.origin AS origin, r.count AS count
+                ORDER BY r.count DESC, g.key
+            `, { nodeId });
+
+            return result.records.map((record) => ({
+                key: record.get('key'),
+                name: record.get('name'),
+                origin: record.get('origin'),
+                count: countOf(record, 'count'),
+            }));
+        } finally {
+            await safeClose(session, this.log);
+        }
+    }
+
     async getLotteryCandidates(asOf = null) {
         const session = this.driver.session();
         try {

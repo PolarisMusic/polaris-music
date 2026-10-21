@@ -378,6 +378,16 @@ function normalizeRelease(release) {
     if (release.release_id) normalized.release_id = release.release_id;
     if (release.alt_names) normalized.alt_names = release.alt_names;
 
+    // Digits only, because the grouping a sleeve prints is typography: the same
+    // article is "0 7599-27336-2" on the cover and 075992733625 in a catalogue,
+    // and two spellings of one barcode are no use as a lookup key. Kept at the
+    // release rather than the master, because that is what it identifies — a
+    // reissue carries its own.
+    if (release.barcode != null) {
+        const digits = String(release.barcode).replace(/\D/g, '');
+        if (digits.length >= 8 && digits.length <= 14) normalized.barcode = digits;
+    }
+
     // Date field (releaseDate � release_date)
     const releaseDate = release.release_date || release.releaseDate;
     if (releaseDate) {

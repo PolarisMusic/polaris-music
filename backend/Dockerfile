@@ -8,7 +8,12 @@ RUN apk add --no-cache python3 make g++
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+#
+# .npmrc comes with them, and must: it is what stops the install downloading a
+# Chromium this image has no use for (nothing in backend/ drives a browser —
+# see the file). Left out, the build still works and quietly carries ~150MB of
+# a Linux-glibc browser build that cannot run on musl anyway.
+COPY package*.json .npmrc ./
 
 # Install dependencies
 # Registry fetches from the deploy host are slow enough that npm's default idle

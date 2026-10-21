@@ -694,7 +694,16 @@ test.describe('codes and other spellings, from the same check', () => {
         // The Deezer link lands beside the Spotify one rather than replacing it.
         await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue(
             'https://open.spotify.com/track/trk1, https://www.deezer.com/track/3135556');
-        expect(sent).toEqual([{ isrcs: ['USSM17900123'] }]);
+        // Both identifiers per row, because the providers disagree about which
+        // they take — a catalogue by code, Odesli by link — plus the release
+        // itself, since one more request returns the album on every service.
+        expect(sent).toEqual([{
+            tracks: [
+                { id: 'USSM17900123', isrc: 'USSM17900123',
+                    url: 'https://open.spotify.com/track/trk1' },
+                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
+            ],
+        }]);
     });
 
     test('a track with no ISRC is not asked about', async ({ page }) => {
@@ -728,7 +737,15 @@ test.describe('codes and other spellings, from the same check', () => {
             .toHaveValue(/deezer\.com/);
 
         await expect(page.locator('#listen-link-report')).toContainText('no confident match');
-        expect(sent).toEqual([{ isrcs: ['USSM17900123'] }]);
+        // The unmatched row has neither identifier — no ISRC was written and no
+        // Spotify link was filled — so it is dropped rather than asked about.
+        expect(sent).toEqual([{
+            tracks: [
+                { id: 'USSM17900123', isrc: 'USSM17900123',
+                    url: 'https://open.spotify.com/track/trk1' },
+                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
+            ],
+        }]);
         await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
     });
 
@@ -751,6 +768,117 @@ test.describe('codes and other spellings, from the same check', () => {
             .toHaveValue(/track\/222$/);
     });
 
+    test('every service Odesli answers for lands on the track', async ({ page }) => {
+        // The point of the key: one request returns the lot, where the
+        // per-service clients needed a credential and a rate limit each.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple', 'deezer', 'tidal', 'youtubeMusic'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/x/1443000516?i=1443000890',
+                    deezer: 'https://www.deezer.com/track/3135556',
+                    tidal: 'https://tidal.com/browse/track/99',
+                    youtubeMusic: 'https://music.youtube.com/watch?v=abc',
+                },
+            },
+        });
+
+        // The report's "Added" line is appended after the resolution, so it is
+        // the barrier: inputValue() reads once and would otherwise race it.
+        await expect(page.locator('#listen-link-report')).toContainText('Added ');
+
+        const value = await page.locator('[name="track-listen-link-0"]').inputValue();
+        for (const fragment of ['open.spotify.com/track/trk1', 'music.apple.com',
+            'deezer.com/track/3135556', 'tidal.com/browse/track/99',
+            'music.youtube.com/watch?v=abc']) {
+            expect(value).toContain(fragment);
+        }
+    });
+
+    test('an Apple link is stored canonically, not as it arrived', async ({ page }) => {
+        // Otherwise a second import appends a near-duplicate: the slug changes
+        // when a title is edited, and the identity must not move with it.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/fire-of-unknown-origin/1443000516?i=1443000890&uo=4',
+                },
+            },
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue(
+            'https://open.spotify.com/track/trk1, '
+            + 'https://music.apple.com/us/album/1443000516?i=1443000890');
+        // The tracking parameter and the slug are both gone.
+        await expect(page.locator('[name="track-listen-link-0"]')).not.toHaveValue(/uo=4/);
+    });
+
+    test('the release gets the album on every service too', async ({ page }) => {
+        // One more request, and it is what the player reads for its embed —
+        // nothing else would ever put an Apple album link there.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple'],
+            links: { release: { apple: 'https://music.apple.com/us/album/1443000516' } },
+        });
+
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue(/music\.apple\.com\/us\/album\/1443000516/);
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue(/open\.spotify\.com\/album\/1Fv2tUhCRhY3YE1Iqp1oBo/);
+    });
+
+    test('the resolved links reach the bundle that gets anchored', async ({ page }) => {
+        // The form field is not the deliverable: listen_links on the Track is
+        // what gets hashed and anchored, and extractTracks canonicalizes on the
+        // way in — so what the registry stores is the identity, not whatever
+        // query string the link arrived with.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple', 'tidal'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/fire/1443000516?i=1443000890&uo=4',
+                    tidal: 'https://listen.tidal.com/track/99',
+                },
+                release: { apple: 'https://music.apple.com/us/album/1443000516' },
+            },
+        });
+        await expect(page.locator('#listen-link-report')).toContainText('Added ');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+
+        expect(bundle.tracks[0].listen_links).toEqual([
+            'https://open.spotify.com/track/trk1',
+            'https://music.apple.com/us/album/1443000516?i=1443000890',
+            'https://tidal.com/browse/track/99',
+        ]);
+        expect(bundle.release.listen_links).toContain(
+            'https://music.apple.com/us/album/1443000516');
+    });
+
+    test('the report names the services, not the provider', async ({ page }) => {
+        // "odesli" is not a place anybody listens to music.
+        await importWith(page, ['Burnin\u2019 For You'], {
+            success: true,
+            services: ['apple', 'tidal'],
+            providers: ['odesli'],
+            links: {
+                USSM17900123: {
+                    apple: 'https://music.apple.com/us/album/x/1?i=2',
+                    tidal: 'https://tidal.com/browse/track/99',
+                },
+            },
+        });
+
+        const report = page.locator('#listen-link-report');
+        await expect(report).toContainText('Added 2 link(s) on apple, tidal');
+        await expect(report).not.toContainText('odesli');
+    });
+
     test('the report names the service and the count', async ({ page }) => {
         await importWith(page, ['Burnin\u2019 For You'], {
             success: true,
@@ -759,7 +887,7 @@ test.describe('codes and other spellings, from the same check', () => {
         });
 
         await expect(page.locator('#listen-link-report'))
-            .toContainText('Added 1 link(s) on deezer, matched by ISRC');
+            .toContainText('Added 1 link(s) on deezer');
     });
 
     test('a recording another service does not have keeps what it had', async ({ page }) => {
@@ -771,7 +899,7 @@ test.describe('codes and other spellings, from the same check', () => {
 
         await expect(page.locator('[name="track-listen-link-0"]'))
             .toHaveValue('https://open.spotify.com/track/trk1');
-        await expect(page.locator('#listen-link-report')).not.toContainText('matched by ISRC');
+        await expect(page.locator('#listen-link-report')).not.toContainText('Added ');
     });
 
     test('a link the field already holds is not added twice', async ({ page }) => {
@@ -813,7 +941,7 @@ test.describe('codes and other spellings, from the same check', () => {
 
         await expect(page.locator('[name="track-listen-link-0"]'))
             .toHaveValue('https://open.spotify.com/track/trk1');
-        await expect(page.locator('#listen-link-report')).not.toContainText('matched by ISRC');
+        await expect(page.locator('#listen-link-report')).not.toContainText('Added ');
     });
 
     test('editing the title afterwards drops both', async ({ page }) => {
@@ -838,9 +966,16 @@ test.describe('importing from Discogs, end to end', () => {
     /**
      * One click should do the whole chain: the Discogs release, then the
      * streaming release it corresponds to, then every track's link, ISRC and
-     * alternate spelling. The bridge is the barcode — Discogs carries no
-     * streaming ids at all, so the alternative is matching on artist and
-     * title, which is the guesswork the cross-check exists to referee.
+     * alternate spelling. Discogs carries no streaming ids at all, so the
+     * bridge is the barcode where there is one — and where there is not, the
+     * artist and title, with the imported tracklist as the thing that decides
+     * whether the album those found is the right one.
+     *
+     * That second route exists because the first one silently did nothing
+     * rather often: a record pressed before the mid-80s has no barcode printed
+     * on it, and plenty of Discogs entries for ones that do have left the field
+     * blank. The chain then stopped with no request, no report and no message,
+     * which from the form is indistinguishable from the feature being broken.
      *
      * Both APIs are stubbed. The Discogs client calls api.discogs.com from the
      * browser directly (it is in the page's CSP), so that route is intercepted
@@ -884,6 +1019,18 @@ test.describe('importing from Discogs, end to end', () => {
                 },
             ],
         },
+    };
+
+    /**
+     * The same album, offered the way a name search has to offer it: as
+     * candidates with their tracklists and no verdict. A title and an artist
+     * cannot identify a release, so nothing is filled in until the imported
+     * tracklist agrees with one of these — see chooseAlbumByTracklist.
+     */
+    const SPOTIFY_CANDIDATES = {
+        success: true,
+        matched_by: 'name',
+        candidates: [SPOTIFY_ALBUM.album],
     };
 
     /**
@@ -967,6 +1114,26 @@ test.describe('importing from Discogs, end to end', () => {
             .toHaveValue('https://open.spotify.com/album/AL1');
     });
 
+    test('the barcode reaches the bundle, not just the lookup', async ({ page }) => {
+        // It identifies this pressing rather than describing it, which is what
+        // a Release node is for — and stored, it is also the key MusicBrainz
+        // can be asked about the same edition with. Until now it was read,
+        // used for the Spotify match, and dropped.
+        await importFromDiscogs(page);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.barcode).toBe('07464373891');
+    });
+
+    test('a release with no barcode sends no barcode', async ({ page }) => {
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+        });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release).not.toHaveProperty('barcode');
+    });
+
     test('the report says the barcode is what found it', async ({ page }) => {
         // Nothing the submitter typed points at this release, so "compared
         // against" would otherwise be a claim with no visible basis.
@@ -975,15 +1142,101 @@ test.describe('importing from Discogs, end to end', () => {
         await expect(page.locator('#listen-link-report')).toContainText('found by barcode');
     });
 
-    test('a release with no barcode asks Spotify nothing', async ({ page }) => {
-        // There is nothing to look it up by, and guessing from the title is
-        // exactly what this must not do.
+    test('a release with no barcode is looked up by name instead', async ({ page }) => {
+        // This is the case that used to do nothing at all. The name is not
+        // trusted — the server answers it with candidates and the imported
+        // tracklist decides — but it is asked.
         const sent = await importFromDiscogs(page, {
             release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: SPOTIFY_CANDIDATES,
         });
 
-        expect(sent).toEqual([]);
-        await expect(page.locator('#listen-link-report')).toBeEmpty();
+        expect(sent).toHaveLength(1);
+        expect(sent[0].upc).toBeUndefined();
+        expect(sent[0]).toMatchObject({
+            album: 'Fire of Unknown Origin', artist: 'Blue Öyster Cult',
+        });
+    });
+
+    test('and the tracklist it finds that way is filled in', async ({ page }) => {
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: SPOTIFY_CANDIDATES,
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+        await expect(page.locator('[name="track-listen-link-1"]'))
+            .toHaveValue('https://open.spotify.com/track/trk2');
+        await expect(page.locator('#listen-link-report')).toContainText('found by name');
+    });
+
+    test('and the report says why the barcode was not used', async ({ page }) => {
+        // Otherwise the barcode's fate is invisible: a submitter cannot tell
+        // whether it was missing, wrong, or never looked at.
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: SPOTIFY_CANDIDATES,
+        });
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Discogs lists no barcode');
+    });
+
+    test('a barcode Spotify does not carry falls through to the name', async ({ page }) => {
+        // The usual state of a reissued record: the sleeve's barcode belongs to
+        // a pressing and the streaming release is filed under a digital one. The
+        // report says so, because that is the diagnosis.
+        await importFromDiscogs(page, { album: SPOTIFY_CANDIDATES });
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('no release under the barcode');
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+    });
+
+    test('a name match the tracklist does not support fills nothing', async ({ page }) => {
+        // The whole safeguard. A compilation carrying one of these titles ranks
+        // perfectly well for the artist, and accepting it would attach a
+        // tracklist of links and ISRCs to the wrong record, silently.
+        await importFromDiscogs(page, {
+            release: { ...DISCOGS_RELEASE, identifiers: [{ type: 'Barcode', value: 'none' }] },
+            album: {
+                success: true,
+                matched_by: 'name',
+                candidates: [{
+                    id: 'HITS', name: 'Workshop of the Telescopes', total_tracks: 3,
+                    tracks: [
+                        { id: 'h1', name: '(Don\'t Fear) The Reaper', track_number: 1 },
+                        { id: 'h2', name: 'Godzilla', track_number: 2 },
+                        { id: 'h3', name: 'Burnin For You', track_number: 3 },
+                    ],
+                }],
+            },
+        });
+
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue('');
+        await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
+        await expect(page.locator('#listen-link-report')).toContainText('too few');
+        // Named and linked: "no match" leaves a submitter nothing to do.
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Workshop of the Telescopes');
+    });
+
+    test('the title is sent without its edition decoration', async ({ page }) => {
+        // "(Deluxe Edition)" in the search string is two words Spotify matches
+        // against the title, and the standard edition is what a Discogs
+        // tracklist usually describes.
+        const sent = await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                title: 'Fire of Unknown Origin (Deluxe Edition)',
+                identifiers: [],
+            },
+            album: SPOTIFY_CANDIDATES,
+        });
+
+        expect(sent[0].album).toBe('Fire of Unknown Origin');
     });
 
     test('a barcode Spotify cannot place leaves the form alone', async ({ page }) => {

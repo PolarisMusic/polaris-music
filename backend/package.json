@@ -15,6 +15,7 @@
     "db:reset": "npm run db:clear && npm run db:load-white-album",
     "chain:reclaim": "node --env-file=.env scripts/reclaimAnchors.js",
     "db:backfill-created-at": "node --env-file=.env scripts/backfillCreatedAt.js",
+    "db:import-genres": "node --env-file=.env scripts/importGenres.js",
     "check:spotify": "node scripts/checkSpotify.js",
     "chain:reclaim:execute": "node --env-file=.env scripts/reclaimAnchors.js --execute",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=test/jest.config.js",

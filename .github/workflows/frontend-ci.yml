@@ -91,7 +91,19 @@ jobs:
     # only) — and skippable entirely via `FRONTEND_E2E_SKIP=true` for fork
     # / sandbox environments where the playwright browser download fails.
     name: E2E (Playwright CSP)
-    runs-on: ubuntu-latest
+    # Pinned, where every other job here uses ubuntu-latest: this is the only
+    # one that needs a browser, and Playwright publishes builds per OS version.
+    # `ubuntu-latest` moved to Ubuntu 26.04 on 2026-10-19, for which 1.59.1 has
+    # neither a Chromium build nor a dependency list, so the install step
+    # refused outright:
+    #
+    #   Cannot install dependencies for ubuntu26.04-x64 with Playwright 1.59.1!
+    #   Error: ERROR: Playwright does not support chromium on ubuntu26.04-x64
+    #
+    # 24.04 is what it does publish. Move this forward when a Playwright
+    # release lists 26.04 in playwright-core/lib/server/utils/hostPlatform.js —
+    # not before, or this job goes red again on the same line.
+    runs-on: ubuntu-24.04
     needs: test
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
 

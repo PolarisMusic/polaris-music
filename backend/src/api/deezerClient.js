@@ -131,6 +131,33 @@ export class DeezerClient {
     }
 
     /**
+     * Resolve a batch, as the provider table in routes/links.js calls it.
+     *
+     * The table hands every provider the same shape — an id the caller
+     * assigned, plus whatever identifiers are known for it — and takes back a
+     * map of service names. Deezer uses the ISRC and ignores the URL; Odesli
+     * does the opposite. Neither has to know about the other.
+     *
+     * @param {Array<{id: string, isrc?: string}>} items
+     * @returns {Promise<Map<string, Record<string, string>>>}
+     */
+    async resolveLinks(items) {
+        const byIsrc = new Map();
+        for (const item of Array.isArray(items) ? items : []) {
+            if (item?.id && item?.isrc) byIsrc.set(String(item.isrc).toUpperCase(), item.id);
+        }
+
+        const found = await this.tracksByIsrcs([...byIsrc.keys()]);
+
+        const resolved = new Map();
+        for (const [isrc, url] of found) {
+            const id = byIsrc.get(isrc);
+            if (id) resolved.set(id, { deezer: url });
+        }
+        return resolved;
+    }
+
+    /**
      * Resolve several ISRCs, a few at a time.
      *
      * @param {string[]} isrcs

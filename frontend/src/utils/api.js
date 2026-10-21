@@ -346,18 +346,28 @@ class APIClient {
      * @param {string[]} links - Spotify links gathered from the form.
      * @param {string|null} [upc] - A barcode to fall back on, from the Discogs
      *   import. Ignored when a link already names the album.
+     * @param {{artist?: string, album: string}|null} [name] - Artist and title
+     *   to fall back on when there is no barcode either. Answers with
+     *   `candidates` rather than an `album`: see chooseAlbumByTracklist.
      * @returns {Promise<{success: boolean, reason?: string, message?: string,
-     *                    matched_by?: string, album?: Object}>}
+     *                    matched_by?: string, album?: Object,
+     *                    candidates?: Object[]}>}
      */
-    async getSpotifyAlbum(links, upc = null) {
+    async getSpotifyAlbum(links, upc = null, name = null) {
         const response = await fetch(`${API_BASE_URL}/spotify/album`, {
             method: 'POST',
             headers: JSON_HEADERS,
-            // The barcode is the fallback: with no Spotify link to go on it is
-            // the only identifier a Discogs import can offer, and matching on
-            // artist and title instead is the guesswork this whole check
-            // exists to referee.
-            body: JSON.stringify(upc ? { links, upc } : { links }),
+            // Three keys, in descending order of what they prove, and all sent
+            // together because the server stops at the first one that works. A
+            // link names a release; a barcode names a release and is checked;
+            // artist and title are guesswork, which is why that route comes
+            // back as candidates for the tracklist in the form to referee
+            // rather than as an answer.
+            body: JSON.stringify({
+                links,
+                ...(upc ? { upc } : {}),
+                ...(name?.album ? { album: name.album, artist: name.artist ?? '' } : {}),
+            }),
         });
         // A 4xx/5xx here still carries a usable reason, and the caller shows it
         // to the submitter — so read the body rather than throwing on status.
@@ -367,20 +377,25 @@ class APIClient {
     /**
      * Ask what the same recordings are called on other services.
      *
-     * By ISRC, because that is the recording's own identifier rather than one
-     * service's address for it. The answer is keyed by ISRC and then by
+     * By ISRC where a catalogue can be asked that way, and by platform link
+     * where it cannot — Odesli resolves every service at once and takes only a
+     * link. The answer is keyed by the id each row was sent under, then by
      * service, and a recording a service does not have is simply absent.
      *
-     * @param {string[]} isrcs
+     * @param {Array<{id: string, isrc?: string, url?: string}>} tracks
      * @returns {Promise<{success: boolean, reason?: string, message?: string,
      *                    links?: Record<string, Record<string, string>>,
-     *                    services?: string[]}>}
+     *                    services?: string[], providers?: string[]}>}
      */
-    async resolveCrossServiceLinks(isrcs) {
+    async resolveCrossServiceLinks(tracks) {
         const response = await fetch(`${API_BASE_URL}/links/resolve`, {
             method: 'POST',
             headers: JSON_HEADERS,
-            body: JSON.stringify({ isrcs }),
+            // Both identifiers per row, because the providers disagree about
+            // which they take: a catalogue is asked by ISRC, Odesli by link.
+            // The id is this caller's handle on the row, so the answer comes
+            // back addressed to it whichever identifier resolved it.
+            body: JSON.stringify({ tracks }),
         });
         return response.json();
     }

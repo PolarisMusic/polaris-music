@@ -196,6 +196,90 @@ describe('albumIdsByUpc', () => {
     });
 });
 
+describe('albumIdsByName', () => {
+    /**
+     * The last resort, and the only route into the catalogue a release with no
+     * printed barcode has. It is guesswork by construction — two databases
+     * spell the same release differently — which is why it returns candidates
+     * and the caller decides on evidence it has and this client does not.
+     *
+     * What these tests protect is the query itself: a title put into the query
+     * language unescaped silently searches for something else.
+     */
+    test('searches by title and artist as fields, not as words', async () => {
+        const client = clientServing({ '/search': { albums: { items: [{ id: 'alb1' }] } } });
+
+        expect(await client.albumIdsByName('Jimmy Eat World', 'Bleed American'))
+            .toEqual(['alb1']);
+
+        const [asked] = client.asked;
+        expect(decodeURIComponent(asked)).toContain('album:"Bleed American"');
+        expect(decodeURIComponent(asked)).toContain('artist:"Jimmy Eat World"');
+        expect(asked).toContain('type=album');
+    });
+
+    test('a title alone is a search; an artist alone is not', async () => {
+        const client = clientServing({ '/search': { albums: { items: [{ id: 'alb1' }] } } });
+
+        expect(await client.albumIdsByName('', 'Patent Pending')).toEqual(['alb1']);
+        expect(decodeURIComponent(client.asked[0])).not.toContain('artist:');
+
+        // An artist with no title is a discography, not a proposal about one
+        // release, and ranking it would spend a request to learn nothing.
+        expect(await client.albumIdsByName('Heaven', '')).toEqual([]);
+        expect(client.asked).toHaveLength(1);
+    });
+
+    test('a quote in a title cannot close the filter', async () => {
+        // `album:"Live at the "Fillmore""` is a filter that ends mid-title
+        // followed by words Spotify matches against everything. The title that
+        // produced it is a real one; the search it would run is not.
+        const client = clientServing({ '/search': { albums: { items: [] } } });
+
+        await client.albumIdsByName('', 'Live at the "Fillmore"');
+
+        const query = decodeURIComponent(client.asked[0]);
+        expect(query).toContain('album:"Live at the Fillmore"');
+        // Exactly the two the filter itself needs: anything else is a second
+        // filter Spotify would read as part of the query.
+        expect(query.match(/"/g)).toHaveLength(2);
+    });
+
+    test('a colon in a title cannot open another filter', async () => {
+        const client = clientServing({ '/search': { albums: { items: [] } } });
+
+        await client.albumIdsByName('', 'Nevermind: Live');
+
+        expect(decodeURIComponent(client.asked[0])).toContain('album:"Nevermind Live"');
+    });
+
+    test('an apostrophe is left alone — it is how the title is spelled', async () => {
+        const client = clientServing({ '/search': { albums: { items: [] } } });
+
+        await client.albumIdsByName('', "Don't Look Back");
+
+        expect(decodeURIComponent(client.asked[0])).toContain('album:"Don\'t Look Back"');
+    });
+
+    test('asks for few enough candidates to be worth fetching in full', async () => {
+        // Each hit costs an album request and an ISRC page to judge, and all of
+        // them may be the wrong record.
+        const client = clientServing({ '/search': { albums: { items: [] } } });
+
+        await client.albumIdsByName('A Band', 'An Album');
+
+        expect(client.asked[0]).toContain('limit=3');
+    });
+
+    test('drops items with no id rather than passing undefined along', async () => {
+        const client = clientServing({
+            '/search': { albums: { items: [null, { name: 'no id' }, { id: 'c' }] } },
+        });
+
+        expect(await client.albumIdsByName('A Band', 'An Album')).toEqual(['c']);
+    });
+});
+
 describe('a failed request carries its status', () => {
     /**
      * The caller has to tell a refusal apart from a fault. Spotify answers 403

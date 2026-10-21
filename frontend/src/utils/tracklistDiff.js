@@ -413,3 +413,169 @@ export function matchSpotifyTracks(formTracks = [], spotifyTracks = []) {
 
     return results;
 }
+
+/**
+ * Share of the form's tracks a candidate album must account for.
+ *
+ * Three quarters, not all of them: a Discogs LP tracklist and a streaming
+ * release of the same record routinely differ by a bonus track or an
+ * untitled run-out groove, and demanding a clean sweep would reject the right
+ * album for the same reasons the diff below exists to report.
+ */
+const NAME_MATCH_MIN_SHARE = 0.75;
+
+/**
+ * Floor under that share, so a short form cannot be matched on one title.
+ *
+ * A single-track form against a greatest-hits package containing that track
+ * clears any percentage, which is why the share alone is not the whole test.
+ */
+const NAME_MATCH_MIN_TRACKS = 3;
+
+/**
+ * How many of a candidate's tracks a form must account for to claim it.
+ *
+ * @param {number} rows - Tracks on the form.
+ * @returns {number}
+ */
+function requiredMatches(rows) {
+    return Math.max(Math.ceil(rows * NAME_MATCH_MIN_SHARE),
+        Math.min(rows, NAME_MATCH_MIN_TRACKS));
+}
+
+/**
+ * Whether two tracklists are the same list of recordings.
+ *
+ * Used only to tell "two editions of the one album" from "two different
+ * albums that scored alike": the first is a choice worth making and the
+ * second is a coin toss worth refusing.
+ *
+ * @param {{name: string}[]} a
+ * @param {{name: string}[]} b
+ * @returns {boolean}
+ */
+function sameTracklist(a = [], b = []) {
+    if (a.length !== b.length || a.length === 0) return false;
+    return a.every((track, i) => sameTitle(track?.name, b[i]?.name));
+}
+
+/**
+ * Pick the album a form's tracklist proves it is about, out of candidates
+ * found by name.
+ *
+ * Artist-and-title search is guesswork — that is why it is the last resort,
+ * behind a submitter's own link and behind a barcode, both of which name one
+ * release. What makes it usable anyway is that the guess does not have to be
+ * trusted: the search only *proposes* an album, and the tracklist in the form
+ * is independent evidence about whether the proposal is right. Twelve titles
+ * agreeing in order is not something two unrelated releases do.
+ *
+ * So this accepts a candidate only when the form accounts for most of it and
+ * for most of the form, and refuses when two candidates explain the tracklist
+ * equally well without being the same record. The rejected front-runner comes
+ * back regardless, because "this is the closest thing Spotify has and here is
+ * why it was not used" is the message a submitter can act on.
+ *
+ * @param {{position?: string, title: string}[]} formTracks
+ * @param {{id: string, name: string, tracks: {name: string}[]}[]} candidates
+ * @returns {{album: Object|null, best: Object|null, reason: string,
+ *            accounted: number, required: number, rows: number,
+ *            considered: number}}
+ *   `reason` is 'matched', 'ambiguous' when two candidates tie, 'weak' when
+ *   the closest one fell short of the bar, or 'none' when there was nothing to
+ *   choose between or no tracklist to judge with.
+ */
+export function chooseAlbumByTracklist(formTracks = [], candidates = []) {
+    const rows = (Array.isArray(formTracks) ? formTracks : [])
+        .filter(track => normalizeTitle(track?.title));
+    const albums = (Array.isArray(candidates) ? candidates : [])
+        .filter(album => Array.isArray(album?.tracks) && album.tracks.length > 0);
+
+    const required = requiredMatches(rows.length);
+    const empty = {
+        album: null,
+        best: null,
+        reason: 'none',
+        accounted: 0,
+        required,
+        rows: rows.length,
+        considered: albums.length,
+    };
+    if (rows.length === 0 || albums.length === 0) return empty;
+
+    const scored = albums.map(album => {
+        const accounted = matchSpotifyTracks(rows, album.tracks)
+            .filter(match => match.spotify).length;
+        return {
+            album,
+            accounted,
+            // Tracks the form says nothing about. A compilation that happens to
+            // carry this album's singles accounts for a few rows and leaves
+            // thirty unexplained, and is not this album.
+            unexplained: album.tracks.length - accounted,
+        };
+    });
+
+    // Most of the form accounted for first; then the tightest fit, which is how
+    // a standard edition wins over the deluxe reissue that contains it.
+    scored.sort((a, b) => b.accounted - a.accounted || a.unexplained - b.unexplained);
+
+    const [best, runnerUp] = scored;
+    const result = {
+        album: null,
+        best: best.album,
+        reason: 'weak',
+        accounted: best.accounted,
+        required,
+        rows: rows.length,
+        considered: albums.length,
+    };
+
+    if (best.accounted < required || best.accounted < best.unexplained) return result;
+
+    // A tie on both counts between genuinely different records is exactly the
+    // coin toss this module refuses elsewhere. Between two editions of the one
+    // record it is not a choice at all, and Spotify's own ordering can have it.
+    if (runnerUp
+        && runnerUp.accounted === best.accounted
+        && runnerUp.unexplained === best.unexplained
+        && !sameTracklist(best.album.tracks, runnerUp.album.tracks)) {
+        return { ...result, reason: 'ambiguous' };
+    }
+
+    return { ...result, album: best.album, reason: 'matched' };
+}
+
+/**
+ * Say what a name search came back with, and why it was or was not used.
+ *
+ * The rejected front-runner is named and linked deliberately. "No match" on
+ * its own leaves a submitter with nothing to do; "this is the closest thing
+ * Spotify has, it only accounts for four of your eleven tracks, here it is"
+ * lets them look and decide, which is the division of labour this whole
+ * cross-check is built on.
+ *
+ * @param {{album: Object|null, best: Object|null, reason: string,
+ *          accounted: number, rows: number, considered: number}} choice
+ * @returns {string}
+ */
+export function describeAlbumChoice(choice) {
+    const best = choice?.best;
+    const link = best?.id ? ` — https://open.spotify.com/album/${best.id}` : '';
+
+    switch (choice?.reason) {
+        case 'matched':
+            return `Found "${best.name}" by name, and the tracklists agree.`;
+        case 'ambiguous':
+            return `Spotify has ${choice.considered} releases under this name that fit this `
+                + 'tracklist equally well, and they are not the same record, so none was used. '
+                + 'Paste a Spotify album link to say which.';
+        case 'weak':
+            return `Spotify's closest release by name is "${best.name}", which accounts for `
+                + `${choice.accounted} of this form's ${choice.rows} track(s) — too few to be sure `
+                + `it is the same record, so nothing was filled in${link}. Paste a Spotify album `
+                + 'link if it is the right release.';
+        default:
+            return 'Spotify has nothing under that name to compare against.';
+    }
+}
