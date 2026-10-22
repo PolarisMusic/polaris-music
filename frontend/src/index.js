@@ -17,6 +17,9 @@ import {
     chooseAlbumByTracklist, describeAlbumChoice, displayTitle,
 } from './utils/tracklistDiff.js';
 import { barcodesFrom } from './utils/discogsBarcode.js';
+import {
+    isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit,
+} from './utils/discogsArtists.js';
 
 class PolarisApp {
     constructor() {
@@ -2002,7 +2005,8 @@ class PolarisApp {
             // Populate form
             await this.populateFormFromDiscogs(releaseData);
 
-            this.showDiscogsStatus(`✓ Successfully imported: ${releaseData.title}`, 'success');
+            this.showDiscogsStatus(`✓ Successfully imported: ${releaseData.title}`
+                + (this.compilationNote ? ` — ${this.compilationNote}` : ''), 'success');
             this.showToast(`Imported from Discogs: ${releaseData.title}`, 'success');
 
             // One click, the whole chain: what was just imported is enough to
@@ -2041,6 +2045,7 @@ class PolarisApp {
         // and if this import fails half-way the previous release's barcode must
         // not be left behind to match a tracklist it has nothing to do with.
         this.discogsBarcodes = [];
+        this.compilationNote = '';
         document.getElementById('labels-container').innerHTML = '';
         document.getElementById('release-groups-container').innerHTML = '';
         document.getElementById('release-guests-container').innerHTML = '';
@@ -2114,9 +2119,17 @@ class PolarisApp {
         const releaseGroupsContainer = document.getElementById('release-groups-container');
         const mainGroups = [];
 
-        if (discogsRelease.artists && discogsRelease.artists.length > 0) {
-            for (let i = 0; i < discogsRelease.artists.length; i++) {
-                const artist = discogsRelease.artists[i];
+        // The acts, with Discogs' "Various" placeholder removed. A compilation
+        // is credited to nobody at the release level, which is the honest
+        // answer: the acts that played it are named on the tracks, and a Group
+        // node called Various is one that every compilation would then attach
+        // its recordings to.
+        const creditedArtists = releaseArtists(discogsRelease);
+        const compilation = isCompilation(discogsRelease);
+
+        if (creditedArtists.length > 0) {
+            for (let i = 0; i < creditedArtists.length; i++) {
+                const artist = creditedArtists[i];
                 const cleanName = artist.name.replace(/\s*\(\d+\)$/, ''); // Remove Discogs numbering
 
                 // Add to release groups container
@@ -2179,6 +2192,12 @@ class PolarisApp {
 
         // ===== TRACKS =====
         // Add tracks with all data (groups will be auto-populated after tracks are created)
+        // Reported after the import: a compilation track Discogs credits to
+        // nobody needs an act typed in, and that is invisible in a collapsed
+        // track row.
+        let tracksWithOwnAct = 0;
+        let tracksWithNoAct = 0;
+
         if (discogsRelease.tracklist && discogsRelease.tracklist.length > 0) {
             for (const discogsTrack of discogsRelease.tracklist) {
                 // Skip if not a regular track (e.g., heading)
@@ -2204,6 +2223,19 @@ class PolarisApp {
                 const trackPositionInput = trackForm.querySelector(`input[name="track-position-${trackIndex}"]`);
                 if (discogsTrack.position) {
                     this.setFieldValue(trackPositionInput, discogsTrack.position);
+                }
+
+                // ===== PERFORMING GROUPS =====
+                // The difference between a compilation and an album: the act
+                // is named per track rather than once at the top. Left to
+                // inherit, every track on a compilation would be credited to
+                // whatever the release said — which, before this, was a band
+                // called Various that has never played anything.
+                if (overridesReleaseCredit(discogsTrack, discogsRelease)) {
+                    const performed = this.fillTrackGroups(
+                        trackForm, trackIndex, trackPerformers(discogsTrack, discogsRelease));
+                    if (performed > 0) tracksWithOwnAct++;
+                    else tracksWithNoAct++;
                 }
 
                 // ===== SONGWRITERS =====
@@ -2317,6 +2349,21 @@ class PolarisApp {
         console.log('Form populated successfully');
         console.log(`Added: ${mainGroups.length} groups, ${guestIndex} release guests`);
 
+        // A compilation credits nobody at the release level, so the only
+        // statement about who played is on the tracks. Say how that went:
+        // a row Discogs credited to nobody is a row somebody has to fill in,
+        // and a collapsed track form shows none of this.
+        if (compilation) {
+            const missing = tracksWithNoAct > 0
+                ? ` ${tracksWithNoAct} track(s) name no act — add one before submitting.`
+                : '';
+            this.compilationNote = `Compilation: credited per track, not to the release. `
+                + `${tracksWithOwnAct} track(s) have their own act.${missing}`;
+            console.log(this.compilationNote);
+        } else {
+            this.compilationNote = '';
+        }
+
         // An import is unsaved work like any other.
         this.formDirty = true;
 
@@ -2327,6 +2374,52 @@ class PolarisApp {
             this.reconcileImportedFields().catch(error =>
                 console.warn('Reconciliation pass failed:', error));
         }, 150);
+    }
+
+    /**
+     * Give a track its own performing groups, instead of the release's.
+     *
+     * Turning off "same as release" is the whole point and has to be done
+     * properly: the checkbox drives both what extractTracks() reads and
+     * whether the section is greyed out, and the class is applied by a change
+     * handler that only user interaction fires. Setting `.checked` alone
+     * leaves a section that looks inherited and is not — so the event is
+     * dispatched rather than the class poked, keeping one source of truth.
+     *
+     * @param {Element} trackForm - The .track-item just created.
+     * @param {number} trackIndex
+     * @param {Array<{name: string, alt_names: string[]}>} performers
+     * @returns {number} How many groups were filled in; zero means Discogs
+     *   named nobody and the row needs an act typed into it.
+     */
+    fillTrackGroups(trackForm, trackIndex, performers) {
+        const inherit = trackForm.querySelector(`[name="track-same-groups-${trackIndex}"]`);
+        if (inherit?.checked) {
+            inherit.checked = false;
+            inherit.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const container = trackForm.querySelector('.groups-container');
+        if (!container) return 0;
+
+        performers.forEach((performer, groupIndex) => {
+            const groupForm = this.formBuilder.createGroupForm(trackIndex, groupIndex);
+            container.appendChild(groupForm);
+
+            this.setFieldValue(groupForm.querySelector(
+                `input[name="group-name-${trackIndex}-${groupIndex}"]`), performer.name);
+
+            // How the act was billed on this particular release, where that
+            // differs from what it is called. The same reasoning as a track's
+            // alternate title: it is the one thing the disagreement carries.
+            if (performer.alt_names?.length > 0) {
+                this.setFieldValue(groupForm.querySelector(
+                    `input[name="group-altnames-${trackIndex}-${groupIndex}"]`),
+                performer.alt_names.join(', '));
+            }
+        });
+
+        return performers.length;
     }
 
     /**

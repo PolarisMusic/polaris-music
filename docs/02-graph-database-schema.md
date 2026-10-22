@@ -1068,6 +1068,42 @@ So:
 `editionLabel` names the issuing label whenever it is what differs across a
 master's editions — frequently it is the only thing that does.
 
+## A compilation is credited to its tracks, not to a band
+
+CONSIDER THIS SECTION CANONICAL
+
+Discogs credits a compilation to "Various" — their artist id 194 — and names
+the real act on each track. Polaris has somewhere to put both: a Release
+carries Groups, and every Track carries its own.
+
+**"Various" is never a Group.** It is a placeholder for the absence of a single
+credit, and a `Group` node for it is one that every compilation then hangs its
+recordings on: a hub in the graph with no members, no history and no meaning,
+sitting between a dozen unrelated acts. The import drops it, and a compilation
+therefore has **no release-level Group at all**. That is the honest shape —
+nobody performed the release; twelve acts performed one track each.
+
+So on a compilation every Track carries its own `PERFORMED_ON`, and the form's
+"same as release" inheritance is switched off per track as it is imported.
+Elsewhere that inheritance stays on, deliberately: an inherited group carries
+the node id the submitter bound at the top of the form, where a re-typed name
+mints a fresh provisional Group. It is broken only where breaking it says
+something true — on a compilation, and on the one track of an ordinary album
+that Discogs credits to somebody else.
+
+Two things that look like compilations and are not. A single act's own
+retrospective carries Discogs' "Compilation" format description while every
+track is theirs: it keeps its release-level credit. A split release credits two
+acts and names each on its own tracks, which is the ordinary multi-artist case
+and already worked.
+
+`anv` — the name an act was billed under on this particular release, "Bob
+Dylan" printed as "Blind Boy Grunt" — is recorded as an alternate name on the
+Group rather than replacing the name or being discarded. Same reasoning as a
+Track's `alt_titles`: it is the one thing the disagreement carries.
+
+---
+
 ## Correcting a Relationship
 
 A member who was really a session player, or a guest who was really in the band,
