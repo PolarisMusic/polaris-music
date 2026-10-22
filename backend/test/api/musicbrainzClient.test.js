@@ -205,3 +205,58 @@ describe('identifying this client', () => {
         expect(new MusicBrainzClient().isConfigured()).toBe(true);
     });
 });
+
+describe('the User-Agent, when compose passes it blank', () => {
+    /**
+     * MusicBrainz refuses a request with no User-Agent, and
+     * docker-compose.yml passes `- MUSICBRAINZ_USER_AGENT=${MUSICBRAINZ_USER_AGENT:-}`
+     * — an empty string, not nothing, for an operator who never set one.
+     * `??` accepted it, so the default never applied and the header went out
+     * blank from the container while every local run looked fine.
+     */
+    const withEnv = async (value, run) => {
+        const saved = process.env.MUSICBRAINZ_USER_AGENT;
+        if (value === undefined) delete process.env.MUSICBRAINZ_USER_AGENT;
+        else process.env.MUSICBRAINZ_USER_AGENT = value;
+        try {
+            return await run();
+        } finally {
+            if (saved === undefined) delete process.env.MUSICBRAINZ_USER_AGENT;
+            else process.env.MUSICBRAINZ_USER_AGENT = saved;
+        }
+    };
+
+    /** A client built from the environment alone, as the importer builds it. */
+    const fromEnv = () => {
+        const asked = [];
+        const client = new MusicBrainzClient({
+            sleep: async () => {},
+            fetchImpl: async (url, options) => {
+                asked.push({ url, headers: options?.headers ?? {} });
+                return { ok: true, status: 200, json: async () => ({ releases: [] }) };
+            },
+        });
+        client.asked = asked;
+        return client;
+    };
+
+    test('a blank setting keeps the default, which names the application', async () => {
+        await withEnv('', async () => {
+            const client = fromEnv();
+            await client.releasesByBarcode('07464373891');
+
+            expect(client.asked[0].headers['User-Agent'])
+                .toMatch(/^PolarisMusicRegistry\/1\.0 \( https:\/\/polaris\.mu \)$/);
+        });
+    });
+
+    test('an operator who sets one gets theirs', async () => {
+        await withEnv('Polaris/2.0 ( mailto:ops@polaris.mu )', async () => {
+            const client = fromEnv();
+            await client.releasesByBarcode('07464373891');
+
+            expect(client.asked[0].headers['User-Agent'])
+                .toBe('Polaris/2.0 ( mailto:ops@polaris.mu )');
+        });
+    });
+});

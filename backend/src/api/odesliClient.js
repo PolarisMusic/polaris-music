@@ -33,6 +33,8 @@
  */
 
 /** Odesli's own namespace, overridable because they have announced its end. */
+import { envSetting } from '../utils/envSetting.js';
+
 const DEFAULT_API_BASE = 'https://api.song.link/v1-alpha.1';
 
 /**
@@ -85,9 +87,17 @@ export class OdesliClient {
      *   limiter is assertable without a suite that waits a second a call.
      */
     constructor({ apiKey, apiBase, perMinute, userCountry, fetchImpl, sleep } = {}) {
-        this.apiKey = apiKey ?? process.env.ODESLI_API_KEY ?? '';
-        this.apiBase = apiBase ?? process.env.ODESLI_API_BASE ?? DEFAULT_API_BASE;
-        this.userCountry = userCountry ?? process.env.ODESLI_USER_COUNTRY ?? 'US';
+        // envSetting, not ??: compose passes every optional setting as an
+        // empty string, which ?? accepts as configured. A blank ODESLI_API_BASE
+        // reaching `${this.apiBase}/links` is a relative URL, and fetch throws
+        // on it — so the key alone would have produced a feature that failed
+        // every lookup. See utils/envSetting.js.
+        this.apiKey = envSetting(apiKey, process.env.ODESLI_API_KEY);
+        // Trailing slashes stripped because this one is typed by an operator,
+        // and `…/v1-alpha.1//links` is not a path Odesli serves.
+        this.apiBase = envSetting(apiBase, process.env.ODESLI_API_BASE, DEFAULT_API_BASE)
+            .replace(/\/+$/, '');
+        this.userCountry = envSetting(userCountry, process.env.ODESLI_USER_COUNTRY, 'US');
 
         const configured = Number(perMinute ?? process.env.ODESLI_REQUESTS_PER_MINUTE);
         this.perMinute = Number.isFinite(configured) && configured > 0

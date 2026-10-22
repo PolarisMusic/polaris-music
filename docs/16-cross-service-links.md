@@ -200,13 +200,30 @@ submission holds was itself matched by barcode or by title under the rules in
 a new guess. Nothing is ever matched by name.
 
 Three things about the service are set by the grant rather than by the code,
-and all three are environment variables so correcting one is a restart:
+and all three are environment variables, so correcting one needs no release:
 `ODESLI_API_KEY`, `ODESLI_API_BASE` (they announced v1-alpha.1's retirement) and
-`ODESLI_REQUESTS_PER_MINUTE` (the keyless tier was 10; a key raises it). A 401
-is reported as *the key is not being accepted* rather than as an outage,
-because keyless access is retired and with a key configured there is no other
-reading — and a rejected key stops the batch rather than spending the rate
-limit proving the point once per track.
+`ODESLI_REQUESTS_PER_MINUTE` (the keyless tier was 10; a key raises it). They go
+in the deployment's own `.env`, which compose reads, and take effect when the
+container is **re-created** — `docker compose up -d api`, not `restart`, which
+keeps the environment the container was created with. A 401 is reported as *the
+key is not being accepted* rather than as an outage, because keyless access is
+retired and with a key configured there is no other reading — and a rejected key
+stops the batch rather than spending the rate limit proving the point once per
+track.
+
+**Blank is not a value.** Every optional setting in `docker-compose.yml` is
+written `- FOO=${FOO:-}`, so that compose does not refuse to start over one
+nobody set — which puts it in the container as an *empty string* rather than
+leaving it out. `??` reads that as configured and the code's default never
+applies, so `ODESLI_API_BASE` arrived empty, `${this.apiBase}/links` became a
+relative URL, and every lookup threw `Failed to parse URL` with a correctly
+installed key sitting right there. `MUSICBRAINZ_USER_AGENT` had the same shape
+and sent the one header MusicBrainz refuses. Both failed only in a container: a
+developer running the same code with the line commented out in `.env` gets the
+default and sees nothing wrong. Settings read through
+`utils/envSetting.js`, which treats blank and whitespace as unset and trims what
+it returns — a key pasted out of an email with a trailing newline is the same
+key, and sending it unmodified is a 401 that reads as the wrong key.
 
 **Store pages are not listen links.** `itunes`, `amazonStore` and `googleStore`
 come back in the same response and are deliberately dropped: the field is

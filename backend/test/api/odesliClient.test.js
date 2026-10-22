@@ -292,3 +292,107 @@ describe('the platform allowlist', () => {
         expect(Object.keys(PLATFORMS)).not.toContain('googleStore');
     });
 });
+
+describe('settings that arrive blank from compose', () => {
+    /**
+     * docker-compose.yml passes each optional setting as `- FOO=${FOO:-}`, so
+     * one nobody set lands in the container as an empty string. `??` took that
+     * for a configured value, which left apiBase empty and every lookup
+     * throwing "Failed to parse URL from /links?…" — a key correctly installed
+     * in .env would still have resolved nothing, and the error names neither
+     * the setting nor the cause. See utils/envSetting.js.
+     *
+     * Reproduced here rather than inferred: these set the variables the way the
+     * container does and construct the client the way routes/links.js does,
+     * with no options at all.
+     */
+    const withEnv = async (vars, run) => {
+        const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+        Object.assign(process.env, vars);
+        try {
+            return await run();
+        } finally {
+            for (const [key, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
+        }
+    };
+
+    /** A client built from the environment alone, as the route builds it. */
+    const fromEnv = () => {
+        const asked = [];
+        const client = new OdesliClient({
+            sleep: async () => {},
+            fetchImpl: async (url) => {
+                asked.push(url);
+                return { ok: true, status: 200, json: async () => FULL_RESPONSE };
+            },
+        });
+        client.asked = asked;
+        return client;
+    };
+
+    test('a blank API base still reaches song.link', async () => {
+        await withEnv({ ODESLI_API_KEY: 'k', ODESLI_API_BASE: '' }, async () => {
+            const client = fromEnv();
+            await client.linksFor(SPOTIFY);
+
+            expect(client.asked[0]).toMatch(/^https:\/\/api\.song\.link\/v1-alpha\.1\/links\?/);
+        });
+    });
+
+    test('a blank user country is still a country', async () => {
+        await withEnv({ ODESLI_API_KEY: 'k', ODESLI_USER_COUNTRY: '' }, async () => {
+            const client = fromEnv();
+            await client.linksFor(SPOTIFY);
+
+            // `userCountry=` would ask Odesli about no catalogue at all.
+            expect(client.asked[0]).toContain('userCountry=US');
+        });
+    });
+
+    test('a blank key is not configured, and does not pretend to be', async () => {
+        await withEnv({ ODESLI_API_KEY: '   ' }, async () => {
+            expect(fromEnv().isConfigured()).toBe(false);
+        });
+    });
+
+    test('a key pasted with whitespace is still the key', async () => {
+        // What a copy out of an email looks like. Sent as-is it is a 401, and a
+        // 401 reads as "the key is wrong" rather than "the key has a newline".
+        await withEnv({ ODESLI_API_KEY: '  real-key\n' }, async () => {
+            const client = fromEnv();
+            await client.linksFor(SPOTIFY);
+
+            expect(client.isConfigured()).toBe(true);
+            expect(client.asked[0]).toContain('key=real-key');
+        });
+    });
+
+    test('a trailing slash on the base does not double up', async () => {
+        await withEnv({
+            ODESLI_API_KEY: 'k',
+            ODESLI_API_BASE: 'https://api.song.link/v1-alpha.1/',
+        }, async () => {
+            const client = fromEnv();
+            await client.linksFor(SPOTIFY);
+
+            expect(client.asked[0]).toContain('/v1-alpha.1/links?');
+            expect(client.asked[0]).not.toContain('//links');
+        });
+    });
+
+    test('a base that is actually set is still honoured', async () => {
+        // The setting exists because they announced v1-alpha.1's retirement.
+        await withEnv({
+            ODESLI_API_KEY: 'k',
+            ODESLI_API_BASE: 'https://api.song.link/v2',
+        }, async () => {
+            const client = fromEnv();
+            await client.linksFor(SPOTIFY);
+
+            expect(client.asked[0]).toMatch(/^https:\/\/api\.song\.link\/v2\/links\?/);
+        });
+    });
+});
