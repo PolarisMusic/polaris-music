@@ -1310,6 +1310,90 @@ test.describe('importing from Discogs, end to end', () => {
         await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
     });
 
+    test('a compilation credits each track, not a band called Various', async ({ page }) => {
+        /**
+         * discogs.com/release/6380913 — "Various — Lost Ark Studio Compilation
+         * Vol. 4". Discogs credits the release to its "Various" placeholder
+         * (artist id 194) and names the real act on each track. The import
+         * read only the release-level credit, so the registry got a band
+         * called Various that played everything and lost the acts that did.
+         */
+        await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                title: 'Lost Ark Studio Compilation Vol. 4',
+                artists: [{ name: 'Various', id: 194 }],
+                formats: [{ name: 'CD', descriptions: ['Compilation'] }],
+                tracklist: [
+                    { position: '1', type_: 'track', title: 'First Song',
+                        artists: [{ name: 'Nocturnal Rites', id: 12345 }] },
+                    { position: '2', type_: 'track', title: 'Second Song',
+                        artists: [{ name: 'Bob Dylan', id: 7, anv: 'Blind Boy Grunt' }] },
+                    { position: '3', type_: 'track', title: 'Third Song' },
+                ],
+            },
+            album: { success: false, reason: 'not_configured', message: 'Not configured.' },
+        });
+
+        // No band called Various, at the release or anywhere else.
+        await expect(page.locator('[data-type="release-group"]')).toHaveCount(0);
+
+        // Each track credited to the act that played it, with inheritance off.
+        await expect(page.locator('[name="group-name-0-0"]')).toHaveValue('Nocturnal Rites');
+        await expect(page.locator('[name="group-name-1-0"]')).toHaveValue('Bob Dylan');
+        await expect(page.locator('[name="track-same-groups-0"]')).not.toBeChecked();
+
+        // How the act was billed on this release, kept rather than discarded.
+        await expect(page.locator('[name="group-altnames-1-0"]')).toHaveValue('Blind Boy Grunt');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups ?? []).toEqual([]);
+        expect(bundle.tracks.map(t => t.performed_by_groups?.[0]?.name))
+            .toEqual(['Nocturnal Rites', 'Bob Dylan', undefined]);
+        expect(JSON.stringify(bundle)).not.toContain('Various');
+    });
+
+    test('and says which tracks still need an act', async ({ page }) => {
+        // A compilation track Discogs credits to nobody needs one typed in,
+        // and a collapsed track row shows none of that.
+        await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                artists: [{ name: 'Various', id: 194 }],
+                tracklist: [
+                    { position: '1', type_: 'track', title: 'First Song',
+                        artists: [{ name: 'Nocturnal Rites', id: 12345 }] },
+                    { position: '2', type_: 'track', title: 'Second Song' },
+                ],
+            },
+            album: { success: false, reason: 'not_configured', message: 'Not configured.' },
+        });
+
+        await expect(page.locator('#discogs-status')).toContainText('Compilation');
+        await expect(page.locator('#discogs-status')).toContainText('1 track(s) name no act');
+    });
+
+    test('an ordinary album still inherits its act from the release', async ({ page }) => {
+        // The default is worth keeping: an inherited group carries the node id
+        // bound at the top, where a re-typed name mints a new provisional one.
+        await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                tracklist: [
+                    { position: 'A1', type_: 'track', title: 'Fire Of Unknown Origin',
+                        artists: [{ name: 'Blue \u00d6yster Cult', id: 12345 }] },
+                ],
+            },
+        });
+
+        await expect(page.locator('[name="track-same-groups-0"]')).toBeChecked();
+        await expect(page.locator('[name="group-name-0-0"]')).toHaveCount(0);
+        await expect(page.locator('#discogs-status')).not.toContainText('Compilation');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks[0].performed_by_groups[0].name).toBe('Blue \u00d6yster Cult');
+    });
+
     test('a failed cross-check does not make the import look failed', async ({ page }) => {
         // The Discogs half succeeded, and that is most of the work. Reporting
         // it as an error would send the submitter back to re-import.
