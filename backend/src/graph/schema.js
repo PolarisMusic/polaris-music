@@ -877,25 +877,7 @@ constructor(config = {}) {
                 });
 
                 // Link to origin City if provided
-                if (group.origin_city) {
-                    const cityId = await this.resolveEntityId(tx, 'city', group.origin_city);
-
-                    await tx.run(`
-                        MATCH (g:Group {group_id: $groupId})
-                        MERGE (c:City {city_id: $cityId})
-                        ON CREATE SET c.id = $cityId,
-                                     c.name = $cityName,
-                                     c.lat = $cityLat,
-                                     c.lon = $cityLon
-                        MERGE (g)-[:ORIGIN]->(c)
-                    `, {
-                        groupId,
-                        cityId,
-                        cityName: group.origin_city.name,
-                        cityLat: group.origin_city.lat,
-                        cityLon: group.origin_city.lon
-                    });
-                }
+                await this.linkOriginCity(tx, 'group', groupId, group.origin_city);
 
                 // Process Group members with their roles and periods
                 for (const member of group.members || []) {
@@ -950,25 +932,7 @@ constructor(config = {}) {
                     });
 
                     // Link person to origin city if provided
-                    if (member.origin_city) {
-                        const memberCityId = await this.resolveEntityId(tx, 'city', member.origin_city);
-
-                        await tx.run(`
-                            MATCH (p:Person {person_id: $personId})
-                            MERGE (c:City {city_id: $cityId})
-                            ON CREATE SET c.id = $cityId,
-                                     c.name = $cityName,
-                                         c.lat = $cityLat,
-                                         c.lon = $cityLon
-                            MERGE (p)-[:ORIGIN]->(c)
-                        `, {
-                            personId,
-                            cityId: memberCityId,
-                            cityName: member.origin_city.name,
-                            cityLat: member.origin_city.lat,
-                            cityLon: member.origin_city.lon
-                        });
-                    }
+                    await this.linkOriginCity(tx, 'person', personId, member.origin_city);
                 }
 
                 // Create audit claim for group creation
@@ -1865,24 +1829,7 @@ constructor(config = {}) {
                 });
 
                 // Link label to city if provided
-                if (label.origin_city) {
-                    await tx.run(`
-                        MATCH (l:Label {label_id: $labelId})
-                        MERGE (c:City {city_id: $cityId})
-                        ON CREATE SET c.id = $cityId,
-                                     c.name = $cityName,
-                                     c.lat = $cityLat,
-                                     c.lon = $cityLon
-                        MERGE (l)-[:ORIGIN]->(c)
-                    `, {
-                        labelId,
-                        cityId: label.origin_city.city_id ||
-                               this.generateProvisionalIdNew('city', label.origin_city),
-                        cityName: label.origin_city.name,
-                        cityLat: label.origin_city.lat,
-                        cityLon: label.origin_city.lon
-                    });
-                }
+                await this.linkOriginCity(tx, 'label', labelId, label.origin_city);
             }
 
             // ========== 7. CREATE SOURCE REFERENCES ==========
@@ -3640,6 +3587,62 @@ constructor(config = {}) {
 
         // 3. No external ID mapping found, generate provisional ID
         return this.generateProvisionalIdNew(type, data);
+    }
+
+    /**
+     * Attach an entity to the city it comes from.
+     *
+     * One helper for three callers — Group, Person and Label — because all
+     * three built the same query by hand and all three were wrong the same
+     * way. Coordinates are optional: a submitter types a city name, and the
+     * form has nowhere to put a latitude. The Neo4j driver *drops* a parameter
+     * whose value is `undefined` rather than sending null, so the query
+     * referencing `$cityLat` arrived without it:
+     *
+     *     Neo4j::ClientError: Expected parameter(s): cityLat, cityLon
+     *
+     * That threw inside the bundle transaction, which rolled back the entire
+     * release — anchored on chain, listed in the curation feed, and absent
+     * from the graph, with the only trace a line in the sink's log. A city
+     * nobody gave coordinates for is a city with unknown coordinates, which is
+     * null, which stores.
+     *
+     * The label is taken from the SAFE_NODE_TYPES allowlist rather than from
+     * the caller's string: it reaches a Cypher pattern, where it cannot be
+     * parameterised.
+     *
+     * @param {Object} tx - Neo4j transaction.
+     * @param {string} type - 'group', 'person' or 'label'.
+     * @param {string} nodeId - Id of the node that comes from the city.
+     * @param {Object|null|undefined} city - { name, lat?, lon?, city_id? }.
+     * @returns {Promise<string|null>} The City id, or null when there was no city.
+     */
+    async linkOriginCity(tx, type, nodeId, city) {
+        if (!city) return null;
+
+        const mapping = SAFE_NODE_TYPES[String(type).toLowerCase()];
+        if (!mapping) throw new Error(`Cannot link an origin city to ${type}`);
+
+        const cityId = await this.resolveEntityId(tx, 'city', city);
+
+        await tx.run(`
+            MATCH (n:${mapping.label} {${mapping.idField}: $nodeId})
+            MERGE (c:City {city_id: $cityId})
+            ON CREATE SET c.id = $cityId,
+                          c.name = $cityName,
+                          c.lat = $cityLat,
+                          c.lon = $cityLon
+            MERGE (n)-[:ORIGIN]->(c)
+        `, {
+            nodeId,
+            cityId,
+            cityName: city.name ?? null,
+            // ?? null throughout, never the bare property: see above.
+            cityLat: city.lat ?? null,
+            cityLon: city.lon ?? null,
+        });
+
+        return cityId;
     }
 
     /**
