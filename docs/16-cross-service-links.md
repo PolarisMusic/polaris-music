@@ -205,7 +205,7 @@ somebody printed would fill it with catalogue cruft.
 
 ```
 each track's Spotify link ──POST /api/links/resolve {tracks}──▶ provider table
-      → odesli:  GET api.song.link/v1-alpha.1/links?url=…&key=…
+      → odesli:  GET api.odesli.co/v1-alpha.1/links?url=…&key=…
           → apple, tidal, youtubeMusic, youtube, amazonMusic, deezer,
             soundcloud, pandora — all from one request
       → deezer:  the keyless fallback, for a deployment with no key
@@ -229,6 +229,30 @@ key is not being accepted* rather than as an outage, because keyless access is
 retired and with a key configured there is no other reading — and a rejected key
 stops the batch rather than spending the rate limit proving the point once per
 track.
+
+**The rate limit is a queue, not a speed.** This deployment's grant is **2/min
+with an hourly cap of 120**, which makes the interval thirty seconds. A
+twelve-row album would be five and a half minutes of holding an HTTP request
+open — nothing times it out, not the browser, not Caddy, not the route — and ten
+albums would spend the hourly cap. So `resolveLinks` works to a time budget
+(`DEFAULT_BUDGET_MS`, 25s): it always asks about the first item, then stops once
+the next turn would fall outside the budget, and says in the log how many it
+left. At a generous rate the budget never bites and a whole album still
+resolves in one request each.
+
+What makes that safe is the order. The form sends **the release row first**
+(`importCrossServiceLinks`), because one request that returns the album on nine
+services is the most useful single answer available and it is what the player's
+embed reads. Then it skips any row that already carries a link on another
+service — otherwise a second press would re-resolve what is already in the form
+and never reach the tracks — so pressing *Import listen links* again picks up
+where the budget stopped, a few at a time. The report says how many tracks are
+still unanswered, and does not claim the services lack them.
+
+The remaining gap: a submission signed before the tracks are resolved keeps the
+Spotify link alone. Filling those in afterwards is the backfill job in §5, which
+is the right home for per-track resolution at 2/min — unattended, it can take
+all the time the cap allows.
 
 **Blank is not a value.** Every optional setting in `docker-compose.yml` is
 written `- FOO=${FOO:-}`, so that compose does not refuse to start over one
@@ -373,8 +397,13 @@ anything.
   would make it a one-time cost, and would also give the player an embed for
   releases matched this way.
 - **Backfill**: every `Track` already holding an ISRC predates this and has no
-  Deezer link. The resolver is a POST with a list of ISRCs, so a backfill is a
-  query for `Track.isrc` plus an ADD_CLAIM per answer — no submitter involved.
+  Deezer link — and now so does every track a 2/min budget did not reach at
+  submission time, which is most of them. The resolver is a POST with a list of
+  ISRCs, so a backfill is a query for `Track.isrc` plus an ADD_CLAIM per answer
+  — no submitter involved, and unattended it can take all the time the hourly
+  cap allows. This is now the main piece of work outstanding here, not a
+  nicety: without it the per-track links on a 2/min key stop at whatever the
+  submitter's patience reached.
 - **Apple Music** is the one worth the credential, because the same developer
   token answers both this and playback — see the parked section in
   `13-user-onboarding.md`.
@@ -391,7 +420,7 @@ curl -s "https://api.deezer.com/track/isrc:USSM17900123" | head -c 200; echo
 
 # Odesli needs the key, and answers 401 without one.
 curl -s -o /dev/null -w '%{http_code}\n' \
-  "https://api.song.link/v1-alpha.1/links?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F0Fl6Pl6w89IL1FWt8Uvg01&key=$ODESLI_API_KEY"
+  "https://api.odesli.co/v1-alpha.1/links?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F0Fl6Pl6w89IL1FWt8Uvg01&key=$ODESLI_API_KEY"
 #   200 → the key works
 #   401 → the key is missing, wrong, or not yet active
 #   410 → the namespace moved; set ODESLI_API_BASE

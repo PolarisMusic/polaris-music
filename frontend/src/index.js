@@ -781,6 +781,16 @@ class PolarisApp {
             this.appendReportLine(report, `Added ${crossService.added} link(s) on `
                 + `${crossService.services.join(', ')}.`);
         }
+        if (crossService && crossService.unresolved > 0) {
+            // Not necessarily "those services do not have it": a key with a
+            // rate limit resolves what fits a budget and leaves the rest, so
+            // the honest statement is that they have not been answered yet,
+            // with what to do about it.
+            this.appendReportLine(report,
+                `${crossService.unresolved} track(s) have no other service yet. `
+                + 'Press Import listen links again to resolve more — a rate-limited '
+                + 'key answers a few at a time.');
+        }
     }
 
     /**
@@ -998,6 +1008,8 @@ class PolarisApp {
         const rows = [...document.querySelectorAll('.track-item')].map((item) => {
             const index = item.dataset.index;
             const isrc = this.getInputValue(item, `track-isrc-${index}`);
+            const resolved = this.hasOtherServiceLink(
+                this.getInputValue(item, `track-listen-link-${index}`));
 
             // The Spotify track link the cross-check just filled in. Odesli has
             // no other way in — it resolves by link, not by code — and the
@@ -1010,21 +1022,36 @@ class PolarisApp {
                 .map(normalizeListenLink)
                 .find(link => link?.service === 'spotify' && link.type === 'track')?.url ?? '';
 
-            return { item, index, id: isrc || url, isrc, url };
-        }).filter(row => row.id);
+            return { item, index, id: isrc || url, isrc, url, resolved };
+            // A row that already carries a link on some other service has been
+            // answered, by this or by hand. Asking again spends a rate limit
+            // that is now the binding constraint — the key grants two requests
+            // a minute — and spends it on a row whose answer is already in the
+            // form, which is why a second press of Import used to make no
+            // progress past the release.
+        }).filter(row => row.id && !row.resolved);
 
         // The release gets a row of its own: one more request returns the album
         // on every service, which is what the player reads for its embed and
         // what nothing else would ever put there.
-        const releaseRow = albumUrl ? { id: 'release', url: albumUrl } : null;
+        const target = document.getElementById('release-listen-links');
+        const releaseRow = albumUrl && !this.hasOtherServiceLink(target?.value, 'album')
+            ? { id: 'release', url: albumUrl }
+            : null;
 
         if (rows.length === 0 && !releaseRow) return null;
 
         let result;
         try {
+            // The release first, deliberately. A rate-limited provider
+            // resolves what fits a time budget and leaves the rest (see
+            // odesliClient.resolveLinks), so the batch is ordered by value:
+            // one request that returns the album on nine services is the most
+            // useful single answer there is, and it is what the player's embed
+            // reads.
             result = await api.resolveCrossServiceLinks([
-                ...rows.map(({ id, isrc, url }) => ({ id, isrc, url })),
                 ...(releaseRow ? [releaseRow] : []),
+                ...rows.map(({ id, isrc, url }) => ({ id, isrc, url })),
             ]);
         } catch (error) {
             console.warn('Cross-service link lookup failed:', error);
@@ -1037,9 +1064,13 @@ class PolarisApp {
         // A second guard saying the same thing is one no test could hold.
 
         let added = 0;
+        let unresolved = 0;
         for (const { item, index, id } of rows) {
             const urls = Object.values(result.links?.[id] ?? {});
-            if (urls.length === 0) continue;
+            if (urls.length === 0) {
+                unresolved++;
+                continue;
+            }
 
             const input = item.querySelector(`[name="track-listen-link-${index}"]`);
             if (!input) continue;
@@ -1048,12 +1079,35 @@ class PolarisApp {
         }
 
         if (releaseRow) {
-            const target = document.getElementById('release-listen-links');
             const urls = Object.values(result.links?.release ?? {});
             if (target && urls.length > 0) added += this.appendListenLinks(target, urls);
         }
 
-        return { added, services: result.services ?? [] };
+        return { added, unresolved, services: result.services ?? [] };
+    }
+
+    /**
+     * Whether a listen-links field already names a service other than Spotify.
+     *
+     * Spotify is where these resolutions start — it is the link the Discogs
+     * import found — so its presence says nothing about whether anything else
+     * has been asked. Anything else in the field does.
+     *
+     * The release field needs the `type` filter, and badly: this block also
+     * pulls every track's links up to the release, so a resolved track leaves
+     * a Deezer *track* link sitting in the release field. Reading that as "the
+     * release has been resolved" would stop the album ever being asked about.
+     *
+     * @param {string} value - A comma-separated listen-links field.
+     * @param {string|null} [type] - Only count links of this kind ('album',
+     *   'track'); any kind when omitted.
+     * @returns {boolean}
+     */
+    hasOtherServiceLink(value, type = null) {
+        return this.parseCommaSeparated(value ?? '')
+            .map(normalizeListenLink)
+            .some(link => link && link.service !== 'spotify'
+                && (!type || link.type === type));
     }
 
     /**

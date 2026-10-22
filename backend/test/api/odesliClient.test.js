@@ -333,12 +333,14 @@ describe('settings that arrive blank from compose', () => {
         return client;
     };
 
-    test('a blank API base still reaches song.link', async () => {
+    test('a blank API base still reaches the namespace the grant names', async () => {
         await withEnv({ ODESLI_API_KEY: 'k', ODESLI_API_BASE: '' }, async () => {
             const client = fromEnv();
             await client.linksFor(SPOTIFY);
 
-            expect(client.asked[0]).toMatch(/^https:\/\/api\.song\.link\/v1-alpha\.1\/links\?/);
+            // api.odesli.co, which is the host the approval email gives — not
+            // api.song.link, which also serves this API.
+            expect(client.asked[0]).toMatch(/^https:\/\/api\.odesli\.co\/v1-alpha\.1\/links\?/);
         });
     });
 
@@ -373,7 +375,7 @@ describe('settings that arrive blank from compose', () => {
     test('a trailing slash on the base does not double up', async () => {
         await withEnv({
             ODESLI_API_KEY: 'k',
-            ODESLI_API_BASE: 'https://api.song.link/v1-alpha.1/',
+            ODESLI_API_BASE: 'https://api.odesli.co/v1-alpha.1/',
         }, async () => {
             const client = fromEnv();
             await client.linksFor(SPOTIFY);
@@ -394,5 +396,99 @@ describe('settings that arrive blank from compose', () => {
 
             expect(client.asked[0]).toMatch(/^https:\/\/api\.song\.link\/v2\/links\?/);
         });
+    });
+});
+
+describe('a batch against a rate limit', () => {
+    /**
+     * The grant for this deployment is 2/min with an hourly cap of 120, which
+     * makes the limiter a queue thirty seconds long rather than a speed. A
+     * twelve-row album is then five and a half minutes of holding an HTTP
+     * request open — nothing times it out, not the browser, not Caddy, not the
+     * route — and ten albums would spend the hourly cap.
+     *
+     * So a batch takes what it can get and leaves the rest. What makes that
+     * safe is the order: routes/links.js is handed the release row first, and
+     * one request that returns the album on nine services is the most useful
+     * single answer available.
+     */
+    const row = (id) => ({ id, url: `https://open.spotify.com/track/${id}` });
+
+    /** A client whose clock is fake, so a budget can pass without waiting. */
+    function clientWithClock({ perMinute, budgetMs }) {
+        const client = clientServing(FULL_RESPONSE, { perMinute, budgetMs });
+        let clock = 0;
+        // Every wait the limiter takes moves the clock, which is what the
+        // budget is measured against.
+        client.sleep = async (ms) => { clock += ms; };
+        client.now = () => clock;
+        return client;
+    }
+
+    test('stops once the next turn would fall outside the budget', async () => {
+        const client = clientWithClock({ perMinute: 2, budgetMs: 25_000 });
+
+        const found = await client.resolveLinks(
+            [row('release'), row('t1'), row('t2'), row('t3')]);
+
+        // 30s a turn against a 25s budget: the first is asked, the rest are not.
+        expect([...found.keys()]).toEqual(['release']);
+        expect(client.asked).toHaveLength(1);
+    });
+
+    test('the first item is always asked, however slow the queue', async () => {
+        // A batch that resolves nothing is worse than one that resolves the row
+        // the caller put first.
+        const client = clientWithClock({ perMinute: 1, budgetMs: 1 });
+
+        expect([...(await client.resolveLinks([row('release')])).keys()])
+            .toEqual(['release']);
+    });
+
+    test('a generous rate resolves the whole album', async () => {
+        // At 60/min the interval is a second, so the budget never bites and
+        // this changes nothing for a deployment whose grant is larger.
+        const client = clientWithClock({ perMinute: 60, budgetMs: 25_000 });
+        const items = Array.from({ length: 13 }, (_, i) => row(`t${i}`));
+
+        const found = await client.resolveLinks(items);
+
+        expect(found.size).toBe(13);
+    });
+
+    test('the budget counts time waiting, not items', async () => {
+        // One second a turn against a five second budget: the first is free
+        // and five more wait for their turn, the last of them landing exactly
+        // on the budget, which counts as inside it. The seventh would be a
+        // second past and is not asked.
+        const client = clientWithClock({ perMinute: 60, budgetMs: 5_000 });
+        const items = Array.from({ length: 10 }, (_, i) => row(`t${i}`));
+
+        expect((await client.resolveLinks(items)).size).toBe(6);
+    });
+
+    test('an explicit budget overrides the instance default', async () => {
+        // Each on its own client: a second batch starts with the limiter's
+        // clock where the first left it, which is the behaviour, not the thing
+        // under test here.
+        const items = Array.from({ length: 10 }, (_, i) => row(`t${i}`));
+
+        const generous = clientWithClock({ perMinute: 60, budgetMs: 2_000 });
+        expect((await generous.resolveLinks(items, { budgetMs: 25_000 })).size).toBe(10);
+
+        const mean = clientWithClock({ perMinute: 60, budgetMs: 25_000 });
+        expect((await mean.resolveLinks(items, { budgetMs: 2_000 })).size).toBe(3);
+    });
+
+    test('rows with no URL are not counted against it', async () => {
+        // Odesli has no way in without one, so skipping them is free — and
+        // spending budget on them would starve the rows that can be asked.
+        const client = clientWithClock({ perMinute: 2, budgetMs: 25_000 });
+
+        const found = await client.resolveLinks([
+            { id: 'no-url', isrc: 'GBAYE0000456' }, row('release'),
+        ]);
+
+        expect([...found.keys()]).toEqual(['release']);
     });
 });

@@ -697,11 +697,15 @@ test.describe('codes and other spellings, from the same check', () => {
         // Both identifiers per row, because the providers disagree about which
         // they take — a catalogue by code, Odesli by link — plus the release
         // itself, since one more request returns the album on every service.
+        //
+        // The release goes first: a rate-limited provider resolves what fits a
+        // time budget and leaves the rest, so the batch is ordered by value and
+        // the album on nine services is the most useful single answer.
         expect(sent).toEqual([{
             tracks: [
+                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
                 { id: 'USSM17900123', isrc: 'USSM17900123',
                     url: 'https://open.spotify.com/track/trk1' },
-                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
             ],
         }]);
     });
@@ -741,9 +745,9 @@ test.describe('codes and other spellings, from the same check', () => {
         // Spotify link was filled — so it is dropped rather than asked about.
         expect(sent).toEqual([{
             tracks: [
+                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
                 { id: 'USSM17900123', isrc: 'USSM17900123',
                     url: 'https://open.spotify.com/track/trk1' },
-                { id: 'release', url: 'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo' },
             ],
         }]);
         await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
@@ -959,6 +963,62 @@ test.describe('codes and other spellings, from the same check', () => {
         const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
         expect(bundle.tracks[0]).not.toHaveProperty('isrc');
         expect(bundle.tracks[0]).not.toHaveProperty('alt_titles');
+    });
+
+    test('a row that already has another service is not asked about again', async ({ page }) => {
+        // The key grants two requests a minute, so the batch resolves what fits
+        // a budget and leaves the rest. Re-asking about a row whose answer is
+        // already in the form spends that budget on nothing — and is why a
+        // second press used to make no progress past the release.
+        const sent = [];
+        await gotoForm(page, {
+            spotifyAlbum: ALBUM,
+            crossServiceLinks: {
+                success: true,
+                services: ['deezer'],
+                links: {
+                    USSM17900123: { deezer: 'https://www.deezer.com/track/3135556' },
+                    release: { deezer: 'https://www.deezer.com/album/123' },
+                },
+            },
+        });
+        page.on('request', (req) => {
+            if (req.url().includes('/links/resolve')) sent.push(JSON.parse(req.postData() ?? '{}'));
+        });
+
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Burnin\u2019 For You');
+        await page.fill('#release-listen-links',
+            'https://open.spotify.com/album/1Fv2tUhCRhY3YE1Iqp1oBo');
+
+        await page.click('#import-track-links');
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue(/deezer\.com/);
+        await expect(page.locator('#release-listen-links')).toHaveValue(/deezer\.com\/album/);
+
+        await page.click('#import-track-links');
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Compared against Spotify');
+
+        // Second press: the track holds a Deezer link and the release holds a
+        // Deezer album, so there is nothing left worth a request and none is
+        // made. Everything was resolved in the first, release first.
+        expect(sent).toHaveLength(1);
+        expect(sent[0].tracks.map((t) => t.id)).toEqual(['release', 'USSM17900123']);
+    });
+
+    test('the report says how many tracks have nothing yet', async ({ page }) => {
+        // Not "those services do not have it": a rate-limited key answers a few
+        // at a time, and the difference decides whether pressing again is worth
+        // anything.
+        await importWith(page, ['Burnin\u2019 For You', 'Veteran Of The Psychic Wars'], {
+            success: true,
+            services: ['deezer'],
+            links: { USSM17900123: { deezer: 'https://www.deezer.com/track/111' } },
+        });
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('1 track(s) have no other service yet');
+        await expect(page.locator('#listen-link-report')).toContainText('again');
     });
 });
 
