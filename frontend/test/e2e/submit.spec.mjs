@@ -1326,7 +1326,12 @@ test.describe('importing from Discogs, end to end', () => {
                 formats: [{ name: 'CD', descriptions: ['Compilation'] }],
                 tracklist: [
                     { position: '1', type_: 'track', title: 'First Song',
-                        artists: [{ name: 'Nocturnal Rites', id: 12345 }] },
+                        artists: [{ name: 'Nocturnal Rites', id: 12345 }],
+                        extraartists: [
+                            { name: 'Andrew Ware', id: 21, role: 'Drums' },
+                            { name: 'Aaron Dennis', id: 22, role: 'Guitar' },
+                            { name: 'Max Greenhalgh', id: 23, role: 'Vocals, Bass' },
+                        ] },
                     { position: '2', type_: 'track', title: 'Second Song',
                         artists: [{ name: 'Bob Dylan', id: 7, anv: 'Blind Boy Grunt' }] },
                     { position: '3', type_: 'track', title: 'Third Song' },
@@ -1351,6 +1356,77 @@ test.describe('importing from Discogs, end to end', () => {
         expect(bundle.tracks.map(t => t.performed_by_groups?.[0]?.name))
             .toEqual(['Nocturnal Rites', 'Bob Dylan', undefined]);
         expect(JSON.stringify(bundle)).not.toContain('Various');
+    });
+
+    test('and fills in the line-up printed under each track', async ({ page }) => {
+        // The people are in the payload — "Drums – Andrew Ware, Guitar – Aaron
+        // Dennis, Vocals, Bass – Max Greenhalgh" — and every group the import
+        // created was empty.
+        await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                artists: [{ name: 'Various', id: 194 }],
+                tracklist: [
+                    { position: '1', type_: 'track', title: 'Leap Year',
+                        artists: [{ name: 'Tan Sister Radio', id: 1 }],
+                        extraartists: [
+                            { name: 'Andrew Ware', id: 21, role: 'Drums' },
+                            { name: 'Aaron Dennis', id: 22, role: 'Guitar' },
+                            { name: 'Max Greenhalgh', id: 23, role: 'Vocals, Bass' },
+                            // Not a bandmate: a production credit beside them.
+                            { name: 'A Producer', id: 24, role: 'Producer' },
+                        ] },
+                ],
+            },
+            album: { success: false, reason: 'not_configured', message: 'Not configured.' },
+        });
+
+        await expect(page.locator('[name="member-name-0-0-0"]')).toHaveValue('Andrew Ware');
+        await expect(page.locator('[name="member-roles-0-0-0"]')).toHaveValue('Drums');
+        await expect(page.locator('[name="member-name-0-0-2"]')).toHaveValue('Max Greenhalgh');
+        // Two instruments on one credit line, which the roles field also
+        // comma-separates, so the string survives unchanged.
+        await expect(page.locator('[name="member-roles-0-0-2"]')).toHaveValue('Vocals, Bass');
+        await expect(page.locator('[name="member-name-0-0-3"]')).toHaveCount(0);
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        const [group] = bundle.tracks[0].performed_by_groups;
+        expect(group.name).toBe('Tan Sister Radio');
+        expect(group.members.map(m => m.name))
+            .toEqual(['Andrew Ware', 'Aaron Dennis', 'Max Greenhalgh']);
+        expect(group.members[2].roles).toEqual(['Vocals', 'Bass']);
+        expect(JSON.stringify(bundle.tracks[0].performed_by_groups))
+            .not.toContain('A Producer');
+    });
+
+    test('a performer who is also one of the acts gets their own group', async ({ page }) => {
+        // Track 6 of that release: "The Paragraphs, Tori Rogg", with Tori Rogg
+        // on organ. A group of one beside the band, not a member of it.
+        await importFromDiscogs(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                artists: [{ name: 'Various', id: 194 }],
+                tracklist: [
+                    { position: '1', type_: 'track', title: 'Gone Away Bluebird',
+                        artists: [{ name: 'The Paragraphs', id: 10 },
+                            { name: 'Tori Rogg', id: 11 }],
+                        extraartists: [
+                            { name: 'Mike Butler', id: 31, role: 'Lap Steel Guitar' },
+                            { name: 'Jesse Hofbauer', id: 32, role: 'Vocals, Guitar' },
+                            { name: 'Tori Rogg', id: 11, role: 'Vocals, Organ' },
+                        ] },
+                ],
+            },
+            album: { success: false, reason: 'not_configured', message: 'Not configured.' },
+        });
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        const groups = bundle.tracks[0].performed_by_groups;
+
+        expect(groups.map(g => g.name)).toEqual(['The Paragraphs', 'Tori Rogg']);
+        expect(groups[0].members.map(m => m.name))
+            .toEqual(['Mike Butler', 'Jesse Hofbauer']);
+        expect(groups[1].members.map(m => m.name)).toEqual(['Tori Rogg']);
     });
 
     test('and says which tracks still need an act', async ({ page }) => {

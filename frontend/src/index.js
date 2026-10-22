@@ -18,7 +18,7 @@ import {
 } from './utils/tracklistDiff.js';
 import { barcodesFrom } from './utils/discogsBarcode.js';
 import {
-    isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit,
+    isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit, creditsByAct,
 } from './utils/discogsArtists.js';
 
 class PolarisApp {
@@ -2232,8 +2232,18 @@ class PolarisApp {
                 // whatever the release said — which, before this, was a band
                 // called Various that has never played anything.
                 if (overridesReleaseCredit(discogsTrack, discogsRelease)) {
-                    const performed = this.fillTrackGroups(
-                        trackForm, trackIndex, trackPerformers(discogsTrack, discogsRelease));
+                    const performers = trackPerformers(discogsTrack, discogsRelease);
+
+                    // The line-up printed under the track. Classified by the
+                    // same parseCredits the release level uses, so a producer
+                    // credited beside the band does not become a bandmate —
+                    // and with no roster to check against, an instrument
+                    // credit is read as membership, which is the call this
+                    // project already made for a release with no members list.
+                    const trackCredits = discogsClient.parseCredits(discogsTrack.extraartists);
+
+                    const performed = this.fillTrackGroups(trackForm, trackIndex, performers,
+                        creditsByAct(performers, trackCredits.members));
                     if (performed > 0) tracksWithOwnAct++;
                     else tracksWithNoAct++;
                 }
@@ -2389,10 +2399,12 @@ class PolarisApp {
      * @param {Element} trackForm - The .track-item just created.
      * @param {number} trackIndex
      * @param {Array<{name: string, alt_names: string[]}>} performers
+     * @param {Array<Array<Object>>} [lineUps] - Members per act, from
+     *   creditsByAct; absent where Discogs printed no line-up.
      * @returns {number} How many groups were filled in; zero means Discogs
      *   named nobody and the row needs an act typed into it.
      */
-    fillTrackGroups(trackForm, trackIndex, performers) {
+    fillTrackGroups(trackForm, trackIndex, performers, lineUps = []) {
         const inherit = trackForm.querySelector(`[name="track-same-groups-${trackIndex}"]`);
         if (inherit?.checked) {
             inherit.checked = false;
@@ -2417,9 +2429,47 @@ class PolarisApp {
                     `input[name="group-altnames-${trackIndex}-${groupIndex}"]`),
                 performer.alt_names.join(', '));
             }
+
+            this.fillGroupMembers(groupForm, trackIndex, groupIndex, lineUps[groupIndex] ?? []);
         });
 
         return performers.length;
+    }
+
+    /**
+     * Fill in who played in one act on one track.
+     *
+     * The members container is built by createGroupForm's own "+ Add Member"
+     * handler, so the rows are created here the same way that handler creates
+     * them — same factory, same names — rather than by assembling inputs that
+     * would drift from it.
+     *
+     * @param {Element} groupForm - The .nested-item for this group.
+     * @param {number} trackIndex
+     * @param {number} groupIndex
+     * @param {Array<{name: string, role?: string, altNames?: string[]}>} members
+     * @returns {number} How many rows were filled.
+     */
+    fillGroupMembers(groupForm, trackIndex, groupIndex, members) {
+        const container = groupForm.querySelector('.members-container');
+        if (!container || members.length === 0) return 0;
+
+        members.forEach((member, memberIndex) => {
+            const memberForm = this.formBuilder.createPersonForm(
+                memberIndex, 'member', `${trackIndex}-${groupIndex}`);
+            container.appendChild(memberForm);
+
+            const field = (name) => memberForm.querySelector(
+                `input[name="${name}-${trackIndex}-${groupIndex}-${memberIndex}"]`);
+
+            this.setFieldValue(field('member-name'), member.name);
+            // The instruments, as credited. "Vocals, Bass" is two roles on one
+            // line in Discogs and the roles field is comma-separated too, so
+            // the string survives the trip unchanged.
+            this.setFieldValue(field('member-roles'), member.role ?? '');
+        });
+
+        return members.length;
     }
 
     /**
