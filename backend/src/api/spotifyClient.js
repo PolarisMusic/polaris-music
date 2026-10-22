@@ -127,6 +127,10 @@ export class SpotifyClient {
 
         this._token = null;
         this._tokenExpiresAt = 0;
+
+        // Set once the batch track endpoint has refused this app, so the rest
+        // of the process stops paying for the same 403. See getTracks.
+        this._batchTracksRefused = false;
     }
 
     /**
@@ -272,15 +276,77 @@ export class SpotifyClient {
     }
 
     /**
-     * Look up several tracks at once.
+     * Look up several tracks, in one request where that is allowed.
+     *
+     * Spotify refuses `GET /v1/tracks?ids=…` for some apps with a bare 403 —
+     * measured on this deployment on 2026-10-22, where `/v1/albums/{id}` and
+     * `/v1/tracks/{id}` both answer 200 and only the batch form is turned
+     * down, with or without a market. It is not on Spotify's published list of
+     * restricted endpoints, and the 403 carries no explanation, so there is
+     * nothing to read: either the app may ask for several tracks or it may not.
+     *
+     * One request per track is the same data for more quota — eleven requests
+     * for an album instead of one — and the alternative is losing the ISRCs
+     * altogether, which are what every other catalogue is asked about the same
+     * recording with and what the registry prefers as a track's identity. So
+     * the batch form is tried first and the refusal is remembered, per process,
+     * so a box set pays for it once rather than once per page of fifty.
      *
      * @param {string[]} ids - Spotify track ids, at most 50.
      * @returns {Promise<Object[]>} Tracks, nulls for ids Spotify does not know.
      */
     async getTracks(ids) {
         if (!ids || ids.length === 0) return [];
-        const data = await this._get(`/tracks?ids=${encodeURIComponent(ids.slice(0, 50).join(','))}`);
-        return data.tracks ?? [];
+        const wanted = ids.slice(0, 50);
+
+        if (!this._batchTracksRefused) {
+            try {
+                const data = await this._get(
+                    `/tracks?ids=${encodeURIComponent(wanted.join(','))}`);
+                return data.tracks ?? [];
+            } catch (error) {
+                // Only a 403 is a refusal of the endpoint itself. A 429 or a
+                // 5xx says nothing about what this app may ask for, and
+                // answering it with fifty more requests would be the worst
+                // possible response to being rate-limited.
+                if (error?.status !== 403) throw error;
+
+                this._batchTracksRefused = true;
+                console.warn('Spotify refused /tracks?ids= for this app (403); '
+                    + 'falling back to one request per track');
+            }
+        }
+
+        return this._getTracksSingly(wanted);
+    }
+
+    /**
+     * The same tracks, one request each.
+     *
+     * Keeps getTracks' contract: a track Spotify does not know is a null in
+     * place rather than a gap, because callers match the answer up by position
+     * (resolveAlbumId counts albums per track) and a shorter array would
+     * silently shift it.
+     *
+     * @param {string[]} ids
+     * @returns {Promise<Object[]>}
+     * @private
+     */
+    async _getTracksSingly(ids) {
+        const tracks = [];
+        for (const id of ids) {
+            try {
+                tracks.push(await this._get(`/tracks/${encodeURIComponent(id)}`));
+            } catch (error) {
+                // 404 is how the batch endpoint reports an id it does not know,
+                // so it stays a null here. Anything else is this request
+                // failing and is the caller's to hear about — getAlbumWithTracks
+                // degrades to no ISRCs rather than losing the tracklist.
+                if (error?.status !== 404) throw error;
+                tracks.push(null);
+            }
+        }
+        return tracks;
     }
 
     /**

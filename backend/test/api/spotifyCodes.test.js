@@ -280,6 +280,146 @@ describe('albumIdsByName', () => {
     });
 });
 
+describe('when Spotify refuses the batch track endpoint', () => {
+    /**
+     * Measured on the polaris.mu deployment on 2026-10-22, with credentials
+     * Spotify accepts and an album lookup that answers 200:
+     *
+     *   200  /tracks/4KqudHCw4rafIQeijpFxZp            isrc: QM9AA1922066
+     *   403  /tracks?ids=4KqudHCw4rafIQeijpFxZp
+     *   200  /tracks/4KqudHCw4rafIQeijpFxZp?market=US  isrc: QM9AA1922066
+     *   403  /tracks?ids=4KqudHCw4rafIQeijpFxZp&market=US
+     *
+     * Only the batch form is refused, the market makes no difference, and the
+     * 403 carries no explanation. `GET /v1/tracks` is not on Spotify's
+     * published list of restricted endpoints, so there is no documentation to
+     * follow — just the measurement.
+     *
+     * What hangs on it: the ISRCs, which neither album endpoint returns, and
+     * which are the key every other catalogue is asked about the same
+     * recording with. Eleven requests for an album is a poor trade against one
+     * — and a fine one against losing the identity of every track.
+     */
+    const track = (id) => ({ id, external_ids: { isrc: `ISRC${id.toUpperCase()}` } });
+
+    /**
+     * A client whose batch endpoint 403s and whose single endpoint answers.
+     *
+     * @param {Object} [options]
+     * @param {string[]} [options.known] - Ids the single endpoint answers for.
+     * @param {number} [options.singleStatus] - Status the single endpoint
+     *   refuses with instead, for the both-refused case.
+     * @param {number} [options.batchStatus] - Status the batch endpoint fails
+     *   with; only 403 means "this app may not".
+     */
+    function clientRefusingBatch({ known = ['t0', 't1'], singleStatus, batchStatus = 403 } = {}) {
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        const asked = [];
+        client._get = async (path) => {
+            asked.push(path);
+
+            if (path.startsWith('/tracks?ids=')) {
+                throw Object.assign(new Error(`status ${batchStatus}`), { status: batchStatus });
+            }
+
+            const single = /^\/tracks\/([^?]+)/.exec(path);
+            if (single) {
+                if (singleStatus) {
+                    throw Object.assign(new Error(`status ${singleStatus}`),
+                        { status: singleStatus });
+                }
+                const id = decodeURIComponent(single[1]);
+                if (!known.includes(id)) {
+                    throw Object.assign(new Error('status 404'), { status: 404 });
+                }
+                return track(id);
+            }
+
+            if (path.startsWith('/albums/')) {
+                return {
+                    id: 'alb', name: 'Album', total_tracks: 2, external_ids: { upc: '1' },
+                    tracks: { items: simplified(2) },
+                };
+            }
+            throw new Error(`unexpected request: ${path}`);
+        };
+        client.asked = asked;
+        return client;
+    }
+
+    test('it asks for each track instead of giving up', async () => {
+        const client = clientRefusingBatch();
+
+        const tracks = await client.getTracks(['t0', 't1']);
+
+        expect(tracks.map((t) => t.id)).toEqual(['t0', 't1']);
+        expect(client.asked).toEqual(['/tracks?ids=t0%2Ct1', '/tracks/t0', '/tracks/t1']);
+    });
+
+    test('and pays for the refusal once, not once per page', async () => {
+        // A box set is several pages of fifty. Re-asking the endpoint that has
+        // already said no spends a request to be told the same thing.
+        const client = clientRefusingBatch();
+
+        await client.getTracks(['t0']);
+        await client.getTracks(['t1']);
+
+        expect(client.asked.filter((p) => p.startsWith('/tracks?ids='))).toHaveLength(1);
+    });
+
+    test('an id Spotify does not know is still a null in place', async () => {
+        // getTracks' contract, and load-bearing: resolveAlbumId counts albums
+        // per track by position, so a shorter array would shift the answer.
+        const client = clientRefusingBatch({ known: ['t0'] });
+
+        expect(await client.getTracks(['t0', 'gone'])).toEqual([track('t0'), null]);
+    });
+
+    test('the ISRCs come back for a whole album, which is the point', async () => {
+        const client = clientRefusingBatch();
+
+        const album = await client.getAlbumWithTracks('alb');
+
+        expect(album.tracks.map((t) => t.isrc)).toEqual(['ISRCT0', 'ISRCT1']);
+    });
+
+    test('a 429 is not answered with fifty more requests', async () => {
+        // Being rate-limited is not permission to ask harder. Only a 403 says
+        // anything about what this app may ask for.
+        const client = clientRefusingBatch({ batchStatus: 429 });
+
+        await expect(client.getTracks(['t0', 't1'])).rejects.toMatchObject({ status: 429 });
+        expect(client.asked).toEqual(['/tracks?ids=t0%2Ct1']);
+    });
+
+    test('a 5xx is not either', async () => {
+        const client = clientRefusingBatch({ batchStatus: 503 });
+
+        await expect(client.getTracks(['t0'])).rejects.toMatchObject({ status: 503 });
+        expect(client.asked.filter((p) => p.startsWith('/tracks/'))).toEqual([]);
+    });
+
+    test('a refusal of both forms is a failure, not an empty answer', async () => {
+        // If the app may not read track metadata at all, saying so is the
+        // honest outcome; the caller decides what to do without it.
+        const client = clientRefusingBatch({ singleStatus: 403 });
+
+        await expect(client.getTracks(['t0'])).rejects.toMatchObject({ status: 403 });
+    });
+
+    test('and the tracklist survives it, without the codes', async () => {
+        // The degradation that already existed, now also covering the
+        // fallback: a submitter asking "does this tracklist match" still gets
+        // an answer when the ISRCs cannot be had.
+        const client = clientRefusingBatch({ singleStatus: 403 });
+
+        const album = await client.getAlbumWithTracks('alb');
+
+        expect(album.tracks).toHaveLength(2);
+        expect(album.tracks.every((t) => t.isrc === null)).toBe(true);
+    });
+});
+
 describe('a failed request carries its status', () => {
     /**
      * The caller has to tell a refusal apart from a fault. Spotify answers 403

@@ -115,6 +115,25 @@ Neither of Spotify's album endpoints returns an ISRC — both return *simplified
 track objects with no `external_ids` at all — so it costs one extra request per
 fifty tracks, from the full-track endpoint.
 
+**Unless this app may not use it.** Measured on this deployment on 2026-10-22,
+with credentials Spotify accepts and an album lookup that answers 200:
+
+```
+200  /tracks/4KqudHCw4rafIQeijpFxZp            isrc: QM9AA1922066
+403  /tracks?ids=4KqudHCw4rafIQeijpFxZp
+200  /tracks/4KqudHCw4rafIQeijpFxZp?market=US  isrc: QM9AA1922066
+403  /tracks?ids=4KqudHCw4rafIQeijpFxZp&market=US
+```
+
+Only the batch form is refused; the market makes no difference; the 403 carries
+no explanation; and `GET /v1/tracks` is not on Spotify's published list of
+restricted endpoints, so there is nothing to read but the measurement. So
+`getTracks` tries the batch form, remembers a 403 for the life of the process,
+and asks for each track singly instead — eleven requests for an album rather
+than one, which is a poor trade against one request and a fine one against
+losing every ISRC. Only a 403 triggers it: answering a 429 with fifty more
+requests would be the worst possible response to being rate-limited.
+
 ### When the form says the check is unavailable
 
 There are four distinct ways for this to fail and they want four different
