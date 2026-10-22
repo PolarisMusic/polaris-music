@@ -377,10 +377,67 @@ describe('the services Odesli answers for', () => {
         });
     });
 
-    test('every service Odesli answers for is recognized or deliberately not', () => {
-        // Pandora is the one left out: its links are slug soup with no id to
-        // key on, so it falls through to being tracking-stripped — stored and
-        // working, just not deduplicated.
+    describe('Pandora', () => {
+        /**
+         * Added after the live answer contradicted the assumption this table
+         * was built on. Odesli returned `https://www.pandora.com/TR:5661544`
+         * for a Spotify track on 2026-10-22 — a prefixed id, not the slug soup
+         * the omission was justified by.
+         */
+        test('a prefixed id is the identity, which is what their API hands out', () => {
+            expect(normalizeListenLink('https://www.pandora.com/TR:5661544')).toEqual({
+                service: 'pandora',
+                type: 'track',
+                id: 'TR:5661544',
+                url: 'https://www.pandora.com/TR:5661544',
+            });
+        });
+
+        test.each([
+            ['an album', 'https://www.pandora.com/AL:123', 'album', 'AL:123'],
+            ['an artist', 'https://www.pandora.com/AR:9', 'artist', 'AR:9'],
+            ['a playlist', 'https://www.pandora.com/PL:7', 'playlist', 'PL:7'],
+        ])('%s keeps its own kind', (_label, url, type, id) => {
+            expect(normalizeListenLink(url)).toMatchObject({ type, id });
+        });
+
+        test('the same track under two hosts is one link', () => {
+            // The point of parsing it at all: an unparsed link is only
+            // tracking-stripped, so a second import appends a near-duplicate.
+            expect(sameTarget('https://www.pandora.com/TR:5661544',
+                'https://pandora.com/TR:5661544?utm_source=x')).toBe(true);
+        });
+
+        test('the readable path is read by depth', () => {
+            const artist = 'https://www.pandora.com/artist/queens-of-the-stone-age';
+            expect(normalizeListenLink(artist)).toMatchObject({ type: 'artist' });
+            expect(normalizeListenLink(`${artist}/songs-for-the-deaf`))
+                .toMatchObject({ type: 'album' });
+            expect(normalizeListenLink(`${artist}/songs-for-the-deaf/no-one-knows`))
+                .toMatchObject({ type: 'track', id: 'artist/queens-of-the-stone-age/'
+                    + 'songs-for-the-deaf/no-one-knows' });
+        });
+
+        test('a slug and an id are not assumed to be the same recording', () => {
+            // Nothing here can map one onto the other without asking Pandora,
+            // and claiming they are the same recording would be a wrong link
+            // rather than a duplicate one.
+            expect(sameTarget('https://www.pandora.com/TR:5661544',
+                'https://www.pandora.com/artist/qotsa/songs-for-the-deaf/no-one-knows'))
+                .toBe(false);
+        });
+
+        test.each([
+            ['a dynamic short link', 'https://pandora.app.link/abc123'],
+            ['a station', 'https://www.pandora.com/station/play/12345'],
+        ])('%s is left unparsed rather than guessed at', (_label, url) => {
+            // An opaque token only a redirect resolves; parsing it would mean
+            // inventing an id. Still stored, just not deduplicated.
+            expect(normalizeListenLink(url)).toBeNull();
+        });
+    });
+
+    test('every service Odesli answers for is recognized', () => {
         const resolved = {
             spotify: 'https://open.spotify.com/track/abc',
             apple: 'https://music.apple.com/us/album/x/1?i=2',
@@ -390,6 +447,7 @@ describe('the services Odesli answers for', () => {
             youtube: 'https://www.youtube.com/watch?v=a',
             amazonMusic: 'https://music.amazon.com/albums/B01?trackAsin=B02',
             soundcloud: 'https://soundcloud.com/a/b',
+            pandora: 'https://www.pandora.com/TR:5661544',
         };
 
         for (const [service, url] of Object.entries(resolved)) {

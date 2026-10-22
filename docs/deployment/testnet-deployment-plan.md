@@ -895,6 +895,50 @@ Steps 1–3 still apply.
 
 ---
 
+## A submission that is in the feed but not in the graph
+
+The curation feed and the graph are written by different steps of the same
+request, in that order, and the first does not depend on the second.
+`processPutAction` projects the Operation row **before** it fetches the event
+body, deliberately: the row describes what was anchored on chain, which is true
+whether or not this host can read the body, and `reclaim()` eventually erases
+the anchor. So a release that is listed in Curate and absent from the graph is
+not a contradiction — it is what every downstream failure looks like.
+
+The endpoint answers 201 with `{status:'error'}` when that happens, and the
+sink reports it. **One command names the cause:**
+
+```bash
+docker compose logs substreams-sink --since 24h | grep -E "Rejected|Posted|POST failed"
+```
+
+- `✗ Rejected <hash> … error=<reason>` — the backend refused it, and `<reason>`
+  is the whole diagnosis. Example, 2026-10-22:
+  `error=Expected parameter(s): cityLat, cityLon` — a group that named an
+  origin city and no coordinates, which the Neo4j driver turned into a dropped
+  parameter and the server into a ClientError, rolling back the entire bundle.
+- `✓ Posted <hash> … status=processed` — the backend wrote it; look at the
+  graph or the search index instead.
+- `status=not_found` — the body is not in Redis, IPFS or S3 on this host.
+- The hash never appears — the sink never delivered it. That is the stream or
+  the cursor, not the payload.
+
+**Then replay it.** The sink does not retry a rejection, and correctly so: the
+same event fails the same way until the code changes. Once it has, nothing will
+try again on its own, so deploy the fix and then:
+
+```bash
+docker compose exec api node scripts/reingestEvent.js <event-hash>
+```
+
+It rebuilds the anchored event from the Operation projection the failed attempt
+left behind and re-posts it through the same endpoint the sink uses, so the
+replay goes through deduplication, projection and dispatch exactly as a first
+delivery would. `✓ <hash>: ingested` means the graph has it; search for the
+release to confirm.
+
+---
+
 ## Day-2 operations
 
 **Backups**

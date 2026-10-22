@@ -148,6 +148,48 @@ const SERVICES = [
             return null;
         },
         canonical: (type, id) => `https://soundcloud.com/${id}`
+    },
+    {
+        // Pandora writes an entity as a prefixed id — TR: a track, AL: an
+        // album, AR: an artist — and that is what their API hands out:
+        // `https://www.pandora.com/TR:5661544` came back from Odesli for a
+        // Spotify track on 2026-10-22. This table previously left Pandora out
+        // on the grounds that its links were slug soup with nothing to key on,
+        // which the live answer disproves.
+        //
+        // The human-readable /artist/<artist>/<album>/<track> path is a second
+        // spelling, and no rule here maps it onto the first: that would need
+        // Pandora to answer which id a slug names. It keeps its own identity
+        // instead, the way SoundCloud's path does — two spellings of one track
+        // comparing unequal is a duplicate link, while guessing they are the
+        // same recording is a wrong one.
+        service: 'pandora',
+        // Not pandora.app.link: a dynamic short link's path is an opaque token
+        // only a redirect resolves, so parsing it would mean inventing an id.
+        hosts: ['pandora.com'],
+        parse: (parsed) => {
+            const segments = parsed.pathname.split('/').filter(Boolean)
+                .map((segment) => decodeURIComponent(segment));
+            if (segments.length === 0) return null;
+
+            const prefixed = /^(TR|AL|AR|PL|ST):(.+)$/i.exec(segments[0]);
+            if (prefixed) {
+                const kind = { TR: 'track', AL: 'album', AR: 'artist',
+                    PL: 'playlist', ST: 'station' }[prefixed[1].toUpperCase()];
+                return kind
+                    ? { type: kind, id: `${prefixed[1].toUpperCase()}:${prefixed[2]}` }
+                    : null;
+            }
+
+            // /artist/<artist>[/<album>[/<track>]], deepest segment first:
+            // four segments name a track, three an album, two an artist.
+            if (segments[0].toLowerCase() === 'artist' && segments.length >= 2) {
+                const depth = { 2: 'artist', 3: 'album' };
+                return { type: depth[segments.length] ?? 'track', id: segments.join('/') };
+            }
+            return null;
+        },
+        canonical: (type, id) => `https://www.pandora.com/${id}`
     }
 ];
 
