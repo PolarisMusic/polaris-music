@@ -29,6 +29,8 @@
  * @module api/musicbrainzClient
  */
 
+import { envSetting } from '../utils/envSetting.js';
+
 const API_BASE = 'https://musicbrainz.org/ws/2';
 
 /**
@@ -57,9 +59,12 @@ export class MusicBrainzClient {
     constructor({ userAgent, fetchImpl, sleep } = {}) {
         // Contact details matter to them: it is how they reach an operator
         // whose client is misbehaving instead of simply banning the address.
-        this.userAgent = userAgent
-            ?? process.env.MUSICBRAINZ_USER_AGENT
-            ?? 'PolarisMusicRegistry/1.0 ( https://polaris.mu )';
+        // envSetting, not ??: compose passes MUSICBRAINZ_USER_AGENT as an
+        // empty string when nobody set it, and a blank User-Agent is the one
+        // thing MusicBrainz refuses outright — so the default has to survive
+        // a value that is present but empty. See utils/envSetting.js.
+        this.userAgent = envSetting(userAgent, process.env.MUSICBRAINZ_USER_AGENT,
+            'PolarisMusicRegistry/1.0 ( https://polaris.mu )');
         this.fetch = fetchImpl ?? fetch;
         this.sleep = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 
