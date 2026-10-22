@@ -268,6 +268,19 @@ default and sees nothing wrong. Settings read through
 it returns — a key pasted out of an email with a trailing newline is the same
 key, and sending it unmodified is a 401 that reads as the wrong key.
 
+**Pandora is parsed now.** The table in `listenLinks.js` left it out on the
+grounds that its links were slug soup with no id to key on. The live answer says
+otherwise: Odesli returns `https://www.pandora.com/TR:5661544`, a prefixed id —
+`TR:` a track, `AL:` an album, `AR:` an artist — which is as good an identity as
+Deezer's numeric one. The readable `/artist/<artist>/<album>/<track>` path is a
+second spelling, kept as its own identity rather than mapped onto the first,
+which would need Pandora to say which id a slug names.
+
+What this buys is deduplication. An unrecognised link is only tracking-stripped,
+so two spellings of one track compare unequal and a second import appends a
+near-duplicate beside the first — in a registry whose links are anchored, that
+is a permanent one.
+
 **Store pages are not listen links.** `itunes`, `amazonStore` and `googleStore`
 come back in the same response and are deliberately dropped: the field is
 called listen_links, and a purchase page is a different claim about a
