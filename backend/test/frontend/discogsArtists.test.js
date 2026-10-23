@@ -15,7 +15,7 @@
 import { describe, test, expect } from '@jest/globals';
 import {
     isVariousArtists, releaseArtists, isCompilation, trackPerformers, cleanArtistName,
-    overridesReleaseCredit, VARIOUS_ARTISTS_ID,
+    overridesReleaseCredit, creditsByAct, VARIOUS_ARTISTS_ID,
 } from '../../../frontend/src/utils/discogsArtists.js';
 
 const various = { id: VARIOUS_ARTISTS_ID, name: 'Various' };
@@ -201,5 +201,79 @@ describe('when a track stops inheriting the release credit', () => {
         // submitter can see both names in the form and merge them.
         expect(overridesReleaseCredit(
             { artists: [act('Ocelot', 6)] }, { artists: [ocelot] })).toBe(true);
+    });
+});
+
+describe('putting a track\u2019s line-up with its act', () => {
+    /**
+     * Release 6380913 again, track 3: "Tan Sister Radio — Leap Year", credited
+     * underneath with Drums – Andrew Ware, Guitar – Aaron Dennis, Vocals/Bass –
+     * Max Greenhalgh. The people are right there in the payload and every group
+     * the import created was empty.
+     */
+    const credit = (name, role, id = null) => ({ name, id, role, roles: role.split(', ') });
+
+    const LEAP_YEAR = [
+        credit('Andrew Ware', 'Drums'),
+        credit('Aaron Dennis', 'Guitar'),
+        credit('Max Greenhalgh', 'Vocals, Bass'),
+    ];
+
+    test('one act takes the whole line-up', () => {
+        const [members] = creditsByAct([{ name: 'Tan Sister Radio', id: 1 }], LEAP_YEAR);
+
+        expect(members.map((m) => m.name))
+            .toEqual(['Andrew Ware', 'Aaron Dennis', 'Max Greenhalgh']);
+    });
+
+    test('a performer who is one of the acts goes with their own group', () => {
+        // Track 6: "The Paragraphs, Tori Rogg", with Tori Rogg on organ. She is
+        // a group of one beside The Paragraphs, not a member of it.
+        const [paragraphs, tori] = creditsByAct(
+            [{ name: 'The Paragraphs', id: 10 }, { name: 'Tori Rogg', id: 11 }],
+            [
+                credit('Mike Butler', 'Lap Steel Guitar'),
+                credit('Jesse Hofbauer', 'Vocals, Guitar'),
+                credit('Tori Rogg', 'Vocals, Organ', 11),
+            ]);
+
+        expect(paragraphs.map((m) => m.name)).toEqual(['Mike Butler', 'Jesse Hofbauer']);
+        expect(tori.map((m) => m.name)).toEqual(['Tori Rogg']);
+    });
+
+    test('matched by name when Discogs gave the credit no id', () => {
+        const [, tori] = creditsByAct(
+            [{ name: 'The Paragraphs', id: 10 }, { name: 'Tori Rogg', id: 11 }],
+            [credit('Tori Rogg', 'Vocals, Organ')]);
+
+        expect(tori.map((m) => m.name)).toEqual(['Tori Rogg']);
+    });
+
+    test('and by name through a Discogs numbering suffix', () => {
+        const [, second] = creditsByAct(
+            [{ name: 'Band A', id: 1 }, { name: 'Mike Hunt', id: null }],
+            [credit('Mike Hunt (8)', 'Drums')]);
+
+        expect(second.map((m) => m.name)).toEqual(['Mike Hunt (8)']);
+    });
+
+    test('everyone else goes with the first act, which is a guess', () => {
+        // Nothing in the payload says who played in which band. The release
+        // level makes the same guess for the same reason.
+        const [first, second] = creditsByAct(
+            [{ name: 'Band A', id: 1 }, { name: 'Band B', id: 2 }],
+            [credit('Somebody', 'Drums')]);
+
+        expect(first).toHaveLength(1);
+        expect(second).toEqual([]);
+    });
+
+    test('no acts means nowhere to put anybody', () => {
+        expect(creditsByAct([], LEAP_YEAR)).toEqual([]);
+    });
+
+    test('no credits leaves every act empty rather than undefined', () => {
+        expect(creditsByAct([{ name: 'Band A', id: 1 }], [])).toEqual([[]]);
+        expect(creditsByAct([{ name: 'Band A', id: 1 }], undefined)).toEqual([[]]);
     });
 });

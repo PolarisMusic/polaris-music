@@ -1102,6 +1102,23 @@ Dylan" printed as "Blind Boy Grunt" — is recorded as an alternate name on the
 Group rather than replacing the name or being discarded. Same reasoning as a
 Track's `alt_titles`: it is the one thing the disagreement carries.
 
+**The line-up is printed under the track, and is read from there.** Discogs
+credits a compilation track as "Tan Sister Radio — Leap Year" with "Drums –
+Andrew Ware, Guitar – Aaron Dennis, Vocals, Bass – Max Greenhalgh" underneath,
+and those people become that Group's `MEMBER_OF` edges for this track. They are
+classified by the same `parseCredits` the release level uses, so a producer
+credited beside the band does not become a bandmate.
+
+Reading an instrument credit as membership is the call this project already
+made for a release Discogs has no members list for, and it is the one in force
+here: a compilation names ten acts and fetching a roster for each would be ten
+more API calls against a rate limit, so none is fetched. That is wrong for a
+session player and right for the far more common case of a band's own line-up
+printed under its own track — and it is visible in the form before anything is
+signed, which is where a submitter can fix it. Where a credited performer *is*
+one of the acts, they are their own group of one rather than a member of the
+other, which is how "The Paragraphs, Tori Rogg" comes out right.
+
 ---
 
 ## Correcting a Relationship

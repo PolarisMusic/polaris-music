@@ -189,7 +189,51 @@ export function overridesReleaseCredit(discogsTrack, discogsRelease) {
         !theirs.has(p.id != null ? `id:${p.id}` : `name:${p.name.toLowerCase()}`));
 }
 
+/**
+ * Put each of a track's performance credits with the act it belongs to.
+ *
+ * A compilation names the act on the track and its line-up underneath it —
+ * "Tan Sister Radio — Leap Year / Drums – Andrew Ware / Guitar – Aaron Dennis
+ * / Vocals, Bass – Max Greenhalgh" — so the people are there to be read, and
+ * the import was leaving every group empty.
+ *
+ * Where a credited performer *is* one of the acts, they go with their own
+ * group rather than into somebody else's. Track 6 of that release is "The
+ * Paragraphs, Tori Rogg", with Tori Rogg credited on organ: she is a group of
+ * one beside The Paragraphs, not a member of it. Matched on the Discogs id
+ * first and the name second, because the id survives a reprint and a typo.
+ *
+ * Everyone else goes with the first act. That is a guess, and it is the same
+ * guess the release-level import makes for the same reason: with two acts on
+ * one track nothing in the payload says who played in which, and splitting
+ * them by anything other than evidence would put people in bands they were
+ * never in. With one act — every normal compilation track — there is no guess.
+ *
+ * @param {Array<{name: string, id: number|null}>} performers - From trackPerformers.
+ * @param {Array<{name: string, id?: number|null, roles?: string[], role?: string}>} credits
+ *   Performance credits, as discogsClient.parseCredits classifies them.
+ * @returns {Array<Array<Object>>} One list per performer, in the same order.
+ */
+export function creditsByAct(performers, credits) {
+    const acts = Array.isArray(performers) ? performers : [];
+    const byAct = acts.map(() => []);
+    if (acts.length === 0) return byAct;
+
+    const keysFor = (person) => [
+        person?.id != null ? `id:${person.id}` : null,
+        `name:${cleanArtistName(person?.name).toLowerCase()}`,
+    ].filter(Boolean);
+
+    for (const credit of Array.isArray(credits) ? credits : []) {
+        const keys = new Set(keysFor(credit));
+        const own = acts.findIndex((act) => keysFor(act).some((key) => keys.has(key)));
+        byAct[own >= 0 ? own : 0].push(credit);
+    }
+
+    return byAct;
+}
+
 export default {
     isVariousArtists, releaseArtists, isCompilation, trackPerformers,
-    overridesReleaseCredit, cleanArtistName,
+    overridesReleaseCredit, creditsByAct, cleanArtistName,
 };
