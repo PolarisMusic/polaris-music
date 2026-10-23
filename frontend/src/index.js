@@ -1987,10 +1987,22 @@ class PolarisApp {
             return;
         }
 
+        // A Spotify album link in the same box. One box because it is the same
+        // act — paste the link to the record — and because plenty of releases
+        // are on one service and not the other: Spotify carries releases
+        // Discogs has never heard of, and Discogs carries everything that was
+        // never distributed digitally.
+        const pasted = normalizeListenLink(input);
+        if (pasted?.service === 'spotify' && pasted.type === 'album') {
+            await this.fetchFromSpotify(pasted.url);
+            return;
+        }
+
         // Extract release ID or master ID
         const idInfo = discogsClient.extractReleaseId(input);
         if (!idInfo) {
-            this.showDiscogsStatus('Invalid Discogs release ID or URL', 'error');
+            this.showDiscogsStatus(
+                'Paste a Discogs release or master URL, or a Spotify album link', 'error');
             return;
         }
 
@@ -2032,6 +2044,176 @@ class PolarisApp {
             this.showDiscogsStatus(`Error: ${error.message}`, 'error');
             this.showToast('Failed to fetch from Discogs: ' + error.message, 'error');
         }
+    }
+
+    /**
+     * Fill the form from a Spotify album.
+     *
+     * For the releases Discogs has never heard of. Spotify gives the release,
+     * its label, its barcode, every track with its number, duration and ISRC,
+     * and — per track — the act that performed it, which is the only place a
+     * compilation says so.
+     *
+     * It gives no credits. Spotify's Web API has none: the panel in their app
+     * is fed by an internal endpoint, and no songwriter, producer, engineer or
+     * instrument credit is reachable publicly. So an import from here arrives
+     * complete in structure and empty of people, and the line-ups come from
+     * MusicBrainz by ISRC — see docs/17.
+     *
+     * @param {string} albumUrl - A canonical open.spotify.com/album link.
+     */
+    async fetchFromSpotify(albumUrl) {
+        this.showDiscogsStatus('Fetching album from Spotify...', 'loading');
+
+        let result;
+        try {
+            result = await api.getSpotifyAlbum([albumUrl]);
+        } catch (error) {
+            console.error('Spotify import failed:', error);
+            this.showDiscogsStatus(`Error: ${error.message}`, 'error');
+            return;
+        }
+
+        if (!result.success || !result.album) {
+            // The same reasons the cross-check reports, and the same wording:
+            // an unconfigured server, a refused app, a release Spotify does
+            // not carry. Nothing here is the submitter's fault.
+            const detail = result.message || result.error || 'Spotify had no answer for that link.';
+            this.showDiscogsStatus(`Error: ${detail}`, 'error');
+            return;
+        }
+
+        this.populateFormFromSpotify(result.album, albumUrl);
+
+        this.showDiscogsStatus(`✓ Imported from Spotify: ${result.album.name}`
+            + (this.compilationNote ? ` — ${this.compilationNote}` : '')
+            + ' — Spotify carries no credits; add the line-ups by hand or import them'
+            + ' from MusicBrainz.', 'success');
+        this.showToast(`Imported from Spotify: ${result.album.name}`, 'success');
+
+        // The links the ISRCs reach, as after a Discogs import. The album is
+        // already in hand, so this goes straight to the cross-service step
+        // rather than back through the tracklist comparison.
+        this.importCrossServiceLinks(albumUrl)
+            .then((crossService) => {
+                if (crossService?.added > 0) {
+                    this.showToast(`Added ${crossService.added} link(s) on `
+                        + `${crossService.services.join(', ')}.`, 'success');
+                }
+            })
+            .catch((error) => console.warn('Cross-service lookup after import failed:', error));
+    }
+
+    /**
+     * Write a Spotify album into the form.
+     *
+     * Deliberately not routed through populateFormFromDiscogs: that reads a
+     * payload with companies, extraartists and format descriptions, and
+     * mapping Spotify into its shape would invent fields Spotify does not
+     * have. The decisions the two share — who the placeholder is, which act
+     * played a track, when a track stops inheriting the release credit — are
+     * shared as functions instead.
+     *
+     * @param {Object} album - From /api/spotify/album.
+     * @param {string} albumUrl - The link it came from, kept as a source.
+     */
+    populateFormFromSpotify(album, albumUrl) {
+        this.discogsBarcodes = album.upc ? [album.upc] : [];
+        this.compilationNote = '';
+        document.getElementById('labels-container').innerHTML = '';
+        document.getElementById('release-groups-container').innerHTML = '';
+        document.getElementById('release-guests-container').innerHTML = '';
+        document.getElementById('tracks-container').innerHTML = '';
+        this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
+
+        document.getElementById('release-name').value = album.name || '';
+        // Spotify writes YYYY, YYYY-MM or YYYY-MM-DD, which is the same set of
+        // precisions the form takes with slashes.
+        document.getElementById('release-date').value =
+            String(album.release_date || '').replace(/-/g, '/');
+
+        // Digital, because that is what a Spotify release is. The record may
+        // also exist on vinyl, and saying so would be a claim about a pressing
+        // this import has not seen.
+        const formatSelect = document.getElementById('release-format');
+        if (formatSelect) formatSelect.value = 'Digital';
+
+        // The copyright lines, which are the nearest thing to liner notes here.
+        document.getElementById('liner-notes').value = (album.copyrights ?? []).join('\n');
+
+        if (album.label) {
+            const labelForm = this.formBuilder.createLabelForm();
+            document.getElementById('labels-container').appendChild(labelForm);
+            const labelIndex = this.formBuilder.counters.label - 1;
+            this.setFieldValue(labelForm.querySelector(
+                `input[name="label-name-${labelIndex}"]`), album.label);
+        }
+
+        // The acts, placeholder removed — see utils/discogsArtists.js. A
+        // compilation credits nobody at the release level.
+        const compilation = isCompilation(album);
+        releaseArtists(album).forEach((artist, index) => {
+            const groupForm = this.formBuilder.createReleaseGroupForm(index);
+            document.getElementById('release-groups-container').appendChild(groupForm);
+            this.setFieldValue(groupForm.querySelector(
+                `input[name="release-group-name-${index}"]`), artist.name);
+        });
+
+        let tracksWithOwnAct = 0;
+        let tracksWithNoAct = 0;
+
+        for (const track of album.tracks ?? []) {
+            const trackForm = this.formBuilder.createTrackForm();
+            document.getElementById('tracks-container').appendChild(trackForm);
+            const trackIndex = this.formBuilder.counters.track - 1;
+
+            const field = (name) => trackForm.querySelector(`[name="${name}-${trackIndex}"]`);
+
+            this.setFieldValue(field('track-title'), track.name || '');
+            // Disc and track number, as the form writes a position: "2-3" for
+            // the third track of the second disc, bare otherwise.
+            this.setFieldValue(field('track-position'),
+                (track.disc_number ?? 1) > 1
+                    ? `${track.disc_number}-${track.track_number}`
+                    : String(track.track_number ?? ''));
+            // Spotify gives an exact duration in milliseconds and the form has
+            // nowhere to put one — there is no duration input, so the Discogs
+            // import drops it too. Track.duration exists in the schema; adding
+            // the field is a change for both importers, not for this one.
+            this.fillHiddenField(trackForm, `track-isrc-${trackIndex}`, track.isrc);
+            if (track.id) {
+                this.setFieldValue(field('track-listen-link'),
+                    `https://open.spotify.com/track/${track.id}`);
+            }
+
+            if (overridesReleaseCredit(track, album)) {
+                const performers = trackPerformers(track, album);
+                // No line-up to go with them: Spotify has no credits at all,
+                // so every group arrives empty and the note below says so.
+                const performed = this.fillTrackGroups(trackForm, trackIndex, performers);
+                if (performed > 0) tracksWithOwnAct++;
+                else tracksWithNoAct++;
+            }
+        }
+
+        document.getElementById('source-links').value = albumUrl;
+
+        if (compilation) {
+            const missing = tracksWithNoAct > 0
+                ? ` ${tracksWithNoAct} track(s) name no act — add one before submitting.`
+                : '';
+            this.compilationNote = 'Compilation: credited per track, not to the release. '
+                + `${tracksWithOwnAct} track(s) have their own act.${missing}`;
+        }
+
+        this.formDirty = true;
+
+        // Same deferral as the Discogs import: the lookup manager's observer
+        // has to have bound the rows before anything can be bound to a node.
+        setTimeout(() => {
+            this.reconcileImportedFields().catch(error =>
+                console.warn('Reconciliation pass failed:', error));
+        }, 150);
     }
 
     /**

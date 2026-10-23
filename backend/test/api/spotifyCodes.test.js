@@ -147,6 +147,99 @@ describe('isrcsForTracks', () => {
     });
 });
 
+describe('what the importer needs off an album', () => {
+    /**
+     * A release that is on Spotify and not on Discogs has to be submittable
+     * from this response alone, so it carries the fields a submitter would
+     * otherwise retype — and, per track, the artists, which is the only place
+     * a compilation says who actually played. There are no credits among them:
+     * Spotify's Web API has none at all.
+     */
+    const ALBUM = {
+        id: 'alb', name: 'Lost Ark Studio Compilation Vol. 4',
+        release_date: '2014-11-11', total_tracks: 2, album_type: 'compilation',
+        label: 'Randm Records',
+        copyrights: [{ text: '\u2117 2014 Randm Records', type: 'P' }, { text: null }],
+        external_ids: { upc: '888295974028' },
+        artists: [{ id: '0LyfQWJT6nXafLPZqxe9Of', name: 'Various Artists', popularity: 7 }],
+        tracks: {
+            items: [
+                { id: 't0', name: 'Turns To Dust', track_number: 1, disc_number: 1,
+                    duration_ms: 197000, artists: [{ id: 'a1', name: 'The Paragraphs' }] },
+                { id: 't1', name: 'Out To Sea', track_number: 2, disc_number: 1,
+                    duration_ms: 248000, artists: [{ id: 'a2', name: '22 Kings' }] },
+            ],
+        },
+    };
+
+    const serving = () => clientServing({
+        '/albums/alb': ALBUM,
+        '/tracks?ids=': full(['t0', 't1']),
+    });
+
+    test('the release fields a submitter would otherwise retype', async () => {
+        const album = await serving().getAlbumWithTracks('alb');
+
+        expect(album).toMatchObject({
+            name: 'Lost Ark Studio Compilation Vol. 4',
+            release_date: '2014-11-11',
+            album_type: 'compilation',
+            label: 'Randm Records',
+            upc: '888295974028',
+        });
+    });
+
+    test('the act named on each track, which is what a compilation says', async () => {
+        const album = await serving().getAlbumWithTracks('alb');
+
+        expect(album.tracks.map((t) => t.artists[0].name))
+            .toEqual(['The Paragraphs', '22 Kings']);
+        expect(album.tracks[0].artists[0].id).toBe('a1');
+    });
+
+    test('the album-level credit comes through as it is, placeholder and all', async () => {
+        // Deciding that "Various Artists" is not a band is the importer's job,
+        // and it needs to be told rather than have the field quietly emptied.
+        const album = await serving().getAlbumWithTracks('alb');
+
+        expect(album.artists).toEqual([
+            { id: '0LyfQWJT6nXafLPZqxe9Of', name: 'Various Artists' },
+        ]);
+    });
+
+    test('copyright lines come through as text, empty ones dropped', async () => {
+        const album = await serving().getAlbumWithTracks('alb');
+
+        expect(album.copyrights).toEqual(['\u2117 2014 Randm Records']);
+    });
+
+    test('an album with none of the optional fields still answers', async () => {
+        const client = clientServing({
+            '/albums/alb': { id: 'alb', name: 'Minimal', total_tracks: 1,
+                tracks: { items: [{ id: 't0', name: 'One', track_number: 1 }] } },
+            '/tracks?ids=': full(['t0']),
+        });
+
+        const album = await client.getAlbumWithTracks('alb');
+
+        expect(album).toMatchObject({ label: null, album_type: null, upc: null });
+        expect(album.artists).toEqual([]);
+        expect(album.copyrights).toEqual([]);
+        expect(album.tracks[0].artists).toEqual([]);
+    });
+
+    test('an artist with no name is dropped rather than carried empty', async () => {
+        const client = clientServing({
+            '/albums/alb': { ...ALBUM, artists: [{ id: 'x' }, { id: 'y', name: ' ' },
+                { id: 'z', name: 'Real Act' }] },
+            '/tracks?ids=': full(['t0', 't1']),
+        });
+
+        expect((await client.getAlbumWithTracks('alb')).artists)
+            .toEqual([{ id: 'z', name: 'Real Act' }]);
+    });
+});
+
 describe('albumIdsByUpc', () => {
     test('asks Spotify for the barcode, filtered', async () => {
         const client = clientServing({ '/search': { albums: { items: [{ id: 'alb1' }] } } });
