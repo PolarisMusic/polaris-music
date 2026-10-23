@@ -1109,6 +1109,23 @@ and those people become that Group's `MEMBER_OF` edges for this track. They are
 classified by the same `parseCredits` the release level uses, so a producer
 credited beside the band does not become a bandmate.
 
+**A line-up named on a track is a membership, when nothing else says
+otherwise.** `/api/graph` builds the main view from `MEMBER_OF` and nothing
+else: a Person enters the graph *because* they are a member of a Group, and
+MEMBER_OF is the only edge type the query returns — the `PERFORMED_ON` edges
+from a Person to a Track are read for the donut's participation counts and
+draw nothing. So a group whose only line-up is on a track used to reach the
+graph as a bare node: the people were in the registry, the band was on screen,
+and nothing joined them.
+
+So `processReleaseBundle` writes `MEMBER_OF` for a track-level line-up **when
+the release said nothing about that group's membership**, which is exactly the
+compilation case. Where the release *does* declare a line-up, a track-level
+list is an override — a member sitting out, a stand-in behind the kit — and no
+membership is written for it, because promoting a stand-in to the band is the
+confidently-wrong answer the model warns against. No dates are set either way:
+a track credit says who played on this release, not when they joined.
+
 Reading an instrument credit as membership is the call this project already
 made for a release Discogs has no members list for, and it is the one in force
 here: a compilation names ten acts and fetching a roster for each would be ten

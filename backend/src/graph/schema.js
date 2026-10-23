@@ -1298,6 +1298,17 @@ constructor(config = {}) {
                         const explicitMembers = Array.isArray(performingGroup.members) ? performingGroup.members : [];
                         const membersAreComplete = performingGroup.members_are_complete === true;
 
+                        // Whether anything at the release level says who is in
+                        // this group. When nothing does, a track's line-up is
+                        // the only statement about its membership that exists —
+                        // which is the normal case for a compilation, where the
+                        // acts are named on the tracks and the release credits
+                        // nobody. See docs/02, "A compilation is credited to its
+                        // tracks".
+                        const hasReleaseLineup =
+                            (groupMembersById.get(groupId)?.length ?? 0) > 0
+                            || (groupMembersByName.get(groupName.toLowerCase())?.length ?? 0) > 0;
+
                         // Step 1: Create explicit (non-derived) edges for per-track member overrides
                         if (explicitMembers.length > 0) {
                             const explicitPayload = [];
@@ -1355,6 +1366,45 @@ constructor(config = {}) {
                                     groupId
                                 });
                                 this.log.debug('performed_on_explicit', { count: explicitPayload.length, track_id: trackId });
+
+                                // And the membership itself, where the release
+                                // said nothing about it.
+                                //
+                                // Without this a compilation's acts reach the
+                                // graph as bare nodes: /api/graph returns
+                                // Person nodes *because* they are MEMBER_OF a
+                                // Group and returns MEMBER_OF as its only edge
+                                // type, so a line-up that produced only
+                                // Person->Track edges is invisible there — the
+                                // people are in the registry, the band they
+                                // played in is on screen, and nothing joins
+                                // them. The Person->Track edges above stay:
+                                // they are what the donut counts participation
+                                // from, and they say which track each person
+                                // actually played on.
+                                if (!hasReleaseLineup) {
+                                    await tx.run(`
+                                        UNWIND $members AS m
+                                        MATCH (p:Person {person_id: m.personId})
+                                        MATCH (g:Group {group_id: $groupId})
+                                        MERGE (p)-[mem:MEMBER_OF {claim_id: $claimId}]->(g)
+                                        SET mem.role = m.role,
+                                            mem.roles = m.roles,
+                                            mem.instruments = m.instruments,
+                                            // No dates: a track credit says who
+                                            // played on this release, not when
+                                            // they joined. EDIT_CLAIM adds them.
+                                            mem.from_date = null,
+                                            mem.to_date = null,
+                                            mem.lineup_source = 'track_explicit'
+                                    `, {
+                                        members: explicitPayload,
+                                        groupId,
+                                        claimId: trackOpId
+                                    });
+                                    this.log.debug('member_of_from_track',
+                                        { count: explicitPayload.length, group_id: groupId });
+                                }
                             }
 
                             // If members_are_complete, skip derived propagation for this group
