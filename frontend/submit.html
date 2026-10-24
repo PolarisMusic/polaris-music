@@ -57,17 +57,19 @@
                         <details>
                             <summary>
                                 <span class="icon">📀</span>
-                                <strong>Import from Discogs or Spotify</strong>
+                                <strong>Import from Discogs, Spotify or Bandcamp</strong>
                                 <span class="hint">Auto-fill the form from a release link</span>
                             </summary>
                             <div class="import-content">
-                                <p>Paste a Discogs release or master URL, or a Spotify album link.
-                                   Discogs carries the credits; Spotify carries releases Discogs
-                                   has never heard of, along with the ISRCs — but no credits at
-                                   all, since its API has none.</p>
+                                <p>Paste a Discogs release or master URL, a Spotify album link,
+                                   or a Bandcamp album page. Discogs carries structured credits;
+                                   Spotify carries releases Discogs has never heard of, along with
+                                   the ISRCs — but no credits at all, since its API has none;
+                                   Bandcamp carries the records that are on neither, and its
+                                   credits are whatever the artist typed.</p>
                                 <div class="import-input-group">
                                     <input type="text" id="discogs-input"
-                                           placeholder="https://www.discogs.com/release/249504 or https://open.spotify.com/album/…"
+                                           placeholder="https://www.discogs.com/release/249504, https://open.spotify.com/album/… or https://band.bandcamp.com/album/…"
                                            autocomplete="off">
                                     <button type="button" id="fetch-discogs-btn" class="btn-secondary">
                                         Fetch Data
@@ -75,8 +77,10 @@
                                 </div>
                                 <div id="discogs-status" class="import-status"></div>
                                 <small class="note">
-                                    <strong>Note:</strong> This will auto-populate the form with data from Discogs.
-                                    You can review and edit all fields before submitting.
+                                    <strong>Note:</strong> This auto-populates the form from whichever
+                                    service the link belongs to. You can review and edit every field
+                                    before submitting, and on a Bandcamp import you will have to:
+                                    its credits arrive as liner notes, not as people.
                                 </small>
                             </div>
                         </details>

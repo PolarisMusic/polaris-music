@@ -11,7 +11,8 @@ import { TransactionBuilder } from './utils/transactionBuilder.js';
 import { discogsClient } from './utils/discogsClient.js';
 import { searchNodes } from './utils/searchClient.js';
 import { INGEST_MODE, CONTRACT_ACCOUNT } from './config/chain.js';
-import { canonicalizeListenLink, normalizeListenLink, sameTarget } from './utils/listenLinks.js';
+import { canonicalizeListenLink, isBandcampLink, normalizeListenLink, sameTarget }
+    from './utils/listenLinks.js';
 import {
     diffTracklists, describeDifference, matchSpotifyTracks,
     chooseAlbumByTracklist, describeAlbumChoice, displayTitle,
@@ -19,6 +20,7 @@ import {
 import { barcodesFrom } from './utils/discogsBarcode.js';
 import {
     isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit, creditsByAct,
+    isVariousArtists,
 } from './utils/discogsArtists.js';
 
 class PolarisApp {
@@ -1998,11 +2000,26 @@ class PolarisApp {
             return;
         }
 
+        // And a Bandcamp page, for the catalogue neither of the others has:
+        // self-released records, small-label records, anything a band put up
+        // themselves and never distributed.
+        //
+        // Matched on the host alone and left to the server to validate, which
+        // answers in words. Being loose here costs nothing and being strict
+        // would cost a readable error: a label pointing its own domain at a
+        // Bandcamp store cannot be recognised from the URL at all, and the
+        // page is the only thing that can say what it is.
+        if (isBandcampLink(input)) {
+            await this.fetchFromBandcamp(input);
+            return;
+        }
+
         // Extract release ID or master ID
         const idInfo = discogsClient.extractReleaseId(input);
         if (!idInfo) {
             this.showDiscogsStatus(
-                'Paste a Discogs release or master URL, or a Spotify album link', 'error');
+                'Paste a Discogs release or master URL, a Spotify album link, '
+                + 'or a Bandcamp album page', 'error');
             return;
         }
 
@@ -2210,6 +2227,207 @@ class PolarisApp {
 
         // Same deferral as the Discogs import: the lookup manager's observer
         // has to have bound the rows before anything can be bound to a node.
+        setTimeout(() => {
+            this.reconcileImportedFields().catch(error =>
+                console.warn('Reconciliation pass failed:', error));
+        }, 150);
+    }
+
+    /**
+     * Fill the form from a Bandcamp page.
+     *
+     * The case this answers is a record that is on no other service: Bandcamp
+     * is where a band puts a record up themselves, and a great deal of what is
+     * there was never distributed anywhere Discogs or Spotify would see it.
+     *
+     * Bandcamp publishes no catalogue API — none, not a restricted one — so
+     * the server reads the public page. That page is not a versioned interface
+     * and can change without notice, which is why a failed import here says
+     * which of the two structures was missing rather than "not found", and why
+     * scripts/checkBandcamp.js exists to show what a live page yields.
+     *
+     * @param {string} url - A bandcamp.com album or track page.
+     */
+    async fetchFromBandcamp(url) {
+        this.showDiscogsStatus('Reading the Bandcamp page...', 'loading');
+
+        let result;
+        try {
+            result = await api.getBandcampAlbum(url);
+        } catch (error) {
+            console.error('Bandcamp import failed:', error);
+            this.showDiscogsStatus(`Error: ${error.message}`, 'error');
+            return;
+        }
+
+        if (!result.success || !result.album) {
+            const detail = result.message || result.error
+                || 'That Bandcamp page carried no release this server could read.';
+            this.showDiscogsStatus(`Error: ${detail}`, 'error');
+            return;
+        }
+
+        this.populateFormFromBandcamp(result.album, url);
+
+        const album = result.album;
+        const editions = album.other_editions?.length
+            ? ` Also sold as ${album.other_editions.join(' and ')} — each a separate release`
+              + ' to submit, not this one.'
+            : '';
+        const credits = album.credits
+            ? ' The credits are in the liner notes as the artist typed them: Bandcamp has no'
+              + ' structured credits, so the line-ups are yours to read across by hand.'
+            : ' The page carries no credits at all, so the line-ups are yours to add.';
+
+        this.showDiscogsStatus(`✓ Imported from Bandcamp: ${album.name}`
+            + (this.compilationNote ? ` — ${this.compilationNote}` : '')
+            + ` —${credits}${editions}`, 'success');
+        this.showToast(`Imported from Bandcamp: ${album.name}`, 'success');
+
+        // Odesli takes a Bandcamp link, so the same one request that follows a
+        // Spotify import works here too — and matters more, because a record
+        // found this way has no other identifier at all: no ISRC, and usually
+        // no barcode either.
+        this.importCrossServiceLinks(url)
+            .then((crossService) => {
+                if (crossService?.added > 0) {
+                    this.showToast(`Added ${crossService.added} link(s) on `
+                        + `${crossService.services.join(', ')}.`, 'success');
+                }
+            })
+            .catch((error) => console.warn('Cross-service lookup after import failed:', error));
+    }
+
+    /**
+     * Write a Bandcamp release into the form.
+     *
+     * Its own function for the same reason the Spotify one is: mapping this
+     * into the Discogs payload shape would invent companies, `extraartists`
+     * and format descriptions that no Bandcamp page has.
+     *
+     * Four things the page says are not what they appear to be, all handled
+     * server-side and all documented in docs/17 §4 — the label is not the
+     * publisher, most tracks have no page of their own, an album page is
+     * several releases at once, and a preorder lists tracks that do not exist
+     * yet. What arrives here is already resolved.
+     *
+     * @param {Object} album - From /api/bandcamp/album.
+     * @param {string} pageUrl - The page it came from, kept as a source.
+     */
+    populateFormFromBandcamp(album, pageUrl) {
+        // A Bandcamp page rarely carries one, but when it does it is the only
+        // identifier this import produces that a credits lookup could use.
+        this.discogsBarcodes = album.upc ? [album.upc] : [];
+        this.compilationNote = '';
+        document.getElementById('labels-container').innerHTML = '';
+        document.getElementById('release-groups-container').innerHTML = '';
+        document.getElementById('release-guests-container').innerHTML = '';
+        document.getElementById('tracks-container').innerHTML = '';
+        this.formBuilder.counters = { label: 0, track: 0, person: 0, group: 0, role: 0 };
+
+        document.getElementById('release-name').value = album.name || '';
+        // Already YYYY/MM/DD: the server reads Bandcamp's own "13 Nov 2026
+        // 00:00:00 GMT" so this does not have to.
+        document.getElementById('release-date').value = album.release_date || '';
+
+        const formatSelect = document.getElementById('release-format');
+        if (formatSelect && album.format) formatSelect.value = album.format;
+
+        // The credits block first, because it is the thing a submitter will
+        // actually read off: on a good page it names every player and their
+        // instrument, who engineered, mixed and mastered, and the songwriters.
+        // It is free text with no structure whatsoever, so it goes in whole and
+        // nobody is invented from it.
+        document.getElementById('liner-notes').value =
+            [album.credits, album.about].filter(Boolean).join('\n\n');
+
+        if (album.label) {
+            const labelForm = this.formBuilder.createLabelForm();
+            document.getElementById('labels-container').appendChild(labelForm);
+            const labelIndex = this.formBuilder.counters.label - 1;
+            this.setFieldValue(labelForm.querySelector(
+                `input[name="label-name-${labelIndex}"]`), album.label);
+        }
+
+        // A Bandcamp page states one act and has no compilation flag of any
+        // kind — no `album_type`, no format descriptions — so there are only
+        // two signals: the act is a placeholder, or the tracks disagree with
+        // it. Either is enough.
+        //
+        // The placeholder test matters on its own: a Various Artists page
+        // whose tracks name nobody would otherwise have written "Various
+        // Artists" into the form as though it were a band, which is the exact
+        // thing utils/discogsArtists.js exists to prevent. It arrives instead
+        // with no release act and a note saying how many tracks need one.
+        const placeholder = Boolean(album.artist) && isVariousArtists({ name: album.artist });
+        const perTrackActs = (album.tracks ?? [])
+            .map((track) => track.artist)
+            .filter((artist) => artist && artist !== album.artist);
+        const compilation = placeholder || perTrackActs.length > 0;
+
+        if (album.artist && !compilation) {
+            const groupForm = this.formBuilder.createReleaseGroupForm(0);
+            document.getElementById('release-groups-container').appendChild(groupForm);
+            this.setFieldValue(groupForm.querySelector(
+                'input[name="release-group-name-0"]'), album.artist);
+        }
+
+        let tracksWithOwnAct = 0;
+        let tracksWithNoAct = 0;
+
+        for (const track of album.tracks ?? []) {
+            const trackForm = this.formBuilder.createTrackForm();
+            document.getElementById('tracks-container').appendChild(trackForm);
+            const trackIndex = this.formBuilder.counters.track - 1;
+
+            const field = (name) => trackForm.querySelector(`[name="${name}-${trackIndex}"]`);
+
+            this.setFieldValue(field('track-title'), track.title || '');
+            this.setFieldValue(field('track-position'), String(track.position ?? ''));
+            // Only the tracks with a page of their own get one. The rest are
+            // listed on the album page under a fragment, which is the album,
+            // not the track — so they get nothing rather than a link to the
+            // wrong thing.
+            if (track.url) this.setFieldValue(field('track-listen-link'), track.url);
+            // Bandcamp gives a duration in seconds and the form still has
+            // nowhere to put one. Third source now, same missing input.
+
+            if (compilation) {
+                // Each track to its own act where it names one. A track that
+                // names none on a compilation is a real gap, not an omission
+                // to paper over with the page's act.
+                const act = track.artist
+                    && track.artist !== album.artist
+                    && !isVariousArtists({ name: track.artist })
+                    ? track.artist
+                    : null;
+                if (act) {
+                    this.fillTrackGroups(trackForm, trackIndex, [{ name: act }]);
+                    tracksWithOwnAct++;
+                } else {
+                    tracksWithNoAct++;
+                }
+            }
+        }
+
+        // Both, and they are not the same thing: the page is where this came
+        // from, and it is also somewhere the record can be listened to.
+        document.getElementById('source-links').value = pageUrl;
+        const listenLinks = document.getElementById('release-listen-links');
+        if (listenLinks) listenLinks.value = pageUrl;
+
+        if (compilation) {
+            const missing = tracksWithNoAct > 0
+                ? ` ${tracksWithNoAct} track(s) name no act — add one before submitting.`
+                : '';
+            this.compilationNote = 'Compilation: credited per track, not to the release. '
+                + `${tracksWithOwnAct} track(s) have their own act.${missing}`;
+        }
+
+        this.formDirty = true;
+
+        // Same deferral as the other two imports: the lookup manager's
+        // observer has to have bound the rows first.
         setTimeout(() => {
             this.reconcileImportedFields().catch(error =>
                 console.warn('Reconciliation pass failed:', error));

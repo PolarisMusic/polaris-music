@@ -226,6 +226,31 @@ const TRACKING_PARAMS = /^(si|utm_[a-z_]+|nd|_branch_match_id|context|go|sp_cid|
 const LOCALE_SEGMENT = /^intl-[a-z]{2,3}$/i;
 
 /**
+ * Does this look like a Bandcamp page, enough to send to the server?
+ *
+ * Not part of normalizeListenLink, which answers what a link *identifies* —
+ * service, type and id — and a Bandcamp URL has no id in it at all: the slug
+ * is the title, and the numeric ids live in the page, not the address. So this
+ * answers the only question the import box needs, which is where to route.
+ *
+ * Deliberately host-only. The server validates properly and explains itself,
+ * and a stricter test here would just turn a readable error into a dead end.
+ * It also cannot be made strict: Bandcamp lets a label point its own domain at
+ * a store, and no rule over the URL can tell that from any other website.
+ *
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function isBandcampLink(url) {
+    if (typeof url !== 'string') return false;
+    try {
+        return /(^|\.)bandcamp\.com$/i.test(new URL(url.trim()).hostname);
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Reduce a listen link to its essential identity.
  *
  * Accepts full URLs, locale-prefixed URLs, /embed/ URLs and bare `spotify:`

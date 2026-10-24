@@ -375,6 +375,28 @@ class APIClient {
     }
 
     /**
+     * Ask the backend what a Bandcamp page says a release contains.
+     *
+     * Through our API for a different reason than Spotify: there is no secret
+     * to keep, because there is no API at all. Bandcamp serves no catalogue
+     * endpoint, so the server reads the public page — which a browser cannot
+     * do, since those pages send no CORS header.
+     *
+     * @param {string} url - A bandcamp.com album or track page.
+     * @returns {Promise<{success: boolean, reason?: string, message?: string,
+     *                    album?: Object}>}
+     */
+    async getBandcampAlbum(url) {
+        const response = await fetch(`${API_BASE_URL}/bandcamp/album`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ url }),
+        });
+        // As with Spotify: a 4xx/5xx still carries a reason worth showing.
+        return response.json();
+    }
+
+    /**
      * Ask what the same recordings are called on other services.
      *
      * By ISRC where a catalogue can be asked that way, and by platform link

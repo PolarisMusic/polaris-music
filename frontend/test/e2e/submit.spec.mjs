@@ -1695,3 +1695,270 @@ test.describe('labels and their catalogue numbers', () => {
         expect(bundle.release.labels[0].catalog_number).toBe('SP 34');
     });
 });
+
+test.describe('importing from Bandcamp', () => {
+    /**
+     * For the records that are on neither of the others: self-released albums,
+     * small-label albums, anything a band put up themselves. Bandcamp publishes
+     * no catalogue API at all, so the server reads the public page — which a
+     * browser cannot do, since those pages send no CORS header.
+     *
+     * The fixture is a real page's answer, trimmed: a preorder on the band's
+     * own page that a label released, which is the shape that caught two bugs
+     * in the parser. Note the label is NOT the band, several tracks have no
+     * page of their own, and the record is also sold on vinyl and CD as
+     * separate releases.
+     */
+    const BANDCAMP_ALBUM = {
+        success: true,
+        album: {
+            name: 'Watermelon',
+            artist: 'Howlin Rain',
+            label: 'Silver Current Records',
+            format: 'Digital',
+            other_editions: ['Vinyl LP', 'Compact Disc (CD)'],
+            upc: null,
+            release_date: '2026/11/13',
+            credits: 'The Players:\nEthan Miller: vocals, electric and acoustic guitar\n'
+                + 'Justin Smith: drums, percussion and backing vocals',
+            about: 'In celebration of 20 years riding the bus to never-ever land.',
+            tags: ['70s rock', 'Oakland'],
+            url: 'https://howlinrain.bandcamp.com/album/watermelon',
+            tracks: [
+                { title: 'Silver Paper (with Chris Robinson)', position: 1, duration: 297,
+                    url: 'https://howlinrain.bandcamp.com/track/silver-paper-with-chris-robinson',
+                    artist: null },
+                { title: 'Jesus Was A Cross Maker', position: 2, duration: null,
+                    url: null, artist: null },
+            ],
+        },
+    };
+
+    /** Paste a Bandcamp album page into the import box and wait for the fill. */
+    async function importFromBandcamp(page, { album = BANDCAMP_ALBUM } = {}) {
+        const sent = [];
+        await gotoForm(page);
+        await page.route('**/bandcamp/album', (route) => {
+            sent.push(JSON.parse(route.request().postData() ?? '{}'));
+            return route.fulfill({ contentType: 'application/json', body: JSON.stringify(album) });
+        });
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://howlinrain.bandcamp.com/album/watermelon');
+        await page.click('#fetch-discogs-btn');
+
+        return sent;
+    }
+
+    test('a Bandcamp link in the same box imports the release', async ({ page }) => {
+        const sent = await importFromBandcamp(page);
+
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Bandcamp');
+        expect(sent[0]).toEqual({ url: 'https://howlinrain.bandcamp.com/album/watermelon' });
+
+        await expect(page.locator('#release-name')).toHaveValue('Watermelon');
+        await expect(page.locator('#release-date')).toHaveValue('2026/11/13');
+        // Digital: the page's own release. The vinyl and the CD are separate
+        // Releases, and format is part of the fingerprint that keeps them apart.
+        await expect(page.locator('#release-format')).toHaveValue('Digital');
+        await expect(page.locator('[name="release-group-name-0"]')).toHaveValue('Howlin Rain');
+    });
+
+    test('the label is the label, not the band whose page it is', async ({ page }) => {
+        await importFromBandcamp(page);
+
+        await expect(page.locator('[name="label-name-0"]')).toHaveValue('Silver Current Records');
+    });
+
+    test('the page is kept as both a source and a place to listen', async ({ page }) => {
+        await importFromBandcamp(page);
+
+        const url = 'https://howlinrain.bandcamp.com/album/watermelon';
+        await expect(page.locator('#source-links')).toHaveValue(url);
+        await expect(page.locator('#release-listen-links')).toHaveValue(url);
+    });
+
+    test('a track gets a link only where a track page exists', async ({ page }) => {
+        await importFromBandcamp(page);
+
+        await expect(page.locator('[name="track-title-0"]'))
+            .toHaveValue('Silver Paper (with Chris Robinson)');
+        await expect(page.locator('[name="track-position-1"]')).toHaveValue('2');
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://howlinrain.bandcamp.com/track/silver-paper-with-chris-robinson');
+        // Not the album page under a fragment, which is where this one used to
+        // point. Nothing is better than the wrong thing.
+        await expect(page.locator('[name="track-listen-link-1"]')).toHaveValue('');
+    });
+
+    test('the credits arrive as liner notes, because that is all they are', async ({ page }) => {
+        await importFromBandcamp(page);
+
+        const notes = page.locator('#liner-notes');
+        await expect(notes).toHaveValue(/Ethan Miller: vocals, electric and acoustic guitar/);
+        await expect(notes).toHaveValue(/In celebration of 20 years/);
+        // Nobody is invented from that text: it has no roles and no per-track
+        // attachment, and guessing MEMBER_OF out of prose is not available here.
+        await expect(page.locator('#release-guests-container')).toBeEmpty();
+    });
+
+    test('the status says the credits are not people, and names the other editions',
+        async ({ page }) => {
+            await importFromBandcamp(page);
+
+            const status = page.locator('#discogs-status');
+            await expect(status).toContainText('Bandcamp has no structured credits');
+            await expect(status).toContainText('Vinyl LP and Compact Disc (CD)');
+            await expect(status).toContainText('each a separate release to submit');
+        });
+
+    test('a page with no credits at all says so instead', async ({ page }) => {
+        await importFromBandcamp(page, {
+            album: {
+                success: true,
+                album: { ...BANDCAMP_ALBUM.album, credits: null, other_editions: [] },
+            },
+        });
+
+        await expect(page.locator('#discogs-status'))
+            .toContainText('carries no credits at all');
+    });
+
+    test('a compilation credits each track to its own act', async ({ page }) => {
+        await importFromBandcamp(page, {
+            album: {
+                success: true,
+                album: {
+                    ...BANDCAMP_ALBUM.album,
+                    name: 'Lost Ark Studio Compilation Vol. 4',
+                    artist: 'Various Artists',
+                    tracks: [
+                        { title: 'Turns To Dust', position: 1, duration: 197,
+                            url: null, artist: 'The Paragraphs' },
+                        { title: 'Out To Sea', position: 2, duration: 248,
+                            url: null, artist: '22 Kings' },
+                    ],
+                },
+            },
+        });
+
+        // Nothing at the release level: a compilation is credited to its tracks.
+        await expect(page.locator('[name="release-group-name-0"]')).toHaveCount(0);
+        await expect(page.locator('[name="group-name-0-0"]')).toHaveValue('The Paragraphs');
+        await expect(page.locator('[name="group-name-1-0"]')).toHaveValue('22 Kings');
+        await expect(page.locator('#discogs-status')).toContainText('Compilation');
+    });
+
+    test('a compilation track naming no act is reported, not papered over',
+        async ({ page }) => {
+            await importFromBandcamp(page, {
+                album: {
+                    success: true,
+                    album: {
+                        ...BANDCAMP_ALBUM.album,
+                        artist: 'Various Artists',
+                        tracks: [
+                            { title: 'Turns To Dust', position: 1, duration: 197,
+                                url: null, artist: 'The Paragraphs' },
+                            { title: 'Out To Sea', position: 2, duration: 248,
+                                url: null, artist: null },
+                        ],
+                    },
+                },
+            });
+
+            await expect(page.locator('#discogs-status'))
+                .toContainText('1 track(s) name no act');
+        });
+
+    test('a page the server could not read reports the server’s own reason', async ({ page }) => {
+        // Bandcamp's markup is not a published interface. When it moves, the
+        // submitter needs to know that is what happened — not "not found".
+        await importFromBandcamp(page, {
+            album: {
+                success: false,
+                reason: 'unreadable',
+                message: 'That page carries no release data this server can read. '
+                    + 'Run scripts/checkBandcamp.js against it.',
+            },
+        });
+
+        const status = page.locator('#discogs-status');
+        await expect(status).toHaveClass(/error/);
+        await expect(status).toContainText('checkBandcamp.js');
+        await expect(page.locator('#release-name')).toHaveValue('');
+    });
+
+    test('a link that is none of the three says so', async ({ page }) => {
+        await gotoForm(page);
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://example.com/some/record');
+        await page.click('#fetch-discogs-btn');
+
+        await expect(page.locator('#discogs-status'))
+            .toContainText('or a Bandcamp album page');
+    });
+});
+
+test.describe('importing a Various Artists page from Bandcamp', () => {
+    /**
+     * A Bandcamp page carries no compilation flag of any kind — no
+     * `album_type`, no format descriptions, nothing. So the only signals are
+     * the act being a placeholder and the tracks disagreeing with it, and the
+     * placeholder has to count on its own: a Various Artists page whose tracks
+     * name nobody would otherwise put "Various Artists" in the form as though
+     * it were a band.
+     */
+    async function importVariousArtists(page, tracks) {
+        await gotoForm(page);
+        await page.route('**/bandcamp/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                album: {
+                    name: 'Label Sampler 2026',
+                    artist: 'Various Artists',
+                    label: 'Silver Current Records',
+                    format: 'Digital',
+                    other_editions: [],
+                    upc: null,
+                    release_date: '2026/01/01',
+                    credits: null,
+                    about: null,
+                    tags: [],
+                    url: 'https://silvercurrent.bandcamp.com/album/label-sampler-2026',
+                    tracks,
+                },
+            }),
+        }));
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input',
+            'https://silvercurrent.bandcamp.com/album/label-sampler-2026');
+        await page.click('#fetch-discogs-btn');
+    }
+
+    test('the placeholder is never written in as a band', async ({ page }) => {
+        // Even with no per-track act to go on, which is the case that used to
+        // produce a Group node called "Various Artists".
+        await importVariousArtists(page, [
+            { title: 'Turns To Dust', position: 1, duration: 197, url: null, artist: null },
+        ]);
+
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Bandcamp');
+        await expect(page.locator('[name="release-group-name-0"]')).toHaveCount(0);
+        await expect(page.locator('#discogs-status')).toContainText('1 track(s) name no act');
+    });
+
+    test('a track credited to the placeholder names no act either', async ({ page }) => {
+        await importVariousArtists(page, [
+            { title: 'Turns To Dust', position: 1, duration: 197, url: null,
+                artist: 'The Paragraphs' },
+            { title: 'Out To Sea', position: 2, duration: 248, url: null, artist: 'V/A' },
+        ]);
+
+        await expect(page.locator('[name="group-name-0-0"]')).toHaveValue('The Paragraphs');
+        await expect(page.locator('[name="group-name-1-0"]')).toHaveCount(0);
+        await expect(page.locator('#discogs-status')).toContainText('1 track(s) name no act');
+    });
+});
