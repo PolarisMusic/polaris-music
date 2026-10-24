@@ -16,6 +16,7 @@
 
 import { describe, test, expect } from '@jest/globals';
 import {
+    isBandcampLink,
     normalizeListenLink,
     canonicalizeListenLink,
     stripTrackingParams,
@@ -453,5 +454,45 @@ describe('the services Odesli answers for', () => {
         for (const [service, url] of Object.entries(resolved)) {
             expect(normalizeListenLink(url)?.service).toBe(service);
         }
+    });
+});
+
+describe('spotting a Bandcamp page, which is only a routing question', () => {
+    // A Bandcamp URL names no id: the slug is the title and the numeric ids
+    // live in the page, not the address. So this is not normalizeListenLink's
+    // job — the import box only needs to know where to send it, and the server
+    // decides whether it is really a release.
+    test.each([
+        ['an album page', 'https://howlinrain.bandcamp.com/album/watermelon'],
+        ['a track page', 'https://howlinrain.bandcamp.com/track/fall-away'],
+        ['the bare subdomain', 'https://howlinrain.bandcamp.com'],
+        ['bandcamp.com itself', 'https://bandcamp.com/discover'],
+        ['http rather than https', 'http://howlinrain.bandcamp.com/album/watermelon'],
+        ['a host cased oddly', 'https://HowlinRain.Bandcamp.COM/album/watermelon'],
+        ['padding around it', '  https://howlinrain.bandcamp.com/album/watermelon  '],
+    ])('%s is one', (_label, url) => {
+        expect(isBandcampLink(url)).toBe(true);
+    });
+
+    test.each([
+        ['a Spotify album', 'https://open.spotify.com/album/ALB1'],
+        ['a Discogs release', 'https://www.discogs.com/release/249504'],
+        // The suffix trap: a host ending in the string is not a subdomain of it.
+        ['a lookalike host', 'https://notbandcamp.com/album/x'],
+        ['the name in the path only', 'https://example.com/bandcamp.com/album/x'],
+        ['the name in a query', 'https://example.com/?to=howlinrain.bandcamp.com'],
+        ['not a URL at all', '249504'],
+        ['nothing', ''],
+        ['not a string', null],
+    ])('%s is not', (_label, url) => {
+        expect(isBandcampLink(url)).toBe(false);
+    });
+
+    test('a label on its own domain cannot be spotted, and is not guessed at', () => {
+        // Bandcamp lets a label point its own domain at a store. Nothing in the
+        // URL distinguishes that from any other website, so it routes to the
+        // Discogs parser and reports what it is: an unrecognised link. Pasting
+        // the bandcamp.com address of the same record works.
+        expect(isBandcampLink('https://silvercurrent.com/album/watermelon')).toBe(false);
     });
 });

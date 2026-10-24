@@ -11,9 +11,9 @@ MusicBrainz are the next piece (§5) and are not built yet.
 ## 1. One box, three kinds of link
 
 The import panel takes a Discogs release or master URL, a Spotify album link,
-or a Bandcamp album or track page, and routes on what was pasted
-(`normalizeListenLink` decides). One box because it is one act — pasting the
-link to a record — and because no service carries everything:
+or a Bandcamp album or track page, and routes on what was pasted. One box
+because it is one act — pasting the link to a record — and because no service
+carries everything:
 
 | | Discogs | Spotify | Bandcamp |
 |---|---|---|---|
@@ -29,6 +29,18 @@ link to a record — and because no service carries everything:
 Bandcamp is in here for the catalogue the other two do not have: self-released
 records, small-label records, and anything a band put up themselves and never
 distributed. It is also the only one of the three with no API at all.
+
+Routing is three different questions, because the three links are not alike.
+`normalizeListenLink` recognises a Spotify *album* link, because a Spotify URL
+carries a service, a type and an id. `discogsClient.extractReleaseId` pulls the
+release or master number out of a Discogs URL. A Bandcamp URL has no id in it
+at all — the slug is the title, and the numeric ids live in the page — so
+`isBandcampLink` answers on the host alone and the server decides whether the
+page is really a release. That looseness is deliberate: a stricter test would
+turn a readable error into a dead end, and it cannot be made strict anyway,
+since Bandcamp lets a label point its own domain at a store and no rule over a
+URL can tell that from any other website. Pasting the `bandcamp.com` address of
+the same record works.
 
 ## 2. Spotify has no credits. None.
 
@@ -50,16 +62,25 @@ What it does carry is the pair of identifiers that make the gap fillable: the
 
 ## 3. What each import writes
 
-Both paths share the decisions that are about music rather than about a
+All three share the decisions that are about music rather than about a
 payload — who the "Various" placeholder is, which act performed a track, when a
 track stops inheriting the release's credit — in `utils/discogsArtists.js`.
 Spotify says those things in its own words (`album_type: "compilation"`, artist
-id `0LyfQWJT6nXafLPZqxe9Of`, `tracks[].artists`), and that module speaks both
-dialects. See docs/02, "A compilation is credited to its tracks, not to a band".
+id `0LyfQWJT6nXafLPZqxe9Of`, `tracks[].artists`), Bandcamp barely says them at
+all, and that module speaks all three dialects. See docs/02, "A compilation is credited to its tracks, not to a band".
 
-They do **not** share a populate function. Mapping Spotify into the Discogs
-payload shape would invent companies, `extraartists` and format descriptions
-that Spotify does not have.
+They do **not** share a populate function. Mapping Spotify or Bandcamp into the
+Discogs payload shape would invent companies, `extraartists` and format
+descriptions that neither has.
+
+Bandcamp needs that shared module for a reason the others do not: it publishes
+**no compilation flag of any kind**. There is no `album_type`, no format
+description, nothing — so the only signals are the act being a Various Artists
+placeholder and the tracks disagreeing with it, and the placeholder has to count
+on its own. A Various Artists page whose tracks name nobody would otherwise
+arrive with "Various Artists" written into the form as though it were a band.
+It arrives instead with no release act and a note saying how many tracks still
+need one.
 
 | Field | Discogs | Spotify | Bandcamp |
 |---|---|---|---|
