@@ -29,6 +29,30 @@ const ID_FIELDS = {
 };
 
 /**
+ * The other names a node goes by, as a plain list of strings.
+ *
+ * Both spellings, because the registry uses `alt_names` for the things that
+ * have a name and `alt_titles` for the things that have a title, and a search
+ * result does not want to care which it got.
+ *
+ * These are why a result is in the list at all when the query matched none of
+ * the visible text — `entitySearch` indexes them and the substring fallback
+ * checks them — so dropping them from the projection left the caller unable to
+ * say why "Avey Tare" returned somebody called Dave Portner.
+ *
+ * @param {Object} properties - The node's properties.
+ * @returns {string[]}
+ */
+function otherNames(properties) {
+    const names = [
+        ...(Array.isArray(properties.alt_names) ? properties.alt_names : []),
+        ...(Array.isArray(properties.alt_titles) ? properties.alt_titles : []),
+    ];
+    return names.filter((name) => typeof name === 'string' && name.trim())
+        .map((name) => name.trim());
+}
+
+/**
  * Normalize a Neo4j node into a unified search result shape.
  */
 function normalizeResult(properties, label, score) {
@@ -45,6 +69,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: p.origin_city_name || p.city || null,
                 image: p.photo || null,
                 color: p.color || null,
+                alt_names: otherNames(p),
                 score
             };
         case 'Group':
@@ -55,6 +80,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: p.formed_date ? `Formed ${p.formed_date}` : null,
                 image: p.photo || null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
         case 'Release':
@@ -65,6 +91,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: p.release_date || null,
                 image: p.album_art || null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
         case 'Track':
@@ -75,6 +102,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: null,
                 image: null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
         case 'Song':
@@ -85,6 +113,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: null,
                 image: null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
         case 'Label':
@@ -95,6 +124,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: null,
                 image: null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
         case 'City':
@@ -105,6 +135,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: p.country || null,
                 image: null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
         default:
@@ -115,6 +146,7 @@ function normalizeResult(properties, label, score) {
                 subtitle: null,
                 image: null,
                 color: null,
+                alt_names: otherNames(p),
                 score
             };
     }

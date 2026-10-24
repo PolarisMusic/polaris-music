@@ -116,6 +116,55 @@ origin city for Persons, Labels and guests, but the form has no field for a
 *Group's*) and `keywords`, the artist's own genre tags, which wait on the
 bundle growing a genres field.
 
+### A track's line-up is read whether or not the act changed
+
+Two separate reasons a track does not inherit the release's credit, and the
+import used to check only one.
+
+The **act** can differ — a compilation names it per track. The **line-up** can
+differ while the act does not, which is what an ensemble or session record is:
+"San Diego Sessions" credits bass, drums, guitar, keyboards, organ and
+percussion under every track, eleven players across seven tracks, all of them
+Ellis Munk Ensemble.
+
+None of that was read. The whole per-track credit block sat behind
+`overridesReleaseCredit`, a compilation's signal, so a single-act record never
+entered it. Every track inherited the release line-up, which on that record was
+the two people credited with mixing and recording it, and the players were
+dropped silently — seven identical tracklists in the submitted JSON.
+
+Either signal is now enough. The act still comes from
+`trackPerformers`, so reading a track's roster does not invent an act per
+track; and the compilation note's counters still move only when the act
+differs, since a track reading its own roster has said nothing about who the
+act is.
+
+### Two catalogues, two tracklists
+
+Neither Discogs nor Spotify is authoritative, so differences are reported
+rather than corrected. Two rules keep that report worth reading:
+
+**An insertion is one fact, not one per track.** A streaming release of a live
+record carries the between-song banter as tracks of its own. The songs are all
+present and all in order, and every position after the first interlude is off
+by one — which came out as a separate mismatch per track: nine differences and
+a count line for the single fact that Spotify has two extra tracks. When the
+shorter tracklist runs through the longer one in order, only the extra tracks
+are named.
+
+**A trailing character is forgiven from eight characters up.** The general
+tolerance is one edit per ten characters of the shorter title, which gives an
+eight-character title none — so "Super Fx" against "Super Fxx" was reported as
+a different song and no link was filled. A tail is weaker evidence of a
+different song than an edit in the middle of one, since it cannot turn a word
+into another word. Guarded three ways: the shared part must be eight
+characters, the tail at most two, and it must not be a digit, because "Disc 1"
+and "Disc 10" are a prefix pair and are not the same thing. Six characters
+still buy nothing, so "Lithiu" and "Lithium" stay a reported difference.
+
+A near match is still *reported*, as a spelling difference — the link gets
+filled and the submitter is told the two catalogues disagree.
+
 ## 4. Bandcamp publishes no API, and its page is not an interface
 
 There is no Bandcamp catalogue API. Their developer programme is an artist's

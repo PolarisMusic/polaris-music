@@ -819,6 +819,18 @@ class PolarisApp {
                 ? `Spotify has no release under the barcode Discogs lists (${barcode}), `
                     + 'so it was looked up by name instead.'
                 : 'Discogs lists no barcode for this release, so it was looked up by name.');
+
+            // What was actually searched for. A name match on a title like
+            // "Live at KEXP" — which half the bands on earth have one of —
+            // reads as a coin toss unless the report says the artist was part
+            // of the query and the tracklist then had to agree. Both were
+            // true and neither was visible.
+            this.appendReportLine(report, identity?.artist
+                ? `Searched for "${identity.album}" by "${identity.artist}", and the `
+                    + 'tracklist in this form had to account for it before it was accepted.'
+                : `Searched for "${identity?.album ?? ''}" with no artist — this form names `
+                    + 'no release-level act, so the title alone was sent. Add the act above '
+                    + 'and press Import again for a narrower search.');
         }
 
         // After the report rather than before it: this is a second round of
@@ -2723,26 +2735,48 @@ class PolarisApp {
                 }
 
                 // ===== PERFORMING GROUPS =====
-                // The difference between a compilation and an album: the act
-                // is named per track rather than once at the top. Left to
-                // inherit, every track on a compilation would be credited to
-                // whatever the release said — which, before this, was a band
-                // called Various that has never played anything.
-                if (overridesReleaseCredit(discogsTrack, discogsRelease)) {
-                    const performers = trackPerformers(discogsTrack, discogsRelease);
+                // Two separate reasons a track does not simply inherit the
+                // release's credit, and either is enough.
+                //
+                // The act can differ — a compilation names it per track rather
+                // than once at the top. Left to inherit, every track on one
+                // would be credited to whatever the release said, which before
+                // this was a band called Various that has never played
+                // anything.
+                //
+                // Or the LINE-UP can differ while the act does not, which is
+                // what this used to miss entirely. A session or ensemble
+                // record prints a different roster under every track — "San
+                // Diego Sessions" credits bass, drums, guitar, keyboards,
+                // organ and percussion per track, eleven players across seven
+                // tracks — and none of it was read, because the whole block
+                // was gated on the act changing. Every track inherited the
+                // release line-up, which on that record was the two people
+                // credited with mixing and recording it. The players were
+                // dropped silently; the JSON showed seven identical tracks.
+                //
+                // Classified by the same parseCredits the release level uses,
+                // so a producer credited beside the band does not become a
+                // bandmate — and with no roster to check against, an
+                // instrument credit is read as membership, which is the call
+                // this project already made for a release with no members list.
+                const trackCredits = discogsClient.parseCredits(discogsTrack.extraartists);
+                const actDiffers = overridesReleaseCredit(discogsTrack, discogsRelease);
+                const lineUpPrinted = trackCredits.members.length > 0;
 
-                    // The line-up printed under the track. Classified by the
-                    // same parseCredits the release level uses, so a producer
-                    // credited beside the band does not become a bandmate —
-                    // and with no roster to check against, an instrument
-                    // credit is read as membership, which is the call this
-                    // project already made for a release with no members list.
-                    const trackCredits = discogsClient.parseCredits(discogsTrack.extraartists);
+                if (actDiffers || lineUpPrinted) {
+                    const performers = trackPerformers(discogsTrack, discogsRelease);
 
                     const performed = this.fillTrackGroups(trackForm, trackIndex, performers,
                         creditsByAct(performers, trackCredits.members));
-                    if (performed > 0) tracksWithOwnAct++;
-                    else tracksWithNoAct++;
+                    // Counted only for a compilation, whose note reports how
+                    // many tracks found an act of their own. A single-act
+                    // record reading its own line-up has not told us anything
+                    // about the act, and must not move that tally.
+                    if (actDiffers) {
+                        if (performed > 0) tracksWithOwnAct++;
+                        else tracksWithNoAct++;
+                    }
                 }
 
                 // ===== SONGWRITERS =====

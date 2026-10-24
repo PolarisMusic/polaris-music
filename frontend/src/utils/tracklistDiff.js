@@ -149,8 +149,101 @@ export function nearlySameTitle(a, b) {
     if (!left || !right) return false;
     if (left === right) return true;
 
+    if (sameButForATail(left, right)) return true;
+
     const budget = Math.floor(Math.min(left.length, right.length) / FUZZY_CHARS_PER_EDIT);
     return budget > 0 && editDistance(left, right) <= budget;
+}
+
+/**
+ * The shortest title a trailing character may be forgiven on.
+ *
+ * Two notches below the general budget's ten, because a tail is weaker
+ * evidence of a different song than an edit in the middle of one — it cannot
+ * turn a word into another word. Not lower: six characters buy no slack at
+ * all here, so "Lithiu" and "Lithium" stay a reported difference, which is a
+ * decision this module already made and tested.
+ *
+ * The line is arbitrary at the margin, as any threshold is. What it is not is
+ * arbitrary in direction: an unfilled link is visible and costs a moment,
+ * while a link written against the wrong recording is invisible and anchored.
+ */
+const TAIL_MIN_LENGTH = 8;
+
+/** How many trailing characters one side may carry that the other does not. */
+const TAIL_MAX = 2;
+
+/**
+ * Whether two titles differ only by a short tail on one of them.
+ *
+ * The budget above is one edit per ten characters, which gives a title of
+ * eight none at all — so "Super Fx" against "Super Fxx" was reported as a
+ * different song, and no link was filled. A trailing character is the most
+ * common way a hand-typed catalogue and a label's delivery disagree, and it is
+ * a far weaker claim than an edit anywhere in the string: it cannot turn one
+ * word into another.
+ *
+ * Guarded three ways, because the cost of a wrong link is asymmetric — it is
+ * invisible and it gets anchored. The shared part must be a real title's
+ * worth of characters, the tail at most two, and it must not be a digit:
+ * "Disc 1" and "Disc 10" are a prefix pair and are not the same thing, and
+ * neither are "Part 2" and "Part 23".
+ *
+ * @param {string} left - Already normalized.
+ * @param {string} right - Already normalized.
+ * @returns {boolean}
+ */
+function sameButForATail(left, right) {
+    const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+    if (shorter.length < TAIL_MIN_LENGTH) return false;
+    if (!longer.startsWith(shorter)) return false;
+
+    const tail = longer.slice(shorter.length);
+    return tail.length <= TAIL_MAX && !/\d/.test(tail);
+}
+
+/**
+ * Whether one tracklist runs through the other in the same order.
+ *
+ * A streaming release of a live record interleaves the between-song banter as
+ * tracks of its own. The songs are all there, all in order, and every position
+ * after the first interlude is off by one — which the positional comparison
+ * below reported as a separate mismatch per track. Nine differences and a
+ * count line for the single fact that Spotify has two extra tracks, in a
+ * report whose whole purpose is to be read before signing.
+ *
+ * So: if the shorter list is an ordered subsequence of the longer, the order
+ * is not in question and only the extra tracks are worth naming.
+ *
+ * @param {string[]} inner - Titles that may run through `outer`.
+ * @param {string[]} outer - The longer list of titles.
+ * @returns {boolean}
+ */
+function runsThrough(inner, outer) {
+    let at = 0;
+    for (const title of inner) {
+        while (at < outer.length && !sameTitle(title, outer[at])) at++;
+        if (at === outer.length) return false;
+        at++;
+    }
+    return true;
+}
+
+/**
+ * Titles in `theirs` that `ours` does not account for, in their own order.
+ *
+ * @param {{title?: string}[]} ours
+ * @param {{name?: string}[]} theirs
+ * @returns {{name: string, index: number}[]}
+ */
+function unaccountedFor(ours, theirs) {
+    const extra = [];
+    theirs.forEach((track, index) => {
+        if (!ours.some((mine) => sameTitle(mine.title, track.name))) {
+            extra.push({ name: track.name ?? '', index });
+        }
+    });
+    return extra;
 }
 
 /**
@@ -179,6 +272,40 @@ export function diffTracklists(discogsTracks = [], spotifyTracks = []) {
             discogs: String(ours.length),
             spotify: String(theirs.length),
         });
+    }
+
+    // An insertion rather than a disagreement: every one of our titles appears
+    // in their order, so the positions below would all be off by the number of
+    // tracks inserted ahead of them. Report what was inserted and stop.
+    const ourTitles = ours.map((t) => t.title ?? '');
+    const theirTitles = theirs.map((t) => t.name ?? '');
+    if (ours.length < theirs.length && ours.length > 0 && runsThrough(ourTitles, theirTitles)) {
+        for (const extra of unaccountedFor(ours, theirs)) {
+            differences.push({
+                kind: 'missing_locally',
+                index: extra.index,
+                position: null,
+                discogs: null,
+                spotify: extra.name,
+            });
+        }
+        return differences;
+    }
+
+    // The same thing the other way round: the form carries tracks their
+    // release does not, and the rest line up.
+    if (theirs.length < ours.length && theirs.length > 0 && runsThrough(theirTitles, ourTitles)) {
+        ours.forEach((mine, index) => {
+            if (theirs.some((other) => sameTitle(mine.title, other.name))) return;
+            differences.push({
+                kind: 'missing_on_spotify',
+                index,
+                position: mine.position ?? null,
+                discogs: mine.title ?? null,
+                spotify: null,
+            });
+        });
+        return differences;
     }
 
     const overlap = Math.min(ours.length, theirs.length);

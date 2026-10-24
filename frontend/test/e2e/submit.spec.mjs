@@ -2134,6 +2134,10 @@ test.describe('naming someone who is already in the registry by another name', (
         await page.fill('[name="release-member-name-0-0"]', 'Kristen Gundred');
         await page.fill('[name="release-member-roles-0-0"]', 'Vocals');
         if (altNames !== null) {
+            // The box lives in a closed disclosure now — which is the whole
+            // point of closing it, and is why `fill` on a hidden input times
+            // out rather than quietly succeeding. A person has to open it too.
+            await page.locator('.alias-disclosure summary').first().click();
             await page.fill('[name="release-member-altnames-0-0"]', altNames);
         }
 
@@ -2262,5 +2266,341 @@ test.describe('the album cover, which an import can usually supply', () => {
 
         await expect(page.locator('#discogs-status')).toContainText('Imported from Bandcamp');
         await expect(page.locator('#album-art')).toHaveValue('https://example.test/mine.jpg');
+    });
+});
+
+test.describe('a record whose line-up changes from track to track', () => {
+    /**
+     * "San Diego Sessions" by Ellis Munk Ensemble: one act on every track, and
+     * a different roster printed under each — eleven players across seven
+     * tracks, which is what an ensemble record is.
+     *
+     * None of it was read. The whole per-track credit block was gated on the
+     * ACT differing from the release's, which is a compilation's signal, so a
+     * single-act record never entered it. Every track inherited the release
+     * line-up — on that record, the two people credited with mixing and
+     * recording it — and the players were dropped silently. The submitted JSON
+     * showed seven identical tracklists.
+     */
+    const PLAYERS = {
+        A1: [
+            { name: 'Kyre Wilcox', role: 'Bass' },
+            { name: 'Thomas DiBenedetto', role: 'Drums' },
+            { name: 'Dylan Donovan', role: 'Guitar' },
+            { name: 'Conor Riley', role: 'Keyboards' },
+        ],
+        A2: [
+            { name: 'Anthony Meier', role: 'Bass' },
+            { name: 'Paul Marrone', role: 'Drums' },
+        ],
+    };
+
+    const DISCOGS_RELEASE = {
+        id: 15770047,
+        title: 'San Diego Sessions',
+        year: 2020,
+        artists: [{ id: 7, name: 'Ellis Munk Ensemble' }],
+        labels: [{ name: 'El Paraiso Records', catno: 'EPR051' }],
+        formats: [{ name: 'Vinyl' }],
+        identifiers: [{ type: 'Barcode', value: '5024545897517' }],
+        // Release-level credits: the mixing and the mastering, nothing played.
+        extraartists: [
+            { name: 'Jonas Munk', role: 'Mixed By, Mastered By' },
+        ],
+        tracklist: [
+            { position: 'A1', type_: 'track', title: 'The Wedge',
+                extraartists: PLAYERS.A1.map((p) => ({ name: p.name, role: p.role })) },
+            { position: 'A2', type_: 'track', title: "Pauly's Pentacles",
+                extraartists: PLAYERS.A2.map((p) => ({ name: p.name, role: p.role })) },
+        ],
+    };
+
+    async function importEnsemble(page, { release = DISCOGS_RELEASE } = {}) {
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(release),
+        }));
+        // No roster: Discogs knows no members for this act, which is the case
+        // where an instrument credit is read as membership.
+        await page.route('https://api.discogs.com/artists/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify({}),
+        }));
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/15770047');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+
+        return page.evaluate(() => window.polarisApp.buildReleaseData());
+    }
+
+    test('each track carries the players printed under it', async ({ page }) => {
+        const bundle = await importEnsemble(page);
+
+        const lineUp = (i) => bundle.tracks[i].performed_by_groups[0].members
+            .map((m) => m.name).sort();
+
+        expect(lineUp(0)).toEqual(
+            ['Conor Riley', 'Dylan Donovan', 'Kyre Wilcox', 'Thomas DiBenedetto']);
+        expect(lineUp(1)).toEqual(['Anthony Meier', 'Paul Marrone']);
+    });
+
+    test('the tracks no longer all carry the same line-up', async ({ page }) => {
+        // The shape of the bug: seven identical tracklists in the JSON.
+        const bundle = await importEnsemble(page);
+
+        const first = JSON.stringify(bundle.tracks[0].performed_by_groups);
+        const second = JSON.stringify(bundle.tracks[1].performed_by_groups);
+        expect(first).not.toBe(second);
+    });
+
+    test('the act stays the release act on every track', async ({ page }) => {
+        // The line-up changed, not the band. Reading a track's own roster must
+        // not invent an act per track.
+        const bundle = await importEnsemble(page);
+
+        for (const track of bundle.tracks) {
+            expect(track.performed_by_groups[0].name).toBe('Ellis Munk Ensemble');
+        }
+    });
+
+    test('the instruments come with them', async ({ page }) => {
+        const bundle = await importEnsemble(page);
+
+        const bass = bundle.tracks[0].performed_by_groups[0].members
+            .find((m) => m.name === 'Kyre Wilcox');
+        // As Discogs printed it. normalizeRoleInput turns this into the
+        // registry's own vocabulary — "Bass" becomes "bass guitar" — on the
+        // way into the graph, not on the way out of the form.
+        expect(bass.roles).toEqual(['Bass']);
+        expect(bundle.tracks[0].performed_by_groups[0].members
+            .find((m) => m.name === 'Conor Riley').roles).toEqual(['Keyboards']);
+    });
+
+    test('a track that prints no line-up still inherits the release', async ({ page }) => {
+        // Nothing to read is not a reason to un-inherit: a track with no
+        // credits of its own is the release's line-up, as before.
+        const bundle = await importEnsemble(page, {
+            release: {
+                ...DISCOGS_RELEASE,
+                tracklist: [
+                    { position: 'A1', type_: 'track', title: 'The Wedge' },
+                    { position: 'A2', type_: 'track', title: "Pauly's Pentacles" },
+                ],
+            },
+        });
+
+        for (const track of bundle.tracks) {
+            expect(track.performed_by_groups?.[0]?.name ?? 'Ellis Munk Ensemble')
+                .toBe('Ellis Munk Ensemble');
+        }
+    });
+
+    test('the compilation note is not fired by a single-act record', async ({ page }) => {
+        // The counters behind it mean "tracks that named an act of their own".
+        // A track reading its own roster has said nothing about the act.
+        await importEnsemble(page);
+
+        await expect(page.locator('#discogs-status')).not.toContainText('Compilation');
+    });
+});
+
+test.describe('the alias box, out of the way until it is wanted', () => {
+    /**
+     * Open, it sat between Name and Roles and collected roles typed straight
+     * past it. Closed, it is one quiet line and out of the tab order — and it
+     * opens itself when a bound person brings aliases along, because an alias
+     * filled in behind a closed summary is one nobody reads.
+     */
+    const PORTNER = {
+        id: 'prov:person:0ea026ff00000000',
+        type: 'Person',
+        display_name: 'Dave Portner',
+        alt_names: ['Avey Tare'],
+        subtitle: null,
+        context: [],
+    };
+
+    async function addMemberRow(page, { searchResults = [] } = {}) {
+        await gotoForm(page, { searchResults });
+        await page.click('#add-release-group');
+        await page.fill('[name="release-group-name-0"]', 'Animal Collective');
+        await page.click('.add-release-member');
+        await expect(
+            page.locator('[name="release-member-name-0-0"]')
+                .locator('xpath=ancestor::*[contains(@class,"entity-lookup-wrapper")]')
+        ).toBeAttached();
+    }
+
+    test('it starts closed', async ({ page }) => {
+        await addMemberRow(page);
+
+        const disclosure = page.locator('.alias-disclosure').first();
+        await expect(disclosure).toBeAttached();
+        await expect(disclosure).not.toHaveAttribute('open', '');
+    });
+
+    test('the box is not reachable by tab while it is closed', async ({ page }) => {
+        // Which is the actual fix: a closed <details> takes its contents out
+        // of the tab order, so Name tabs to Roles the way the form reads.
+        await addMemberRow(page);
+
+        await expect(page.locator('[name="release-member-altnames-0-0"]'))
+            .not.toBeVisible();
+    });
+
+    test('opening the summary reveals it', async ({ page }) => {
+        await addMemberRow(page);
+
+        await page.locator('.alias-disclosure summary').first().click();
+        await expect(page.locator('[name="release-member-altnames-0-0"]')).toBeVisible();
+    });
+
+    test('binding an existing person fills in the aliases they already have',
+        async ({ page }) => {
+            // Leaving it empty read as "this person has no other names" when
+            // the truth was that nobody had looked — and submitting from there
+            // sent nothing, so the node's aliases stayed invisible to the next
+            // submitter.
+            await addMemberRow(page, { searchResults: [PORTNER] });
+
+            await page.fill('[name="release-member-name-0-0"]', 'Avey Tare');
+            await page.locator('.entity-lookup-item').first().click();
+
+            await expect(page.locator('[name="release-member-altnames-0-0"]'))
+                .toHaveValue('Avey Tare');
+        });
+
+    test('and opens the disclosure so the fill is visible', async ({ page }) => {
+        await addMemberRow(page, { searchResults: [PORTNER] });
+
+        await page.fill('[name="release-member-name-0-0"]', 'Avey Tare');
+        await page.locator('.entity-lookup-item').first().click();
+
+        await expect(page.locator('.alias-disclosure').first()).toHaveAttribute('open', '');
+    });
+
+    test('a person with no aliases leaves it closed and empty', async ({ page }) => {
+        await addMemberRow(page, {
+            searchResults: [{ ...PORTNER, display_name: 'Dave Portner', alt_names: [] }],
+        });
+
+        await page.fill('[name="release-member-name-0-0"]', 'Dave Portner');
+        await page.locator('.entity-lookup-item').first().click();
+
+        await expect(page.locator('.alias-disclosure').first()).not.toHaveAttribute('open', '');
+    });
+
+    test('the search row says which alias matched', async ({ page }) => {
+        // "Avey Tare" returning somebody called Dave Portner looks like a
+        // mistake until the row says why it is there.
+        await addMemberRow(page, { searchResults: [PORTNER] });
+
+        await page.fill('[name="release-member-name-0-0"]', 'Avey Tare');
+        await expect(page.locator('.entity-lookup-alias').first())
+            .toHaveText('a.k.a. Avey Tare');
+    });
+
+    test('a row the query already matches by name shows no alias', async ({ page }) => {
+        await addMemberRow(page, { searchResults: [PORTNER] });
+
+        await page.fill('[name="release-member-name-0-0"]', 'Portner');
+        await expect(page.locator('.entity-lookup-item').first()).toBeVisible();
+        await expect(page.locator('.entity-lookup-alias')).toHaveCount(0);
+    });
+});
+
+test.describe('what a name search actually asked Spotify for', () => {
+    /**
+     * A name match on a title like "Live at KEXP" — which half the bands on
+     * earth have one of — reads as a coin toss. Both safeguards were already
+     * in place: the artist goes into the Spotify query as a field filter, and
+     * the tracklist in the form then has to account for the album before it is
+     * accepted. Neither was visible in the report, so the only honest reading
+     * of it was that the artist had been ignored.
+     */
+    const DISCOGS_RELEASE = {
+        id: 424242,
+        title: 'Live at KEXP',
+        year: 2019,
+        artists: [{ id: 3, name: 'Some Band' }],
+        labels: [{ name: 'A Label', catno: 'AL1' }],
+        formats: [{ name: 'Vinyl' }],
+        identifiers: [{ type: 'Barcode', value: 'none' }],
+        tracklist: [
+            { position: 'A1', type_: 'track', title: 'Brain Telephone' },
+            { position: 'A2', type_: 'track', title: 'Futurephobic' },
+            { position: 'A3', type_: 'track', title: 'Syster System' },
+        ],
+    };
+
+    const CANDIDATES = {
+        success: true,
+        matched_by: 'name',
+        candidates: [{
+            id: 'KEXP1', name: 'Live at KEXP', total_tracks: 3,
+            tracks: [
+                { id: 'k1', name: 'Brain Telephone - Live', track_number: 1 },
+                { id: 'k2', name: 'Futurephobic - Live', track_number: 2 },
+                { id: 'k3', name: 'Syster System - Live', track_number: 3 },
+            ],
+        }],
+    };
+
+    async function importByName(page, { release = DISCOGS_RELEASE } = {}) {
+        const sent = [];
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(release),
+        }));
+        await page.route('https://api.discogs.com/artists/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify({ members: [] }),
+        }));
+        await page.route('**/spotify/album', (route) => {
+            sent.push(JSON.parse(route.request().postData() ?? '{}'));
+            return route.fulfill({
+                contentType: 'application/json', body: JSON.stringify(CANDIDATES),
+            });
+        });
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/424242');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#listen-link-report')).toContainText('Searched for');
+        return sent;
+    }
+
+    test('the artist is part of the query', async ({ page }) => {
+        const sent = await importByName(page);
+
+        expect(sent[0]).toMatchObject({ album: 'Live at KEXP', artist: 'Some Band' });
+    });
+
+    test('and the report says so, with the title it searched', async ({ page }) => {
+        await importByName(page);
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('Searched for "Live at KEXP" by "Some Band"');
+    });
+
+    test('it also says the tracklist had to agree before it was accepted',
+        async ({ page }) => {
+            await importByName(page);
+
+            const report = page.locator('#listen-link-report');
+            await expect(report).toContainText('found by name and accepted on its tracklist');
+            await expect(report).toContainText('had to account for it');
+        });
+
+    test('a form with no act says the title went alone, and what to do', async ({ page }) => {
+        // The one case where the doubt would have been right. It needs saying
+        // rather than hiding behind the same wording as a narrowed search.
+        await importByName(page, {
+            release: { ...DISCOGS_RELEASE, artists: [] },
+        });
+
+        const report = page.locator('#listen-link-report');
+        await expect(report).toContainText('with no artist');
+        await expect(report).toContainText('Add the act above');
     });
 });

@@ -25,6 +25,37 @@ const LOOKUP_TYPE_MAP = {
     'City': ['City']
 };
 
+/**
+ * Show a bound entity's existing aliases beside the name that found it.
+ *
+ * Binding to somebody already in the registry and leaving the box empty read
+ * as "this person has no other names" when the truth was that nobody had
+ * looked. Worse, submitting from there sent nothing, so a node's aliases were
+ * invisible to the next submitter and got retyped or lost.
+ *
+ * Only fills an empty box: what the submitter typed is theirs, and the
+ * aliases being added are additive anyway — a name already on the node is
+ * discarded server-side rather than stored twice.
+ *
+ * @param {HTMLInputElement} nameInput - The visible name field.
+ * @param {{alt_names?: string[]}|null} result - The bound entity, or null on unbind.
+ */
+export function fillAliasBox(nameInput, result) {
+    const aliasName = String(nameInput?.name ?? '').replace(/-name-/, '-altnames-');
+    if (!aliasName || aliasName === nameInput?.name) return;
+
+    const box = nameInput.closest('form, body')?.querySelector(`[name="${aliasName}"]`);
+    if (!box || box.value.trim()) return;
+
+    const aliases = Array.isArray(result?.alt_names) ? result.alt_names : [];
+    if (aliases.length === 0) return;
+
+    box.value = aliases.join(', ');
+    // So a disclosure holding it opens: an alias filled in behind a closed
+    // summary is one nobody reads and everybody re-types.
+    box.closest('details')?.setAttribute('open', '');
+}
+
 export class FormLookupManager {
     /**
      * @param {HTMLElement} formRoot - The form element or container to observe
@@ -97,7 +128,8 @@ export class FormLookupManager {
             const instance = new EntityLookupField({
                 input: visibleInput,
                 hiddenInput: hiddenInput,
-                types
+                types,
+                onBind: (result) => fillAliasBox(visibleInput, result),
             });
 
             this._boundFields.add(hiddenInput);
