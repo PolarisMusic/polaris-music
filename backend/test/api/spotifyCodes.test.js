@@ -629,3 +629,45 @@ describe('the codes cannot sink the comparison', () => {
         expect(album.tracks.map(t => t.isrc)).toEqual(['ISRCT0', 'ISRCT1']);
     });
 });
+
+describe('the album cover', () => {
+    const albumServing = (images) => clientServing({
+        '/albums/alb': {
+            id: 'alb', name: 'Album', total_tracks: 1, external_ids: { upc: '1' },
+            ...(images === undefined ? {} : { images }),
+            tracks: { items: simplified(1) },
+        },
+        '/tracks?ids=': full(['t0']),
+    });
+
+    test('is the largest rendition, which is Spotify’s own first', async () => {
+        const album = await albumServing([
+            { url: 'https://i.scdn.co/image/big', height: 640, width: 640 },
+            { url: 'https://i.scdn.co/image/mid', height: 300, width: 300 },
+            { url: 'https://i.scdn.co/image/small', height: 64, width: 64 },
+        ]).getAlbumWithTracks('alb');
+
+        expect(album.artwork).toBe('https://i.scdn.co/image/big');
+    });
+
+    test.each([
+        ['no images key at all', undefined],
+        ['an empty list', []],
+        ['an entry with no url', [{ height: 640, width: 640 }]],
+    ])('%s gives null rather than a broken img src', async (_label, images) => {
+        const album = await albumServing(images).getAlbumWithTracks('alb');
+
+        expect(album.artwork).toBeNull();
+    });
+
+    test('only the URL is kept', async () => {
+        // The dimensions describe their CDN's rendition, not the artwork, and
+        // the registry stores a reference rather than a copy.
+        const album = await albumServing([
+            { url: 'https://i.scdn.co/image/big', height: 640, width: 640 },
+        ]).getAlbumWithTracks('alb');
+
+        expect(album.artwork).toBe('https://i.scdn.co/image/big');
+        expect(album).not.toHaveProperty('images');
+    });
+});

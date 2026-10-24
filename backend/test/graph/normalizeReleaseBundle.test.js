@@ -1210,3 +1210,68 @@ describe('a release carries the barcode off its sleeve', () => {
         expect(normalized.release.barcode).toBe('7464373891');
     });
 });
+
+describe('alternate names on a person', () => {
+    const withMember = (member) => normalizeReleaseBundle({
+        release: { name: 'R' },
+        groups: [{ name: 'G', members: [member] }],
+        tracks: [{ title: 'T' }],
+        tracklist: [{ position: '1', track_title: 'T' }],
+    });
+
+    test('they survive normalization', () => {
+        const bundle = withMember({ name: 'Kristen Gundred', alt_names: ['Dee Dee'] });
+
+        expect(bundle.groups[0].members[0].alt_names).toEqual(['Dee Dee']);
+    });
+
+    test('blanks and non-strings are dropped, the rest trimmed', () => {
+        const bundle = withMember({
+            name: 'Kristen Gundred',
+            alt_names: ['  Dee Dee  ', '', '   ', null, 42, 'Kristin Welchez'],
+        });
+
+        expect(bundle.groups[0].members[0].alt_names)
+            .toEqual(['Dee Dee', 'Kristin Welchez']);
+    });
+
+    test('a list that cleans down to nothing leaves the field off entirely', () => {
+        // Rather than an empty array, which would read as "this person has no
+        // other names" where the truth is that none were given.
+        const bundle = withMember({ name: 'Kristen Gundred', alt_names: ['', '  '] });
+
+        expect(bundle.groups[0].members[0]).not.toHaveProperty('alt_names');
+    });
+
+    test('they are kept alongside credited_as, not instead of it', () => {
+        // Different questions: credited_as is how this release billed someone,
+        // alt_names are names they go by at all. A search has to match the
+        // second; the first is a fact about this record.
+        const bundle = withMember({
+            name: 'Kristen Gundred',
+            alt_names: ['Dee Dee'],
+            credited_as: 'Dee Dee Penny',
+        });
+
+        expect(bundle.groups[0].members[0].alt_names).toEqual(['Dee Dee']);
+        expect(bundle.groups[0].members[0].credited_as).toBe('Dee Dee Penny');
+    });
+
+    test('a songwriter may carry them too', () => {
+        const bundle = normalizeReleaseBundle({
+            release: { name: 'R' },
+            tracks: [{ title: 'T' }],
+            tracklist: [{ position: '1', track_title: 'T' }],
+            songs: [{ title: 'T', writers: [
+                { name: 'Kristen Gundred', alt_names: ['  Dee Dee '] }] }],
+        });
+
+        expect(bundle.songs[0].writers[0].alt_names).toEqual(['Dee Dee']);
+    });
+
+    test('the validator accepts the field', () => {
+        // Person and WriterCredit are additionalProperties:false, so an
+        // unlisted field is not ignored — the whole bundle is rejected.
+        expect(() => withMember({ name: 'K', alt_names: ['Dee Dee'] })).not.toThrow();
+    });
+});

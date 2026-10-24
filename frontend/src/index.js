@@ -16,6 +16,7 @@ import { canonicalizeListenLink, isBandcampLink, normalizeListenLink, sameTarget
 import {
     diffTracklists, describeDifference, matchSpotifyTracks,
     chooseAlbumByTracklist, describeAlbumChoice, displayTitle,
+    tracklistSupportsAlbum,
 } from './utils/tracklistDiff.js';
 import { barcodesFrom } from './utils/discogsBarcode.js';
 import {
@@ -308,6 +309,14 @@ class PolarisApp {
         const linerNotes = formData.get('liner_notes');
         if (linerNotes) release.liner_notes = linerNotes;
 
+        // The sleeve. Everything downstream of the bundle was already ready
+        // for this — the graph writes r.album_art, the API returns it, and the
+        // info panel, the release orbit and the player all render it — and the
+        // one thing missing was anywhere to put it. Two of the three importers
+        // fill it in, so usually nobody types it.
+        const albumArt = (formData.get('album_art') || '').trim();
+        if (albumArt) release.album_art = albumArt;
+
         // Master release. The id is set only when the submitter picked an
         // existing Release from the lookup; otherwise keep the typed name so a
         // master that is not in the registry yet is still recorded rather than
@@ -501,7 +510,7 @@ class PolarisApp {
 
     /**
      * Extract release-level guests from form (canonical format)
-     * Emits: { name, roles: string[], origin_city? }
+     * Emits: { name, alt_names?, roles: string[], origin_city? }
      * These are producers, engineers, etc. persisted as GUEST_ON→Release.
      */
     extractReleaseGuests() {
@@ -522,6 +531,10 @@ class PolarisApp {
             // Emit existing person_id if bound via autocomplete
             const personId = this.getInputValue(item, `release-guest-person-id-${index}`);
             if (personId) guest.person_id = personId;
+
+            const altNames = this.parseCommaSeparated(
+                this.getInputValue(item, `release-guest-altnames-${index}`));
+            if (altNames.length > 0) guest.alt_names = altNames;
 
             if (roles.length > 0) guest.roles = roles;
 
@@ -748,16 +761,48 @@ class PolarisApp {
             ?? this.chooseCandidate(tracks, result.candidates, report, imported);
         if (!album) return;
 
-        const filled = this.fillTrackLinksFromAlbum(tracks, album.tracks);
+        // A barcode match is verified against the barcode and says nothing
+        // about the music. Barcodes get reused, mis-entered in community
+        // catalogues, and shared between an album and a promo EP cut from it —
+        // and one such match here filed a 15-track album's barcode under a
+        // 4-track release, whose link and whose five other services' links all
+        // went into the form before the report saying so had been read.
+        //
+        // So it is held to the same tracklist test a name match already was. A
+        // pasted link is not: that is the submitter's own statement of which
+        // release this is.
+        const support = result.matched_by === 'upc'
+            ? tracklistSupportsAlbum(tracks, album)
+            : { supported: true };
+
+        const filled = support.supported
+            ? this.fillTrackLinksFromAlbum(tracks, album.tracks)
+            : 0;
 
         // The album link belongs on the release, not only on the tracks: it is
         // what the player uses for the album embed, and after a match made from
         // a barcode or a name nothing else would ever put it there. Merged
         // rather than assigned, so a link already in the field survives and its
         // twin is not added twice.
-        if (album.id) {
+        if (album.id && support.supported) {
             imported = this.mergeTrackLinksIntoRelease(
                 [`https://open.spotify.com/album/${album.id}`], target);
+        }
+
+        if (!support.supported) {
+            // Said before the diff rather than after it: the diff reads as a
+            // list of things to check, and the thing to check here is whether
+            // this is the right record at all.
+            report.textContent = `Imported ${imported} link(s).`;
+            this.appendReportLine(report,
+                `Spotify files the barcode Discogs lists (${barcode}) under `
+                + `"${album.name}" (${support.albumTracks} track(s)), which does not `
+                + `look like this release — ${support.accounted} of ${support.rows} `
+                + 'track(s) line up. Nothing was filled in from it. A barcode can be '
+                + 'reused or mis-entered, so paste the Spotify album link above if you '
+                + 'know it.');
+            this.renderDifferences(report, diffTracklists(tracks, album.tracks));
+            return;
         }
 
         this.renderListenLinkReport(report, imported, album,
@@ -796,6 +841,22 @@ class PolarisApp {
                 + 'Press Import listen links again to resolve more — a rate-limited '
                 + 'key answers a few at a time.');
         }
+    }
+
+    /**
+     * Put a cover on the form, without overwriting one already there.
+     *
+     * Imports run in sequence on the same form — a Discogs import chains
+     * straight into a Spotify lookup — and the first source to supply a cover
+     * should keep it rather than being overwritten by whatever ran last. A
+     * submitter who typed one keeps it too, for the same reason.
+     *
+     * @param {string|null|undefined} url
+     */
+    setArtwork(url) {
+        const field = document.getElementById('album-art');
+        if (!field || !url || field.value.trim()) return;
+        field.value = String(url).trim();
     }
 
     /**
@@ -1171,6 +1232,21 @@ class PolarisApp {
             report.appendChild(line);
         }
 
+        this.renderDifferences(report, differences);
+    }
+
+    /**
+     * List how the two tracklists differ, or say that they do not.
+     *
+     * Its own function because a rejected barcode match shows the same list
+     * for a different reason: there, the differences are the evidence that
+     * Spotify's release under that barcode is a different record, rather than
+     * a list of things to check on this one.
+     *
+     * @param {HTMLElement} report
+     * @param {Object[]} differences - From diffTracklists.
+     */
+    renderDifferences(report, differences) {
         if (differences.length === 0) {
             const clean = document.createElement('p');
             clean.className = 'link-check-ok';
@@ -1400,7 +1476,7 @@ class PolarisApp {
 
     /**
      * Extract a single person's data (canonical format)
-     * Emits: { name, roles: string[], origin_city?: { name, lat?, lon? } }
+     * Emits: { name, alt_names?, roles: string[], origin_city?: { name, lat?, lon? } }
      * Backend will generate deterministic prov: IDs during normalization.
      */
     extractPersonData(item, type, parentIndex) {
@@ -1417,6 +1493,14 @@ class PolarisApp {
         // Emit existing person_id if bound via autocomplete
         const personId = this.getInputValue(item, `${type}-person-id-${parentIndex}-${index}`);
         if (personId) person.person_id = personId;
+
+        // Names this person also goes by, which is the point of binding to an
+        // existing node and then adding one: the alias lands on Kristen
+        // Gundred's node, and searching "Dee Dee" afterwards finds her. Added
+        // to whatever the node already has rather than replacing it.
+        const altNames = this.parseCommaSeparated(
+            this.getInputValue(item, `${type}-altnames-${parentIndex}-${index}`));
+        if (altNames.length > 0) person.alt_names = altNames;
 
         if (roles.length > 0) person.roles = roles;
 
@@ -2158,6 +2242,8 @@ class PolarisApp {
         // The copyright lines, which are the nearest thing to liner notes here.
         document.getElementById('liner-notes').value = (album.copyrights ?? []).join('\n');
 
+        this.setArtwork(album.artwork);
+
         if (album.label) {
             const labelForm = this.formBuilder.createLabelForm();
             document.getElementById('labels-container').appendChild(labelForm);
@@ -2341,6 +2427,8 @@ class PolarisApp {
         document.getElementById('liner-notes').value =
             [album.credits, album.about].filter(Boolean).join('\n\n');
 
+        this.setArtwork(album.art);
+
         if (album.label) {
             const labelForm = this.formBuilder.createLabelForm();
             document.getElementById('labels-container').appendChild(labelForm);
@@ -2468,6 +2556,15 @@ class PolarisApp {
         document.getElementById('release-date').value = releaseDate;
 
         document.getElementById('liner-notes').value = discogsRelease.notes || '';
+
+        // Discogs withholds `images` from unauthenticated requests, and these
+        // requests are unauthenticated, so this is normally absent. Read
+        // anyway: it costs a line, and it means a token added later needs no
+        // change here. The primary shot is the sleeve front; a secondary is
+        // the back, an insert, or a photo of the vinyl itself.
+        const art = (discogsRelease.images ?? [])
+            .find((image) => image?.type === 'primary') ?? (discogsRelease.images ?? [])[0];
+        this.setArtwork(art?.uri || art?.resource_url);
 
         // Set format
         if (discogsRelease.formats && discogsRelease.formats.length > 0) {

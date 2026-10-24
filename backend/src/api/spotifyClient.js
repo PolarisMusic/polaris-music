@@ -411,7 +411,7 @@ export class SpotifyClient {
      * @param {string} albumId
      * @returns {Promise<{id: string, name: string, release_date: string,
      *                    total_tracks: number, upc: string|null,
-     *                    tracks: Object[]}>}
+     *                    artwork: string|null, tracks: Object[]}>}
      */
     async getAlbumWithTracks(albumId) {
         const album = await this._get(`/albums/${encodeURIComponent(albumId)}`);
@@ -454,6 +454,10 @@ export class SpotifyClient {
             // none, which is why docs/17 pairs this with MusicBrainz.
             album_type: album.album_type ?? null,
             label: album.label ?? null,
+            // The cover, largest first, which is Spotify's own ordering. Only
+            // the URL: the dimensions describe their CDN's rendition, not the
+            // artwork, and the registry stores a reference rather than a copy.
+            artwork: album.images?.[0]?.url ?? null,
             copyrights: (album.copyrights ?? []).map((c) => c?.text).filter(Boolean),
             artists: (album.artists ?? []).map(simpleArtist).filter(Boolean),
             tracks: tracks.map(t => ({

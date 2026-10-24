@@ -126,6 +126,19 @@
                                 </div>
                             </div>
 
+                            <!-- The cover. Everything that reads a release was
+                                 already able to show one — the info panel, the
+                                 release orbit, the player — and there was
+                                 nowhere to enter it. A Spotify or Bandcamp
+                                 import fills it in; Discogs cannot, since its
+                                 API withholds images from unauthenticated
+                                 requests. -->
+                            <div class="form-group">
+                                <label for="album-art">Album Artwork URL</label>
+                                <input type="url" id="album-art" name="album_art"
+                                       placeholder="https://… (filled in automatically by a Spotify or Bandcamp import)">
+                            </div>
+
                             <!-- Catalogue number and country are what separate one
                                  edition of an album from another, and both are part of
                                  the release fingerprint. The form collected neither, so

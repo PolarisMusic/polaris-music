@@ -932,13 +932,47 @@ class MusicGraphDatabase {
 export default MusicGraphDatabase;
 ```
 
+## An alias is on the node; a billing is on the relationship
+
+Two different facts, and the registry keeps both.
+
+`alt_names` on **Person**, **Group**, **Label** and **Release** (and
+`alt_titles` on **Song** and **Track**) are names the thing goes by at all: a
+stage name, a name someone recorded under before, a spelling another catalogue
+uses. They are what search has to match — `entitySearch` indexes `alt_names`
+and `alt_titles`, and the substring fallback in `nodeSearchService` checks
+both — so this is what makes typing "Dee Dee" find Kristen Gundred.
+
+`credited_as` on **MEMBER_OF**, **GUEST_ON**, **PERFORMED_ON** and **WROTE** is
+how *one release* billed somebody. It is a fact about that record, not about
+the person, and it is why a reissue can credit the same player differently
+without contradicting anything.
+
+**Aliases accumulate; they are never replaced.** No submission knows which of a
+node's existing aliases are wrong, so a bundle adds to the list and removing an
+entry is EDIT_CLAIM's job. In Cypher that is:
+
+```cypher
+SET p.alt_names = coalesce(p.alt_names, []) + [alt IN coalesce($altNames, [])
+    WHERE NOT toLower(alt) IN [have IN coalesce(p.alt_names, []) | toLower(have)]
+      AND toLower(alt) <> toLower(coalesce(p.name, ''))]
+```
+
+Written once as `mergedAltNames()` in `graph/schema.js`, because the thing it
+replaced looked like a guard and was not one. `coalesce($altNames, p.alt_names,
+[])` reads as "the parameter, or what is already there" — but the caller sends
+`alt_names || []`, an empty list is not null in Cypher, so the parameter always
+won. Every release submitted without restating an act's alias erased it. The
+comparison is case-insensitive, and a node's own name is not stored as an alias
+of itself.
+
 ## Node Types Summary
 
 CONSIDER THIS SECTION CANONICAL
 
 | Node Type | Purpose | Key Properties |
 |-----------|---------|----------------|
-| Person | Individual musician/artist | person_id, name, bio, status |
+| Person | Individual musician/artist | person_id, name, alt_names, bio, status |
 | Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
 | Song | Musical composition | song_id, title, alt_titles, iswc, writers |
 | Track | Recording of a song | track_id, title, alt_titles, isrc, duration, listen_links, lyrics, trivia |
