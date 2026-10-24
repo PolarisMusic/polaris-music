@@ -2134,6 +2134,10 @@ test.describe('naming someone who is already in the registry by another name', (
         await page.fill('[name="release-member-name-0-0"]', 'Kristen Gundred');
         await page.fill('[name="release-member-roles-0-0"]', 'Vocals');
         if (altNames !== null) {
+            // The box lives in a closed disclosure now — which is the whole
+            // point of closing it, and is why `fill` on a hidden input times
+            // out rather than quietly succeeding. A person has to open it too.
+            await page.locator('.alias-disclosure summary').first().click();
             await page.fill('[name="release-member-altnames-0-0"]', altNames);
         }
 
