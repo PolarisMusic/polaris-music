@@ -809,6 +809,34 @@ document.addEventListener('DOMContentLoaded', () => {
 export default MusicGraphVisualizer;
 ```
 
+## How much of the circle each neighbour gets
+
+The layout is re-rooted on the selection rather than translated, so the node
+you clicked sits at the centre and its own neighbours are the first ring. See
+`visualization/stableRadialLayout.js` for why it is computed there rather than
+by `ht.compute()` — the short version is that JIT deals each ring out afresh in
+adjacency order, so neighbours swap sides on every click and the motion cannot
+be followed.
+
+One thing it inherited from JIT and should not have: **children are given
+slices of their parent's wedge in proportion to subtree size.** That is right
+everywhere but the first ring. `_treeAngularWidth` cannot tell "this child is a
+leaf" from "this child is worth looking at", so a band's five members, all
+leaves, shared a couple of degrees between them while one sibling with a large
+subtree took essentially the whole circle. The members came out bunched into a
+slot narrower than their own labels — and they are the answer to the question
+the click asked.
+
+Each neighbour of the selection is now floored at half of an equal share, with
+the remainder dealt proportionally. Shares stay monotone in subtree size, so a
+branch that needs room still gets most of it, and they still sum to one, so no
+wedge overflows. Only widths change, never order, so nobody crosses anybody and
+the motion stays followable.
+
+Deeper rings are untouched and keep JIT's proportions exactly: at depth the
+radii depend on subtree size, and levelling the shares there would overlap the
+descendants it was meant to make room for.
+
 ## CSS Styles
 
 ```css
