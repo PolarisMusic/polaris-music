@@ -2167,3 +2167,100 @@ test.describe('naming someone who is already in the registry by another name', (
         expect(bundle.groups[0].members[0]).not.toHaveProperty('alt_names');
     });
 });
+
+test.describe('the album cover, which an import can usually supply', () => {
+    /**
+     * Everything downstream was already ready for a cover: the graph writes
+     * `r.album_art`, the entities API returns it, and the info panel, the
+     * release orbit and the mini player all render it. The submission form had
+     * nowhere to enter one, so nothing ever arrived with one.
+     */
+    const BANDCAMP = {
+        success: true,
+        album: {
+            name: 'Watermelon', artist: 'Howlin Rain', label: 'Silver Current Records',
+            format: 'Digital', other_editions: [], upc: null, release_date: '2026/11/13',
+            credits: null, about: null, tags: [],
+            art: 'https://f4.bcbits.com/img/a0775995079_10.jpg',
+            url: 'https://howlinrain.bandcamp.com/album/watermelon',
+            tracks: [{ title: 'Fall Away', position: 1, duration: 210, url: null, artist: null }],
+        },
+    };
+
+    test('a Bandcamp import fills it in', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/bandcamp/album', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(BANDCAMP),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://howlinrain.bandcamp.com/album/watermelon');
+        await page.click('#fetch-discogs-btn');
+
+        await expect(page.locator('#album-art'))
+            .toHaveValue('https://f4.bcbits.com/img/a0775995079_10.jpg');
+    });
+
+    test('a Spotify import fills it in', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/spotify/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                matched_by: 'link',
+                album: {
+                    id: 'ALB1', name: 'Album', release_date: '2002', total_tracks: 1,
+                    artwork: 'https://i.scdn.co/image/big',
+                    tracks: [{ id: 't1', name: 'Track', track_number: 1, disc_number: 1 }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://open.spotify.com/album/ALB1');
+        await page.click('#fetch-discogs-btn');
+
+        await expect(page.locator('#album-art')).toHaveValue('https://i.scdn.co/image/big');
+    });
+
+    test('it reaches the bundle', async ({ page }) => {
+        await gotoForm(page);
+        await page.fill('#release-name', 'Watermelon');
+        await page.fill('#release-date', '2026');
+        await page.selectOption('#release-format', 'Digital');
+        await page.fill('#album-art', 'https://example.test/cover.jpg');
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Fall Away');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.album_art).toBe('https://example.test/cover.jpg');
+    });
+
+    test('an empty field sends no album_art at all', async ({ page }) => {
+        await gotoForm(page);
+        await page.fill('#release-name', 'Watermelon');
+        await page.fill('#release-date', '2026');
+        await page.selectOption('#release-format', 'Digital');
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Fall Away');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release).not.toHaveProperty('album_art');
+    });
+
+    test('a cover already on the form is not overwritten by an import', async ({ page }) => {
+        // A Discogs import chains into a Spotify lookup, so two sources touch
+        // the same form in sequence. The first to supply a cover keeps it, and
+        // so does a submitter who typed one.
+        await gotoForm(page);
+        await page.route('**/bandcamp/album', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(BANDCAMP),
+        }));
+        await page.fill('#album-art', 'https://example.test/mine.jpg');
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://howlinrain.bandcamp.com/album/watermelon');
+        await page.click('#fetch-discogs-btn');
+
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Bandcamp');
+        await expect(page.locator('#album-art')).toHaveValue('https://example.test/mine.jpg');
+    });
+});

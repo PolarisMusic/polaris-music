@@ -309,6 +309,14 @@ class PolarisApp {
         const linerNotes = formData.get('liner_notes');
         if (linerNotes) release.liner_notes = linerNotes;
 
+        // The sleeve. Everything downstream of the bundle was already ready
+        // for this — the graph writes r.album_art, the API returns it, and the
+        // info panel, the release orbit and the player all render it — and the
+        // one thing missing was anywhere to put it. Two of the three importers
+        // fill it in, so usually nobody types it.
+        const albumArt = (formData.get('album_art') || '').trim();
+        if (albumArt) release.album_art = albumArt;
+
         // Master release. The id is set only when the submitter picked an
         // existing Release from the lookup; otherwise keep the typed name so a
         // master that is not in the registry yet is still recorded rather than
@@ -833,6 +841,22 @@ class PolarisApp {
                 + 'Press Import listen links again to resolve more — a rate-limited '
                 + 'key answers a few at a time.');
         }
+    }
+
+    /**
+     * Put a cover on the form, without overwriting one already there.
+     *
+     * Imports run in sequence on the same form — a Discogs import chains
+     * straight into a Spotify lookup — and the first source to supply a cover
+     * should keep it rather than being overwritten by whatever ran last. A
+     * submitter who typed one keeps it too, for the same reason.
+     *
+     * @param {string|null|undefined} url
+     */
+    setArtwork(url) {
+        const field = document.getElementById('album-art');
+        if (!field || !url || field.value.trim()) return;
+        field.value = String(url).trim();
     }
 
     /**
@@ -2218,6 +2242,8 @@ class PolarisApp {
         // The copyright lines, which are the nearest thing to liner notes here.
         document.getElementById('liner-notes').value = (album.copyrights ?? []).join('\n');
 
+        this.setArtwork(album.artwork);
+
         if (album.label) {
             const labelForm = this.formBuilder.createLabelForm();
             document.getElementById('labels-container').appendChild(labelForm);
@@ -2401,6 +2427,8 @@ class PolarisApp {
         document.getElementById('liner-notes').value =
             [album.credits, album.about].filter(Boolean).join('\n\n');
 
+        this.setArtwork(album.art);
+
         if (album.label) {
             const labelForm = this.formBuilder.createLabelForm();
             document.getElementById('labels-container').appendChild(labelForm);
@@ -2528,6 +2556,15 @@ class PolarisApp {
         document.getElementById('release-date').value = releaseDate;
 
         document.getElementById('liner-notes').value = discogsRelease.notes || '';
+
+        // Discogs withholds `images` from unauthenticated requests, and these
+        // requests are unauthenticated, so this is normally absent. Read
+        // anyway: it costs a line, and it means a token added later needs no
+        // change here. The primary shot is the sleeve front; a secondary is
+        // the back, an insert, or a photo of the vinyl itself.
+        const art = (discogsRelease.images ?? [])
+            .find((image) => image?.type === 'primary') ?? (discogsRelease.images ?? [])[0];
+        this.setArtwork(art?.uri || art?.resource_url);
 
         // Set format
         if (discogsRelease.formats && discogsRelease.formats.length > 0) {

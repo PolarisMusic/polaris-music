@@ -92,10 +92,23 @@ need one.
 | Tracks | `tracklist[]`, position verbatim ("A1") | `track_number`, prefixed with the disc where there are several | `position` from the `ItemList` |
 | ISRC | — | per track | — |
 | Credits | `extraartists`, classified by `parseCredits` | — | free text only, to liner notes |
+| Album art | withheld — see below | `images[0].url`, largest first | `image` / the player's `art_id` |
 
 Durations are dropped by all three: Spotify gives exact milliseconds, Bandcamp
 a float of seconds, and `Track.duration` exists in the schema — but the form
 has no duration input. One field away, and now two sources deep.
+
+**Discogs serves no images to an unauthenticated request**, and these requests
+are unauthenticated, so a Discogs import supplies no cover. The import reads
+`images[]` anyway — preferring the `primary` shot, since a secondary is the
+back, an insert or a photo of the vinyl — so that adding a token later needs no
+change here.
+
+The first source to supply a cover keeps it. A Discogs import chains straight
+into a Spotify lookup, so two sources touch the same form in sequence; and a
+submitter who typed one keeps it over both. What is stored is a URL on somebody
+else's CDN, not a copy, so it will eventually rot — pinning the image the way
+events are pinned is the real answer and is not built.
 
 Bandcamp also states two things nothing else here does and nothing yet reads:
 `publisher.foundingLocation` (where the band is from — the registry has an
