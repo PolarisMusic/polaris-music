@@ -18,6 +18,7 @@ import { describe, test, expect } from '@jest/globals';
 import {
     BandcampClient, parseBandcampUrl, extractJsonLd, musicAlbumFrom, extractTralbum,
     decodeHtmlAttribute, durationSeconds, releaseDate, tagsFrom, albumFromPage,
+    labelFrom, trackUrl, formatFrom, otherEditions,
 } from '../../src/api/bandcampClient.js';
 
 const JSON_LD = {
@@ -45,6 +46,8 @@ const JSON_LD = {
 
 const TRALBUM = {
     artist: 'Various Artists',
+    item_type: 'album',
+    hasAudio: true,
     current: { title: 'The Ark (Vol.1)', release_date: '11 Nov 2014 00:00:00 GMT',
         credits: 'Recorded at Lost Ark Studio.', about: 'A charity compilation.' },
     trackinfo: [
@@ -154,9 +157,9 @@ describe('the release it reads', () => {
         const album = albumFromPage(pageWith(), URL_UNDER_TEST);
 
         expect(album.tracks).toEqual([
-            { title: 'Turns To Dust', position: 1, duration: 197,
+            { title: 'Turns To Dust', position: 1, duration: 197, artist: null,
                 url: 'https://ark.bandcamp.com/track/turns-to-dust' },
-            { title: 'Out To Sea', position: 2, duration: 249,
+            { title: 'Out To Sea', position: 2, duration: 249, artist: null,
                 url: 'https://ark.bandcamp.com/track/out-to-sea' },
         ]);
     });
@@ -346,5 +349,324 @@ describe('dates', () => {
         expect(releaseDate('')).toBe('');
         expect(releaseDate('soon')).toBe('');
         expect(releaseDate(null)).toBe('');
+    });
+});
+
+/**
+ * A live page, read on 2026-10-24: howlinrain.bandcamp.com's "Watermelon", a
+ * preorder that Silver Current Records put out on the band's own Bandcamp
+ * page. Trimmed to the fields the importer reads, and to four tracks of nine
+ * — two with pages of their own, two listed only as album-page fragments,
+ * which is the mix a preorder serves.
+ *
+ * Unlike the fixtures above, this one was taken from a real page, and it is
+ * here because running scripts/checkBandcamp.js against it found two bugs the
+ * invented fixtures could not: the label read as the band, and six of nine
+ * tracks got the album page as their "track" link.
+ */
+const LIVE_JSON_LD = {
+    '@type': 'MusicAlbum',
+    '@id': 'https://howlinrain.bandcamp.com/album/watermelon',
+    name: 'Watermelon',
+    byArtist: { '@type': 'MusicGroup', name: 'Howlin Rain' },
+    // The page's own band, which is the act here — not the label.
+    publisher: {
+        '@type': 'MusicGroup',
+        name: 'Howlin Rain',
+        foundingLocation: { '@type': 'Place', name: 'Oakland, California' },
+    },
+    datePublished: '13 Nov 2026 00:00:00 GMT',
+    numTracks: 9,
+    albumRelease: [
+        {
+            '@type': ['MusicRelease', 'Product'],
+            name: 'Watermelon',
+            musicReleaseFormat: 'DigitalFormat',
+            recordLabel: {
+                '@type': 'MusicGroup',
+                name: 'Silver Current Records',
+                '@id': 'https://silvercurrent.bandcamp.com',
+            },
+        },
+        { '@type': ['MusicRelease', 'Product'], name: 'Classic Black Vinyl', musicReleaseFormat: 'VinylFormat' },
+        { '@type': ['MusicRelease', 'Product'], name: 'Compact Disc', musicReleaseFormat: 'CDFormat' },
+    ],
+    track: {
+        '@type': 'ItemList',
+        numberOfItems: 9,
+        itemListElement: [
+            { '@type': 'ListItem', position: 1,
+                item: { '@type': 'MusicRecording',
+                    '@id': 'https://howlinrain.bandcamp.com/track/silver-paper-with-chris-robinson',
+                    name: 'Silver Paper (with Chris Robinson)',
+                    duration: 'P00H04M57S',
+                    mainEntityOfPage: 'https://howlinrain.bandcamp.com/track/silver-paper-with-chris-robinson' } },
+            // No page of its own: the id is the album plus a fragment, and
+            // there is no duration because the track is not streaming yet.
+            { '@type': 'ListItem', position: 2,
+                item: { '@type': 'MusicRecording',
+                    '@id': 'https://howlinrain.bandcamp.com/album/watermelon#t2',
+                    name: 'Jesus Was A Cross Maker' } },
+            { '@type': 'ListItem', position: 3,
+                item: { '@type': 'MusicRecording',
+                    '@id': 'https://howlinrain.bandcamp.com/track/fall-away',
+                    name: 'Fall Away',
+                    duration: 'P00H03M29S',
+                    mainEntityOfPage: 'https://howlinrain.bandcamp.com/track/fall-away' } },
+            { '@type': 'ListItem', position: 4,
+                item: { '@type': 'MusicRecording',
+                    '@id': 'https://howlinrain.bandcamp.com/album/watermelon#t4',
+                    name: 'I Am Not Willing' } },
+        ],
+    },
+};
+
+const LIVE_TRALBUM = {
+    artist: 'Howlin Rain',
+    item_type: 'album',
+    hasAudio: true,
+    is_preorder: true,
+    current: {
+        title: 'Watermelon',
+        type: 'album',
+        release_date: '13 Nov 2026 00:00:00 GMT',
+        band_id: 3614686597,
+        selling_band_id: 545422245,
+        upc: null,
+        credits: 'The Players:\nEthan Miller: vocals, electric and acoustic guitar',
+        about: 'In celebration of 20 years riding the bus to never-ever land.',
+    },
+    packages: [
+        { type_name: 'Vinyl LP', title: 'Colored Vinyl Bandcamp Edition', label: 'Silver Current Records' },
+        { type_name: 'Vinyl LP', title: 'Classic Black Vinyl', label: 'Silver Current Records' },
+        { type_name: 'Compact Disc (CD)', title: 'Compact Disc', label: 'Silver Current Records' },
+    ],
+    trackinfo: [
+        { track_num: 1, title: 'Silver Paper (with Chris Robinson)', duration: 297.427,
+            title_link: '/track/silver-paper-with-chris-robinson', unreleased_track: false },
+        { track_num: 2, title: 'Jesus Was A Cross Maker', duration: 0,
+            title_link: null, unreleased_track: true },
+        { track_num: 3, title: 'Fall Away', duration: 209.52,
+            title_link: '/track/fall-away', unreleased_track: false },
+        { track_num: 4, title: 'I Am Not Willing', duration: 0,
+            title_link: null, unreleased_track: true },
+    ],
+};
+
+const LIVE_URL = 'https://howlinrain.bandcamp.com/album/watermelon';
+const livePage = (overrides = {}) => pageWith({
+    jsonLd: { ...LIVE_JSON_LD, ...overrides.jsonLd },
+    tralbum: overrides.tralbum === null ? null : { ...LIVE_TRALBUM, ...overrides.tralbum },
+});
+
+describe('the label, which is not whoever publishes the page', () => {
+    test('the label is the one the release states, not the band whose page it is', () => {
+        // The bug this replaces read `publisher`, which on an act's own page
+        // is the act: it would have minted a Label node called "Howlin Rain"
+        // for a record Silver Current Records released.
+        expect(albumFromPage(livePage(), LIVE_URL).label).toBe('Silver Current Records');
+    });
+
+    test('the player data states it too, for when the JSON-LD stops', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: { albumRelease: [{ musicReleaseFormat: 'DigitalFormat' }] },
+        }), LIVE_URL);
+
+        expect(album.label).toBe('Silver Current Records');
+    });
+
+    test('a self-released record has no label, not one named after the band', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: { albumRelease: [{ musicReleaseFormat: 'DigitalFormat' }] },
+            tralbum: { packages: [] },
+        }), LIVE_URL);
+
+        expect(album.artist).toBe('Howlin Rain');
+        expect(album.label).toBeNull();
+    });
+
+    test('an album on a label’s own page takes the label from the publisher', () => {
+        // The one case where the page's publisher IS the label: the page
+        // belongs to the label and the act is someone else.
+        expect(albumFromPage(pageWith(), URL_UNDER_TEST).label).toBe('Ark Records');
+    });
+
+    test.each([
+        ['the same name', 'Howlin Rain', 'Howlin Rain'],
+        ['the same name cased differently', 'HOWLIN RAIN', 'Howlin Rain'],
+        ['the same name padded', '  Howlin Rain  ', 'Howlin Rain'],
+    ])('a publisher that is %s as the act is not a label', (_label, publisher, act) => {
+        expect(labelFrom({ publisher: { name: publisher } }, null, act)).toBeNull();
+    });
+
+    test('a stated label wins over a publisher that differs from the act', () => {
+        expect(labelFrom(
+            { publisher: { name: 'Some Store' }, albumRelease: [{ recordLabel: { name: 'Real Label' } }] },
+            null, 'The Band',
+        )).toBe('Real Label');
+    });
+});
+
+describe('a track page, which not every track on an album has', () => {
+    test('a track with a page of its own is linked to it', () => {
+        const album = albumFromPage(livePage(), LIVE_URL);
+
+        expect(album.tracks[0].url)
+            .toBe('https://howlinrain.bandcamp.com/track/silver-paper-with-chris-robinson');
+        expect(album.tracks[2].url).toBe('https://howlinrain.bandcamp.com/track/fall-away');
+    });
+
+    test('a track listed only as an album-page fragment gets no link at all', () => {
+        // Not the album page: that is where six of this album's nine tracks
+        // used to point, which is worse than no link.
+        const album = albumFromPage(livePage(), LIVE_URL);
+
+        expect(album.tracks[1].url).toBeNull();
+        expect(album.tracks[3].url).toBeNull();
+    });
+
+    test('no track link is ever an address with a fragment', () => {
+        const links = albumFromPage(livePage(), LIVE_URL).tracks.map((t) => t.url);
+
+        expect(links.filter((link) => link?.includes('#'))).toEqual([]);
+    });
+
+    test('the player’s relative link resolves against the album', () => {
+        expect(trackUrl({}, { title_link: '/track/fall-away' }, LIVE_URL))
+            .toBe('https://howlinrain.bandcamp.com/track/fall-away');
+    });
+
+    test('a fragment in mainEntityOfPage is refused as well', () => {
+        expect(trackUrl({ mainEntityOfPage: `${LIVE_URL}#t7` }, {}, LIVE_URL)).toBeNull();
+    });
+
+    test('an id with no fragment is taken when nothing else is offered', () => {
+        expect(trackUrl({ '@id': 'https://x.bandcamp.com/track/y' }, {}, LIVE_URL))
+            .toBe('https://x.bandcamp.com/track/y');
+    });
+
+    test('an unresolvable player link is null, not a throw', () => {
+        expect(trackUrl({}, { title_link: 'http://[' }, LIVE_URL)).toBeNull();
+    });
+});
+
+describe('the format, which is the release this page is', () => {
+    test('an album page is its digital release, whatever else it sells', () => {
+        // The physical editions are separate Releases: format is part of the
+        // release fingerprint, so folding a CD in here would merge it onto
+        // the LP.
+        expect(albumFromPage(livePage(), LIVE_URL).format).toBe('Digital');
+    });
+
+    test('a track page is a single', () => {
+        expect(formatFrom({ '@type': 'MusicAlbum' }, { item_type: 'track' })).toBe('Single');
+    });
+
+    test.each([
+        ['vinyl only', 'VinylFormat', 'LP'],
+        ['CD only', 'CDFormat', 'CD'],
+        ['cassette only', 'CassetteFormat', 'Cassette'],
+        ['a format with no name here', 'HoloTapeFormat', 'Other'],
+    ])('%s takes that format', (_label, releaseFormat, expected) => {
+        expect(formatFrom({ albumRelease: [{ musicReleaseFormat: releaseFormat }] }, {}))
+            .toBe(expected);
+    });
+
+    test('a page that states no format but has audio is digital', () => {
+        expect(formatFrom(null, { item_type: 'album', hasAudio: true })).toBe('Digital');
+    });
+
+    test('a page that states nothing at all gets no format, not a guess', () => {
+        expect(formatFrom(null, null)).toBeNull();
+    });
+});
+
+describe('the editions sold beside the digital release', () => {
+    test('they are reported under Bandcamp’s own names, deduplicated', () => {
+        // Three vinyl packages, one Vinyl LP: a submitter needs to know the
+        // editions exist, not how many variants of each are on sale.
+        expect(albumFromPage(livePage(), LIVE_URL).other_editions)
+            .toEqual(['Vinyl LP', 'Compact Disc (CD)']);
+    });
+
+    test('a digital-only release has none', () => {
+        expect(otherEditions({ packages: [] })).toEqual([]);
+        expect(otherEditions(null)).toEqual([]);
+    });
+});
+
+describe('a preorder, where most of the record is not streaming yet', () => {
+    test('a track with no audio has no duration, rather than a zero', () => {
+        const durations = albumFromPage(livePage(), LIVE_URL).tracks.map((t) => t.duration);
+
+        expect(durations).toEqual([297, null, 210, null]);
+    });
+
+    test('the tracklist is still complete, audio or not', () => {
+        expect(albumFromPage(livePage(), LIVE_URL).tracks.map((t) => t.title)).toEqual([
+            'Silver Paper (with Chris Robinson)',
+            'Jesus Was A Cross Maker',
+            'Fall Away',
+            'I Am Not Willing',
+        ]);
+    });
+
+    test('a release date in the future is read as given', () => {
+        expect(albumFromPage(livePage(), LIVE_URL).release_date).toBe('2026/11/13');
+    });
+});
+
+describe('the UPC, which a credits lookup needs and Bandcamp seldom has', () => {
+    test('null when the page carries none', () => {
+        expect(albumFromPage(livePage(), LIVE_URL).upc).toBeNull();
+    });
+
+    test('passed through when it does', () => {
+        expect(albumFromPage(livePage({ tralbum: { current: { ...LIVE_TRALBUM.current, upc: '123456789012' } } }),
+            LIVE_URL).upc).toBe('123456789012');
+    });
+});
+
+describe('the act credited on a track, which only a compilation states', () => {
+    test('a single-act record leaves it null and the release act stands', () => {
+        // Both fields are null on a band's own album: the tracks are theirs.
+        const album = albumFromPage(livePage(), LIVE_URL);
+
+        expect(album.artist).toBe('Howlin Rain');
+        expect(album.tracks.map((t) => t.artist)).toEqual([null, null, null, null]);
+    });
+
+    test('the JSON-LD states it on a compilation', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: { track: { itemListElement: [
+                { position: 1, item: { name: 'Turns To Dust', byArtist: { name: 'Ides' } } },
+                { position: 2, item: { name: 'Out To Sea', byArtist: { name: 'Hollow Sun' } } },
+            ] } },
+            tralbum: { trackinfo: [] },
+        }), LIVE_URL);
+
+        expect(album.tracks.map((t) => t.artist)).toEqual(['Ides', 'Hollow Sun']);
+    });
+
+    test('the player data states it too', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: { track: { itemListElement: [] } },
+            tralbum: { trackinfo: [
+                { track_num: 1, title: 'Turns To Dust', artist: 'Ides', duration: 197 },
+            ] },
+        }), LIVE_URL);
+
+        expect(album.tracks[0].artist).toBe('Ides');
+    });
+
+    test('the JSON-LD wins where both speak, as everywhere else', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: { track: { itemListElement: [
+                { position: 1, item: { name: 'Turns To Dust', byArtist: { name: 'Ides' } } },
+            ] } },
+            tralbum: { trackinfo: [{ track_num: 1, title: 'Turns To Dust', artist: 'Someone Else' }] },
+        }), LIVE_URL);
+
+        expect(album.tracks[0].artist).toBe('Ides');
     });
 });
