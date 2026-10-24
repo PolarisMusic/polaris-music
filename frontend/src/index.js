@@ -19,6 +19,7 @@ import {
     tracklistSupportsAlbum,
 } from './utils/tracklistDiff.js';
 import { barcodesFrom } from './utils/discogsBarcode.js';
+import { guestsForTracks } from './utils/creditScope.js';
 import {
     isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit, creditsByAct,
     isVariousArtists,
@@ -1400,8 +1401,17 @@ class PolarisApp {
                 : this.extractGroups(item, index);
             if (performedByGroups.length > 0) track.performed_by_groups = performedByGroups;
 
+            // Inherited guests are filtered to the credits that describe a
+            // recording. The release keeps all of them; a track takes the ones
+            // a compilation carrying it would also carry. See utils/creditScope
+            // — the cover artist was being credited on every track, and the
+            // filter is per role, because "Mixed By, Mastered By, Photography
+            // By" is one person with facts of both kinds.
+            //
+            // Only when inheriting: a credit typed onto a track by hand is a
+            // statement about that track and is nobody's to second-guess.
             const guests = this.isInherited(item, index, 'guests')
-                ? structuredClone(releaseDefaults.guests || [])
+                ? guestsForTracks(structuredClone(releaseDefaults.guests || []))
                 : this.extractPersons(item, 'guest', index);
             if (guests.length > 0) track.guests = guests;
 

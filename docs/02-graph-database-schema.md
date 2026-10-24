@@ -932,6 +932,38 @@ class MusicGraphDatabase {
 export default MusicGraphDatabase;
 ```
 
+## Which credits travel with a recording
+
+A compilation borrows a *recording*. So the test for whether a credit belongs
+to the Release or to its Tracks is: **would a compilation carrying this track
+have a different one?**
+
+| Credit | On a compilation | Scope |
+|---|---|---|
+| Cover art, layout, photography, liner notes | different, or absent | Release |
+| Executive producer, A&R, management | different — it is whose release it is | Release |
+| Lacquer cut, pressed by, distributed by | different pressing entirely | Release |
+| Producer, engineer, mixing | the same — they made the recording | Track |
+| Anyone who played, including a featured artist | the same | Track |
+| **Mastering** | **both** | Release **and** Track |
+
+Mastering is genuinely dual and is not a case to be decided. The album master
+travels with the recording, and a compilation masters it again against its own
+running order — so a track legitimately carries two mastering credits and
+neither cancels the other.
+
+This decides only what a *track inherits from its release* in the submission
+form (`utils/creditScope.js`); the release keeps every credit either way, which
+is what makes the dual case fall out for free. It is not an invariant: a
+submitter overrides inheritance per track, and a bundle that puts a cover
+artist on a track is still accepted. An unrecognised role travels, so the rule
+can only ever remove a credit that is clearly wrong on a recording.
+
+The reason this needed deciding at all is that `parseCredits` has a *fallback*
+bucket named `guests`, so "unclassified" and "guest performer" were the same
+thing: a vocalist featured on every track sat in it beside the sleeve
+designer, indistinguishable.
+
 ## An alias is on the node; a billing is on the relationship
 
 Two different facts, and the registry keeps both.

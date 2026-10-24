@@ -88,6 +88,64 @@ function circularMean(angles) {
  * @param {object} ht - the Hypertree
  * @param {object} graphUtil - $jit.Graph.Util, for eachBFS
  */
+/**
+ * The least share of the circle a selected node's neighbour is guaranteed,
+ * as a fraction of an equal split.
+ *
+ * Half: with six neighbours each is promised 30 degrees and the remaining
+ * half of the circle is still dealt out by subtree size, so a branch that
+ * needs room still gets most of it.
+ *
+ * The number is a judgement about legibility rather than a derivation. What
+ * is not a judgement is the direction: a neighbour of the node you are looking
+ * at is the most important thing on screen, and no amount of room for a
+ * distant subtree is worth rendering it invisible.
+ */
+const ROOT_MIN_SHARE = 0.5;
+
+/**
+ * How much of a node's wedge each child gets.
+ *
+ * Everywhere but the selection, that is proportional to subtree size, which is
+ * what JIT does and is right: a branch with four hundred descendants needs room
+ * for them, and the radii only work if siblings do not overlap.
+ *
+ * At the selection it is wrong, and visibly so. The first ring is the
+ * neighbourhood the viewer asked to see, and `_treeAngularWidth` makes no
+ * distinction between "this child is a leaf" and "this child is worth looking
+ * at": a band's five members, all leaves, were sharing a couple of degrees
+ * between them while one sibling with a large subtree took essentially the
+ * whole circle. The members ended up bunched in a slot narrower than their own
+ * labels — which is the complaint, and it is not a cosmetic one, because the
+ * neighbours are the answer to the question the click asked.
+ *
+ * So each neighbour of the selection is floored at a fraction of an equal
+ * split and the remainder is dealt proportionally. Shares stay monotone in
+ * subtree size — a bigger branch still gets more — and they still sum to one,
+ * so no wedge overflows and the no-crossing property is untouched: only the
+ * widths change, never the order.
+ *
+ * @param {object[]} children - Already in their stable cyclic order.
+ * @param {number} total - Sum of `_treeAngularWidth` over `children`.
+ * @param {boolean} isRoot - Whether these are the selected node's own ring.
+ * @returns {{child: object, share: number}[]} Shares summing to 1.
+ */
+function shares(children, total, isRoot) {
+    const proportional = children.map((child) => ({
+        child,
+        share: child._treeAngularWidth / total,
+    }));
+
+    if (!isRoot || children.length < 2) return proportional;
+
+    const floor = ROOT_MIN_SHARE / children.length;
+    const remaining = 1 - floor * children.length;
+    return proportional.map(({ child, share }) => ({
+        child,
+        share: floor + share * remaining,
+    }));
+}
+
 export function computeStablePositions(ht, graphUtil) {
     const graph = ht.graph;
     const root = graph.getNode(ht.root);
@@ -137,8 +195,8 @@ export function computeStablePositions(ht, graphUtil) {
         // Where each child would land, measured from the wedge's start.
         const offsets = [];
         let running = 0;
-        for (const child of children) {
-            const width = (child._treeAngularWidth / total) * span;
+        for (const { child, share } of shares(children, total, node === root)) {
+            const width = share * span;
             offsets.push({ child, begin: running, centre: running + width / 2, width });
             running += width;
         }
