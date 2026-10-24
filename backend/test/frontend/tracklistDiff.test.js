@@ -729,3 +729,119 @@ describe('whether an album bears out being the record on the form', () => {
         expect(tracklistSupportsAlbum(AMORE, WRONG_RELEASE).supported).toBe(false);
     });
 });
+
+describe('a streaming release that inserts tracks the pressing does not have', () => {
+    /**
+     * A live record's streaming edition carries the between-song banter as
+     * tracks of its own. The songs are all there and all in order, and every
+     * position after the first interlude is off by one — which was reported as
+     * a separate mismatch per track: nine differences plus a count line for
+     * the one fact that Spotify has two extra tracks. A report that long is
+     * not read, and this one is meant to be read before signing.
+     */
+    const SET = ['Brain Telephone', 'Futurephobic', 'Syster System', 'Cops And Robbers',
+        'Sidewalk', 'Weird Dog', 'I-Candy', 'Empire', 'Bonehead'];
+
+    const form = discogs(...SET);
+    const streaming = spotify(
+        '(hello hello)',
+        'Brain Telephone - Live', 'Futurephobic - Live', 'Syster System - Live',
+        'Cops & Robbers - Live', 'Sidewalk - Live',
+        '(are we off the air?)',
+        'Weird Dog - Live', 'i-Candy - Live', 'Empire - Live', 'Bonehead - Live',
+    );
+
+    test('only the inserted tracks are reported', () => {
+        const differences = diffTracklists(form, streaming);
+
+        expect(differences.filter((d) => d.kind === 'missing_locally').map((d) => d.spotify))
+            .toEqual(['(hello hello)', '(are we off the air?)']);
+    });
+
+    test('not one mismatch per track behind the insertion', () => {
+        // Nine 'order' differences, every one of them a song that is present,
+        // in order, under the same name once "- Live" is discounted.
+        const differences = diffTracklists(form, streaming);
+
+        expect(differences.filter((d) => d.kind === 'order')).toEqual([]);
+        expect(differences.filter((d) => d.kind === 'title')).toEqual([]);
+    });
+
+    test('the count difference is still stated', () => {
+        // Nine against eleven is worth knowing; it is the nine explanations
+        // that were not.
+        const [first] = diffTracklists(form, streaming);
+
+        expect(first).toMatchObject({ kind: 'count', discogs: '9', spotify: '11' });
+    });
+
+    test('the whole report is three lines, not twelve', () => {
+        expect(diffTracklists(form, streaming)).toHaveLength(3);
+    });
+
+    test('a track the streaming release omits is reported the same way round', () => {
+        const differences = diffTracklists(
+            discogs('One', 'Two', 'Three', 'Four'),
+            spotify('One', 'Three', 'Four'),
+        );
+
+        expect(differences.filter((d) => d.kind === 'missing_on_spotify').map((d) => d.discogs))
+            .toEqual(['Two']);
+        expect(differences.filter((d) => d.kind === 'order')).toEqual([]);
+    });
+
+    test('a genuine transposition is still reported as one', () => {
+        // The guard must not swallow the thing this module exists to catch:
+        // two tracks swapped is not an insertion, and no subsequence runs
+        // through.
+        const differences = diffTracklists(
+            discogs('One', 'Two', 'Three'),
+            spotify('One', 'Three', 'Two'),
+        );
+
+        expect(differences.some((d) => d.kind === 'order')).toBe(true);
+    });
+
+    test('an equal-length pair is compared position by position as before', () => {
+        const differences = diffTracklists(
+            discogs('One', 'Two', 'Three'),
+            spotify('One', 'Different', 'Three'),
+        );
+
+        expect(differences).toHaveLength(1);
+        expect(differences[0]).toMatchObject({ kind: 'title', index: 1 });
+    });
+});
+
+describe('a title that differs only by a trailing character', () => {
+    test.each([
+        ['an extra letter on an eight-character title', 'Super Fxx', 'Super Fx'],
+        ['the same the other way round', 'Super Fx', 'Super Fxx'],
+        ['a plural', 'Sidewalks', 'Sidewalk'],
+        ['two characters', 'Electric Saloons', 'Electric Saloon'],
+    ])('%s is the same recording', (_label, a, b) => {
+        expect(nearlySameTitle(a, b)).toBe(true);
+    });
+
+    test.each([
+        // Six characters buy no slack, which this module already decided.
+        ['a short truncation', 'Lithiu', 'Lithium'],
+        // A digit tail is a different thing, not a typo.
+        ['a disc number', 'Disc 1', 'Disc 10'],
+        ['a volume number', 'Volume 2', 'Volume 23'],
+        // Not a tail at all: the difference is inside the string.
+        ['an interior change on a short title', 'Intro', 'Outro'],
+        // Too much tail to be a typo.
+        ['a longer word appended', 'Fireworks Display', 'Fireworks'],
+    ])('%s is not', (_label, a, b) => {
+        expect(nearlySameTitle(a, b)).toBe(false);
+    });
+
+    test('it is reported as a spelling difference, not hidden', () => {
+        // The link gets filled and the submitter is still told the two
+        // catalogues disagree — which is the whole posture of this module.
+        const [difference] = diffTracklists(discogs('Super Fxx'), spotify('Super Fx'));
+
+        expect(difference).toMatchObject({ kind: 'spelling', discogs: 'Super Fxx' });
+    });
+});

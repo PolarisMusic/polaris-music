@@ -943,6 +943,11 @@ uses. They are what search has to match — `entitySearch` indexes `alt_names`
 and `alt_titles`, and the substring fallback in `nodeSearchService` checks
 both — so this is what makes typing "Dee Dee" find Kristen Gundred.
 
+Search returns them: `nodeSearchService` projects both lists onto every result
+as `alt_names`, so a caller can say *which* alias matched and show it. Without
+that, searching "Avey Tare" returns somebody called Dave Portner and the row
+reads as a mistake.
+
 `credited_as` on **MEMBER_OF**, **GUEST_ON**, **PERFORMED_ON** and **WROTE** is
 how *one release* billed somebody. It is a fact about that record, not about
 the person, and it is why a reissue can credit the same player differently

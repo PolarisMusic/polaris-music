@@ -115,14 +115,22 @@ export class FormBuilder {
                  name they recorded under before, a spelling another catalogue
                  uses. These go on the Person node, unlike "credited as", which
                  records how one release billed them. Both are kept, because
-                 they answer different questions. -->
-            <div class="form-group">
-                <label>Also Known As</label>
-                <input type="text" name="${type}-altnames-${parentIndex}-${index}"
-                       placeholder="Other names, comma-separated (e.g. Dee Dee)">
-                <small>Added to this person, not replacing anything. Searching any
-                       of these will find them after the release is submitted.</small>
-            </div>
+                 they answer different questions.
+
+                 Closed by default, and deliberately: open, it sat between Name
+                 and Roles and collected roles typed straight past it. Closed it
+                 is also out of the tab order, so Name tabs to Roles the way it
+                 reads. It opens itself when a bound person brings aliases with
+                 them — see fillAliasBox. -->
+            <details class="alias-disclosure">
+                <summary>Also known as</summary>
+                <div class="form-group">
+                    <input type="text" name="${type}-altnames-${parentIndex}-${index}"
+                           placeholder="Other names, comma-separated (e.g. Dee Dee)">
+                    <small>Added to this person, not replacing anything. Searching any
+                           of these will find them after the release is submitted.</small>
+                </div>
+            </details>
 
             <div class="form-group">
                 <label>Roles *</label>
@@ -234,13 +242,15 @@ export class FormBuilder {
                 <input type="hidden" name="release-guest-person-id-${index}" data-lookup-type="Person" data-lookup-pair="release-guest-name-${index}">
             </div>
 
-            <div class="form-group">
-                <label>Also Known As</label>
-                <input type="text" name="release-guest-altnames-${index}"
-                       placeholder="Other names, comma-separated (e.g. Dee Dee)">
-                <small>Added to this person, not replacing anything. Searching any
-                       of these will find them after the release is submitted.</small>
-            </div>
+            <details class="alias-disclosure">
+                <summary>Also known as</summary>
+                <div class="form-group">
+                    <input type="text" name="release-guest-altnames-${index}"
+                           placeholder="Other names, comma-separated (e.g. Dee Dee)">
+                    <small>Added to this person, not replacing anything. Searching any
+                           of these will find them after the release is submitted.</small>
+                </div>
+            </details>
 
             <div class="form-group">
                 <label>Roles *</label>

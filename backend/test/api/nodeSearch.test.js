@@ -260,3 +260,72 @@ describe('NodeSearchService', () => {
         expect(driver._session.close).toHaveBeenCalled();
     });
 });
+
+describe('the alternate names a result matched on', () => {
+    /**
+     * `entitySearch` indexes `alt_names` and `alt_titles`, and the substring
+     * fallback checks both — which is how searching "Avey Tare" returns
+     * somebody filed as Dave Portner. The projection dropped them, so the
+     * caller had the result and no way to say why it was there, and the row
+     * read as a mistake rather than an answer.
+     */
+    const serving = (properties, label = 'Person') => makeDriverStub(async (cypher) => {
+        if (cypher.includes('fulltext')) {
+            return { records: [makeRecord({
+                node: { properties }, label, score: 5.0,
+            })] };
+        }
+        return { records: [] };
+    });
+
+    test('a Person carries them', async () => {
+        const svc = new NodeSearchService(serving({
+            person_id: 'p:1', name: 'Dave Portner', alt_names: ['Avey Tare'],
+        }));
+
+        const [first] = await svc.search('avey tare');
+        expect(first.alt_names).toEqual(['Avey Tare']);
+    });
+
+    test('a Track carries its alternate titles under the same key', async () => {
+        // The registry says alt_names for things with a name and alt_titles
+        // for things with a title; a search result should not have to care.
+        const svc = new NodeSearchService(serving({
+            track_id: 't:1', title: 'Rest Of Our Lives', alt_titles: ['Rest of Our Lives - Live'],
+        }, 'Track'));
+
+        const [first] = await svc.search('rest of our');
+        expect(first.alt_names).toEqual(['Rest of Our Lives - Live']);
+    });
+
+    test('blanks and non-strings are dropped, the rest trimmed', async () => {
+        const svc = new NodeSearchService(serving({
+            person_id: 'p:1', name: 'Dave Portner',
+            alt_names: ['  Avey Tare  ', '', '   ', null, 42],
+        }));
+
+        const [first] = await svc.search('avey');
+        expect(first.alt_names).toEqual(['Avey Tare']);
+    });
+
+    test('a node with none gets an empty list, not a missing key', async () => {
+        // The caller filters on it; absent and empty should not need
+        // different handling.
+        const svc = new NodeSearchService(serving({ person_id: 'p:1', name: 'John Lennon' }));
+
+        const [first] = await svc.search('lennon');
+        expect(first.alt_names).toEqual([]);
+    });
+
+    test.each([
+        ['Group', { group_id: 'g:1', name: 'Dum Dum Girls', alt_names: ['DDG'] }],
+        ['Release', { release_id: 'r:1', name: 'Album', alt_names: ['Albumen'] }],
+        ['Label', { label_id: 'l:1', name: 'Label', alt_names: ['Labelle'] }],
+        ['Song', { song_id: 's:1', title: 'Song', alt_titles: ['Songe'] }],
+    ])('a %s carries them too', async (label, properties) => {
+        const svc = new NodeSearchService(serving(properties, label));
+
+        const [first] = await svc.search('whatever');
+        expect(first.alt_names).toHaveLength(1);
+    });
+});

@@ -16,6 +16,7 @@
  */
 
 import { searchNodes } from '../utils/searchClient.js';
+import { matchingAltName } from '../utils/altNames.js';
 
 const TYPE_COLORS = {
     Person: '#1565c0',
@@ -134,6 +135,18 @@ export class EntityLookupField {
 
             item.appendChild(badge);
             item.appendChild(name);
+
+            // The alias that put this row in the list. Searching "Avey Tare"
+            // returns somebody called Dave Portner because the index covers
+            // alternate names, and without saying so the result looks like a
+            // mistake rather than an answer.
+            const matched = matchingAltName(result, this.input.value);
+            if (matched) {
+                const alias = document.createElement('span');
+                alias.className = 'entity-lookup-alias';
+                alias.textContent = `a.k.a. ${matched}`;
+                item.appendChild(alias);
+            }
 
             if (result.subtitle) {
                 const sub = document.createElement('span');
