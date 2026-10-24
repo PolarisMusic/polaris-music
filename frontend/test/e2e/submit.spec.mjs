@@ -1483,6 +1483,146 @@ test.describe('importing from Discogs, end to end', () => {
     });
 });
 
+test.describe('importing from Spotify', () => {
+    /**
+     * For the releases Discogs has never heard of. Spotify answers with the
+     * release, its label, its barcode, every track with its number and ISRC,
+     * and the act per track — and with no credits at all, because its Web API
+     * has none. So an import from here is complete in structure and empty of
+     * people, which the status line says out loud.
+     *
+     * Same box as the Discogs import: it is the same act, pasting the link to
+     * a record.
+     */
+    const SPOTIFY_ALBUM = {
+        success: true,
+        matched_by: 'link',
+        album: {
+            id: 'ALB1',
+            name: 'Lost Ark Studio Compilation Vol. 4',
+            release_date: '2014-11-11',
+            total_tracks: 2,
+            album_type: 'compilation',
+            label: 'Randm Records',
+            copyrights: ['\u2117 2014 Randm Records'],
+            upc: '888295974028',
+            artists: [{ id: '0LyfQWJT6nXafLPZqxe9Of', name: 'Various Artists' }],
+            tracks: [
+                { id: 'trk1', name: 'Turns To Dust', track_number: 1, disc_number: 1,
+                    duration_ms: 197000, isrc: 'USX9P1400001',
+                    artists: [{ id: 'a1', name: 'The Paragraphs' }] },
+                { id: 'trk2', name: 'Out To Sea', track_number: 2, disc_number: 1,
+                    duration_ms: 248000, isrc: 'USX9P1400002',
+                    artists: [{ id: 'a2', name: '22 Kings' }] },
+            ],
+        },
+    };
+
+    /** Paste a Spotify album link into the import box and wait for the fill. */
+    async function importFromSpotify(page, { album = SPOTIFY_ALBUM } = {}) {
+        const sent = [];
+        await gotoForm(page);
+        await page.route('**/spotify/album', (route) => {
+            sent.push(JSON.parse(route.request().postData() ?? '{}'));
+            return route.fulfill({ contentType: 'application/json', body: JSON.stringify(album) });
+        });
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://open.spotify.com/album/ALB1');
+        await page.click('#fetch-discogs-btn');
+
+        return sent;
+    }
+
+    test('a Spotify link in the same box imports the release', async ({ page }) => {
+        const sent = await importFromSpotify(page);
+
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Spotify');
+        // Asked by link, which names one release — no barcode guessing needed.
+        expect(sent[0].links).toEqual(['https://open.spotify.com/album/ALB1']);
+
+        await expect(page.locator('#release-name'))
+            .toHaveValue('Lost Ark Studio Compilation Vol. 4');
+        await expect(page.locator('#release-date')).toHaveValue('2014/11/11');
+        await expect(page.locator('#release-format')).toHaveValue('Digital');
+        await expect(page.locator('[name="label-name-0"]')).toHaveValue('Randm Records');
+        await expect(page.locator('#source-links'))
+            .toHaveValue('https://open.spotify.com/album/ALB1');
+    });
+
+    test('the tracks arrive with their numbers, ISRCs and links', async ({ page }) => {
+        await importFromSpotify(page);
+
+        await expect(page.locator('[name="track-title-0"]')).toHaveValue('Turns To Dust');
+        await expect(page.locator('[name="track-position-1"]')).toHaveValue('2');
+        await expect(page.locator('[name="track-listen-link-0"]'))
+            .toHaveValue('https://open.spotify.com/track/trk1');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.tracks.map(t => t.isrc)).toEqual(['USX9P1400001', 'USX9P1400002']);
+        // The barcode Spotify filed it under reaches the bundle, so MusicBrainz
+        // can be asked about the same release later.
+        expect(bundle.release.barcode).toBe('888295974028');
+    });
+
+    test('a compilation is credited per track here too', async ({ page }) => {
+        await importFromSpotify(page);
+
+        await expect(page.locator('[data-type="release-group"]')).toHaveCount(0);
+        await expect(page.locator('[name="group-name-0-0"]')).toHaveValue('The Paragraphs');
+        await expect(page.locator('[name="group-name-1-0"]')).toHaveValue('22 Kings');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(JSON.stringify(bundle)).not.toContain('Various Artists');
+    });
+
+    test('an ordinary album keeps its release-level act', async ({ page }) => {
+        await importFromSpotify(page, {
+            album: {
+                ...SPOTIFY_ALBUM,
+                album: {
+                    ...SPOTIFY_ALBUM.album,
+                    album_type: 'album',
+                    artists: [{ id: 'a9', name: 'Ocelot' }],
+                    tracks: SPOTIFY_ALBUM.album.tracks.map(t => ({
+                        ...t, artists: [{ id: 'a9', name: 'Ocelot' }],
+                    })),
+                },
+            },
+        });
+
+        await expect(page.locator('[name="release-group-name-0"]')).toHaveValue('Ocelot');
+        await expect(page.locator('[name="track-same-groups-0"]')).toBeChecked();
+    });
+
+    test('it says that Spotify carries no credits', async ({ page }) => {
+        // The one thing this import cannot do, said where somebody will read it
+        // rather than discovered as an empty Performing Groups section.
+        await importFromSpotify(page);
+
+        await expect(page.locator('#discogs-status')).toContainText('no credits');
+    });
+
+    test('a refused lookup reports the reason, not a bad link', async ({ page }) => {
+        await importFromSpotify(page, {
+            album: { success: false, reason: 'not_configured',
+                message: 'Spotify lookup is not configured on this server.' },
+        });
+
+        await expect(page.locator('#discogs-status')).toContainText('not configured');
+        await expect(page.locator('#discogs-status')).toHaveClass(/error/);
+    });
+
+    test('something that is neither link is still a Discogs error', async ({ page }) => {
+        await gotoForm(page);
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://example.com/not-a-release');
+        await page.click('#fetch-discogs-btn');
+
+        await expect(page.locator('#discogs-status')).toContainText('Spotify album link');
+    });
+});
+
 test.describe('labels and their catalogue numbers', () => {
     /**
      * A release is issued by one or more labels, and each issuer stamps its own

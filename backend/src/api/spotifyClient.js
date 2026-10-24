@@ -113,6 +113,21 @@ function searchTerm(value) {
         .slice(0, 100);
 }
 
+/**
+ * An artist reduced to what the registry stores about one.
+ *
+ * Spotify's artist object carries images, genres, popularity and follower
+ * counts; none of that is a fact about who played, and the import has nowhere
+ * to put it.
+ *
+ * @param {Object} artist
+ * @returns {{id: string, name: string}|null}
+ */
+function simpleArtist(artist) {
+    const name = String(artist?.name ?? '').trim();
+    return name ? { id: artist?.id ?? null, name } : null;
+}
+
 export class SpotifyClient {
     /**
      * @param {Object} [options]
@@ -432,6 +447,15 @@ export class SpotifyClient {
             release_date: album.release_date,
             total_tracks: album.total_tracks,
             upc: album.external_ids?.upc ?? null,
+            // Carried for the importer rather than the comparison: a release
+            // that is on Spotify and not on Discogs has to be submittable from
+            // this alone, and these are the fields a submitter would otherwise
+            // retype. There are no credits among them — Spotify's Web API has
+            // none, which is why docs/17 pairs this with MusicBrainz.
+            album_type: album.album_type ?? null,
+            label: album.label ?? null,
+            copyrights: (album.copyrights ?? []).map((c) => c?.text).filter(Boolean),
+            artists: (album.artists ?? []).map(simpleArtist).filter(Boolean),
             tracks: tracks.map(t => ({
                 id: t.id,
                 name: t.name,
@@ -439,6 +463,10 @@ export class SpotifyClient {
                 disc_number: t.disc_number,
                 duration_ms: t.duration_ms,
                 isrc: isrcs.get(t.id) ?? null,
+                // Per track, because this is what a compilation says and what
+                // the album-level credit cannot: "Various Artists" at the top
+                // and the real act on each line.
+                artists: (t.artists ?? []).map(simpleArtist).filter(Boolean),
             })),
         };
     }

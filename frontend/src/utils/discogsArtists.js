@@ -12,6 +12,11 @@
  * the graph that nobody can ever be a member of, and attaches a stranger's
  * recording to it on every compilation anyone imports.
  *
+ * Serves both importers. Spotify says the same two things in its own words —
+ * an album credited to "Various Artists" with the act named on each track —
+ * so the rules here are written about artists as an import source gives them,
+ * not about Discogs' payload in particular.
+ *
  * Pure and standalone so it can be unit-tested without a browser — the
  * frontend has no unit-test runner, so its tests live under
  * backend/test/frontend/, the same arrangement as listenLinks.js.
@@ -27,6 +32,15 @@
  * while the id is the same row in their database every time.
  */
 export const VARIOUS_ARTISTS_ID = 194;
+
+/**
+ * Spotify's own placeholder artist, for the same purpose.
+ *
+ * Their ids are opaque strings rather than numbers, so this is matched as one
+ * — and matched at all because the display name is localized per market,
+ * where the id is not.
+ */
+export const SPOTIFY_VARIOUS_ARTISTS_ID = '0LyfQWJT6nXafLPZqxe9Of';
 
 /** The spellings seen without the id, normalized. */
 const VARIOUS_NAMES = new Set(['various', 'various artists', 'v/a', 'va']);
@@ -53,6 +67,7 @@ export function cleanArtistName(name) {
 export function isVariousArtists(artist) {
     if (!artist) return false;
     if (Number(artist.id) === VARIOUS_ARTISTS_ID) return true;
+    if (artist.id === SPOTIFY_VARIOUS_ARTISTS_ID) return true;
 
     return VARIOUS_NAMES.has(cleanArtistName(artist.name).toLowerCase());
 }
@@ -84,8 +99,10 @@ export function isCompilation(discogsRelease) {
     const artists = Array.isArray(discogsRelease?.artists) ? discogsRelease.artists : [];
     if (artists.some(isVariousArtists)) return true;
 
-    const described = (discogsRelease?.formats ?? []).some((format) =>
-        (format?.descriptions ?? []).some((d) => String(d).toLowerCase() === 'compilation'));
+    // Discogs says it in a format description; Spotify says it in album_type.
+    const described = String(discogsRelease?.album_type ?? '').toLowerCase() === 'compilation'
+        || (discogsRelease?.formats ?? []).some((format) =>
+            (format?.descriptions ?? []).some((d) => String(d).toLowerCase() === 'compilation'));
 
     // A format description alone only counts when the tracks disagree with
     // each other about who played them; otherwise it is one act's own
@@ -102,7 +119,8 @@ export function isCompilation(discogsRelease) {
  */
 function trackArtistNames(discogsRelease) {
     const names = new Set();
-    for (const track of discogsRelease?.tracklist ?? []) {
+    // `tracklist` is Discogs' name for it and `tracks` is Spotify's.
+    for (const track of discogsRelease?.tracklist ?? discogsRelease?.tracks ?? []) {
         for (const artist of track?.artists ?? []) {
             const name = cleanArtistName(artist?.name).toLowerCase();
             if (name) names.add(name);

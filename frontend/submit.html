@@ -57,14 +57,17 @@
                         <details>
                             <summary>
                                 <span class="icon">📀</span>
-                                <strong>Import from Discogs</strong>
-                                <span class="hint">Auto-fill form from Discogs database</span>
+                                <strong>Import from Discogs or Spotify</strong>
+                                <span class="hint">Auto-fill the form from a release link</span>
                             </summary>
                             <div class="import-content">
-                                <p>Enter a Discogs release URL or ID to automatically populate the form:</p>
+                                <p>Paste a Discogs release or master URL, or a Spotify album link.
+                                   Discogs carries the credits; Spotify carries releases Discogs
+                                   has never heard of, along with the ISRCs — but no credits at
+                                   all, since its API has none.</p>
                                 <div class="import-input-group">
                                     <input type="text" id="discogs-input"
-                                           placeholder="https://www.discogs.com/release/249504 or just 249504"
+                                           placeholder="https://www.discogs.com/release/249504 or https://open.spotify.com/album/…"
                                            autocomplete="off">
                                     <button type="button" id="fetch-discogs-btn" class="btn-secondary">
                                         Fetch Data

@@ -33,6 +33,15 @@ describe('spotting the placeholder', () => {
         expect(isVariousArtists({ name })).toBe(true);
     });
 
+    test("Spotify's placeholder is matched by its id, which is not localized", () => {
+        // Their display name follows the market — "Verschillende Artiesten",
+        // "Varios Artistas" — and no list of spellings keeps up with that. The
+        // id is the same row in every market.
+        expect(isVariousArtists({
+            id: '0LyfQWJT6nXafLPZqxe9Of', name: 'Verschillende Artiesten',
+        })).toBe(true);
+    });
+
     test('a real act is not', () => {
         expect(isVariousArtists(act('Nocturnal Rites', 12345))).toBe(false);
         expect(isVariousArtists(act('Various Production', 99))).toBe(false);
@@ -92,6 +101,28 @@ describe('is this a compilation', () => {
                 { title: 'One', artists: [act('Queens Of The Stone Age', 1)] },
                 { title: 'Two', artists: [act('Queens Of The Stone Age', 1)] },
             ],
+        })).toBe(false);
+    });
+
+    test("Spotify says it in album_type, where there is no format description", () => {
+        // A compilation curated under a label's own name rather than Various:
+        // the type is the only signal, and the tracks disagreeing about the
+        // act is what keeps a single band's retrospective out.
+        expect(isCompilation({
+            album_type: 'compilation',
+            artists: [act('Lost Ark Studio', 'lbl')],
+            tracks: [
+                { name: 'One', artists: [act('Band A', 'a1')] },
+                { name: 'Two', artists: [act('Band B', 'a2')] },
+            ],
+        })).toBe(true);
+    });
+
+    test('an album Spotify calls an album is not', () => {
+        expect(isCompilation({
+            album_type: 'album',
+            artists: [act('Ocelot', 'a9')],
+            tracks: [{ name: 'One', artists: [act('Ocelot', 'a9')] }],
         })).toBe(false);
     });
 

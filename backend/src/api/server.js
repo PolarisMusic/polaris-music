@@ -47,6 +47,7 @@ import { createEntityRoutes } from './routes/entities.js';
 import { createSearchRoutes } from './routes/search.js';
 import { createSpotifyRoutes } from './routes/spotify.js';
 import { createLinkRoutes } from './routes/links.js';
+import { createBandcampRoutes } from './routes/bandcamp.js';
 import { createCurateRoutes } from './routes/curate.js';
 import { createPlayerRoutes } from './routes/player.js';
 import { createGraphRoutes } from './routes/graph.js';
@@ -178,6 +179,9 @@ class APIServer {
         // check records. Deezer needs no credentials, so this one answers on
         // any deployment with outbound HTTPS.
         this.app.use('/api/links', createLinkRoutes(ctx));
+        // No credentials to configure: Bandcamp publishes no API, so this
+        // reads the page a submitter pasted. See routes/bandcamp.js.
+        this.app.use('/api/bandcamp', createBandcampRoutes(ctx));
 
         // Curation
         this.app.use('/api/curate', createCurateRoutes(ctx));
