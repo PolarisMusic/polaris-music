@@ -444,6 +444,75 @@ function requiredMatches(rows) {
 }
 
 /**
+ * How much of a form's tracklist an album accounts for.
+ *
+ * @param {{position?: string, title: string}[]} rows - Form tracks, already
+ *   filtered to the ones with a title.
+ * @param {{tracks: {name: string}[]}} album
+ * @returns {{accounted: number, unexplained: number}}
+ */
+function score(rows, album) {
+    const accounted = matchSpotifyTracks(rows, album.tracks)
+        .filter(match => match.spotify).length;
+    return {
+        accounted,
+        // Tracks the form says nothing about. A compilation that happens to
+        // carry this album's singles accounts for a few rows and leaves thirty
+        // unexplained, and is not this album.
+        unexplained: album.tracks.length - accounted,
+    };
+}
+
+/** Whether a score is good enough to act on. */
+function clears({ accounted, unexplained }, required) {
+    return accounted >= required && accounted >= unexplained;
+}
+
+/**
+ * Whether this album's tracklist bears out that it is the record on the form.
+ *
+ * The same test `chooseAlbumByTracklist` applies to a name search, offered
+ * separately because a barcode needs it too and used not to get it. A barcode
+ * match is *verified* — the server checks the full album really carries that
+ * barcode — and still routinely wrong about the music: barcodes get reused,
+ * mis-entered in community catalogues, and shared between an album and a promo
+ * EP cut from it. One such match filed a 15-track album's barcode under a
+ * 4-track release, and the links went in anyway.
+ *
+ * A link the submitter pasted is deliberately not put through this. That is
+ * their own statement of which release this is; differences are worth
+ * reporting, but overruling them is not this function's business.
+ *
+ * @param {{position?: string, title: string}[]} formTracks
+ * @param {{tracks?: {name: string}[]}} album
+ * @returns {{supported: boolean, accounted: number, required: number,
+ *            unexplained: number, rows: number, albumTracks: number}}
+ */
+export function tracklistSupportsAlbum(formTracks = [], album = {}) {
+    const rows = (Array.isArray(formTracks) ? formTracks : [])
+        .filter(track => normalizeTitle(track?.title));
+    const tracks = Array.isArray(album?.tracks) ? album.tracks : [];
+    const required = requiredMatches(rows.length);
+
+    // Nothing to judge with is not a judgement against: a form with no titles
+    // yet, or an album Spotify returned without its tracklist, leaves the
+    // decision where it was rather than refusing a match on no evidence.
+    if (rows.length === 0 || tracks.length === 0) {
+        return { supported: true, accounted: 0, required, unexplained: 0,
+            rows: rows.length, albumTracks: tracks.length };
+    }
+
+    const scored = score(rows, { tracks });
+    return {
+        supported: clears(scored, required),
+        ...scored,
+        required,
+        rows: rows.length,
+        albumTracks: tracks.length,
+    };
+}
+
+/**
  * Whether two tracklists are the same list of recordings.
  *
  * Used only to tell "two editions of the one album" from "two different
@@ -503,18 +572,7 @@ export function chooseAlbumByTracklist(formTracks = [], candidates = []) {
     };
     if (rows.length === 0 || albums.length === 0) return empty;
 
-    const scored = albums.map(album => {
-        const accounted = matchSpotifyTracks(rows, album.tracks)
-            .filter(match => match.spotify).length;
-        return {
-            album,
-            accounted,
-            // Tracks the form says nothing about. A compilation that happens to
-            // carry this album's singles accounts for a few rows and leaves
-            // thirty unexplained, and is not this album.
-            unexplained: album.tracks.length - accounted,
-        };
-    });
+    const scored = albums.map(album => ({ album, ...score(rows, album) }));
 
     // Most of the form accounted for first; then the tightest fit, which is how
     // a standard edition wins over the deluxe reissue that contains it.
@@ -531,7 +589,7 @@ export function chooseAlbumByTracklist(formTracks = [], candidates = []) {
         considered: albums.length,
     };
 
-    if (best.accounted < required || best.accounted < best.unexplained) return result;
+    if (!clears(best, required)) return result;
 
     // A tie on both counts between genuinely different records is exactly the
     // coin toss this module refuses elsewhere. Between two editions of the one

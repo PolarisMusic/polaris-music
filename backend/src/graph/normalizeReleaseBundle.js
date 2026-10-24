@@ -741,6 +741,11 @@ function normalizeWriterCredit(writer) {
 
     if (writer.person_id) normalized.person_id = writer.person_id;
 
+    // A songwriter is a person, and the search that has to find an alias does
+    // not care which relationship brought the node into being.
+    const writerAltNames = normalizeAltNames(writer.alt_names);
+    if (writerAltNames.length > 0) normalized.alt_names = writerAltNames;
+
     // Normalize writing roles from both role (singular) and roles (plural)
     const rawRoles = [];
     if (writer.role) rawRoles.push(writer.role);
@@ -759,6 +764,27 @@ function normalizeWriterCredit(writer) {
     }
 
     return normalized;
+}
+
+/**
+ * Clean a list of alternate names.
+ *
+ * How else a person is known: a stage name, a name they recorded under
+ * before, a spelling another catalogue uses. These sit on the node, which is
+ * the difference from `credited_as` — that says how one release billed
+ * somebody, where these are names the person goes by at all, and so are what
+ * a search has to match. Both are kept; they answer different questions.
+ *
+ * Same cleaning a Label's alt_names get: strings, trimmed, blanks dropped.
+ *
+ * @param {*} value
+ * @returns {string[]}
+ */
+function normalizeAltNames(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+        .filter(n => typeof n === 'string' && n.trim())
+        .map(n => n.trim());
 }
 
 /**
@@ -781,6 +807,10 @@ function normalizePerson(person) {
     };
 
     if (person.person_id) normalized.person_id = person.person_id;
+
+    const altNames = normalizeAltNames(person.alt_names);
+    if (altNames.length > 0) normalized.alt_names = altNames;
+
     if (person.birth_name) normalized.birth_name = person.birth_name;
     if (person.birth_date) normalized.birth_date = person.birth_date;
     if (person.birth_city) normalized.birth_city = normalizeCity(person.birth_city);

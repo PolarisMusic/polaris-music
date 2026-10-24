@@ -73,6 +73,7 @@
       "properties": {
         "person_id": { "type": "string" },
         "name": { "type": "string", "minLength": 1 },
+        "alt_names": { "type": "array", "items": { "type": "string" } },
         "birth_name": { "type": "string" },
         "birth_date": { "type": "string" },
         "birth_city": { "$ref": "#/definitions/City" },
@@ -188,6 +189,7 @@
       "properties": {
         "person_id": { "type": "string" },
         "name": { "type": "string", "minLength": 1 },
+        "alt_names": { "type": "array", "items": { "type": "string" } },
         "credited_as": { "type": "string" },
         "role": { "type": "string" },
         "roles": { "type": "array", "items": { "type": "string" } },

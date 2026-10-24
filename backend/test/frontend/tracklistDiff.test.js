@@ -12,7 +12,7 @@ import { describe, test, expect } from '@jest/globals';
 import {
     normalizeTitle, displayTitle, sameTitle, nearlySameTitle,
     diffTracklists, describeDifference, matchSpotifyTracks,
-    chooseAlbumByTracklist, describeAlbumChoice
+    chooseAlbumByTracklist, describeAlbumChoice, tracklistSupportsAlbum
 } from '../../../frontend/src/utils/tracklistDiff.js';
 
 const discogs = (...titles) => titles.map((title, i) => ({ position: `A${i + 1}`, title }));
@@ -646,5 +646,86 @@ describe('choosing an album a name search only proposed', () => {
     test('an empty result says Spotify has nothing, not that the match failed', () => {
         expect(describeAlbumChoice({ reason: 'none' })).toMatch(/nothing/i);
         expect(describeAlbumChoice()).toMatch(/nothing/i);
+    });
+});
+
+describe('whether an album bears out being the record on the form', () => {
+    /**
+     * The case that prompted this: Discogs lists a barcode for a 15-track
+     * album which Spotify files under a 4-track release. The server verified
+     * the barcode — the full album really does carry it — so the match was
+     * accepted, its link was written into the release field, and five other
+     * services were asked for the same wrong record's links. A barcode proves
+     * a barcode; it does not prove the music.
+     */
+    const AMORE = discogs(
+        'The End Of Love', 'Tropics Of Love', 'Broken World', 'Why I Stay',
+        'The Invitation', 'Did You Wonder', 'A Sign On The Road', 'Sympathy Crime',
+        'The Visitor', 'The Waiter #4', 'A Cry For Love', 'Before The People',
+        'Only One Way', 'Fingerprints', 'The One Who Has Disappeared',
+    );
+    const WRONG_RELEASE = {
+        name: 'Smoke and Scissors',
+        tracks: spotify('Yoker Swan', 'The Streaker', 'Moonlighting', 'Smoke and Scissors'),
+    };
+
+    test('a four-track release is not a fifteen-track album', () => {
+        const support = tracklistSupportsAlbum(AMORE, WRONG_RELEASE);
+
+        expect(support.supported).toBe(false);
+        expect(support.accounted).toBe(0);
+        expect(support.rows).toBe(15);
+        expect(support.albumTracks).toBe(4);
+    });
+
+    test('the album it really is, is borne out', () => {
+        const support = tracklistSupportsAlbum(AMORE, {
+            name: 'Amore del Tropico',
+            tracks: spotify(...AMORE.map((track) => track.title)),
+        });
+
+        expect(support.supported).toBe(true);
+        expect(support.accounted).toBe(15);
+    });
+
+    test('a bonus track or two does not sink it', () => {
+        // Which is the whole reason this is a share and not a clean sweep: the
+        // streaming edition of a record routinely carries an extra track.
+        const support = tracklistSupportsAlbum(AMORE, {
+            name: 'Amore del Tropico (Deluxe)',
+            tracks: spotify(...AMORE.map((t) => t.title), 'Demo One', 'Demo Two'),
+        });
+
+        expect(support.supported).toBe(true);
+    });
+
+    test('a compilation carrying a few of the songs is not the album', () => {
+        const support = tracklistSupportsAlbum(AMORE, {
+            name: 'Label Retrospective',
+            tracks: spotify('Broken World', 'Fingerprints', 'Someone Else', 'Another',
+                'And Another', 'More', 'Still More', 'Yet More'),
+        });
+
+        expect(support.supported).toBe(false);
+        expect(support.accounted).toBe(2);
+        expect(support.unexplained).toBe(6);
+    });
+
+    test.each([
+        ['a form with no tracks yet', [], { name: 'X', tracks: spotify('A', 'B') }],
+        ['an album returned without its tracklist', discogs('A', 'B'), { name: 'X', tracks: [] }],
+        ['neither', [], { name: 'X' }],
+    ])('%s is not judged either way', (_label, form, album) => {
+        // No evidence is not evidence against. Refusing a match here would
+        // break the ordinary case where the tracks are entered after the link.
+        expect(tracklistSupportsAlbum(form, album).supported).toBe(true);
+    });
+
+    test('it agrees with the choice the name search already makes', () => {
+        // One definition, two callers: if these ever disagree, a barcode match
+        // and a name match are being held to different standards again.
+        const candidates = [{ id: 'wrong', ...WRONG_RELEASE }];
+        expect(chooseAlbumByTracklist(AMORE, candidates).album).toBeNull();
+        expect(tracklistSupportsAlbum(AMORE, WRONG_RELEASE).supported).toBe(false);
     });
 });

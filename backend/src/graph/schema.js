@@ -88,6 +88,36 @@ function countOf(record, key) {
  *
  * @constant {Set<string>}
  */
+/**
+ * Cypher that adds alternate names to a node without losing the ones it has.
+ *
+ * An alias is additive — "this act is also called X" — and no submission is
+ * in a position to say which of a node's existing aliases are wrong. Removing
+ * one is EDIT_CLAIM's job.
+ *
+ * It was written as `coalesce($altNames, n.alt_names, [])`, which reads as a
+ * guard and is not one: the caller sends `bundle.alt_names || []`, an empty
+ * list is not null in Cypher, so coalesce always took the parameter. Any later
+ * release by the same act, submitted without repeating the alias, erased it.
+ *
+ * Case-insensitive against both the stored aliases and the node's own name:
+ * "Dee Dee", "dee dee" and the person's own name are one alias, not three.
+ * The spelling that lands is the first one submitted, since that is the one a
+ * human chose.
+ *
+ * @param {string} node - The bound variable, e.g. 'p' or 'g'.
+ * @param {string} [source] - Cypher for the incoming list. Defaults to the
+ *   `$altNames` parameter; the UNWIND sites pass a row field instead, since
+ *   there the aliases differ per person within one statement.
+ * @returns {string} A Cypher expression for the new list.
+ */
+function mergedAltNames(node, source = '$altNames') {
+    assertSafePropertyName(node);
+    return `coalesce(${node}.alt_names, []) + [alt IN coalesce(${source}, [])
+        WHERE NOT toLower(alt) IN [have IN coalesce(${node}.alt_names, []) | toLower(have)]
+          AND toLower(alt) <> toLower(coalesce(${node}.name, ''))]`;
+}
+
 const RELATIONSHIP_EDIT_TARGETS = new Set(['MEMBER_OF', 'GUEST_ON']);
 
 const SAFE_NODE_TYPES = {
@@ -840,7 +870,7 @@ constructor(config = {}) {
                     ON CREATE SET g.created_at = datetime({epochMillis: $eventTs})
                     SET g.id = $groupId,
                         g.name = $name,
-                        g.alt_names = coalesce($altNames, g.alt_names, []),
+                        g.alt_names = ${mergedAltNames('g')},
                         g.bio = coalesce($bio, g.bio),
                         g.formed_date = coalesce($formed, g.formed_date),
                         g.disbanded_date = coalesce($disbanded, g.disbanded_date),
@@ -900,7 +930,10 @@ constructor(config = {}) {
                                      p.created_at = datetime({epochMillis: $eventTs}),
                                      p.color = $personColor
                         SET p.origin_city_name = coalesce($originCityName, p.origin_city_name),
-                            p.color = coalesce(p.color, $personColor)
+                            p.color = coalesce(p.color, $personColor),
+                            // How else this person is known, so searching an alias
+                            // finds the node. Additive — see mergedAltNames.
+                            p.alt_names = ${mergedAltNames('p')}
 
                         WITH p
                         MATCH (g:Group {group_id: $groupId})
@@ -919,6 +952,7 @@ constructor(config = {}) {
                         personId,
                         personColor: personColorFromId(personId),
                         name: member.name,
+                        altNames: member.alt_names || [],
                         status: 'ACTIVE',
                         id_kind: personIdKind,
                         originCityName: member.origin_city?.name || null,
@@ -1022,7 +1056,10 @@ constructor(config = {}) {
                                  p.id_kind = $id_kind,
                                  p.color = $personColor
                     SET p.origin_city_name = coalesce($originCityName, p.origin_city_name),
-                        p.color = coalesce(p.color, $personColor)
+                        p.color = coalesce(p.color, $personColor),
+                        // How else this person is known, so searching an alias
+                        // finds the node. Additive — see mergedAltNames.
+                        p.alt_names = ${mergedAltNames('p')}
 
                     WITH p
                     MATCH (r:Release {release_id: $releaseId})
@@ -1036,6 +1073,7 @@ constructor(config = {}) {
                     personId,
                     personColor: personColorFromId(personId),
                     name: guest.name,
+                    altNames: guest.alt_names || [],
                     status: 'ACTIVE',
                     id_kind: IdentityService.parseId(personId).kind,
                     originCityName: guest.origin_city?.name || null,
@@ -1102,7 +1140,8 @@ constructor(config = {}) {
                                      p.status = $status,
                                      p.id_kind = $id_kind,
                                      p.color = $personColor
-                        SET p.color = coalesce(p.color, $personColor)
+                        SET p.color = coalesce(p.color, $personColor),
+                            p.alt_names = ${mergedAltNames('p')}
                         WITH p
                         MATCH (s:Song {song_id: $songId})
                         MERGE (p)-[w:WROTE {claim_id: $claimId}]->(s)
@@ -1115,6 +1154,7 @@ constructor(config = {}) {
                         personId: writerId,
                         personColor: personColorFromId(writerId),
                         name: writer.name,
+                        altNames: writer.alt_names || [],
                         status: 'ACTIVE',
                         id_kind: IdentityService.parseId(writerId).kind,
                         songId,
@@ -1331,6 +1371,7 @@ constructor(config = {}) {
                                         roles: roles,
                                         role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || [],
+                                        altNames: member.alt_names || [],
                                         color: personColorFromId(memberId)
                                     });
                                 } catch (memberResolveError) {
@@ -1349,7 +1390,8 @@ constructor(config = {}) {
                                         p.id_kind = 'provisional',
                                         p.created_at = datetime({epochMillis: $eventTs}),
                                         p.color = m.color
-                                    SET p.color = coalesce(p.color, m.color)
+                                    SET p.color = coalesce(p.color, m.color),
+                                        p.alt_names = ${mergedAltNames('p', 'm.altNames')}
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
@@ -1458,6 +1500,7 @@ constructor(config = {}) {
                                         roles: roles,
                                         role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || [],
+                                        altNames: member.alt_names || [],
                                         color: personColorFromId(memberId)
                                     });
                                 } catch (memberResolveError) {
@@ -1476,7 +1519,8 @@ constructor(config = {}) {
                                         p.id_kind = 'provisional',
                                         p.created_at = datetime({epochMillis: $eventTs}),
                                         p.color = m.color
-                                    SET p.color = coalesce(p.color, m.color)
+                                    SET p.color = coalesce(p.color, m.color),
+                                        p.alt_names = ${mergedAltNames('p', 'm.altNames')}
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
                                     MERGE (p)-[perf:PERFORMED_ON {claim_id: $claimId, via_group_id: $groupId}]->(t)
@@ -1516,7 +1560,10 @@ constructor(config = {}) {
                                      p.id_kind = $id_kind,
                                      p.color = $personColor
                         SET p.origin_city_name = coalesce($originCityName, p.origin_city_name),
-                            p.color = coalesce(p.color, $personColor)
+                            p.color = coalesce(p.color, $personColor),
+                            // How else this person is known, so searching an alias
+                            // finds the node. Additive — see mergedAltNames.
+                            p.alt_names = ${mergedAltNames('p')}
 
                         WITH p
                         MATCH (t:Track {track_id: $trackId})
@@ -1533,6 +1580,7 @@ constructor(config = {}) {
                         personId: guestId,
                         personColor: personColorFromId(guestId),
                         name: guest.name,
+                        altNames: guest.alt_names || [],
                         status: 'ACTIVE',
                         id_kind: IdentityService.parseId(guestId).kind,
                         originCityName: guest.origin_city?.name || null,

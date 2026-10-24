@@ -1962,3 +1962,208 @@ test.describe('importing a Various Artists page from Bandcamp', () => {
         await expect(page.locator('#discogs-status')).toContainText('1 track(s) name no act');
     });
 });
+
+test.describe('a barcode that Spotify files under a different record', () => {
+    /**
+     * A verified barcode match is still not a match on the music. Barcodes get
+     * reused, mis-entered in community catalogues, and shared between an album
+     * and a promo EP cut from it — and the server's check only proves the
+     * album Spotify returned really carries that barcode.
+     *
+     * What used to happen: a 15-track release's Discogs barcode found a
+     * 4-track Spotify release, the comparison reported sixteen differences,
+     * and then the wrong album's link went into the release field and five
+     * other services were asked for the same wrong record. The report said so
+     * underneath links that had already been written.
+     */
+    const FIFTEEN = [
+        'The End Of Love', 'Tropics Of Love', 'Broken World', 'Why I Stay',
+        'The Invitation', 'Did You Wonder', 'A Sign On The Road', 'Sympathy Crime',
+        'The Visitor', 'The Waiter #4', 'A Cry For Love', 'Before The People',
+        'Only One Way', 'Fingerprints', 'The One Who Has Disappeared',
+    ];
+
+    const DISCOGS_RELEASE = {
+        id: 909090,
+        title: 'Amore del Tropico',
+        year: 2002,
+        artists: [{ id: 1, name: 'The Black Heart Procession' }],
+        labels: [{ name: 'Touch and Go', catno: 'TG250' }],
+        formats: [{ name: 'CD' }],
+        identifiers: [{ type: 'Barcode', value: '036172095025' }],
+        tracklist: FIFTEEN.map((title, i) => ({
+            position: String(i + 1), type_: 'track', title,
+        })),
+    };
+
+    /** What Spotify really returns for that barcode: a different record. */
+    const WRONG_ALBUM = {
+        success: true,
+        matched_by: 'upc',
+        album: {
+            id: 'WRONG', name: 'Smoke and Scissors', total_tracks: 4,
+            upc: '036172095025',
+            tracks: [
+                { id: 'w1', name: 'Yoker Swan', track_number: 1 },
+                { id: 'w2', name: 'The Streaker', track_number: 2 },
+                { id: 'w3', name: 'Moonlighting', track_number: 3 },
+                { id: 'w4', name: 'Smoke and Scissors', track_number: 4 },
+            ],
+        },
+    };
+
+    async function importWithWrongBarcodeMatch(page, { album = WRONG_ALBUM } = {}) {
+        const crossServiceCalls = [];
+
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(DISCOGS_RELEASE),
+        }));
+        await page.route('https://api.discogs.com/artists/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify({ members: [] }),
+        }));
+        await page.route('**/spotify/album', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(album),
+        }));
+        await page.route('**/links/resolve', (route) => {
+            crossServiceCalls.push(JSON.parse(route.request().postData() ?? '{}'));
+            return route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, links: {}, services: [] }),
+            });
+        });
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/909090');
+        await page.click('#fetch-discogs-btn');
+
+        return crossServiceCalls;
+    }
+
+    test('its link is not written into the release field', async ({ page }) => {
+        await importWithWrongBarcodeMatch(page);
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('does not look like this release');
+        await expect(page.locator('#release-listen-links')).toHaveValue('');
+    });
+
+    test('no track gets a link from it either', async ({ page }) => {
+        await importWithWrongBarcodeMatch(page);
+
+        await expect(page.locator('#listen-link-report')).toContainText('Nothing was filled in');
+        await expect(page.locator('[name="track-listen-link-0"]')).toHaveValue('');
+        await expect(page.locator('[name="track-listen-link-14"]')).toHaveValue('');
+    });
+
+    test('the other services are never asked about the wrong record', async ({ page }) => {
+        // The worst of it: five services' links for a record this is not.
+        const crossServiceCalls = await importWithWrongBarcodeMatch(page);
+
+        await expect(page.locator('#listen-link-report'))
+            .toContainText('does not look like this release');
+        expect(crossServiceCalls).toEqual([]);
+    });
+
+    test('it says which barcode, what it found, and what to do', async ({ page }) => {
+        await importWithWrongBarcodeMatch(page);
+
+        const report = page.locator('#listen-link-report');
+        await expect(report).toContainText('036172095025');
+        await expect(report).toContainText('"Smoke and Scissors" (4 track(s))');
+        await expect(report).toContainText('0 of 15 track(s) line up');
+        await expect(report).toContainText('paste the Spotify album link above');
+    });
+
+    test('the differences are still listed, as the evidence for refusing it',
+        async ({ page }) => {
+            await importWithWrongBarcodeMatch(page);
+
+            await expect(page.locator('#listen-link-report'))
+                .toContainText('this form has 15, Spotify has 4');
+        });
+
+    test('a barcode match that does agree is still used', async ({ page }) => {
+        // The guard must not cost the ordinary case, which is the whole reason
+        // the barcode route exists.
+        const crossServiceCalls = await importWithWrongBarcodeMatch(page, {
+            album: {
+                success: true,
+                matched_by: 'upc',
+                album: {
+                    id: 'RIGHT', name: 'Amore del Tropico', total_tracks: 15,
+                    upc: '036172095025',
+                    tracks: FIFTEEN.map((name, i) => ({
+                        id: `t${i}`, name, track_number: i + 1,
+                    })),
+                },
+            },
+        });
+
+        await expect(page.locator('#listen-link-report')).toContainText('found by barcode');
+        await expect(page.locator('#release-listen-links'))
+            .toHaveValue('https://open.spotify.com/album/RIGHT');
+        expect(crossServiceCalls.length).toBeGreaterThan(0);
+    });
+});
+
+test.describe('naming someone who is already in the registry by another name', () => {
+    /**
+     * The submitter's case: Kristen Gundred is in the registry, this record
+     * credits Dee Dee, and typing "Dee Dee" afterwards should find her. The
+     * alias goes on the Person node — which is what the search index and the
+     * substring fallback both read — rather than on the relationship, where
+     * `credited_as` already records how one release billed somebody.
+     */
+    async function fillOneMember(page, { altNames }) {
+        await gotoForm(page);
+        await page.fill('#release-name', 'Dum Dum Girls EP');
+        await page.fill('#release-date', '2010');
+        await page.selectOption('#release-format', 'EP');
+
+        await page.click('#add-release-group');
+        await page.fill('[name="release-group-name-0"]', 'Dum Dum Girls');
+        await page.click('.add-release-member');
+        // The member's name input is a lookup field and gets re-parented into
+        // a wrapper on a 50ms observer, same as a track title — see
+        // addOpenTrack. Filling it before that lands loses the text.
+        await expect(
+            page.locator('[name="release-member-name-0-0"]')
+                .locator('xpath=ancestor::*[contains(@class,"entity-lookup-wrapper")]')
+        ).toBeAttached();
+        await page.fill('[name="release-member-name-0-0"]', 'Kristen Gundred');
+        await page.fill('[name="release-member-roles-0-0"]', 'Vocals');
+        if (altNames !== null) {
+            await page.fill('[name="release-member-altnames-0-0"]', altNames);
+        }
+
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Rest Of Our Lives');
+
+        return page.evaluate(() => window.polarisApp.buildReleaseData());
+    }
+
+    test('the alias is sent with the person', async ({ page }) => {
+        const bundle = await fillOneMember(page, { altNames: 'Dee Dee' });
+
+        expect(bundle.groups[0].members[0]).toMatchObject({
+            name: 'Kristen Gundred',
+            alt_names: ['Dee Dee'],
+        });
+    });
+
+    test('several aliases, comma-separated, all travel', async ({ page }) => {
+        const bundle = await fillOneMember(page, { altNames: 'Dee Dee, Kristin Welchez' });
+
+        expect(bundle.groups[0].members[0].alt_names)
+            .toEqual(['Dee Dee', 'Kristin Welchez']);
+    });
+
+    test('an empty box sends no aliases at all', async ({ page }) => {
+        // Not an empty list: that would read as "this person has no other
+        // names", which is a claim nobody made.
+        const bundle = await fillOneMember(page, { altNames: '' });
+
+        expect(bundle.groups[0].members[0]).not.toHaveProperty('alt_names');
+    });
+});
