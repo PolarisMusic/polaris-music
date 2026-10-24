@@ -264,6 +264,142 @@ export function tagsFrom(album) {
 }
 
 /**
+ * The record label, or null for a record the act put out itself.
+ *
+ * `publisher` is not the label. It is the band whose Bandcamp page this is,
+ * and on an act's own page that is the act: reading it as the label minted a
+ * Label node called "Howlin Rain" for a record Silver Current Records
+ * released. A label, when there is one, is stated outright — `recordLabel` on
+ * a release in the JSON-LD, `label` on a package in the player data — and
+ * both appear only when the selling band differs from the page's own.
+ *
+ * `publisher` is the label in exactly one shape: an album hosted on a label's
+ * page, where the page owner is the label and `byArtist` is somebody else.
+ * That is the only reading it gets, and a publisher equal to the act is
+ * discarded as the band naming itself.
+ *
+ * @param {Object|null} album - The JSON-LD MusicAlbum.
+ * @param {Object|null} tralbum - The embedded player data.
+ * @param {string|null} byArtist - The performing act, already resolved.
+ * @returns {string|null}
+ */
+export function labelFrom(album, tralbum, byArtist) {
+    const releases = Array.isArray(album?.albumRelease) ? album.albumRelease : [];
+    for (const release of releases) {
+        const stated = release?.recordLabel?.name;
+        if (stated) return String(stated).trim();
+    }
+
+    const packages = Array.isArray(tralbum?.packages) ? tralbum.packages : [];
+    for (const pkg of packages) {
+        if (pkg?.label) return String(pkg.label).trim();
+    }
+
+    const publisher = album?.publisher?.name ? String(album.publisher.name).trim() : null;
+    if (!publisher) return null;
+    const act = byArtist ? String(byArtist).trim() : null;
+    return act && publisher.toLowerCase() === act.toLowerCase() ? null : publisher;
+}
+
+/**
+ * The track's own page, or null when it has none.
+ *
+ * Only some tracks of an album get a page to themselves. The rest are listed
+ * with an `@id` of the album URL plus a `#t4` fragment, which is the album
+ * page — handing that over as a track's listen link pointed six of one
+ * album's nine tracks at the same address. A track that really has a page
+ * says so twice, in `mainEntityOfPage` and in the player's `title_link`, and
+ * both are absent for the fragment-only ones.
+ *
+ * @param {Object} item - The JSON-LD MusicRecording.
+ * @param {Object} player - The matching trackinfo entry.
+ * @param {string} url - The album page URL, for resolving a relative link.
+ * @returns {string|null}
+ */
+export function trackUrl(item, player, url) {
+    const page = item?.mainEntityOfPage;
+    if (typeof page === 'string' && page && !page.includes('#')) return page;
+
+    if (player?.title_link) {
+        try {
+            return new URL(String(player.title_link), url).toString();
+        } catch {
+            return null;
+        }
+    }
+
+    const id = item?.['@id'];
+    return typeof id === 'string' && id && !id.includes('#') ? id : null;
+}
+
+/** Bandcamp's `musicReleaseFormat` for the physical editions we have a name for. */
+const PHYSICAL_FORMAT = new Map([
+    ['vinylformat', 'LP'],
+    ['cdformat', 'CD'],
+    ['cassetteformat', 'Cassette'],
+]);
+
+/**
+ * The format of the release this page *is*, which is not the formats it sells.
+ *
+ * A Bandcamp album page is one digital release that may also offer vinyl, a
+ * CD and a test pressing. In this registry those are separate Releases:
+ * format is part of the release fingerprint precisely so a CD does not MERGE
+ * onto the LP it was remastered from. So the page maps to its digital album,
+ * and the editions it sells alongside are reported to the submitter rather
+ * than folded in.
+ *
+ * A track page is a Single. A page with no digital release at all — physical
+ * only — takes the format of the first edition it does offer.
+ *
+ * @param {Object|null} album - The JSON-LD MusicAlbum.
+ * @param {Object|null} tralbum - The embedded player data.
+ * @returns {string|null}
+ */
+export function formatFrom(album, tralbum) {
+    const itemType = String(tralbum?.item_type ?? tralbum?.current?.type ?? '').toLowerCase();
+    if (itemType === 'track') return 'Single';
+
+    const releases = Array.isArray(album?.albumRelease) ? album.albumRelease : [];
+    const formats = releases
+        .map((release) => String(release?.musicReleaseFormat ?? '').toLowerCase())
+        .filter(Boolean);
+
+    if (formats.includes('digitalformat')) return 'Digital';
+    // The digital album carries no musicReleaseFormat on some pages; the
+    // player data still announces it, and a page with audio always has one.
+    if (!formats.length) return tralbum?.hasAudio || itemType === 'album' ? 'Digital' : null;
+
+    for (const format of formats) {
+        const known = PHYSICAL_FORMAT.get(format);
+        if (known) return known;
+    }
+    return 'Other';
+}
+
+/**
+ * The physical editions sold beside the digital release, by Bandcamp's own
+ * name for each. Informational: each is a Release of its own to submit, and
+ * saying so is more use to a submitter than silently dropping them.
+ *
+ * @param {Object|null} tralbum - The embedded player data.
+ * @returns {string[]}
+ */
+export function otherEditions(tralbum) {
+    const packages = Array.isArray(tralbum?.packages) ? tralbum.packages : [];
+    const seen = new Set();
+    const editions = [];
+    for (const pkg of packages) {
+        const name = String(pkg?.type_name ?? '').trim();
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) continue;
+        seen.add(key);
+        editions.push(name);
+    }
+    return editions;
+}
+
+/**
  * One release, as this page describes it.
  *
  * JSON-LD first for everything it carries, because it is standard vocabulary;
@@ -274,10 +410,12 @@ export function tagsFrom(album) {
  * @param {string} html
  * @param {string} url - The canonical page URL.
  * @returns {{name: string, artist: string|null, release_date: string,
- *            label: string|null, credits: string|null, about: string|null,
+ *            label: string|null, format: string|null,
+ *            other_editions: string[], upc: string|null,
+ *            credits: string|null, about: string|null,
  *            tags: string[], art: string|null, url: string,
  *            tracks: Array<{title: string, position: number, duration: number|null,
- *                           url: string|null}>}|null}
+ *                           url: string|null, artist: string|null}>}|null}
  */
 export function albumFromPage(html, url) {
     const album = musicAlbumFrom(extractJsonLd(html));
@@ -289,7 +427,7 @@ export function albumFromPage(html, url) {
     if (!name) return null;
 
     const byArtist = album?.byArtist?.name ?? tralbum?.artist ?? current.artist ?? null;
-    const label = album?.publisher?.name ?? album?.recordLabel?.name ?? null;
+    const label = labelFrom(album, tralbum, byArtist);
 
     // The player data's durations are seconds and exact; JSON-LD's are
     // Bandcamp's ISO variant. Matched up by position, which is the only key
@@ -308,13 +446,18 @@ export function albumFromPage(html, url) {
         const title = String(item.name ?? player.title ?? '').trim();
         if (!title) continue;
 
+        // Only a compilation states this, and then only sometimes: on a
+        // single-act record every track is the page's act and both fields are
+        // null. UNVERIFIED against a live compilation — see checkBandcamp.js,
+        // which prints it so one paste settles whether these are the names.
+        const act = item.byArtist?.name ?? player.artist ?? null;
+
         tracks.push({
             title,
             position: Number(listed[index]?.position ?? player.track_num ?? index + 1),
             duration: durationSeconds(player.duration) ?? durationSeconds(item.duration),
-            url: item['@id'] ?? (player.title_link
-                ? new URL(player.title_link, url).toString()
-                : null),
+            url: trackUrl(item, player, url),
+            artist: act ? String(act).trim() : null,
         });
     }
 
@@ -323,6 +466,11 @@ export function albumFromPage(html, url) {
         artist: byArtist ? String(byArtist).trim() : null,
         release_date: releaseDate(album?.datePublished ?? current.release_date),
         label: label ? String(label).trim() : null,
+        format: formatFrom(album, tralbum),
+        // Separate Releases, not this one's formats. See formatFrom.
+        other_editions: otherEditions(tralbum),
+        // Usually null, and the key a credits lookup needs when it is not.
+        upc: current.upc ? String(current.upc).trim() : null,
         // Free text, typed by whoever put the record up. Bandcamp has no
         // structured credits at all: no roles, no per-person fields, nothing a
         // parser can trust. It is liner notes, and that is where it goes.

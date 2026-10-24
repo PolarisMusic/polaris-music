@@ -100,7 +100,14 @@ async function main() {
     say('name', Boolean(release.name), release.name);
     say('artist', Boolean(release.artist), release.artist ?? '');
     say('release date', Boolean(release.release_date), release.release_date);
-    say('label', Boolean(release.label), release.label ?? 'none on the page');
+    say('label', Boolean(release.label),
+        release.label ?? 'none stated — self-released, or the page is the act\'s own');
+    say('format', Boolean(release.format), release.format ?? '');
+    say('other editions', release.other_editions.length > 0,
+        release.other_editions.length
+            ? `${release.other_editions.join(', ')} — each a Release of its own to submit`
+            : 'none sold beside the digital album');
+    say('upc', Boolean(release.upc), release.upc ?? 'none — Bandcamp rarely carries one');
     say(`${release.tracks.length} track(s)`, release.tracks.length > 0,
         release.tracks.slice(0, 3).map((t) =>
             `${t.position}. ${t.title}${t.duration ? ` (${t.duration}s)` : ' (no duration)'}`)
@@ -110,6 +117,23 @@ async function main() {
     say('tags', release.tags.length > 0, release.tags.join(', '));
     say('credits', Boolean(release.credits),
         release.credits ? `${release.credits.split('\n').length} line(s), free text` : 'none typed');
+    const withPages = release.tracks.filter((t) => t.url);
+    say('track pages', withPages.length > 0,
+        `${withPages.length} of ${release.tracks.length}${withPages.length
+            ? ` — e.g. ${withPages[0].url}` : ''}`);
+    // Only a compilation states a per-track act, and the field names here are
+    // the one thing in this importer never seen on a live compilation page.
+    // Paste a label sampler through this and the next line settles it.
+    const perTrack = release.tracks.filter((t) => t.artist);
+    say('per-track acts', perTrack.length > 0,
+        perTrack.length
+            ? `${perTrack.length} of ${release.tracks.length} — e.g. ${perTrack[0].artist}`
+            : 'none stated, so every track is the release act (right for a '
+              + 'single-act record; run a compilation through to check)');
+
+    const fragments = release.tracks.filter((t) => t.url && t.url.includes('#'));
+    say('no album-page fragments as track links', fragments.length === 0,
+        fragments.length ? `${fragments.length} slipped through: ${fragments[0].url}` : 'clean');
 
     console.log('\n   Credits are free text on Bandcamp — no roles, no per-person fields.');
     console.log('   They land in liner notes; people are not invented from them.');
