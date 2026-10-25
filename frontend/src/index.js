@@ -863,6 +863,30 @@ class PolarisApp {
     }
 
     /**
+     * The photograph Discogs has of this person, if the roster named them.
+     *
+     * Matched on the Discogs id where both sides have one, and on the
+     * normalized name otherwise — the same pair of keys parseCredits uses to
+     * decide that two credit lines are one human, rather than a looser
+     * comparison invented here.
+     *
+     * @param {{id?: number|null, name: string}} person
+     * @returns {string|null}
+     */
+    discogsMemberPhoto(person) {
+        const roster = this.discogsArtist?.members;
+        if (!Array.isArray(roster) || !person) return null;
+
+        const wanted = discogsClient.normalizeName(person.name);
+        const match = roster.find((member) => (
+            person.id != null && member.id != null
+                ? member.id === person.id
+                : discogsClient.normalizeName(member.name) === wanted
+        ));
+        return match?.photo ?? null;
+    }
+
+    /**
      * Put a cover on the form, without overwriting one already there.
      *
      * Imports run in sequence on the same form — a Discogs import chains
@@ -1990,11 +2014,34 @@ class PolarisApp {
         // membership list in the sense that everyone is on it, which is no use.
         if (mainArtist.id === 194) return null;
 
+        // Through our own server, which is the only way the pictures come
+        // with it: Discogs withholds `images` from an unauthenticated request
+        // and this bundle cannot hold a token. The roster itself is public, so
+        // the direct call below still answers when the route does not — an
+        // import that works slightly worse beats one that fails outright.
+        try {
+            const answer = await api.getDiscogsArtist(mainArtist.id);
+            if (answer?.success && answer.artist) {
+                this.discogsArtist = answer.artist;
+                this.discogsPhotosConfigured = answer.configured !== false;
+                const members = answer.artist.members?.length ? answer.artist.members : null;
+                console.log(`Discogs roster for ${mainArtist.name}: `
+                    + `${members?.length ?? 0} members, `
+                    + `photos ${answer.configured ? 'on' : 'off (no DISCOGS_TOKEN)'}`);
+                return members;
+            }
+            console.warn('Discogs artist lookup via the server did not answer:',
+                answer?.message ?? answer?.reason ?? 'no reason given');
+        } catch (error) {
+            console.warn('Discogs artist lookup via the server failed:', error.message);
+        }
+
         try {
             const artist = await discogsClient.fetchArtist(mainArtist.id);
             const members = Array.isArray(artist?.members) ? artist.members : null;
             if (members && members.length > 0) {
-                console.log(`Discogs roster for ${mainArtist.name}: ${members.length} members`);
+                console.log(`Discogs roster for ${mainArtist.name}: ${members.length} members`
+                    + ' (read from the browser, so no photos)');
                 return members;
             }
             console.log(`Discogs has no roster for ${mainArtist.name}; ` +
@@ -2646,6 +2693,11 @@ class PolarisApp {
         // founding member from a session cellist — which is how session players
         // ended up in bands and how members credited only as producers ended up
         // outside them.
+        // Belongs to the release being replaced, same as the barcode: a
+        // half-finished import must not leave the previous band's photographs
+        // behind to be attached to this one's people.
+        this.discogsArtist = null;
+        this.discogsPhotosConfigured = false;
         const rosterMembers = await this.fetchDiscogsRoster(discogsRelease);
         const credits = discogsClient.parseCredits(discogsRelease.extraartists, { rosterMembers });
         const performers = credits.members;
@@ -2676,6 +2728,15 @@ class PolarisApp {
                 this.setFieldValue(
                     groupForm.querySelector(`input[name="release-group-name-${i}"]`), cleanName);
 
+                // The roster was fetched for the FIRST credited act, so its
+                // picture belongs to that one and to no other. A split single
+                // credited to two bands would otherwise give both of them the
+                // same photograph.
+                if (i === 0) {
+                    this.fillHiddenField(groupForm, `release-group-photo-${i}`,
+                        this.discogsArtist?.photo);
+                }
+
                 // Members go on the FIRST group only. With several credited
                 // artists there is no way to tell from the Discogs payload who
                 // played in which, and splitting them by guess would put people
@@ -2692,6 +2753,14 @@ class PolarisApp {
                                 `input[name="release-member-name-${i}-${memberIndex}"]`), member.name);
                             this.setFieldValue(memberForm.querySelector(
                                 `input[name="release-member-roles-${i}-${memberIndex}"]`), member.role);
+                            // Matched by name against the roster, which is
+                            // where the photographs came from. parseCredits
+                            // keys people by Discogs id where there is one and
+                            // by normalized name otherwise, so the same
+                            // comparison is used here rather than a looser one.
+                            this.fillHiddenField(memberForm,
+                                `release-member-photo-${i}-${memberIndex}`,
+                                this.discogsMemberPhoto(member));
                         });
                     }
                 }

@@ -397,6 +397,27 @@ class APIClient {
     }
 
     /**
+     * Ask the backend about a Discogs artist, pictures included.
+     *
+     * Through our API for the one reason the tracklist import is not: Discogs
+     * serves no `images` to an unauthenticated request, and a browser cannot
+     * hold a token because this bundle is public. The roster rides along,
+     * since one call answers both.
+     *
+     * @param {string|number} id - A Discogs artist id.
+     * @returns {Promise<{success: boolean, configured?: boolean, reason?: string,
+     *                    message?: string, artist?: Object}>}
+     */
+    async getDiscogsArtist(id) {
+        const response = await fetch(`${API_BASE_URL}/discogs/artist`, {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ id }),
+        });
+        return response.json();
+    }
+
+    /**
      * Ask what the same recordings are called on other services.
      *
      * By ISRC where a catalogue can be asked that way, and by platform link
