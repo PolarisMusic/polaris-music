@@ -25,7 +25,7 @@ Import releases and artists from the Discogs database API.
 ```javascript
 import { DiscogsImporter } from './tools/import/discogsImporter.js';
 
-const importer = new DiscogsImporter(process.env.DISCOGS_API_KEY);
+const importer = new DiscogsImporter({ discogsToken: process.env.DISCOGS_TOKEN });
 
 // Import a single release
 await importer.importRelease(249504); // Beatles White Album
@@ -139,7 +139,13 @@ When implementing, add these dependencies to package.json:
 
 ```bash
 # For Discogs Importer
-DISCOGS_API_KEY=your_api_key_here
+# A personal access token, from discogs.com Settings -> Developers. No
+# registered application is needed: that is OAuth, which is only for acting on
+# behalf of other people's accounts. The name matters - discogsImporter.js
+# reads DISCOGS_TOKEN, and this file used to say DISCOGS_API_KEY, which
+# nothing has ever read.
+DISCOGS_TOKEN=your_personal_access_token_here
+# Required by Discogs. Requests with no User-Agent are refused outright.
 DISCOGS_USER_AGENT=PolarisMusic/1.0
 
 # Rate limiting
