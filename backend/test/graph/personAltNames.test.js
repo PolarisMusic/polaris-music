@@ -122,8 +122,9 @@ describe('every relationship that can bring a Person into being', () => {
     test.each([
         ['a band member', { groups: [{ name: 'G', members: [
             { name: 'Kristen Gundred', alt_names: ['Dee Dee'] }] }] }],
-        ['a guest on the release', { release_guests: [
-            { name: 'Kristen Gundred', roles: ['Producer'], alt_names: ['Dee Dee'] }] }],
+        ['a guest on the release', { release: { name: 'Dum Dum Girls EP', guests: [
+            { name: 'Kristen Gundred', roles: ['Producer'], alt_names: ['Dee Dee'] }] },
+        groups: [] }],
         ['a guest on a track', { tracks: [{ title: 'Rest Of Our Lives', guests: [
             { name: 'Kristen Gundred', roles: ['Guitar'], alt_names: ['Dee Dee'] }] }] }],
     ])('%s carries the alias', async (_label, overrides) => {
@@ -136,6 +137,9 @@ describe('every relationship that can bring a Person into being', () => {
         const carrying = personWrites(statements)
             .filter((s) => (s.params.altNames ?? []).includes('Dee Dee'));
         expect(carrying.length).toBeGreaterThan(0);
+        // Exactly one person in each of these fixtures carries it, so a
+        // sibling path cannot satisfy the assertion on another's behalf.
+        expect(carrying).toHaveLength(1);
         for (const write of carrying) expect(write.cypher).toContain('p.alt_names =');
     });
 
@@ -190,5 +194,118 @@ describe('a group’s own aliases, which used to be erased', () => {
         expect(groupWrite).toBeDefined();
         expect(groupWrite.cypher).toContain('coalesce(g.alt_names, []) +');
         expect(groupWrite.cypher).not.toContain('coalesce($altNames, g.alt_names');
+    });
+});
+
+describe('a picture of an act or a person', () => {
+    /**
+     * Five places read `photo` — the search results, the graph API, the node
+     * renderer that draws it on the node itself, and the info panel, which
+     * shows it for both a Group and a Person with an editable Photo URL row.
+     * Nothing ever wrote one from a submission, so none of that had anything
+     * to draw.
+     */
+    test('a group’s photo reaches the node', async () => {
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, bundle({
+            groups: [{ name: 'Dum Dum Girls', photo: 'https://pic/band.jpg', members: [] }],
+        }), 'polaristest2', Date.now());
+
+        const [write] = statements
+            .filter((s) => /MERGE \(g:Group \{group_id: \$groupId\}\)/.test(s.cypher));
+        expect(write.params.photo).toBe('https://pic/band.jpg');
+        expect(write.cypher).toContain('g.photo = coalesce(g.photo, $photo)');
+    });
+
+    test('a member’s photo reaches theirs', async () => {
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, bundle({
+            groups: [{ name: 'Dum Dum Girls', members: [
+                { name: 'Kristen Gundred', photo: 'https://pic/kg.jpg' }] }],
+        }), 'polaristest2', Date.now());
+
+        const [write] = personWrites(statements);
+        expect(write.params.photo).toBe('https://pic/kg.jpg');
+        expect(write.cypher).toContain('p.photo = coalesce(p.photo, $photo)');
+    });
+
+    test('one already on the node is kept, not replaced', async () => {
+        // A node's picture is a curated fact and a later release should not
+        // churn it; the info panel's Photo URL row is how it is changed on
+        // purpose. Same posture as p.color, and as the album cover's
+        // first-source-wins rule.
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, bundle({
+            groups: [{ name: 'G', members: [{ name: 'K', photo: 'https://pic/new.jpg' }] }],
+        }), 'polaristest2', Date.now());
+
+        const [{ cypher }] = personWrites(statements);
+        expect(cypher).toContain('coalesce(p.photo, $photo)');
+        expect(cypher).not.toContain('coalesce($photo, p.photo)');
+    });
+
+    test('a release that names no photo sends null, which changes nothing', async () => {
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, bundle(), 'polaristest2', Date.now());
+
+        const [write] = personWrites(statements);
+        expect(write.params.photo).toBeNull();
+    });
+
+    test.each([
+        ['a guest on the release', { release: { name: 'Dum Dum Girls EP', guests: [
+            { name: 'Björk', roles: ['Featuring'], photo: 'https://pic/b.jpg' }] } }],
+        ['a guest on a track', { tracks: [{ title: 'Rest Of Our Lives', guests: [
+            { name: 'Björk', roles: ['Guitar'], photo: 'https://pic/b.jpg' }] }] }],
+    ])('%s carries one', async (_label, overrides) => {
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, bundle(overrides), 'polaristest2', Date.now());
+
+        // Both halves: the parameter is sent AND the statement writes it. The
+        // parameter alone passed with the write removed entirely.
+        const carrying = personWrites(statements)
+            .filter((s) => s.params.photo === 'https://pic/b.jpg');
+        expect(carrying).toHaveLength(1);
+        expect(carrying[0].cypher).toContain('p.photo = coalesce(p.photo, $photo)');
+    });
+
+    test('a songwriter carries one', async () => {
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, bundle({
+            songs: [{ title: 'Rest Of Our Lives', writers: [
+                { name: 'Kristen Gundred', photo: 'https://pic/kg.jpg' }] }],
+        }), 'polaristest2', Date.now());
+
+        const carrying = personWrites(statements)
+            .filter((s) => s.params.photo === 'https://pic/kg.jpg');
+        expect(carrying).toHaveLength(1);
+        expect(carrying[0].cypher).toContain('p.photo = coalesce(p.photo, $photo)');
+    });
+
+    test('a line-up named on a track carries one per person', async () => {
+        const { db, statements } = graphWithRecorder();
+
+        await db.processReleaseBundle(HASH, {
+            release: { name: 'Compilation' },
+            tracks: [{
+                title: 'Leap Year',
+                performed_by_groups: [{ name: 'Tan Sister Radio', members: [
+                    { name: 'Andrew Ware', roles: ['Drums'], photo: 'https://pic/aw.jpg' },
+                    { name: 'Aaron Dennis', roles: ['Guitar'] },
+                ] }],
+            }],
+            tracklist: [{ position: '1', track_title: 'Leap Year' }],
+        }, 'polaristest2', Date.now());
+
+        const [write] = lineUpWrites(statements);
+        expect(write.params.members[0].photo).toBe('https://pic/aw.jpg');
+        expect(write.params.members[1].photo).toBeNull();
+        expect(write.cypher).toContain('p.photo = coalesce(p.photo, m.photo)');
     });
 });

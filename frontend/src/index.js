@@ -394,6 +394,9 @@ class PolarisApp {
             const groupId = this.getInputValue(item, `release-group-id-${index}`);
             if (groupId) group.group_id = groupId;
 
+            const photo = this.getInputValue(item, `release-group-photo-${index}`);
+            if (photo) group.photo = photo;
+
             // Alt names
             const altNamesStr = this.getInputValue(item, `release-group-altnames-${index}`);
             const altNames = this.parseCommaSeparated(altNamesStr);
@@ -536,6 +539,9 @@ class PolarisApp {
             const altNames = this.parseCommaSeparated(
                 this.getInputValue(item, `release-guest-altnames-${index}`));
             if (altNames.length > 0) guest.alt_names = altNames;
+
+            const photo = this.getInputValue(item, `release-guest-photo-${index}`);
+            if (photo) guest.photo = photo;
 
             if (roles.length > 0) guest.roles = roles;
 
@@ -1524,6 +1530,9 @@ class PolarisApp {
             this.getInputValue(item, `${type}-altnames-${parentIndex}-${index}`));
         if (altNames.length > 0) person.alt_names = altNames;
 
+        const photo = this.getInputValue(item, `${type}-photo-${parentIndex}-${index}`);
+        if (photo) person.photo = photo;
+
         if (roles.length > 0) person.roles = roles;
 
         // Build origin_city if city name is provided
@@ -1562,6 +1571,9 @@ class PolarisApp {
             // Emit existing group_id if bound via autocomplete
             const groupId = this.getInputValue(item, `group-id-${trackIndex}-${groupIndex}`);
             if (groupId) group.group_id = groupId;
+
+            const groupPhoto = this.getInputValue(item, `group-photo-${trackIndex}-${groupIndex}`);
+            if (groupPhoto) group.photo = groupPhoto;
 
             // Alt names
             const altNamesStr = this.getInputValue(item, `group-altnames-${trackIndex}-${groupIndex}`);
@@ -2282,6 +2294,9 @@ class PolarisApp {
             document.getElementById('release-groups-container').appendChild(groupForm);
             this.setFieldValue(groupForm.querySelector(
                 `input[name="release-group-name-${index}"]`), artist.name);
+            // A picture of the act, which the graph draws on the node and the
+            // info panel shows. Hidden, like the barcode: nobody types one.
+            this.fillHiddenField(groupForm, `release-group-photo-${index}`, artist.photo);
         });
 
         let tracksWithOwnAct = 0;
@@ -2480,6 +2495,8 @@ class PolarisApp {
             document.getElementById('release-groups-container').appendChild(groupForm);
             this.setFieldValue(groupForm.querySelector(
                 'input[name="release-group-name-0"]'), album.artist);
+            // The band's own page image. Not the sleeve — that is album.art.
+            this.fillHiddenField(groupForm, 'release-group-photo-0', album.artist_photo);
         }
 
         let tracksWithOwnAct = 0;

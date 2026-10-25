@@ -871,6 +871,11 @@ constructor(config = {}) {
                     SET g.id = $groupId,
                         g.name = $name,
                         g.alt_names = ${mergedAltNames('g')},
+                        // Kept once set: a node's picture is a curated fact and
+                        // a later release should not churn it. Same posture as
+                        // g.color below, and the info panel's Photo URL row is
+                        // how a deliberate change is made.
+                        g.photo = coalesce(g.photo, $photo),
                         g.bio = coalesce($bio, g.bio),
                         g.formed_date = coalesce($formed, g.formed_date),
                         g.disbanded_date = coalesce($disbanded, g.disbanded_date),
@@ -893,6 +898,7 @@ constructor(config = {}) {
                     groupId,
                     name: group.name,
                     altNames: group.alt_names || [],
+                    photo: group.photo || null,
                     bio: group.bio || null,
                     formed: group.formed_date || null,
                     disbanded: group.disbanded_date || null,
@@ -933,6 +939,7 @@ constructor(config = {}) {
                             p.color = coalesce(p.color, $personColor),
                             // How else this person is known, so searching an alias
                             // finds the node. Additive — see mergedAltNames.
+                            p.photo = coalesce(p.photo, $photo),
                             p.alt_names = ${mergedAltNames('p')}
 
                         WITH p
@@ -953,6 +960,7 @@ constructor(config = {}) {
                         personColor: personColorFromId(personId),
                         name: member.name,
                         altNames: member.alt_names || [],
+                        photo: member.photo || null,
                         status: 'ACTIVE',
                         id_kind: personIdKind,
                         originCityName: member.origin_city?.name || null,
@@ -1059,6 +1067,7 @@ constructor(config = {}) {
                         p.color = coalesce(p.color, $personColor),
                         // How else this person is known, so searching an alias
                         // finds the node. Additive — see mergedAltNames.
+                        p.photo = coalesce(p.photo, $photo),
                         p.alt_names = ${mergedAltNames('p')}
 
                     WITH p
@@ -1074,6 +1083,7 @@ constructor(config = {}) {
                     personColor: personColorFromId(personId),
                     name: guest.name,
                     altNames: guest.alt_names || [],
+                    photo: guest.photo || null,
                     status: 'ACTIVE',
                     id_kind: IdentityService.parseId(personId).kind,
                     originCityName: guest.origin_city?.name || null,
@@ -1141,6 +1151,7 @@ constructor(config = {}) {
                                      p.id_kind = $id_kind,
                                      p.color = $personColor
                         SET p.color = coalesce(p.color, $personColor),
+                            p.photo = coalesce(p.photo, $photo),
                             p.alt_names = ${mergedAltNames('p')}
                         WITH p
                         MATCH (s:Song {song_id: $songId})
@@ -1155,6 +1166,7 @@ constructor(config = {}) {
                         personColor: personColorFromId(writerId),
                         name: writer.name,
                         altNames: writer.alt_names || [],
+                        photo: writer.photo || null,
                         status: 'ACTIVE',
                         id_kind: IdentityService.parseId(writerId).kind,
                         songId,
@@ -1372,6 +1384,7 @@ constructor(config = {}) {
                                         role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || [],
                                         altNames: member.alt_names || [],
+                                        photo: member.photo || null,
                                         color: personColorFromId(memberId)
                                     });
                                 } catch (memberResolveError) {
@@ -1391,6 +1404,7 @@ constructor(config = {}) {
                                         p.created_at = datetime({epochMillis: $eventTs}),
                                         p.color = m.color
                                     SET p.color = coalesce(p.color, m.color),
+                                        p.photo = coalesce(p.photo, m.photo),
                                         p.alt_names = ${mergedAltNames('p', 'm.altNames')}
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
@@ -1501,6 +1515,7 @@ constructor(config = {}) {
                                         role: roles[0] || null,  // backward compat
                                         instruments: member.instruments || [],
                                         altNames: member.alt_names || [],
+                                        photo: member.photo || null,
                                         color: personColorFromId(memberId)
                                     });
                                 } catch (memberResolveError) {
@@ -1520,6 +1535,7 @@ constructor(config = {}) {
                                         p.created_at = datetime({epochMillis: $eventTs}),
                                         p.color = m.color
                                     SET p.color = coalesce(p.color, m.color),
+                                        p.photo = coalesce(p.photo, m.photo),
                                         p.alt_names = ${mergedAltNames('p', 'm.altNames')}
                                     WITH p, m
                                     MATCH (t:Track {track_id: $trackId})
@@ -1563,6 +1579,7 @@ constructor(config = {}) {
                             p.color = coalesce(p.color, $personColor),
                             // How else this person is known, so searching an alias
                             // finds the node. Additive — see mergedAltNames.
+                            p.photo = coalesce(p.photo, $photo),
                             p.alt_names = ${mergedAltNames('p')}
 
                         WITH p
@@ -1581,6 +1598,7 @@ constructor(config = {}) {
                         personColor: personColorFromId(guestId),
                         name: guest.name,
                         altNames: guest.alt_names || [],
+                        photo: guest.photo || null,
                         status: 'ACTIVE',
                         id_kind: IdentityService.parseId(guestId).kind,
                         originCityName: guest.origin_city?.name || null,

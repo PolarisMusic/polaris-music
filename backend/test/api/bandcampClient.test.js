@@ -670,3 +670,52 @@ describe('the act credited on a track, which only a compilation states', () => {
         expect(album.tracks[0].artist).toBe('Ides');
     });
 });
+
+describe('a photo of the band, which the page had all along', () => {
+    /**
+     * `publisher` is the band whose Bandcamp page this is — the reason
+     * labelFrom refuses to read it as the label — and it carries that band's
+     * own page image. The parser consulted it only for a name and threw the
+     * picture away, while the registry's node renderer, search results and
+     * info panel all had somewhere to put one.
+     *
+     * Not the sleeve. That is `art`, and it comes off the album.
+     */
+    test('it comes from the publisher block', () => {
+        const album = albumFromPage(livePage(), LIVE_URL);
+
+        expect(album.artist_photo).toBeNull();
+    });
+
+    test('and is read when the page carries one', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: {
+                publisher: {
+                    '@type': 'MusicGroup',
+                    name: 'Howlin Rain',
+                    image: 'https://f4.bcbits.com/img/0047411403_10.jpg',
+                },
+            },
+        }), LIVE_URL);
+
+        expect(album.artist_photo).toBe('https://f4.bcbits.com/img/0047411403_10.jpg');
+    });
+
+    test('it is not the sleeve', () => {
+        const album = albumFromPage(livePage({
+            jsonLd: {
+                image: 'https://f4.bcbits.com/img/a0775995079_10.jpg',
+                publisher: { name: 'Howlin Rain', image: 'https://f4.bcbits.com/img/band.jpg' },
+            },
+        }), LIVE_URL);
+
+        expect(album.art).toBe('https://f4.bcbits.com/img/a0775995079_10.jpg');
+        expect(album.artist_photo).toBe('https://f4.bcbits.com/img/band.jpg');
+    });
+
+    test('a page with no publisher at all is survivable', () => {
+        const album = albumFromPage(livePage({ jsonLd: { publisher: undefined } }), LIVE_URL);
+
+        expect(album.artist_photo).toBeNull();
+    });
+});

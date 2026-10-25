@@ -93,13 +93,49 @@ need one.
 | ISRC | — | per track | — |
 | Credits | `extraartists`, classified by `parseCredits` | — | free text only, to liner notes |
 | Album art | withheld — see below | `images[0].url`, largest first | `image` / the player's `art_id` |
+| Photo of the act | withheld — see below | `/artists`, one extra request | `publisher.image` |
+| Photo of a person | the only source, and withheld | none — see below | none |
 
 Durations are dropped by all three: Spotify gives exact milliseconds, Bandcamp
 a float of seconds, and `Track.duration` exists in the schema — but the form
 has no duration input. One field away, and now two sources deep.
 
+### Photos of acts and people
+
+The registry has had somewhere to put these all along — `photo` on Group and
+Person, drawn on the node itself, shown in the info panel with an editable
+Photo URL row, and returned on every search result — and nothing had ever
+written one from a submission.
+
+**Bandcamp** supplies a band photo for free. `publisher.image` is the band's own
+page image, and `publisher` is the block `labelFrom` already reads for the
+label name while throwing the picture away. No extra request.
+
+**Spotify** supplies one for an extra request. The artist objects hanging off
+an album are *simplified* — id, name, uri — and carry no images, so the photo
+needs `/v1/artists`. Batched, with the same retreat `/tracks?ids=` needed:
+this app is served a 403 on that batch endpoint while the single-id form
+works, and nothing says `/artists?ids=` is treated differently. **Unverified
+against the live app** — the fallback is written and tested, but which branch
+this app actually takes can only be seen on a deployment.
+
+**Photos of individual people have no source here at all.** Spotify has artist
+images, and a session drummer has no Spotify artist page; Bandcamp has one
+image per band page. Discogs is the only one of the three that photographs
+individual musicians — and it is the blocked one.
+
+### Discogs images need a token, and the token needs the backend
+
 **Discogs serves no images to an unauthenticated request**, and these requests
-are unauthenticated, so a Discogs import supplies no cover. The import reads
+are unauthenticated, so a Discogs import supplies no cover and no photos.
+
+The frontend client cannot simply be given a token: everything in that bundle
+is public. It would have to move behind the backend the way Spotify and
+Bandcamp already are. The appealing part is that `fetchDiscogsRoster` already
+calls `/artists/{id}` for the band's membership list, so one authenticated
+call through the backend would return the roster, the band's photo and every
+member's photo together — the only source that answers the person case, at no
+extra request. The import reads
 `images[]` anyway — preferring the `primary` shot, since a secondary is the
 back, an insert or a photo of the vinyl — so that adding a token later needs no
 change here.

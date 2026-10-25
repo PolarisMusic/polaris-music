@@ -671,3 +671,154 @@ describe('the album cover', () => {
         expect(album).not.toHaveProperty('images');
     });
 });
+
+describe('pictures of the acts', () => {
+    const artistsServing = (responses) => {
+        const client = clientServing(responses);
+        return client;
+    };
+
+    test('come back by id, largest rendition first', async () => {
+        const client = artistsServing({
+            '/artists?ids=': { artists: [
+                { id: 'a1', name: 'Band', images: [
+                    { url: 'https://i.scdn.co/image/big', height: 640 },
+                    { url: 'https://i.scdn.co/image/small', height: 64 },
+                ] },
+                { id: 'a2', name: 'Other', images: [{ url: 'https://i.scdn.co/image/two' }] },
+            ] },
+        });
+
+        const photos = await client.artistPhotos(['a1', 'a2']);
+
+        expect(photos.get('a1')).toBe('https://i.scdn.co/image/big');
+        expect(photos.get('a2')).toBe('https://i.scdn.co/image/two');
+    });
+
+    test('an artist with no image is simply absent', async () => {
+        const client = artistsServing({
+            '/artists?ids=': { artists: [{ id: 'a1', name: 'Band', images: [] }] },
+        });
+
+        expect((await client.artistPhotos(['a1'])).size).toBe(0);
+    });
+
+    test('nothing asked is nothing requested', async () => {
+        const client = artistsServing({});
+
+        expect((await client.artistPhotos([])).size).toBe(0);
+        expect((await client.artistPhotos(null)).size).toBe(0);
+        expect(client.asked).toEqual([]);
+    });
+
+    test('duplicate ids are asked for once', async () => {
+        const client = artistsServing({
+            '/artists?ids=': { artists: [{ id: 'a1', images: [{ url: 'u' }] }] },
+        });
+
+        await client.artistPhotos(['a1', 'a1', 'a1']);
+
+        expect(client.asked).toHaveLength(1);
+        expect(client.asked[0]).toContain('ids=a1');
+    });
+
+    test('a 403 on the batch retreats to one request per artist', async () => {
+        // Exactly what this app is served on /tracks?ids=, where the single-id
+        // form works. Nothing says /artists?ids= is treated differently.
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        const asked = [];
+        client._get = async (path) => {
+            asked.push(path);
+            if (path.startsWith('/artists?ids=')) {
+                const error = new Error('Forbidden');
+                error.status = 403;
+                throw error;
+            }
+            return { id: path.split('/').pop(), images: [{ url: `pic-${path.split('/').pop()}` }] };
+        };
+
+        const photos = await client.artistPhotos(['a1', 'a2']);
+
+        expect(photos.get('a1')).toBe('pic-a1');
+        expect(photos.get('a2')).toBe('pic-a2');
+        expect(asked[0]).toContain('/artists?ids=');
+        expect(asked.slice(1)).toEqual(['/artists/a1', '/artists/a2']);
+    });
+
+    test('the refusal is remembered, so the batch is not retried', async () => {
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        const asked = [];
+        client._get = async (path) => {
+            asked.push(path);
+            if (path.startsWith('/artists?ids=')) {
+                const error = new Error('Forbidden');
+                error.status = 403;
+                throw error;
+            }
+            return { id: 'a1', images: [{ url: 'pic' }] };
+        };
+
+        await client.artistPhotos(['a1']);
+        await client.artistPhotos(['a1']);
+
+        expect(asked.filter((p) => p.startsWith('/artists?ids='))).toHaveLength(1);
+    });
+
+    test('a 429 does not become fifty requests', async () => {
+        // Being rate-limited is not a statement about what this app may ask
+        // for, and answering it with a request per artist is the worst
+        // possible response.
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        const asked = [];
+        client._get = async (path) => {
+            asked.push(path);
+            const error = new Error('Too Many Requests');
+            error.status = 429;
+            throw error;
+        };
+
+        const photos = await client.artistPhotos(['a1', 'a2', 'a3']);
+
+        expect(photos.size).toBe(0);
+        expect(asked).toHaveLength(1);
+    });
+
+    test('a failure never throws, because a photo is cosmetic', async () => {
+        const client = new SpotifyClient({ clientId: 'id', clientSecret: 'secret' });
+        client._get = async () => { throw new Error('network down'); };
+
+        await expect(client.artistPhotos(['a1'])).resolves.toBeInstanceOf(Map);
+    });
+
+    test('the album carries them on its artists', async () => {
+        const client = clientServing({
+            '/albums/alb': {
+                id: 'alb', name: 'Album', total_tracks: 1, external_ids: { upc: '1' },
+                artists: [{ id: 'a1', name: 'Band' }],
+                tracks: { items: simplified(1) },
+            },
+            '/tracks?ids=': full(['t0']),
+            '/artists?ids=': { artists: [{ id: 'a1', images: [{ url: 'https://pic' }] }] },
+        });
+
+        const album = await client.getAlbumWithTracks('alb');
+
+        expect(album.artists[0]).toEqual({ id: 'a1', name: 'Band', photo: 'https://pic' });
+    });
+
+    test('an artist Spotify has no picture of keeps its plain shape', async () => {
+        const client = clientServing({
+            '/albums/alb': {
+                id: 'alb', name: 'Album', total_tracks: 1, external_ids: { upc: '1' },
+                artists: [{ id: 'a1', name: 'Band' }],
+                tracks: { items: simplified(1) },
+            },
+            '/tracks?ids=': full(['t0']),
+            '/artists?ids=': { artists: [{ id: 'a1', images: [] }] },
+        });
+
+        const album = await client.getAlbumWithTracks('alb');
+
+        expect(album.artists[0]).toEqual({ id: 'a1', name: 'Band' });
+    });
+});

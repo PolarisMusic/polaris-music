@@ -146,6 +146,7 @@ export class SpotifyClient {
         // Set once the batch track endpoint has refused this app, so the rest
         // of the process stops paying for the same 403. See getTracks.
         this._batchTracksRefused = false;
+        this._batchArtistsRefused = false;
     }
 
     /**
@@ -231,6 +232,63 @@ export class SpotifyClient {
             throw statusError(response.status);
         }
         return response.json();
+    }
+
+    /**
+     * Pictures of the acts, by Spotify artist id.
+     *
+     * The artist objects hanging off an album are *simplified* ones — id,
+     * name, uri and nothing else — so a band's photo costs a request of its
+     * own. The album endpoint cannot be asked to include it.
+     *
+     * Batched, with the same retreat the tracks endpoint needed: this app is
+     * refused `/tracks?ids=` with a 403 while the single-id form works, and
+     * nothing says `/artists?ids=` is treated differently. A 403 is a refusal
+     * of the endpoint; a 429 or a 5xx says nothing about what may be asked, so
+     * answering it with a request per artist would be the worst response to
+     * being rate-limited.
+     *
+     * Never throws. A missing photo is a cosmetic gap and must not take an
+     * import down with it.
+     *
+     * @param {string[]} ids - Spotify artist ids.
+     * @returns {Promise<Map<string, string>>} id to image URL, largest first.
+     */
+    async artistPhotos(ids) {
+        const wanted = [...new Set((ids ?? []).filter(Boolean))].slice(0, 50);
+        const photos = new Map();
+        if (wanted.length === 0) return photos;
+
+        const take = (artist) => {
+            const url = artist?.images?.[0]?.url;
+            if (artist?.id && url) photos.set(artist.id, url);
+        };
+
+        if (!this._batchArtistsRefused) {
+            try {
+                const data = await this._get(
+                    `/artists?ids=${encodeURIComponent(wanted.join(','))}`);
+                (data.artists ?? []).forEach(take);
+                return photos;
+            } catch (error) {
+                if (error?.status !== 403) {
+                    console.warn('Spotify artist photos unavailable:', error.message);
+                    return photos;
+                }
+                this._batchArtistsRefused = true;
+                console.warn('Spotify refused /artists?ids= for this app (403); '
+                    + 'falling back to one request per artist');
+            }
+        }
+
+        for (const id of wanted) {
+            try {
+                take(await this._get(`/artists/${encodeURIComponent(id)}`));
+            } catch (error) {
+                console.warn(`Spotify artist ${id} unavailable:`, error.message);
+            }
+        }
+        return photos;
     }
 
     /**
@@ -441,6 +499,12 @@ export class SpotifyClient {
                 error.message);
         }
 
+        // Pictures of the acts, for a Group node that would otherwise have
+        // none. One more request, and artistPhotos never throws: a missing
+        // photo is cosmetic and must not take an import down.
+        const photos = await this.artistPhotos(
+            (album.artists ?? []).map((a) => a?.id).filter(Boolean));
+
         return {
             id: album.id,
             name: album.name,
@@ -459,7 +523,8 @@ export class SpotifyClient {
             // artwork, and the registry stores a reference rather than a copy.
             artwork: album.images?.[0]?.url ?? null,
             copyrights: (album.copyrights ?? []).map((c) => c?.text).filter(Boolean),
-            artists: (album.artists ?? []).map(simpleArtist).filter(Boolean),
+            artists: (album.artists ?? []).map(simpleArtist).filter(Boolean)
+                .map((a) => (photos.get(a.id) ? { ...a, photo: photos.get(a.id) } : a)),
             tracks: tracks.map(t => ({
                 id: t.id,
                 name: t.name,

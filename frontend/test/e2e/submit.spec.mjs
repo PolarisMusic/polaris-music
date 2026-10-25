@@ -2604,3 +2604,101 @@ test.describe('what a name search actually asked Spotify for', () => {
         await expect(report).toContainText('Add the act above');
     });
 });
+
+test.describe('a picture of the act, imported with the release', () => {
+    /**
+     * Five places were already reading `photo` — search results, the graph
+     * API, the node renderer that draws it on the node itself, and the info
+     * panel, which shows it for a Group and a Person with an editable Photo
+     * URL row. Nothing ever wrote one from a submission.
+     *
+     * Hidden fields, like the barcode and a track's ISRC: nobody types a photo
+     * URL, and the info panel is where one gets corrected afterwards.
+     */
+    test('a Bandcamp import fills the band photo', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/bandcamp/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                album: {
+                    name: 'Watermelon', artist: 'Howlin Rain', label: 'Silver Current Records',
+                    format: 'Digital', other_editions: [], upc: null,
+                    release_date: '2026/11/13', credits: null, about: null, tags: [],
+                    art: 'https://f4.bcbits.com/img/a0775995079_10.jpg',
+                    artist_photo: 'https://f4.bcbits.com/img/0047411403_10.jpg',
+                    url: 'https://howlinrain.bandcamp.com/album/watermelon',
+                    tracks: [{ title: 'Fall Away', position: 1, duration: 210,
+                        url: null, artist: null }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://howlinrain.bandcamp.com/album/watermelon');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Bandcamp');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups[0]).toMatchObject({
+            name: 'Howlin Rain',
+            photo: 'https://f4.bcbits.com/img/0047411403_10.jpg',
+        });
+        // Not the sleeve, which goes to the release.
+        expect(bundle.release.album_art).toBe('https://f4.bcbits.com/img/a0775995079_10.jpg');
+    });
+
+    test('a Spotify import fills it from the artist object', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/spotify/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                matched_by: 'link',
+                album: {
+                    id: 'ALB1', name: 'Album', release_date: '2002', total_tracks: 1,
+                    artwork: 'https://i.scdn.co/image/cover',
+                    artists: [{ id: 'a1', name: 'Some Band', photo: 'https://i.scdn.co/image/band' }],
+                    tracks: [{ id: 't1', name: 'Track', track_number: 1, disc_number: 1 }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://open.spotify.com/album/ALB1');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Spotify');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups[0].photo).toBe('https://i.scdn.co/image/band');
+    });
+
+    test('an act Spotify has no picture of sends no photo at all', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/spotify/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                matched_by: 'link',
+                album: {
+                    id: 'ALB1', name: 'Album', release_date: '2002', total_tracks: 1,
+                    artists: [{ id: 'a1', name: 'Some Band' }],
+                    tracks: [{ id: 't1', name: 'Track', track_number: 1, disc_number: 1 }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://open.spotify.com/album/ALB1');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Spotify');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups[0]).not.toHaveProperty('photo');
+    });
+
+    test('the field is hidden, because nobody types a photo URL', async ({ page }) => {
+        await gotoForm(page);
+        await page.click('#add-release-group');
+
+        await expect(page.locator('[name="release-group-photo-0"]')).toBeAttached();
+        await expect(page.locator('[name="release-group-photo-0"]')).not.toBeVisible();
+    });
+});
