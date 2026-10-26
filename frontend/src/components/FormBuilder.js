@@ -109,6 +109,11 @@ export class FormBuilder {
                 <label>Name *</label>
                 <input type="text" name="${type}-name-${parentIndex}-${index}" required placeholder="Person name (e.g. Paul McCartney)">
                 <input type="hidden" name="${type}-person-id-${parentIndex}-${index}" data-lookup-type="Person" data-lookup-pair="${type}-name-${parentIndex}-${index}">
+                <!-- Filled by an import, never typed: a photo URL is not
+                     something anybody enters by hand, and the info panel has
+                     an editable Photo URL row for correcting one afterwards.
+                     Same treatment as the barcode and a track's ISRC. -->
+                <input type="hidden" name="${type}-photo-${parentIndex}-${index}">
             </div>
 
             <!-- Searching an alias has to find the person: a stage name, a
@@ -188,6 +193,7 @@ export class FormBuilder {
                 <label>Group Name *</label>
                 <input type="text" name="group-name-${trackIndex}-${groupIndex}" required placeholder="Group name (e.g. The Beatles)">
                 <input type="hidden" name="group-id-${trackIndex}-${groupIndex}" data-lookup-type="Group" data-lookup-pair="group-name-${trackIndex}-${groupIndex}">
+                <input type="hidden" name="group-photo-${trackIndex}-${groupIndex}">
             </div>
 
             <div class="form-group">
@@ -240,6 +246,7 @@ export class FormBuilder {
                 <label>Name *</label>
                 <input type="text" name="release-guest-name-${index}" required placeholder="Person name (e.g. George Martin)">
                 <input type="hidden" name="release-guest-person-id-${index}" data-lookup-type="Person" data-lookup-pair="release-guest-name-${index}">
+                <input type="hidden" name="release-guest-photo-${index}">
             </div>
 
             <details class="alias-disclosure">
@@ -309,6 +316,7 @@ export class FormBuilder {
                 <label>Group Name *</label>
                 <input type="text" name="release-group-name-${index}" required placeholder="Group name (e.g. The Beatles)" data-group-index="${index}">
                 <input type="hidden" name="release-group-id-${index}" data-lookup-type="Group" data-lookup-pair="release-group-name-${index}">
+                <input type="hidden" name="release-group-photo-${index}">
                 <small>This group will be added to all tracks. You can remove it from individual tracks if needed.</small>
             </div>
 

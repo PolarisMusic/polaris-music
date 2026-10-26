@@ -2604,3 +2604,277 @@ test.describe('what a name search actually asked Spotify for', () => {
         await expect(report).toContainText('Add the act above');
     });
 });
+
+test.describe('a picture of the act, imported with the release', () => {
+    /**
+     * Five places were already reading `photo` — search results, the graph
+     * API, the node renderer that draws it on the node itself, and the info
+     * panel, which shows it for a Group and a Person with an editable Photo
+     * URL row. Nothing ever wrote one from a submission.
+     *
+     * Hidden fields, like the barcode and a track's ISRC: nobody types a photo
+     * URL, and the info panel is where one gets corrected afterwards.
+     */
+    test('a Bandcamp import fills the band photo', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/bandcamp/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                album: {
+                    name: 'Watermelon', artist: 'Howlin Rain', label: 'Silver Current Records',
+                    format: 'Digital', other_editions: [], upc: null,
+                    release_date: '2026/11/13', credits: null, about: null, tags: [],
+                    art: 'https://f4.bcbits.com/img/a0775995079_10.jpg',
+                    artist_photo: 'https://f4.bcbits.com/img/0047411403_10.jpg',
+                    url: 'https://howlinrain.bandcamp.com/album/watermelon',
+                    tracks: [{ title: 'Fall Away', position: 1, duration: 210,
+                        url: null, artist: null }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://howlinrain.bandcamp.com/album/watermelon');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Bandcamp');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups[0]).toMatchObject({
+            name: 'Howlin Rain',
+            photo: 'https://f4.bcbits.com/img/0047411403_10.jpg',
+        });
+        // Not the sleeve, which goes to the release.
+        expect(bundle.release.album_art).toBe('https://f4.bcbits.com/img/a0775995079_10.jpg');
+    });
+
+    test('a Spotify import fills it from the artist object', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/spotify/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                matched_by: 'link',
+                album: {
+                    id: 'ALB1', name: 'Album', release_date: '2002', total_tracks: 1,
+                    artwork: 'https://i.scdn.co/image/cover',
+                    artists: [{ id: 'a1', name: 'Some Band', photo: 'https://i.scdn.co/image/band' }],
+                    tracks: [{ id: 't1', name: 'Track', track_number: 1, disc_number: 1 }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://open.spotify.com/album/ALB1');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Spotify');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups[0].photo).toBe('https://i.scdn.co/image/band');
+    });
+
+    test('an act Spotify has no picture of sends no photo at all', async ({ page }) => {
+        await gotoForm(page);
+        await page.route('**/spotify/album', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                matched_by: 'link',
+                album: {
+                    id: 'ALB1', name: 'Album', release_date: '2002', total_tracks: 1,
+                    artists: [{ id: 'a1', name: 'Some Band' }],
+                    tracks: [{ id: 't1', name: 'Track', track_number: 1, disc_number: 1 }],
+                },
+            }),
+        }));
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://open.spotify.com/album/ALB1');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Imported from Spotify');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.groups[0]).not.toHaveProperty('photo');
+    });
+
+    test('the field is hidden, because nobody types a photo URL', async ({ page }) => {
+        await gotoForm(page);
+        await page.click('#add-release-group');
+
+        await expect(page.locator('[name="release-group-photo-0"]')).toBeAttached();
+        await expect(page.locator('[name="release-group-photo-0"]')).not.toBeVisible();
+    });
+});
+
+test.describe('photos of the people, which only Discogs has', () => {
+    /**
+     * Spotify has artist images and a session drummer has no artist page; a
+     * Bandcamp page has one image, of the band. Discogs files a person and a
+     * band as the same kind of thing, so a band's page names its members and
+     * each of those is an artist page with a photograph of a human on it —
+     * making it the only source in the import that answers the person case.
+     *
+     * And the one that withholds images from an unauthenticated request, which
+     * is why the roster call now goes through our own server.
+     */
+    const DISCOGS_RELEASE = {
+        id: 123123,
+        title: 'Dum Dum Girls EP',
+        year: 2010,
+        artists: [{ id: 7, name: 'Dum Dum Girls' }],
+        labels: [{ name: 'Sub Pop', catno: 'SP1' }],
+        formats: [{ name: 'Vinyl' }],
+        identifiers: [{ type: 'Barcode', value: 'none' }],
+        extraartists: [
+            { name: 'Kristen Gundred', role: 'Vocals, Guitar' },
+            { name: 'Jules Medeiros', role: 'Guitar' },
+            // In nobody's roster, so parseCredits files them as a guest —
+            // which is the whole point of fetching the roster.
+            { name: 'A Session Player', role: 'Cello' },
+        ],
+        tracklist: [{ position: 'A1', type_: 'track', title: 'Rest Of Our Lives' }],
+    };
+
+    const ARTIST = {
+        success: true,
+        configured: true,
+        artist: {
+            id: 7,
+            name: 'Dum Dum Girls',
+            photo: 'https://img.discogs.com/band.jpg',
+            members: [
+                { id: 11, name: 'Kristen Gundred', photo: 'https://img.discogs.com/kg.jpg',
+                    active: true },
+                { id: 12, name: 'Jules Medeiros', photo: 'https://img.discogs.com/jm.jpg',
+                    active: false },
+            ],
+        },
+    };
+
+    async function importWithPhotos(page, { answer = ARTIST } = {}) {
+        const asked = [];
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(DISCOGS_RELEASE),
+        }));
+        // The browser's own artist call must not be what answers: it cannot
+        // carry a token, so it cannot carry pictures.
+        await page.route('https://api.discogs.com/artists/*', (route) => {
+            asked.push('browser');
+            return route.fulfill({
+                contentType: 'application/json', body: JSON.stringify({ members: [] }),
+            });
+        });
+        await page.route('**/discogs/artist', (route) => {
+            asked.push('server');
+            return route.fulfill({
+                contentType: 'application/json', body: JSON.stringify(answer),
+            });
+        });
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/123123');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        return { bundle, asked };
+    }
+
+    test('the roster is asked of our server, not of Discogs directly', async ({ page }) => {
+        const { asked } = await importWithPhotos(page);
+
+        expect(asked).toContain('server');
+        expect(asked).not.toContain('browser');
+    });
+
+    test('the band’s photo lands on the group', async ({ page }) => {
+        const { bundle } = await importWithPhotos(page);
+
+        expect(bundle.groups[0].photo).toBe('https://img.discogs.com/band.jpg');
+    });
+
+    test('and each member’s on the person', async ({ page }) => {
+        const { bundle } = await importWithPhotos(page);
+
+        expect(bundle.groups[0].members[0]).toMatchObject({
+            name: 'Kristen Gundred',
+            photo: 'https://img.discogs.com/kg.jpg',
+        });
+    });
+
+    test('each member gets their own face, not the first one in the roster', async ({ page }) => {
+        // Matched by Discogs id where both sides have one and by normalized
+        // name otherwise — the same two keys parseCredits uses to decide that
+        // two credit lines are one human.
+        //
+        // This replaces a test that asserted over an empty list and so proved
+        // nothing: with a roster present, a performer who is NOT in it becomes
+        // a guest rather than a member, so the form had no member rows at all
+        // and matching members by position passed.
+        const { bundle } = await importWithPhotos(page);
+        const byName = new Map(
+            bundle.groups[0].members.map((m) => [m.name, m.photo]));
+
+        expect(byName.get('Kristen Gundred')).toBe('https://img.discogs.com/kg.jpg');
+        expect(byName.get('Jules Medeiros')).toBe('https://img.discogs.com/jm.jpg');
+    });
+
+    test('somebody the roster does not name is a guest, and has no photo', async ({ page }) => {
+        // Attaching the wrong face to a session player is worse than no face.
+        const { bundle } = await importWithPhotos(page);
+
+        const session = (bundle.release.guests ?? [])
+            .find((g) => g.name === 'A Session Player');
+        expect(session).toBeDefined();
+        expect(session).not.toHaveProperty('photo');
+    });
+
+    test('the server answering without a token still imports the roster', async ({ page }) => {
+        // It is only `images` Discogs withholds. Losing the pictures must not
+        // cost the membership list, which is what tells a member from a
+        // session player.
+        const { bundle } = await importWithPhotos(page, {
+            answer: {
+                success: true,
+                configured: false,
+                artist: {
+                    id: 7, name: 'Dum Dum Girls', photo: null,
+                    members: [{ id: 11, name: 'Kristen Gundred', photo: null, active: true }],
+                },
+            },
+        });
+
+        expect(bundle.groups[0]).not.toHaveProperty('photo');
+        expect(bundle.groups[0].members[0].name).toBe('Kristen Gundred');
+    });
+
+    test('a server that cannot answer falls back to the browser’s own call',
+        async ({ page }) => {
+            // An import that works slightly worse beats one that fails because
+            // a route was missing. The roster is public, so the direct call
+            // still answers it — just without photographs.
+            const asked = [];
+            await gotoForm(page);
+            await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+                contentType: 'application/json', body: JSON.stringify(DISCOGS_RELEASE),
+            }));
+            await page.route('https://api.discogs.com/artists/*', (route) => {
+                asked.push('browser');
+                return route.fulfill({
+                    contentType: 'application/json',
+                    body: JSON.stringify({ members: [{ id: 11, name: 'Kristen Gundred' }] }),
+                });
+            });
+            await page.route('**/discogs/artist', (route) => route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({ success: false, reason: 'unreachable' }),
+            }));
+
+            await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+            await page.fill('#discogs-input', 'https://www.discogs.com/release/123123');
+            await page.click('#fetch-discogs-btn');
+            await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+
+            expect(asked).toContain('browser');
+            const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+            expect(bundle.groups[0]).not.toHaveProperty('photo');
+        });
+});

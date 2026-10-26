@@ -411,6 +411,7 @@ export function otherEditions(tralbum) {
  * @param {string} url - The canonical page URL.
  * @returns {{name: string, artist: string|null, release_date: string,
  *            label: string|null, format: string|null,
+ *            artist_photo: string|null,
  *            other_editions: string[], upc: string|null,
  *            credits: string|null, about: string|null,
  *            tags: string[], art: string|null, url: string,
@@ -478,6 +479,11 @@ export function albumFromPage(html, url) {
         about: album?.description ?? current.about ?? null,
         tags: tagsFrom(album),
         art: album?.image ?? null,
+        // The band's own page image, which is a photo of them rather than of
+        // the sleeve. It was sitting in the publisher block all along, read
+        // only for the label name — see labelFrom, where `publisher` is the
+        // band whose page this is.
+        artist_photo: album?.publisher?.image ?? null,
         url,
         tracks,
     };

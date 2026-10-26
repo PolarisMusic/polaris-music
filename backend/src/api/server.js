@@ -48,6 +48,7 @@ import { createSearchRoutes } from './routes/search.js';
 import { createSpotifyRoutes } from './routes/spotify.js';
 import { createLinkRoutes } from './routes/links.js';
 import { createBandcampRoutes } from './routes/bandcamp.js';
+import { createDiscogsRoutes } from './routes/discogs.js';
 import { createCurateRoutes } from './routes/curate.js';
 import { createPlayerRoutes } from './routes/player.js';
 import { createGraphRoutes } from './routes/graph.js';
@@ -182,6 +183,10 @@ class APIServer {
         // No credentials to configure: Bandcamp publishes no API, so this
         // reads the page a submitter pasted. See routes/bandcamp.js.
         this.app.use('/api/bandcamp', createBandcampRoutes(ctx));
+        // Only the pictures need this: Discogs withholds images from an
+        // unauthenticated request and a browser cannot hold a token. The
+        // roster rides along, since one call answers both.
+        this.app.use('/api/discogs', createDiscogsRoutes(ctx));
 
         // Curation
         this.app.use('/api/curate', createCurateRoutes(ctx));

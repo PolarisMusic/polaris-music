@@ -253,6 +253,14 @@ services:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
 
+      # Discogs (optional) — photographs of bands and of people. A personal
+      # access token from discogs.com/settings/developers; Discogs serves no
+      # images at all without one, and a browser cannot hold a credential.
+      # Without it the roster still imports and only the photos are lost.
+      - DISCOGS_TOKEN=${DISCOGS_TOKEN:-}
+      - DISCOGS_REQUESTS_PER_MINUTE=${DISCOGS_REQUESTS_PER_MINUTE:-}
+      - DISCOGS_API_BASE=${DISCOGS_API_BASE:-}
+
       # Odesli / song.link (optional) — one request returns the same recording
       # on Apple Music, Tidal, YouTube Music, Amazon Music, Deezer and
       # SoundCloud. Keyless access is retired, so without a key the provider
@@ -359,6 +367,14 @@ services:
       # Spotify Web API (optional) — tracklist cross-check on the submit form
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+
+      # Discogs (optional) — photographs of bands and of people. A personal
+      # access token from discogs.com/settings/developers; Discogs serves no
+      # images at all without one, and a browser cannot hold a credential.
+      # Without it the roster still imports and only the photos are lost.
+      - DISCOGS_TOKEN=${DISCOGS_TOKEN:-}
+      - DISCOGS_REQUESTS_PER_MINUTE=${DISCOGS_REQUESTS_PER_MINUTE:-}
+      - DISCOGS_API_BASE=${DISCOGS_API_BASE:-}
 
       # Odesli / song.link (optional) — one request returns the same recording
       # on Apple Music, Tidal, YouTube Music, Amazon Music, Deezer and

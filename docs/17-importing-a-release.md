@@ -93,13 +93,75 @@ need one.
 | ISRC | — | per track | — |
 | Credits | `extraartists`, classified by `parseCredits` | — | free text only, to liner notes |
 | Album art | withheld — see below | `images[0].url`, largest first | `image` / the player's `art_id` |
+| Photo of the act | `/artists/{id}`, server-side | `/artists`, one extra request | `publisher.image` |
+| Photo of a person | **the only source** — one request each | none — no artist page | none |
 
 Durations are dropped by all three: Spotify gives exact milliseconds, Bandcamp
 a float of seconds, and `Track.duration` exists in the schema — but the form
 has no duration input. One field away, and now two sources deep.
 
-**Discogs serves no images to an unauthenticated request**, and these requests
-are unauthenticated, so a Discogs import supplies no cover. The import reads
+### Photos of acts and people
+
+The registry has had somewhere to put these all along — `photo` on Group and
+Person, drawn on the node itself, shown in the info panel with an editable
+Photo URL row, and returned on every search result — and nothing had ever
+written one from a submission.
+
+**Bandcamp** supplies a band photo for free. `publisher.image` is the band's own
+page image, and `publisher` is the block `labelFrom` already reads for the
+label name while throwing the picture away. No extra request.
+
+**Spotify** supplies one for an extra request. The artist objects hanging off
+an album are *simplified* — id, name, uri — and carry no images, so the photo
+needs `/v1/artists`. Batched, with the same retreat `/tracks?ids=` needed:
+this app is served a 403 on that batch endpoint while the single-id form
+works, and nothing says `/artists?ids=` is treated differently. **Unverified
+against the live app** — the fallback is written and tested, but which branch
+this app actually takes can only be seen on a deployment.
+
+**Discogs is the only source for photos of individual people**, and since it
+needs a token it needs a server — see below. Spotify has artist images, and a
+session drummer has no Spotify artist page; Bandcamp has one image per band
+page. Discogs files a person and a band as the same kind of thing, so a band's
+page names its members and each of those is an artist page with a photograph
+of a human on it.
+
+### Discogs images need a token, so the artist call moved to the server
+
+**Discogs serves no `images` to an unauthenticated request.** Everything else
+about Discogs works from the browser — api.discogs.com sends CORS headers,
+which is why the tracklist import runs there — but a browser cannot hold a
+credential, because the bundle is public.
+
+So the artist call moved: `POST /api/discogs/artist` takes an artist id and
+answers with the act's own photo and its members with theirs. The roster rides
+along, because `fetchDiscogsRoster` was already making that exact call for the
+membership list, so one request now answers both.
+
+A **release** cover is still not available this way, and is not worth another
+request: Spotify and Bandcamp already supply one, and
+`populateFormFromDiscogs` reads `images[]` for the day a token makes it
+possible.
+
+Three things about the shape of it:
+
+- **A photo per person costs a request.** A member entry carries an id and no
+  images, so each one is another artist page. A five-piece band is six
+  requests, capped at twenty-four members so an orchestra cannot spend a
+  minute's whole budget on one import; the rest arrive without pictures, which
+  is what they would have had anyway.
+- **Without a token it still answers.** `members` is public, and the roster is
+  what distinguishes a band member from a session player. Only the photographs
+  are lost, and the response says `configured: false` so an empty photo field
+  can be explained rather than just being empty.
+- **The browser's own call is kept as a fallback.** If the route is missing or
+  unreachable, the roster still comes back the old way — without pictures. An
+  import that works slightly worse beats one that fails outright.
+
+The rate limit is now **shared**: 60 requests a minute against the server's
+token, rather than 25 against each visitor's own IP. For a handful of
+submitters that is a straight gain; with twenty at once it is a queue, and
+Discogs limits the token rather than the caller. The import reads
 `images[]` anyway — preferring the `primary` shot, since a secondary is the
 back, an insert or a photo of the vinyl — so that adding a token later needs no
 change here.

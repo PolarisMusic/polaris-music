@@ -1275,3 +1275,63 @@ describe('alternate names on a person', () => {
         expect(() => withMember({ name: 'K', alt_names: ['Dee Dee'] })).not.toThrow();
     });
 });
+
+describe('a photo on a person or a group', () => {
+    const withMember = (member, group = {}) => normalizeReleaseBundle({
+        release: { name: 'R' },
+        groups: [{ name: 'G', members: [member], ...group }],
+        tracks: [{ title: 'T' }],
+        tracklist: [{ position: '1', track_title: 'T' }],
+    });
+
+    test('survives normalization on both', () => {
+        const bundle = withMember(
+            { name: 'Kristen Gundred', photo: 'https://pic/kg.jpg' },
+            { photo: 'https://pic/band.jpg' },
+        );
+
+        expect(bundle.groups[0].photo).toBe('https://pic/band.jpg');
+        expect(bundle.groups[0].members[0].photo).toBe('https://pic/kg.jpg');
+    });
+
+    test('is trimmed', () => {
+        expect(withMember({ name: 'K', photo: '  https://pic/kg.jpg  ' })
+            .groups[0].members[0].photo).toBe('https://pic/kg.jpg');
+    });
+
+    test.each([
+        ['a blank string', ''],
+        ['whitespace', '   '],
+        ['a number', 42],
+        ['an object', { url: 'https://pic' }],
+    ])('%s leaves the field off entirely', (_label, photo) => {
+        // Rather than an empty value, which the graph would coalesce over
+        // anyway but which reads as a claim nobody made.
+        expect(withMember({ name: 'K', photo })).not.toHaveProperty('groups.0.members.0.photo');
+    });
+
+    test('a songwriter may carry one', () => {
+        const bundle = normalizeReleaseBundle({
+            release: { name: 'R' },
+            tracks: [{ title: 'T' }],
+            tracklist: [{ position: '1', track_title: 'T' }],
+            songs: [{ title: 'T', writers: [
+                { name: 'Kristen Gundred', photo: ' https://pic/kg.jpg ' }] }],
+        });
+
+        expect(bundle.songs[0].writers[0].photo).toBe('https://pic/kg.jpg');
+    });
+
+    test('the validator accepts the field on all three shapes', () => {
+        // Person, Group and WriterCredit are additionalProperties:false, so an
+        // unlisted field rejects the whole bundle rather than being ignored.
+        expect(() => normalizeReleaseBundle({
+            release: { name: 'R' },
+            groups: [{ name: 'G', photo: 'https://p', members: [
+                { name: 'K', photo: 'https://p' }] }],
+            tracks: [{ title: 'T' }],
+            tracklist: [{ position: '1', track_title: 'T' }],
+            songs: [{ title: 'T', writers: [{ name: 'K', photo: 'https://p' }] }],
+        })).not.toThrow();
+    });
+});

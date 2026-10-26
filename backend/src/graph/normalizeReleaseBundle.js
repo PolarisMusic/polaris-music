@@ -451,6 +451,9 @@ function normalizeGroup(group) {
 
     if (group.group_id) normalized.group_id = group.group_id;
     if (group.alt_names) normalized.alt_names = group.alt_names;
+
+    const groupPhoto = normalizePhoto(group.photo);
+    if (groupPhoto) normalized.photo = groupPhoto;
     if (group.bio) normalized.bio = group.bio;
     if (group.formed_date) normalized.formed_date = group.formed_date;
     if (group.disbanded_date) normalized.disbanded_date = group.disbanded_date;
@@ -746,6 +749,9 @@ function normalizeWriterCredit(writer) {
     const writerAltNames = normalizeAltNames(writer.alt_names);
     if (writerAltNames.length > 0) normalized.alt_names = writerAltNames;
 
+    const writerPhoto = normalizePhoto(writer.photo);
+    if (writerPhoto) normalized.photo = writerPhoto;
+
     // Normalize writing roles from both role (singular) and roles (plural)
     const rawRoles = [];
     if (writer.role) rawRoles.push(writer.role);
@@ -764,6 +770,22 @@ function normalizeWriterCredit(writer) {
     }
 
     return normalized;
+}
+
+/**
+ * A picture of this act or person, as a URL.
+ *
+ * A reference to somebody else's server, not a copy, exactly as `album_art`
+ * is — so it will eventually rot, and pinning images the way events are
+ * pinned remains the real answer for a registry that calls itself canonical.
+ *
+ * @param {*} value
+ * @returns {string|null}
+ */
+function normalizePhoto(value) {
+    if (typeof value !== 'string') return null;
+    const url = value.trim();
+    return url || null;
 }
 
 /**
@@ -810,6 +832,9 @@ function normalizePerson(person) {
 
     const altNames = normalizeAltNames(person.alt_names);
     if (altNames.length > 0) normalized.alt_names = altNames;
+
+    const photo = normalizePhoto(person.photo);
+    if (photo) normalized.photo = photo;
 
     if (person.birth_name) normalized.birth_name = person.birth_name;
     if (person.birth_date) normalized.birth_date = person.birth_date;

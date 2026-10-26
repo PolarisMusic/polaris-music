@@ -1009,8 +1009,8 @@ CONSIDER THIS SECTION CANONICAL
 
 | Node Type | Purpose | Key Properties |
 |-----------|---------|----------------|
-| Person | Individual musician/artist | person_id, name, alt_names, bio, status |
-| Group | Band/ensemble/orchestra | group_id, name, formed_date, member_count |
+| Person | Individual musician/artist | person_id, name, alt_names, photo, bio, status |
+| Group | Band/ensemble/orchestra | group_id, name, alt_names, photo, formed_date, member_count |
 | Song | Musical composition | song_id, title, alt_titles, iswc, writers |
 | Track | Recording of a song | track_id, title, alt_titles, isrc, duration, listen_links, lyrics, trivia |
 | Release | Album/EP/Single/LivePerformance | release_id, name, barcode, release_date, format, country, catalog_number *(release-wide fallback; see below)*, listen_links, master_id, is_master_release |

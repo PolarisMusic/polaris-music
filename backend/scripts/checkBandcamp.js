@@ -108,6 +108,8 @@ async function main() {
             ? `${release.other_editions.join(', ')} — each a Release of its own to submit`
             : 'none sold beside the digital album');
     say('upc', Boolean(release.upc), release.upc ?? 'none — Bandcamp rarely carries one');
+    say('artist photo', Boolean(release.artist_photo),
+        release.artist_photo ?? 'none on the band page');
     say(`${release.tracks.length} track(s)`, release.tracks.length > 0,
         release.tracks.slice(0, 3).map((t) =>
             `${t.position}. ${t.title}${t.duration ? ` (${t.duration}s)` : ' (no duration)'}`)
