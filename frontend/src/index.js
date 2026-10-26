@@ -25,6 +25,37 @@ import {
     isVariousArtists,
 } from './utils/discogsArtists.js';
 
+/**
+ * Which kinds of node may be bound to an existing one on a name match alone.
+ *
+ * The reconciliation pass runs after every import: for each name it looked up,
+ * if exactly one node in the registry carries that name, the field is bound to
+ * it. For a *party* — a person, a band, a label, a city — that is the whole
+ * point. The registry wants one node per real-world entity, and a name is a
+ * reasonable key for one.
+ *
+ * For a **Track** it is indefensible, and it was being done anyway. A Track is
+ * a specific recording. Two recordings sharing a title are the same recording
+ * only by coincidence of the title, and "Untitled", "Intro" and "(silence)"
+ * show how little coincidence that takes. Binding on it put a band on an album
+ * it had never played on: a single called "Sadie" was bound to Alkaline Trio's
+ * "Sadie" from Crimson, so The Surrealistics were credited on Crimson. Twenty-five
+ * tracks in the registry are shared this way, including a studio recording
+ * bound to its own band's live performance — different recordings of one song,
+ * which is exactly the distinction Track exists to make.
+ *
+ * A **Song** is a composition, and the same argument applies one level up: two
+ * songs called "Sadie" by different writers are different works. Nothing joins
+ * groups through a Song today, so this half is not what produced the symptom —
+ * it is wrong on its own terms.
+ *
+ * Neither is cut off from the registry by this. A submitter can still pick an
+ * existing Track or Song out of the typeahead, which is a human claiming these
+ * are the same recording — the deliberate act the automatic bind was standing
+ * in for without the evidence.
+ */
+const RECONCILABLE_BY_NAME = new Set(['Person', 'Group', 'Label', 'City']);
+
 class PolarisApp {
     constructor() {
         this.formBuilder = new FormBuilder();
@@ -644,12 +675,14 @@ class PolarisApp {
         for (const hiddenInput of targets) {
             if (hiddenInput.value) continue;   // already bound
 
+            const lookupType = hiddenInput.dataset.lookupType;
+            if (!RECONCILABLE_BY_NAME.has(lookupType)) continue;
+
             const pairName = hiddenInput.dataset.lookupPair;
             const visible = pairName ? form.querySelector(`[name="${pairName}"]`) : null;
             const name = visible?.value?.trim();
             if (!name) continue;
 
-            const lookupType = hiddenInput.dataset.lookupType;
             if (await this.reconcileField(hiddenInput, name, [lookupType])) bound++;
         }
 

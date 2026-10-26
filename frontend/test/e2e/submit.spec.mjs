@@ -2878,3 +2878,107 @@ test.describe('photos of the people, which only Discogs has', () => {
             expect(bundle.groups[0]).not.toHaveProperty('photo');
         });
 });
+
+test.describe('a track is never bound to a stranger’s recording on its title', () => {
+    /**
+     * The reconciliation pass runs after every import: for each name it filled
+     * in, if exactly one node in the registry carries that name, the field is
+     * bound to it. For a person or a band that is the point. For a TRACK it
+     * put a band on an album it had never played on.
+     *
+     * A single called "Sadie" was bound to Alkaline Trio's "Sadie" from
+     * Crimson, because exactly one Track in the registry had that title — so
+     * the single's band was credited on Crimson, which reads performers
+     * through (Group)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(Release).
+     * Twenty-five tracks were shared this way, among them "Untitled",
+     * "Intro" and "(silence)".
+     */
+    const DISCOGS_RELEASE = {
+        id: 777,
+        title: 'Sadie',
+        year: 2024,
+        artists: [{ id: 50, name: 'The Surrealistics' }],
+        labels: [{ name: 'Self-Released', catno: 'SR1' }],
+        formats: [{ name: 'Vinyl' }],
+        identifiers: [{ type: 'Barcode', value: 'none' }],
+        tracklist: [{ position: 'A', type_: 'track', title: 'Sadie' }],
+    };
+
+    /** Alkaline Trio's recording, already in the registry and nothing to do with this. */
+    const THEIR_SADIE = {
+        id: 'prov:track:f1967107ff6a86e2',
+        type: 'Track',
+        display_name: 'Sadie',
+        subtitle: null,
+        alt_names: [],
+        context: [],
+    };
+
+    async function importSingle(page, { searchResults = [] } = {}) {
+        await gotoForm(page, { searchResults });
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(DISCOGS_RELEASE),
+        }));
+        await page.route('https://api.discogs.com/artists/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify({}),
+        }));
+        await page.route('**/discogs/artist', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, reason: 'unreachable' }),
+        }));
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', 'https://www.discogs.com/release/777');
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+        // The reconciliation pass is deferred behind a 150ms timeout.
+        await page.waitForTimeout(600);
+
+        return page.evaluate(() => window.polarisApp.buildReleaseData());
+    }
+
+    test('the track is not bound to it, however exact the title match', async ({ page }) => {
+        const bundle = await importSingle(page, { searchResults: [THEIR_SADIE] });
+
+        expect(bundle.tracks[0].track_id).not.toBe('prov:track:f1967107ff6a86e2');
+    });
+
+    test('the hidden track id is left for the backend to mint', async ({ page }) => {
+        // Where it is scoped to the release this track was issued on, which is
+        // the identity a recording actually has.
+        await importSingle(page, { searchResults: [THEIR_SADIE] });
+
+        await expect(page.locator('[name="track-id-0"]')).toHaveValue('');
+    });
+
+    test('a person is still reconciled, because that is what it is for',
+        async ({ page }) => {
+            // The registry wants one node per human, and a name is a
+            // reasonable key for one. Turning the whole pass off would have
+            // been the wrong fix.
+            const bundle = await importSingle(page, {
+                searchResults: [{
+                    id: 'prov:person:abc0000000000000', type: 'Person',
+                    display_name: 'The Surrealistics', subtitle: null,
+                    alt_names: [], context: [],
+                }],
+            });
+
+            expect(bundle).toBeDefined();
+            await expect(page.locator('[name="release-group-name-0"]'))
+                .toHaveValue('The Surrealistics');
+        });
+
+    test('a submitter can still pick an existing track by hand', async ({ page }) => {
+        // Which is a human claiming these are the same recording — the
+        // deliberate act the automatic bind was standing in for without the
+        // evidence. A compilation really does reuse a recording.
+        await gotoForm(page, { searchResults: [THEIR_SADIE] });
+        await addOpenTrack(page, 0);
+        await page.fill('[name="track-title-0"]', 'Sadie');
+        await page.locator('.entity-lookup-item').first().click();
+
+        await expect(page.locator('[name="track-id-0"]'))
+            .toHaveValue('prov:track:f1967107ff6a86e2');
+    });
+});

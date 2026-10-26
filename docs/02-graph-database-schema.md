@@ -932,6 +932,47 @@ class MusicGraphDatabase {
 export default MusicGraphDatabase;
 ```
 
+## A title is not an identity
+
+A **Track is a specific recording.** Two recordings sharing a title are the
+same recording only by coincidence of the title, and "Untitled", "Intro" and
+"(silence)" show how little coincidence that takes. A **Song** is a
+composition, and the same holds one level up: two songs called "Sadie" by
+different writers are different works.
+
+This has been got wrong twice, in different places, with the same symptom —
+the release page reads performers through
+
+```cypher
+(Group)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(Release)
+```
+
+so a Track shared by two releases credits each release's band on the other's
+record.
+
+1. **Track identity used to be a hash of the title.** Fixed:
+   `IdentityService.trackFingerprint` is fed the resolved Release, so a
+   title is only ever an identity *within* a release.
+2. **The submission form bound it back together anyway.** The reconciliation
+   pass that runs after an import looks up each name it filled in and, where
+   exactly one node in the registry carries that name, binds the field to it.
+   For a Person, Group, Label or City that is the point — the registry wants
+   one node per real-world entity. For a Track it put a band on an album it
+   had never played on, and the backend honoured the bound id precisely
+   because a bound id is supposed to mean a human chose that node.
+
+So `RECONCILABLE_BY_NAME` in the submit form is **Person, Group, Label, City**
+and nothing else. A submitter can still pick an existing Track or Song out of
+the typeahead; that is a human claiming two releases carry the same recording,
+which a compilation genuinely does.
+
+The ISRC is the exception that proves the rule, and the one identity a
+recording has across releases: `prov:track:isrc:{isrc}` is deliberately *not*
+release-scoped, because an ISRC names a recording rather than describing one.
+
+`backend/scripts/trackCollisions.js` reports nodes already shared this way and
+`trackCollisionPlan.js` works out how each would be split. Both are read-only.
+
 ## Which credits travel with a recording
 
 A compilation borrows a *recording*. So the test for whether a credit belongs
