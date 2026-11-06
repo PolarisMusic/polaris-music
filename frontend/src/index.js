@@ -22,7 +22,7 @@ import { barcodesFrom } from './utils/discogsBarcode.js';
 import { guestsForTracks } from './utils/creditScope.js';
 import {
     isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit, creditsByAct,
-    isVariousArtists,
+    isVariousArtists, describeActMismatch, cleanArtistName,
 } from './utils/discogsArtists.js';
 
 /**
@@ -3031,7 +3031,20 @@ class PolarisApp {
                 + `${tracksWithOwnAct} track(s) have their own act.${missing}`;
             console.log(this.compilationNote);
         } else {
-            this.compilationNote = '';
+            // Nothing marked this a compilation, but the tracks may still
+            // disagree with the release about who played — a label sampler
+            // filed under the label's own name has no placeholder to strip
+            // and no descriptor to read. See describeActMismatch.
+            this.compilationNote = describeActMismatch({
+                releaseActs: creditedArtists.length,
+                releaseActName: creditedArtists[0]?.name
+                    ? cleanArtistName(creditedArtists[0].name) : null,
+                tracksNamingOtherActs: tracksWithOwnAct + tracksWithNoAct,
+                trackCount: (discogsRelease.tracklist ?? [])
+                    .filter((t) => (t?.type_ ?? 'track') === 'track').length,
+                compilation: false,
+            });
+            if (this.compilationNote) console.warn(this.compilationNote);
         }
 
         // An import is unsaved work like any other.

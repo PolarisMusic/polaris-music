@@ -15,7 +15,7 @@
 import { describe, test, expect } from '@jest/globals';
 import {
     isVariousArtists, releaseArtists, isCompilation, trackPerformers, cleanArtistName,
-    overridesReleaseCredit, creditsByAct, VARIOUS_ARTISTS_ID,
+    overridesReleaseCredit, creditsByAct, VARIOUS_ARTISTS_ID, describeActMismatch,
 } from '../../../frontend/src/utils/discogsArtists.js';
 
 const various = { id: VARIOUS_ARTISTS_ID, name: 'Various' };
@@ -306,5 +306,68 @@ describe('putting a track\u2019s line-up with its act', () => {
     test('no credits leaves every act empty rather than undefined', () => {
         expect(creditsByAct([{ name: 'Band A', id: 1 }], [])).toEqual([[]]);
         expect(creditsByAct([{ name: 'Band A', id: 1 }], undefined)).toEqual([[]]);
+    });
+});
+
+describe('a release that claims one act while its tracks name others', () => {
+    /**
+     * A compilation is credited to its tracks, not to a band, and
+     * `releaseArtists` already drops Discogs' "Various" placeholder so one
+     * filed under it gets no release-level act.
+     *
+     * The gap is a compilation credited to a REAL name — a label sampler under
+     * the label's, a DJ mix under the DJ's, anything hand-entered. Nothing
+     * marks it, so the form writes a release-level act AND per-track acts, and
+     * the release act claims recordings it had no part in. On Bandcamp that is
+     * the default, since a Bandcamp page carries no compilation flag at all.
+     */
+    test('it says so, and says what to do', () => {
+        const warning = describeActMismatch({
+            releaseActs: 1,
+            releaseActName: 'Lost Ark Studio',
+            tracksNamingOtherActs: 3,
+            trackCount: 10,
+            compilation: false,
+        });
+
+        expect(warning).toContain('3 of 10 track(s)');
+        expect(warning).toContain('"Lost Ark Studio"');
+        expect(warning).toContain('remove the release-level act');
+    });
+
+    test('every track disagreeing is worth saying differently', () => {
+        const warning = describeActMismatch({
+            releaseActs: 1, releaseActName: 'A Label', tracksNamingOtherActs: 10,
+            trackCount: 10, compilation: false,
+        });
+
+        expect(warning).toContain('Every track names an act other than');
+    });
+
+    test.each([
+        ['it is already known to be a compilation', {
+            releaseActs: 1, tracksNamingOtherActs: 5, trackCount: 5, compilation: true }],
+        ['there is no release-level act to over-claim', {
+            releaseActs: 0, tracksNamingOtherActs: 5, trackCount: 5, compilation: false }],
+        ['no track names anybody else', {
+            releaseActs: 1, tracksNamingOtherActs: 0, trackCount: 5, compilation: false }],
+        ['nothing is known at all', {}],
+    ])('%s: nothing is said', (_label, evidence) => {
+        expect(describeActMismatch(evidence)).toBe('');
+    });
+
+    test('a changing line-up under ONE act says nothing', () => {
+        // The case this deliberately does not fire on. "San Diego Sessions"
+        // has eleven players across seven tracks and two tracks that share
+        // nobody — and it is one band's record, not a compilation. Different
+        // players is what an ensemble IS; different ACTS is what a compilation
+        // is, and only the second is read here.
+        expect(describeActMismatch({
+            releaseActs: 1,
+            releaseActName: 'Ellis Munk Ensemble',
+            tracksNamingOtherActs: 0,
+            trackCount: 7,
+            compilation: false,
+        })).toBe('');
     });
 });

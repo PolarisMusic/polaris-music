@@ -2982,3 +2982,103 @@ test.describe('a track is never bound to a stranger’s recording on its title',
             .toHaveValue('prov:track:f1967107ff6a86e2');
     });
 });
+
+test.describe('a release credited to one act whose tracks name others', () => {
+    /**
+     * A compilation filed under Discogs' "Various" placeholder already gets no
+     * release-level act — releaseArtists drops it. One credited to a REAL
+     * name has no placeholder to strip and no descriptor to read, so the form
+     * writes a release-level act AND per-track acts, and the release act ends
+     * up claiming recordings it had no part in.
+     *
+     * The warning reads ACTS, not line-ups. "Different players on every track,
+     * one act" is what an ensemble record is, and warning on that would fire
+     * on exactly the records the importer was taught to handle.
+     */
+    const sampler = (overrides = {}) => ({
+        id: 606060,
+        title: 'Lost Ark Studio Compilation Vol. 4',
+        year: 2014,
+        // A real name, not "Various": nothing here marks it a compilation.
+        artists: [{ id: 900, name: 'Lost Ark Studio' }],
+        labels: [{ name: 'Randm Records', catno: 'RR1' }],
+        formats: [{ name: 'CD' }],
+        identifiers: [{ type: 'Barcode', value: 'none' }],
+        tracklist: [
+            { position: '1', type_: 'track', title: 'Turns To Dust',
+                artists: [{ id: 1, name: 'The Paragraphs' }] },
+            { position: '2', type_: 'track', title: 'Out To Sea',
+                artists: [{ id: 2, name: '22 Kings' }] },
+        ],
+        ...overrides,
+    });
+
+    async function importRelease(page, release) {
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(release),
+        }));
+        await page.route('https://api.discogs.com/artists/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify({}),
+        }));
+        await page.route('**/discogs/artist', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, reason: 'unreachable' }),
+        }));
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', `https://www.discogs.com/release/${release.id}`);
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+    }
+
+    test('the submitter is told, and told what to do about it', async ({ page }) => {
+        await importRelease(page, sampler());
+
+        const status = page.locator('#discogs-status');
+        await expect(status).toContainText('an act other than "Lost Ark Studio"');
+        await expect(status).toContainText('remove the release-level act');
+    });
+
+    test('an ensemble record with a rotating line-up says nothing', async ({ page }) => {
+        // The case this must not fire on. One act on every track, different
+        // players under each — "San Diego Sessions" has two tracks that share
+        // nobody at all, and it is one band's record.
+        await importRelease(page, {
+            id: 505050,
+            title: 'San Diego Sessions',
+            year: 2020,
+            artists: [{ id: 7, name: 'Ellis Munk Ensemble' }],
+            labels: [{ name: 'El Paraiso', catno: 'EPR1' }],
+            formats: [{ name: 'Vinyl' }],
+            identifiers: [{ type: 'Barcode', value: 'none' }],
+            tracklist: [
+                { position: 'A1', type_: 'track', title: "Munk's Dream", extraartists: [
+                    { name: 'Dominic Denholm', role: 'Bass' },
+                    { name: 'Andrew Ware', role: 'Drums' },
+                ] },
+                { position: 'B1', type_: 'track', title: "Larry's Jungle Juice", extraartists: [
+                    { name: 'Anthony Meier', role: 'Bass' },
+                    { name: 'Paul Marrone', role: 'Drums' },
+                ] },
+            ],
+        });
+
+        const status = page.locator('#discogs-status');
+        await expect(status).not.toContainText('an act other than');
+        await expect(status).not.toContainText('If this is a compilation');
+    });
+
+    test('a compilation filed under Various says nothing either', async ({ page }) => {
+        // It already has no release-level act to over-claim, and the
+        // compilation note already told the submitter what happened.
+        await importRelease(page, sampler({
+            artists: [{ id: 194, name: 'Various' }],
+            formats: [{ name: 'CD', descriptions: ['Compilation'] }],
+        }));
+
+        const status = page.locator('#discogs-status');
+        await expect(status).toContainText('Compilation: credited per track');
+        await expect(status).not.toContainText('remove the release-level act');
+    });
+});
