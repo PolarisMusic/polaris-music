@@ -1221,6 +1221,52 @@ and those people become that Group's `MEMBER_OF` edges for this track. They are
 classified by the same `parseCredits` the release level uses, so a producer
 credited beside the band does not become a bandmate.
 
+### A credit that names a band, not a person
+
+Catalogues do not keep the two apart. Discogs files "The Budos Band" among a
+release's `extraartists` beside its mixing engineer, and an act's own `members`
+list can name a horn section as readily as a trumpeter. So a band arrives
+looking exactly like a person, at any of the four places a credit row can sit:
+a member or a guest, on a track or on the release.
+
+Stored as it arrives, the band becomes a **Person**, and that is not a display
+problem a view can paper over. The entity search returns it as a Person, the
+next submitter binds a human slot to it, `MEMBER_OF` admits a band into a band,
+and the only way back is a MERGE_NODE event against data that is already
+anchored.
+
+So the submission form asks on the row itself — the search box there offers
+Groups as well as Persons, and picking one *is* the answer; a checkbox covers a
+band not yet in the registry — and `hoistGroupCredits` reads the mark during
+normalization, before anything else sees the person lists. Where each row lands
+follows what the row already meant:
+
+| The row | Becomes |
+|---------|---------|
+| a guest on a track | that track, `guest: true` |
+| a member of a track's group | that track, `guest: false` |
+| a member of a release-level act | every track that act performs on, `guest: false` |
+| a guest on the release | every track, `guest: true` |
+
+The last is the one judgement call. `Group -[:GUEST_ON]-> Release` is not in
+this model — GUEST_ON runs from a Person, and the GraphQL guest list is typed
+`[Person!]` — and a release-wide credit for a band means it played across the
+record. The flag survives on the edge either way, so nothing is lost if that
+reading needs narrowing.
+
+Nothing downstream changes, which is the point of routing at write time rather
+than at read time: every view already draws `Group -[:PERFORMED_ON]-> Track`,
+so a guesting band appears with no view changes, and its own players reach the
+graph as members of *its* group rather than of the act it guested with.
+
+Two consequences worth stating. A **band is never MEMBER_OF a band**: a Group
+in this model is a collection of Persons, so a member row naming a unit leaves
+the member list entirely. And the **single-act fallback counts acts, not
+performers**: ingestion credits a track with the release's act when the track
+names no performer of its own, and a hoisted guest band must not satisfy that
+test — one guest horn section would otherwise cost the track the band whose
+record it is.
+
 **A line-up named on a track is a membership, when nothing else says
 otherwise.** `/api/graph` builds the main view from `MEMBER_OF` and nothing
 else: a Person enters the graph *because* they are a member of a Group, and
@@ -1277,7 +1323,7 @@ is in `docs/03-event-storage.md` under EDIT_RELATIONSHIP.
 | Relationship | From → To | Purpose |
 |--------------|-----------|---------|
 | MEMBER_OF | Person → Group | Group membership with dates |
-| PERFORMED_ON | Group → Track | Group performed this track |
+| PERFORMED_ON | Group → Track | Group performed this track. `guest` is true for a band that played on the recording without being the act the release is credited to |
 | GUEST_ON | Person → Track or Release | Guest appearance (not a member). `scope` is `track` or `release` |
 | WROTE | Person → Song | Songwriting credit |
 | ARRANGED | Person → Track | Credited arranger for a track (group by default) |

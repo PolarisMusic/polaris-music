@@ -198,7 +198,13 @@ export class TransactionBuilder {
                 }
 
                 // Check for performing groups (performed_by_groups or release-level groups)
-                const hasTrackGroups = track.performed_by_groups && track.performed_by_groups.length > 0;
+                //
+                // A guesting band does not satisfy this. It is a performer on
+                // the track, but the requirement is that somebody is credited
+                // with the recording — and a track whose only entry is a guest
+                // horn section has nobody.
+                const hasTrackGroups = (track.performed_by_groups || [])
+                    .some(g => g.guest !== true);
                 const hasReleaseGroups = releaseData.groups && releaseData.groups.length > 0;
                 if (!hasTrackGroups && !hasReleaseGroups) {
                     errors.push(`Track ${index + 1}: At least one performing group is required`);
