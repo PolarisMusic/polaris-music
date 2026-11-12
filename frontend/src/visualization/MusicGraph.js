@@ -1816,12 +1816,18 @@ export class MusicGraph {
         // the type-pair rules below cannot tell them apart and would paint a
         // guest as a member — the one distinction this registry most cares
         // about. The declared type wins where there is one.
-        if (edgeType === 'GUEST_ON') {
+        //
+        // PERFORMED_WITH is the same problem again: somebody who played on a
+        // group's tracks without joining it. Member, guest and session player
+        // all run Person -> Group, and the three say different things — the
+        // weights and alphas in colorPalette are where that distinction is
+        // drawn, so the declared type has to reach them.
+        if (edgeType === 'GUEST_ON' || edgeType === 'PERFORMED_WITH') {
             const personNode = (adj.nodeFrom.data.type || '').toLowerCase() === 'person'
                 ? adj.nodeFrom
                 : adj.nodeTo;
-            color = this.colorPalette.getEdgeColor('GUEST_ON', personNode.id);
-            width = this.colorPalette.getEdgeWidth('GUEST_ON');
+            color = this.colorPalette.getEdgeColor(edgeType, personNode.id);
+            width = this.colorPalette.getEdgeWidth(edgeType);
         } else {
             const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
             const toType = (adj.nodeTo.data.type || '').toLowerCase();

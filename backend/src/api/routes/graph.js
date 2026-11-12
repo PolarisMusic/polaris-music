@@ -25,6 +25,17 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
     const router = express.Router();
 
     /**
+     * Neo4j returns 64-bit integers as {low, high} objects, which serialize to
+     * JSON as a pair of numbers and break every arithmetic comparison the
+     * frontend does on them.
+     *
+     * @param {*} value
+     * @returns {number}
+     */
+    const toInt = (value) =>
+        value && typeof value === 'object' && value.toNumber ? value.toNumber() : Number(value) || 0;
+
+    /**
      * GET /api/graph/sponsored
      *
      * The node the visualization should open on this period, drawn by the
@@ -89,7 +100,14 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
             // A member of this group is not its guest. The registry's rule is
             // per-track; at group level the honest reading is that membership
             // wins, or the same person arrives twice on two different edges.
+            //
+            // A named line-up outranks a guest credit for the same reason one
+            // notch down: being printed in a track's line-up says the person
+            // played *with the band*, where a guest credit says only that they
+            // are on the record. So readPerformerEdges has them, and they are
+            // excluded here rather than drawn twice.
             WHERE NOT (p)-[:MEMBER_OF]->(g)
+              AND NOT (p)-[:PERFORMED_ON {via_group_id: g.group_id}]->(:Track)
 
             WITH g, p, count(DISTINCT t) AS trackCount,
                  collect(DISTINCT scope) AS scopes,
@@ -112,14 +130,77 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
 
         if (result.records.length === 0) return { persons: [], edges: [] };
 
-        const toNumber = (value) =>
-            value && typeof value === 'object' && value.toNumber ? value.toNumber() : Number(value) || 0;
+        return {
+            persons: result.records[0].get('persons').filter((p) => p && p.id),
+            edges: result.records[0].get('edges')
+                .filter((e) => e && e.source && e.target)
+                .map((e) => ({ ...e, trackCount: toInt(e.trackCount) })),
+        };
+    }
+
+    /**
+     * Person -> Group edges for people who played a group's tracks without
+     * being in the group.
+     *
+     * These performances are already written — `(Person)-[:PERFORMED_ON
+     * {via_group_id}]->(Track)`, from a line-up named under a track — and
+     * already read, but only to count a member's share for the donut. The main
+     * query collects its Person nodes off `(p:Person)-[m:MEMBER_OF]->(g)`, so
+     * somebody who played on two tracks and joined no band produced no node
+     * and no edge at all: the performance was in the registry and invisible.
+     *
+     * That is the whole of "represent the musicians who played on various
+     * projects". A friend who played guitar on one track of somebody else's
+     * album is not a member of their band and must not be drawn as one — but
+     * the playing happened, and it is the kind of fact this registry exists to
+     * keep. Drawing the edge that already exists is a view change, not a model
+     * change: no group is versioned, no membership is invented.
+     *
+     * Not opt-in, unlike guests. A guest list roughly doubles the person count
+     * on a well-credited release; these edges exist only where a submitter
+     * deliberately typed a line-up naming somebody outside the band, which is
+     * rare and high-signal. Collapsed per (person, group) with a track count,
+     * so a five-piece on fourteen tracks is five edges, not seventy.
+     *
+     * @param {import('neo4j-driver').Session} session
+     * @returns {Promise<{persons: Array, edges: Array}>}
+     */
+    async function readPerformerEdges(session) {
+        const result = await session.run(`
+            MATCH (g:Group)-[:PERFORMED_ON]->(t:Track)<-[perf:PERFORMED_ON]-(p:Person)
+            WHERE perf.via_group_id = g.group_id
+              AND NOT (p)-[:MEMBER_OF]->(g)
+
+            WITH g, p, count(DISTINCT t) AS trackCount,
+                 collect(DISTINCT perf.role) AS roleValues,
+                 collect(DISTINCT perf.lineup_source) AS sources
+            WITH g, p, trackCount, sources,
+                 [x IN roleValues WHERE x IS NOT NULL] AS roles
+
+            RETURN collect(DISTINCT {
+                id: p.person_id,
+                name: p.name,
+                type: 'person',
+                color: p.color
+            }) AS persons,
+            collect({
+                source: p.person_id,
+                target: g.group_id,
+                type: 'PERFORMED_WITH',
+                trackCount: trackCount,
+                role: head(roles),
+                roles: roles,
+                lineup_source: head([x IN sources WHERE x IS NOT NULL])
+            }) AS edges
+        `);
+
+        if (result.records.length === 0) return { persons: [], edges: [] };
 
         return {
             persons: result.records[0].get('persons').filter((p) => p && p.id),
             edges: result.records[0].get('edges')
                 .filter((e) => e && e.source && e.target)
-                .map((e) => ({ ...e, trackCount: toNumber(e.trackCount) })),
+                .map((e) => ({ ...e, trackCount: toInt(e.trackCount) })),
         };
     }
 
@@ -218,16 +299,29 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                     });
                 }
 
-                // Guests, when asked for. A second query rather than more
-                // OPTIONAL MATCHes on the first: the member query already
-                // collects four lists off one row per (group, member), and
-                // joining guests into it multiplies every one of them. The cost
-                // is a round trip; the alternative is a payload that silently
-                // over-counts participation.
+                // Separate queries rather than more OPTIONAL MATCHes on the
+                // first: the member query already collects four lists off one
+                // row per (group, member), and joining anything else into it
+                // multiplies every one of them. The cost is a round trip; the
+                // alternative is a payload that silently over-counts
+                // participation.
+                const seenPersons = new Set(persons.map((p) => p.id));
+                const extraNodes = [];
+                const extraEdges = [];
+
+                // Played on a group's tracks without being in the group.
+                const performers = await readPerformerEdges(session);
+                for (const performer of performers.persons) {
+                    if (seenPersons.has(performer.id)) continue;
+                    seenPersons.add(performer.id);
+                    extraNodes.push(performer);
+                }
+                extraEdges.push(...performers.edges);
+
+                // Guests, when asked for.
                 const guestNodes = [];
                 const guestEdges = [];
                 if (wantsGuests) {
-                    const seenPersons = new Set(persons.map((p) => p.id));
                     const guests = await readGuestEdges(session);
                     for (const guest of guests.persons) {
                         // A guest who is also a member of some other group is
@@ -241,8 +335,8 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
 
                 res.json({
                     success: true,
-                    nodes: [...groups, ...persons, ...guestNodes],
-                    edges: [...edges, ...guestEdges],
+                    nodes: [...groups, ...persons, ...extraNodes, ...guestNodes],
+                    edges: [...edges, ...extraEdges, ...guestEdges],
                     participation: participation
                 });
             } finally {
@@ -317,6 +411,43 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                                     instruments: m.instruments
                                 });
                             }
+
+                            // Bands they played with and never joined. The
+                            // initial graph draws these (readPerformerEdges);
+                            // without them here, navigating straight to a
+                            // session player — from a search, or a link —
+                            // lands on a node with nothing attached.
+                            const playedWith = await session.run(`
+                                MATCH (p:Person {person_id: $nodeId})-[perf:PERFORMED_ON]->
+                                      (t:Track)<-[:PERFORMED_ON]-(g:Group)
+                                WHERE perf.via_group_id = g.group_id
+                                  AND NOT (p)-[:MEMBER_OF]->(g)
+                                WITH g, count(DISTINCT t) AS trackCount,
+                                     [x IN collect(DISTINCT perf.role) WHERE x IS NOT NULL] AS roles
+                                RETURN g, trackCount, roles
+                                ORDER BY trackCount DESC
+                                LIMIT $limitGroups
+                            `, { nodeId, limitGroups: neo4j.int(limitGroups) });
+
+                            for (const row of playedWith.records) {
+                                const g = row.get('g');
+                                if (!g) continue;
+                                const roles = row.get('roles') || [];
+                                nodes.push({
+                                    id: g.properties.group_id,
+                                    name: g.properties.name,
+                                    type: 'group',
+                                    photo: g.properties.photo || null
+                                });
+                                edges.push({
+                                    source: p.properties.person_id,
+                                    target: g.properties.group_id,
+                                    type: 'PERFORMED_WITH',
+                                    trackCount: toInt(row.get('trackCount')),
+                                    role: roles[0] || null,
+                                    roles
+                                });
+                            }
                         }
                     }
                 } else if (nodeId.includes(':group:') || nodeId.startsWith('prov:group:')) {
@@ -368,6 +499,40 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                                     from_date: m.from_date,
                                     to_date: m.to_date,
                                     instruments: m.instruments
+                                });
+                            }
+
+                            // Played its tracks without being in it. Same
+                            // reasoning as the person branch above.
+                            const sessionPlayers = await session.run(`
+                                MATCH (g:Group {group_id: $nodeId})-[:PERFORMED_ON]->
+                                      (t:Track)<-[perf:PERFORMED_ON]-(p:Person)
+                                WHERE perf.via_group_id = g.group_id
+                                  AND NOT (p)-[:MEMBER_OF]->(g)
+                                WITH p, count(DISTINCT t) AS trackCount,
+                                     [x IN collect(DISTINCT perf.role) WHERE x IS NOT NULL] AS roles
+                                RETURN p, trackCount, roles
+                                ORDER BY trackCount DESC
+                                LIMIT $limitPersons
+                            `, { nodeId, limitPersons: neo4j.int(limitPersons) });
+
+                            for (const row of sessionPlayers.records) {
+                                const p = row.get('p');
+                                if (!p) continue;
+                                const roles = row.get('roles') || [];
+                                nodes.push({
+                                    id: p.properties.person_id,
+                                    name: p.properties.name,
+                                    type: 'person',
+                                    color: p.properties.color || null
+                                });
+                                edges.push({
+                                    source: p.properties.person_id,
+                                    target: g.properties.group_id,
+                                    type: 'PERFORMED_WITH',
+                                    trackCount: toInt(row.get('trackCount')),
+                                    role: roles[0] || null,
+                                    roles
                                 });
                             }
 
