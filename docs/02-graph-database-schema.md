@@ -1222,10 +1222,11 @@ classified by the same `parseCredits` the release level uses, so a producer
 credited beside the band does not become a bandmate.
 
 **A line-up named on a track is a membership, when nothing else says
-otherwise.** `/api/graph` builds its main collection from `MEMBER_OF`: a Person
-enters it *because* they are a member of a Group, and the `PERFORMED_ON` edges
-from a Person to a Track are read there only for the donut's participation
-counts. So a group whose only line-up is on a track used to reach the graph as
+otherwise.** `/api/graph` builds the main view from `MEMBER_OF` and nothing
+else: a Person enters the graph *because* they are a member of a Group, and
+MEMBER_OF is the only edge type the query returns — the `PERFORMED_ON` edges
+from a Person to a Track are read for the donut's participation counts and
+draw nothing. So a group whose only line-up is on a track used to reach the graph as
 a bare node: the people were in the registry, the band was on screen, and
 nothing joined them.
 
@@ -1236,46 +1237,6 @@ list is an override — a member sitting out, a stand-in behind the kit — and 
 membership is written for it, because promoting a stand-in to the band is the
 confidently-wrong answer the model warns against. No dates are set either way:
 a track credit says who played on this release, not when they joined.
-
-### Playing with a band without being in it
-
-Where the release *does* declare a line-up, a track-level list writes no
-membership — and until the view caught up, that made the person invisible. The
-performance was recorded, as `(Person)-[:PERFORMED_ON {via_group_id}]->(Track)`
-with `lineup_source: 'track_explicit'`, and the one query that read those edges
-collapsed them into a member's share of the donut. Somebody who played on two
-tracks and joined no band produced no node and no edge at all.
-
-That is the whole of "represent the musicians who played on various projects".
-A friend who played guitar on one track of somebody else's album is not in
-their band and must not be drawn as one — but the playing happened, and it is
-exactly the kind of fact this registry exists to keep.
-
-So `/api/graph` also draws **`PERFORMED_WITH`**: a Person → Group edge for
-anyone whose `PERFORMED_ON {via_group_id}` names a group they have no
-`MEMBER_OF` edge to, collapsed per pair with a `trackCount`. It is a view-level
-relation, not a stored one — nothing writes a `PERFORMED_WITH` relationship,
-and `grep` will not find one in `schema.js`. The name is distinct because it
-has to be: member, guest and session player all run Person → Group, the
-frontend's styling rules otherwise key off the node types at each end, and all
-three would be painted as memberships.
-
-Three claims in ascending strength, and the drawing says which: a membership is
-the person's flat colour at width 3, `PERFORMED_WITH` is the same colour at
-0.75 alpha and width 2, a guest credit is 0.5 alpha and width 1.5. The same
-order settles an overlap: a person in a track's line-up is excluded from the
-guest query, because being printed in a line-up says they played *with the
-band*, where a guest credit says only that they are on the record. One pair,
-one edge, the stronger claim.
-
-These are not behind a toggle at all. A `PERFORMED_WITH` edge exists only
-where a submitter deliberately typed a line-up naming somebody outside the
-band, which is rare and high-signal. Collapsing per pair is what keeps it
-cheap — a five-piece over fourteen tracks is five edges, not seventy.
-
-The donut is deliberately left alone. It counts the band's line-up, not
-everybody who played on the record, and widening it would change what the
-circle means.
 
 ### Playing on the record, versus working on it
 
@@ -1293,7 +1254,6 @@ get different defaults:
 | | Drawn by default | Asked for with |
 |---|---|---|
 | `MEMBER_OF` | yes | — |
-| `PERFORMED_WITH` | yes | — |
 | `GUEST_ON`, musical roles | yes | `?musicalGuests=true` |
 | `GUEST_ON`, technical roles | no | `?technicians=true` |
 
@@ -1329,15 +1289,10 @@ carrying the track would have a different credit; this asks whether somebody
 played. The answers cross: an engineer's credit *does* travel with the
 recording and is *not* a performance.
 
-**The rule applies to credit-derived edges only** — `GUEST_ON` and
-`PERFORMED_WITH`, which is both of the ones that exist. Never `MEMBER_OF`:
-membership is a roster fact, and the importer's rule governs it ("being in the
-band makes you a member whatever you were credited for"), so a band's own
-producer stays visible as a member. `PERFORMED_WITH` is filtered for a
-specific reason — nothing stops an engineer being typed into a track's line-up,
-and if the rule held in one place and not the other, the way to force a hidden
-credit onto the graph would be to use the other form field. A documented
-loophole is still a loophole.
+**The rule applies to credit-derived edges only** — `GUEST_ON`. Never
+`MEMBER_OF`: membership is a roster fact, and the importer's rule governs it
+("being in the band makes you a member whatever you were credited for"), so a
+band's own producer stays visible as a member.
 
 Reading an instrument credit as membership is the call this project already
 made for a release Discogs has no members list for, and it is the one in force
@@ -1379,7 +1334,6 @@ is in `docs/03-event-storage.md` under EDIT_RELATIONSHIP.
 |--------------|-----------|---------|
 | MEMBER_OF | Person → Group | Group membership with dates |
 | PERFORMED_ON | Group → Track | Group performed this track |
-| PERFORMED_WITH | Person → Group | **Not stored.** `/api/graph` only: played a group's tracks without being in the group, collapsed from `PERFORMED_ON {via_group_id}` |
 | GUEST_ON | Person → Track or Release | Guest appearance (not a member). `scope` is `track` or `release`; `roles` decides whether the credit is drawn as musical or technical |
 | WROTE | Person → Song | Songwriting credit |
 | ARRANGED | Person → Track | Credited arranger for a track (group by default) |

@@ -245,12 +245,6 @@ export class ColorPalette {
                 return '#6BC47D'; // Green
             case 'GUEST_ON':
                 return personId ? this.getColorWithAlpha(personId, 0.5) : '#888888';
-            // Played on a group's tracks without being in the group. Reads
-            // between the two it sits between: stronger than a guest credit,
-            // which says only that somebody is on the record, and weaker than
-            // a membership, which this person does not have.
-            case 'PERFORMED_WITH':
-                return personId ? this.getColorWithAlpha(personId, 0.75) : '#888888';
             case 'RELEASED':
                 return '#666666'; // Gray
             case 'ORIGIN':
@@ -287,8 +281,6 @@ export class ColorPalette {
                 return 2;
             case 'GUEST_ON':
                 return 1.5;
-            case 'PERFORMED_WITH':
-                return 2;
             case 'RELEASED':
                 return 1;
             case 'ORIGIN':

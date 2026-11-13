@@ -46,14 +46,11 @@ const GUESTS = {
     ],
 };
 
-const NOTHING = { persons: [], edges: [] };
-
-function buildApp({ guests = GUESTS, performers = NOTHING } = {}) {
+function buildApp({ guests = GUESTS } = {}) {
     const queries = [];
     const session = {
         run: jest.fn(async (cypher) => {
             queries.push(cypher);
-            if (cypher.includes('PERFORMED_WITH')) return { records: [record(performers)] };
             if (cypher.includes('GUEST_ON')) return { records: [record(guests)] };
             return { records: [record(MEMBERS)] };
         }),
@@ -193,57 +190,6 @@ describe('asking for neither', () => {
                 .expect(200);
             expect(queries.some((q) => q.includes('GUEST_ON'))).toBe(false);
         }
-    });
-});
-
-describe('people who played without joining', () => {
-    const PERFORMERS = {
-        persons: [
-            { id: 'p:guitar', name: 'Joe Harrison', type: 'person', color: '#112233' },
-            { id: 'p:tape', name: 'A Tape Op', type: 'person', color: '#445566' },
-        ],
-        edges: [
-            { source: 'p:guitar', target: 'g:band', type: 'PERFORMED_WITH', trackCount: 1, roles: [['guitar']] },
-            { source: 'p:tape', target: 'g:band', type: 'PERFORMED_WITH', trackCount: 1, roles: [['engineer']] },
-        ],
-    };
-
-    const playedWith = (res) =>
-        res.body.edges.filter((e) => e.type === 'PERFORMED_WITH').map((e) => e.source).sort();
-
-    test('the musician arrives with no flag at all', async () => {
-        const { app } = buildApp({ performers: PERFORMERS });
-        const res = await request(app).get('/api/graph/initial').expect(200);
-
-        expect(playedWith(res)).toEqual(['p:guitar']);
-    });
-
-    test('the engineer typed into a line-up does not', async () => {
-        // Nothing stops a submitter putting an engineer in "Group Members on
-        // This Track". If the same rule did not hold here, the way to force a
-        // hidden credit onto the graph would be to use the other form field —
-        // which is the loophole this whole split exists to close.
-        const { app } = buildApp({ performers: PERFORMERS });
-        const res = await request(app).get('/api/graph/initial').expect(200);
-
-        expect(playedWith(res)).not.toContain('p:tape');
-        expect(res.body.nodes.map((n) => n.id)).not.toContain('p:tape');
-    });
-
-    test('until technical credits are asked for', async () => {
-        const { app } = buildApp({ performers: PERFORMERS });
-        const res = await request(app).get('/api/graph/initial?technicians=true').expect(200);
-
-        expect(playedWith(res)).toEqual(['p:guitar', 'p:tape']);
-    });
-
-    test('and turning musical guests off does not take the musician away', async () => {
-        // A named line-up is a deliberate statement and there are few of them,
-        // so these are not behind the guest flag at all.
-        const { app } = buildApp({ performers: PERFORMERS });
-        const res = await request(app).get('/api/graph/initial?technicians=true').expect(200);
-
-        expect(playedWith(res)).toContain('p:guitar');
     });
 });
 

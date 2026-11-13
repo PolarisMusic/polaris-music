@@ -561,7 +561,6 @@ export function describeRelation(adj) {
     const label = {
         MEMBER_OF: 'member',
         GUEST_ON: 'guest',
-        PERFORMED_WITH: 'played with',
         PERFORMED_ON: 'performed on',
         IN_RELEASE: 'on release',
         RECORDING_OF: 'recording of',
