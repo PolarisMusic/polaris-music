@@ -11,6 +11,7 @@
  */
 
 import express from 'express';
+import { partitionRoles, creditIsMusical } from '../../graph/creditKind.js';
 import neo4j from 'neo4j-driver';
 import { sanitizeError } from '../../utils/errorSanitizer.js';
 import { safeClose } from '../../graph/safeTx.js';
@@ -34,6 +35,108 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
      */
     const toInt = (value) =>
         value && typeof value === 'object' && value.toNumber ? value.toNumber() : Number(value) || 0;
+
+    /**
+     * A credit's roles as one flat, deduplicated list of strings.
+     *
+     * The shape that arrives is not uniform. A relationship's `roles` property
+     * is itself a list, so collecting it across a person's several credits
+     * gives a list of lists; the singular `role` beside it is a bare string.
+     * Both reach here, and the classifier wants neither nested nor null.
+     *
+     * @param {*} value
+     * @returns {string[]}
+     */
+    const flatRoles = (value) => {
+        const out = [];
+        const push = (item) => {
+            if (item == null) return;
+            if (Array.isArray(item)) {
+                for (const inner of item) push(inner);
+                return;
+            }
+            const text = String(item).trim();
+            if (text) out.push(text);
+        };
+        push(value);
+        return [...new Set(out)];
+    };
+
+    /**
+     * The roles of one credit that this request should see, or null to drop it.
+     *
+     * Per role rather than per person: "Mixed By, Guitar" is one human, and
+     * judging the person would lose one of the two facts whichever way it went.
+     * A credit with any performance role is a musical credit, trimmed to those
+     * roles unless technical ones were asked for too — so the edge reads
+     * "guitar", not "mixed by, guitar". See graph/creditKind.js.
+     *
+     * An empty list is a kept credit with nothing said about it, not a dropped
+     * one: a credit nobody described is still a connection somebody recorded.
+     *
+     * @param {*} value - The credit's roles, in any of the shapes flatRoles takes.
+     * @param {{musical: boolean, technical: boolean}} wanted
+     * @returns {string[]|null}
+     */
+    const visibleRoles = (value, wanted) => {
+        const roles = flatRoles(value);
+        const { musical } = partitionRoles(roles);
+
+        if (creditIsMusical(roles)) {
+            if (!wanted.musical) return null;
+            return wanted.technical ? roles : musical;
+        }
+        return wanted.technical ? roles : null;
+    };
+
+    /**
+     * Which halves of the guest bucket a request asked for.
+     *
+     * `guests=true` is the older spelling and means both, so a saved link still
+     * works. The server's own default is neither: a bare request gets members,
+     * as it always did. Musical guests being on by default is the frontend's
+     * choice, made where the checkbox lives.
+     *
+     * @param {express.Request} req
+     * @returns {{musical: boolean, technical: boolean, any: boolean}}
+     */
+    const creditFlags = (req) => {
+        const isTrue = (value) => String(value || '') === 'true';
+        const all = isTrue(req.query.guests);
+        const musical = all || isTrue(req.query.musicalGuests);
+        const technical = all || isTrue(req.query.technicians);
+        return { musical, technical, any: musical || technical };
+    };
+
+    /**
+     * Keep the credits this request asked for, and the people still on one.
+     *
+     * Per role rather than per person: "Mixed By, Guitar" is one human, and
+     * judging the person would lose one of the two facts whichever way it
+     * went. A credit with any performance role is a musical credit, and its
+     * roles are trimmed to those unless technical ones were asked for too —
+     * so the edge reads "guitar", not "mixed by, guitar". See
+     * graph/creditKind.js for what counts as which.
+     *
+     * Persons are filtered from the surviving edges rather than alongside
+     * them: the query collects the two lists independently, so filtering only
+     * the edges would leave people on screen with nothing joining them.
+     *
+     * @param {{persons: Array, edges: Array}} credits
+     * @param {{musical: boolean, technical: boolean}} wanted
+     * @returns {{persons: Array, edges: Array}}
+     */
+    const selectCredits = ({ persons, edges }, wanted) => {
+        const kept = [];
+        for (const edge of edges) {
+            const roles = visibleRoles(edge.roles ?? edge.role, wanted);
+            if (!roles) continue;
+            kept.push({ ...edge, roles, role: roles[0] ?? null });
+        }
+
+        const live = new Set(kept.map((edge) => edge.source));
+        return { persons: persons.filter((person) => live.has(person.id)), edges: kept };
+    };
 
     /**
      * GET /api/graph/sponsored
@@ -171,11 +274,17 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
             WHERE perf.via_group_id = g.group_id
               AND NOT (p)-[:MEMBER_OF]->(g)
 
+            // Both spellings: perf.roles is the list the write recorded,
+            // perf.role the first of it kept for older readers. Collecting
+            // only the singular judged an "Engineer, Backing Vocals" credit
+            // on its first role alone, which is the one case per-role
+            // filtering exists for.
             WITH g, p, count(DISTINCT t) AS trackCount,
+                 collect(DISTINCT perf.roles) AS roleLists,
                  collect(DISTINCT perf.role) AS roleValues,
                  collect(DISTINCT perf.lineup_source) AS sources
             WITH g, p, trackCount, sources,
-                 [x IN roleValues WHERE x IS NOT NULL] AS roles
+                 roleLists + [x IN roleValues WHERE x IS NOT NULL] AS roles
 
             RETURN collect(DISTINCT {
                 id: p.person_id,
@@ -211,9 +320,9 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
      * so the frontend does not need separate per-group fetches.
      */
     router.get('/initial', async (req, res) => {
-        // Opt-in, because guests roughly double the person count on a
-        // well-credited release and the graph is dense enough already.
-        const wantsGuests = String(req.query.guests || '') === 'true';
+        // The guest bucket holds two unlike things — a featured vocalist and
+        // the person who shot the sleeve — so it is asked for in halves.
+        const wanted = creditFlags(req);
 
         try {
             const session = db.driver.session();
@@ -310,7 +419,14 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                 const extraEdges = [];
 
                 // Played on a group's tracks without being in the group.
-                const performers = await readPerformerEdges(session);
+                // Musical ones always: a line-up is a deliberate statement and
+                // there are few of them. Technical ones only when asked —
+                // nothing stops an engineer being typed into a track's line-up,
+                // and the same rule has to hold there or the way to force a
+                // hidden credit onto the graph is to use the other form field.
+                const performers = selectCredits(
+                    await readPerformerEdges(session),
+                    { musical: true, technical: wanted.technical });
                 for (const performer of performers.persons) {
                     if (seenPersons.has(performer.id)) continue;
                     seenPersons.add(performer.id);
@@ -321,8 +437,10 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                 // Guests, when asked for.
                 const guestNodes = [];
                 const guestEdges = [];
-                if (wantsGuests) {
-                    const guests = await readGuestEdges(session);
+                if (wanted.any) {
+                    const guests = selectCredits(
+                        await readGuestEdges(session),
+                        { musical: wanted.musical, technical: wanted.technical });
                     for (const guest of guests.persons) {
                         // A guest who is also a member of some other group is
                         // already a node; only the edge is new.
@@ -355,6 +473,10 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
      */
     router.get('/neighborhood/:nodeId', async (req, res) => {
         const nodeId = req.params.nodeId;
+        // Same split as /initial, for the same reason: this arm answers
+        // navigating straight to a node, and a technical credit hidden on the
+        // main view must not reappear just because you arrived another way.
+        const wanted = creditFlags(req);
         const limitTracks = Math.min(parseInt(req.query.limitTracks) || 25, 100);
         const limitGroups = Math.min(parseInt(req.query.limitGroups) || 25, 100);
         const limitPersons = Math.min(parseInt(req.query.limitPersons) || 50, 200);
@@ -423,7 +545,8 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                                 WHERE perf.via_group_id = g.group_id
                                   AND NOT (p)-[:MEMBER_OF]->(g)
                                 WITH g, count(DISTINCT t) AS trackCount,
-                                     [x IN collect(DISTINCT perf.role) WHERE x IS NOT NULL] AS roles
+                                     collect(DISTINCT perf.roles)
+                                       + [x IN collect(DISTINCT perf.role) WHERE x IS NOT NULL] AS roles
                                 RETURN g, trackCount, roles
                                 ORDER BY trackCount DESC
                                 LIMIT $limitGroups
@@ -432,7 +555,9 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                             for (const row of playedWith.records) {
                                 const g = row.get('g');
                                 if (!g) continue;
-                                const roles = row.get('roles') || [];
+                                const roles = visibleRoles(row.get('roles'),
+                                    { musical: true, technical: wanted.technical });
+                                if (!roles) continue;
                                 nodes.push({
                                     id: g.properties.group_id,
                                     name: g.properties.name,
@@ -510,7 +635,8 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                                 WHERE perf.via_group_id = g.group_id
                                   AND NOT (p)-[:MEMBER_OF]->(g)
                                 WITH p, count(DISTINCT t) AS trackCount,
-                                     [x IN collect(DISTINCT perf.role) WHERE x IS NOT NULL] AS roles
+                                     collect(DISTINCT perf.roles)
+                                       + [x IN collect(DISTINCT perf.role) WHERE x IS NOT NULL] AS roles
                                 RETURN p, trackCount, roles
                                 ORDER BY trackCount DESC
                                 LIMIT $limitPersons
@@ -519,7 +645,9 @@ export function createGraphRoutes({ db, config, sponsoredNodes = null }) {
                             for (const row of sessionPlayers.records) {
                                 const p = row.get('p');
                                 if (!p) continue;
-                                const roles = row.get('roles') || [];
+                                const roles = visibleRoles(row.get('roles'),
+                                    { musical: true, technical: wanted.technical });
+                                if (!roles) continue;
                                 nodes.push({
                                     id: p.properties.person_id,
                                     name: p.properties.name,

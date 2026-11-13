@@ -54,8 +54,16 @@ async function boot(page) {
     await page.route('**/api/**', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
     await page.route('**/graph/initial*', (route) => {
-        const body = route.request().url().includes('guests=true') ? WITH_GUEST : SCENE;
-        route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+        // Keyed on the flag the client actually sends. Musical guests are on
+        // by default, so the saxophonist is here from the first load and the
+        // three claims can be compared without touching a checkbox.
+        const url = new URL(route.request().url());
+        const musical = url.searchParams.get('musicalGuests') === 'true'
+            || url.searchParams.get('guests') === 'true';
+        route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify(musical ? WITH_GUEST : SCENE),
+        });
     });
     await page.route('**/graph/sponsored*', (route) =>
         route.fulfill({
@@ -120,13 +128,16 @@ async function edgeMidpoint(page, otherId) {
 }
 
 test.describe('a session player on the graph', () => {
-    test('is there without asking for guests', async ({ page }) => {
-        // Unlike a guest list, which roughly doubles the person count on a
-        // well-credited release. A named line-up is a deliberate statement and
-        // there are few of them.
+    test('is there with no credit toggle turned on', async ({ page }) => {
+        // Not behind either box. A named line-up is a deliberate statement and
+        // there are few of them, where a guest list roughly doubles the person
+        // count on a well-credited release.
         await boot(page);
 
-        await expect(page.locator('#show-guests')).not.toBeChecked();
+        await expect(page.locator('#show-technicians')).not.toBeChecked();
+        await page.locator('#show-musical-guests').uncheck();
+        await page.waitForFunction(() => !window.musicGraph.ht.graph.getNode('per:sax'));
+
         expect(await page.evaluate(
             () => !!window.musicGraph.ht.graph.getNode('per:guitar'))).toBe(true);
     });
@@ -149,7 +160,6 @@ test.describe('a session player on the graph', () => {
         // The three say different things, in this order: in the band, played
         // with the band, on the record. The drawing has to agree.
         await boot(page);
-        await page.locator('#show-guests').check();
         await page.waitForFunction(() => !!window.musicGraph.ht.graph.getNode('per:sax'));
 
         const styles = await edgeStyles(page);
@@ -163,9 +173,11 @@ test.describe('a session player on the graph', () => {
         await boot(page);
         await select(page, 'grp:band');
 
+        // All three kinds at once, which is the realistic scene: a member, a
+        // session player, and a musical guest.
         const targets = await page.evaluate(() =>
             window.musicGraph.edgeNavigator.candidates().map((c) => c.other.id).sort());
-        expect(targets).toEqual(['per:drums', 'per:guitar']);
+        expect(targets).toEqual(['per:drums', 'per:guitar', 'per:sax']);
     });
 
     test('and the edge says what they did, not that they are a member', async ({ page }) => {

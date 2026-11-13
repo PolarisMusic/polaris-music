@@ -1314,15 +1314,76 @@ guest query, because being printed in a line-up says they played *with the
 band*, where a guest credit says only that they are on the record. One pair,
 one edge, the stronger claim.
 
-Unlike guests, these are not behind `?guests=true`. A guest list roughly
-doubles the person count on a well-credited release; a `PERFORMED_WITH` edge
-exists only where a submitter deliberately typed a line-up naming somebody
-outside the band. Collapsing per pair is what keeps it cheap — a five-piece
-over fourteen tracks is five edges, not seventy.
+These are not behind a toggle at all. A `PERFORMED_WITH` edge exists only
+where a submitter deliberately typed a line-up naming somebody outside the
+band, which is rare and high-signal. Collapsing per pair is what keeps it
+cheap — a five-piece over fourteen tracks is five edges, not seventy.
 
 The donut is deliberately left alone. It counts the band's line-up, not
 everybody who played on the record, and widening it would change what the
 circle means.
+
+### Playing on the record, versus working on it
+
+`GUEST_ON` is a fallback bucket. Everybody who is not a member of the
+performing group lands in it — a featured vocalist, a horn section, the mixing
+engineer, whoever shot the sleeve — so the registry could not tell Björk from
+the person who laid out the booklet. That conflation had a cost beyond
+tidiness: because the whole bucket was hidden by default, a submitter with an
+interesting session player to show had to file them as a **member** to make the
+connection visible. A display default was corrupting the data.
+
+So the bucket is split at read time by `graph/creditKind.js`, and the halves
+get different defaults:
+
+| | Drawn by default | Asked for with |
+|---|---|---|
+| `MEMBER_OF` | yes | — |
+| `PERFORMED_WITH` | yes | — |
+| `GUEST_ON`, musical roles | yes | `?musicalGuests=true` |
+| `GUEST_ON`, technical roles | no | `?technicians=true` |
+
+`?guests=true` is the older spelling and means both halves, so a saved link
+still works. The server's own default is neither: a bare request gets members,
+as it always did. Musical guests being on is the *client's* choice, sent
+explicitly, so the checkbox and the payload cannot disagree.
+
+**Per role, not per person.** One credit line routinely mixes the two — "Mixed
+By, Guitar" is one human — so the roles are partitioned rather than the person
+sorted. The guitarist stays visible as a guitarist, and the edge is trimmed to
+read `guitar` rather than `mixed by`; asking for technical credits as well puts
+both roles back. This is why a third relationship type would have been the
+wrong answer: `MEMBER_OF` and `GUEST_ON` are mutually exclusive and the
+sanitizer enforces it, but being a performer and being a technician are not
+exclusive at all, and an edge can be partly each where a type cannot.
+
+**A closed list of what to hide, and everything else is music.** The opposite
+arrangement — an allowlist of instruments, which is what
+`DiscogsClient.PERFORMANCE_ROLES` is — cannot be completed: Discogs credits
+ondes martenot, bağlama, tabla, theremin and several hundred more, and an
+instrument missing from the list would make its player vanish. That is exactly
+the failure the split exists to end, so the default direction is visible, and
+an unrecognised technical credit shows up instead. Two calls worth stating:
+producing is an artistic hand on the recording and stays visible, where an
+executive producer is its financier and does not; and programming is hidden
+from nobody, because in hip-hop and electronic music the programming *is* the
+drum part.
+
+**This is not the same question as credit scope**, and the two lists are
+deliberately separate. `creditScope.RELEASE_ONLY` asks whether a compilation
+carrying the track would have a different credit; this asks whether somebody
+played. The answers cross: an engineer's credit *does* travel with the
+recording and is *not* a performance.
+
+**The rule applies to credit-derived edges only** — `GUEST_ON` and
+`PERFORMED_WITH`, which is both of the ones that exist. Never `MEMBER_OF`:
+membership is a roster fact, and the importer's rule governs it ("being in the
+band makes you a member whatever you were credited for"), so a band's own
+producer stays visible as a member. `PERFORMED_WITH` is filtered for a
+specific reason — nothing stops an engineer being typed into a track's line-up,
+and if the rule held in one place and not the other, the way to force a hidden
+credit onto the graph would be to use the other form field. A documented
+loophole is still a loophole.
 
 Reading an instrument credit as membership is the call this project already
 made for a release Discogs has no members list for, and it is the one in force
@@ -1365,7 +1426,7 @@ is in `docs/03-event-storage.md` under EDIT_RELATIONSHIP.
 | MEMBER_OF | Person → Group | Group membership with dates |
 | PERFORMED_ON | Group → Track | Group performed this track. `guest` is true for a band that played on the recording without being the act the release is credited to |
 | PERFORMED_WITH | Person → Group | **Not stored.** `/api/graph` only: played a group's tracks without being in the group, collapsed from `PERFORMED_ON {via_group_id}` |
-| GUEST_ON | Person → Track or Release | Guest appearance (not a member). `scope` is `track` or `release` |
+| GUEST_ON | Person → Track or Release | Guest appearance (not a member). `scope` is `track` or `release`; `roles` decides whether the credit is drawn as musical or technical |
 | WROTE | Person → Song | Songwriting credit |
 | ARRANGED | Person → Track | Credited arranger for a track (group by default) |
 | PRODUCED | Person → Track | Credited Producer for a track |

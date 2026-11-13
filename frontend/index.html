@@ -63,9 +63,21 @@
                     <span id="history-count">0</span><span class="stat-label"> History</span>
                 </span>
             </div>
-            <label class="stat-item show-guests" id="show-guests-label" title="Include session musicians and other non-members">
-                <input type="checkbox" id="show-guests">
+            <!-- Two halves of one bucket, with different defaults. Playing on
+                 somebody's record is a connection between musicians and is
+                 what this graph is for, so it is on. Engineering, mastering
+                 and artwork are credits on the object rather than connections,
+                 and they roughly double the person count on a well-credited
+                 release, so they wait to be asked for. -->
+            <label class="stat-item credit-toggle" id="show-musical-guests-label"
+                   title="Session players and featured artists — people who played on the record without being in the group">
+                <input type="checkbox" id="show-musical-guests" checked>
                 <span class="stat-label">Guests</span>
+            </label>
+            <label class="stat-item credit-toggle" id="show-technicians-label"
+                   title="Engineering, mixing, mastering, artwork and other credits for work on the record rather than playing on it">
+                <input type="checkbox" id="show-technicians">
+                <span class="stat-label">Technical</span>
             </label>
             <!-- Phone only, both of them. -->
 
@@ -104,9 +116,13 @@
         <button class="top-bar-menu-item" type="button" data-opens="history">
             <span class="icon">❄️</span> History <span id="menu-history-count">0</span>
         </button>
-        <label class="top-bar-menu-item" for="menu-show-guests">
-            <input type="checkbox" id="menu-show-guests">
-            Show guests
+        <label class="top-bar-menu-item" for="menu-show-musical-guests">
+            <input type="checkbox" id="menu-show-musical-guests" checked>
+            Show musical guests
+        </label>
+        <label class="top-bar-menu-item" for="menu-show-technicians">
+            <input type="checkbox" id="menu-show-technicians">
+            Show technical credits
         </label>
     </div>
 
@@ -431,30 +447,48 @@
             if (navForward) navForward.addEventListener('click', () => graph.goForwardInHistory());
             graph.updateHistoryNavButtons();
 
-            // Show guests. Two checkboxes — the bar and the menu — because which
-            // one is on screen is a breakpoint away and a half-ticked pair is
-            // worse than either.
-            const guestBoxes = ['show-guests', 'menu-show-guests']
-                .map((id) => document.getElementById(id))
-                .filter(Boolean);
-            let guestReloadInFlight = false;
-            for (const box of guestBoxes) {
-                box.addEventListener('change', async () => {
-                    // A second tick while the first refetch is in flight would
-                    // race two loadJSON calls into the same hypertree.
-                    if (guestReloadInFlight) return;
-                    guestReloadInFlight = true;
+            // Which credits to draw. Each toggle is two checkboxes — the bar
+            // and the menu — because which one is on screen is a breakpoint
+            // away and a half-ticked pair is worse than either.
+            const creditToggles = [
+                { ids: ['show-musical-guests', 'menu-show-musical-guests'],
+                  apply: (on) => graph.setShowMusicalGuests(on) },
+                { ids: ['show-technicians', 'menu-show-technicians'],
+                  apply: (on) => graph.setShowTechnicians(on) },
+            ].map((toggle) => ({
+                ...toggle,
+                boxes: toggle.ids.map((id) => document.getElementById(id)).filter(Boolean),
+            }));
 
-                    const include = box.checked;
-                    for (const other of guestBoxes) other.checked = include;
-                    for (const other of guestBoxes) other.disabled = true;
-                    try {
-                        await graph.setShowGuests(include);
-                    } finally {
-                        for (const other of guestBoxes) other.disabled = false;
-                        guestReloadInFlight = false;
-                    }
-                });
+            // One guard across both toggles, not one each: either refetch
+            // replaces the whole hypertree, so two in flight would race two
+            // loadJSON calls into it however they were started.
+            const everyCreditBox = creditToggles.flatMap((toggle) => toggle.boxes);
+            let creditReloadInFlight = false;
+
+            for (const toggle of creditToggles) {
+                for (const box of toggle.boxes) {
+                    box.addEventListener('change', async () => {
+                        if (creditReloadInFlight) {
+                            // Put it back: the change never reached the graph,
+                            // and a box showing a state the payload does not
+                            // have is worse than a click that did nothing.
+                            box.checked = !box.checked;
+                            return;
+                        }
+                        creditReloadInFlight = true;
+
+                        const include = box.checked;
+                        for (const other of toggle.boxes) other.checked = include;
+                        for (const other of everyCreditBox) other.disabled = true;
+                        try {
+                            await toggle.apply(include);
+                        } finally {
+                            for (const other of everyCreditBox) other.disabled = false;
+                            creditReloadInFlight = false;
+                        }
+                    });
+                }
             }
 
             // Phone overflow menu

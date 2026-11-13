@@ -2574,18 +2574,17 @@ export class MusicGraph {
     // ========== History panel ==========
 
     /**
-     * Refetch the graph with guest credits included or excluded.
+     * Refetch the graph with a different set of guest credits.
      *
-     * A refetch rather than a client-side filter: the guest half of the payload
-     * roughly doubles the person count on a well-credited release, and holding
-     * it in memory for every visitor so that a minority can tick a box is the
-     * wrong trade. The checkbox is rare; the page load is not.
+     * A refetch rather than a client-side filter: the technical half of the
+     * payload roughly doubles the person count on a well-credited release, and
+     * holding it in memory for every visitor so that a minority can tick a box
+     * is the wrong trade. The checkbox is rare; the page load is not.
      *
-     * @param {boolean} include
+     * @private
      * @returns {Promise<void>}
      */
-    async setShowGuests(include) {
-        this.api.includeGuests = !!include;
+    async _refetchCredits() {
         // The selection and any highlight belong to the graph about to be
         // replaced; a stale node reference would survive loadJSON and quietly
         // anchor the edge picker to something no longer drawn.
@@ -2593,6 +2592,30 @@ export class MusicGraph {
         this.selectedNode = null;
         this.previousNode = null;
         await this.loader.loadGraphData();
+    }
+
+    /**
+     * Show or hide session players and featured artists — people who played on
+     * the record without being in the group. On by default.
+     *
+     * @param {boolean} include
+     * @returns {Promise<void>}
+     */
+    async setShowMusicalGuests(include) {
+        this.api.includeMusicalGuests = !!include;
+        await this._refetchCredits();
+    }
+
+    /**
+     * Show or hide credits for work on the record rather than playing on it:
+     * engineering, mixing, mastering, artwork, liner notes. Off by default.
+     *
+     * @param {boolean} include
+     * @returns {Promise<void>}
+     */
+    async setShowTechnicians(include) {
+        this.api.includeTechnicians = !!include;
+        await this._refetchCredits();
     }
 
     /**
