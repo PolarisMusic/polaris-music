@@ -37,17 +37,32 @@ const GUESTS = {
     }],
 };
 
+/** Played on the group's tracks without being in the group. */
+const PERFORMERS = {
+    persons: [{ id: 'p:guitar', name: 'A Guitarist', type: 'person', color: '#112233' }],
+    edges: [{
+        source: 'p:guitar', target: 'g:band', type: 'PERFORMED_WITH',
+        trackCount: 1, role: 'guitar', roles: ['guitar'], lineup_source: 'track_explicit',
+    }],
+};
+
+const NOTHING = { persons: [], edges: [] };
+
 /**
  * An app on the real router, with a driver that answers each query by shape.
  *
- * @param {{guests?: object}} [options]
+ * @param {{guests?: object, performers?: object}} [options]
  */
-function buildApp({ guests = GUESTS } = {}) {
+function buildApp({ guests = GUESTS, performers = NOTHING } = {}) {
     const queries = [];
     const session = {
         run: jest.fn(async (cypher) => {
             queries.push(cypher);
-            // The guest query is the one that matches GUEST_ON.
+            // Dispatched on the type each query returns, because all three run
+            // Person -> Group and nothing else distinguishes them. The
+            // performer query is checked first: it names MEMBER_OF in an
+            // exclusion, so a looser order would hand it the member rows.
+            if (cypher.includes('PERFORMED_WITH')) return { records: [record(performers)] };
             if (cypher.includes('GUEST_ON')) return { records: [record(guests)] };
             return { records: [record(MEMBERS)] };
         }),
@@ -199,5 +214,152 @@ describe('the guest query itself', () => {
             // Either no params at all, or none carrying request input.
             expect(call[1] === undefined || Object.keys(call[1]).length === 0).toBe(true);
         }
+    });
+});
+
+describe('people who played a group\'s tracks without being in the group', () => {
+    test('arrive as nodes and edges with no flag needed', async () => {
+        // Unlike guests, which roughly double the person count on a
+        // well-credited release. These exist only where a submitter typed a
+        // line-up naming somebody outside the band.
+        const { app } = buildApp({ performers: PERFORMERS });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.nodes.map((n) => n.id)).toEqual(['g:band', 'p:drums', 'p:guitar']);
+        expect(res.body.edges).toHaveLength(2);
+        expect(res.body.edges[1]).toMatchObject({
+            source: 'p:guitar', target: 'g:band', type: 'PERFORMED_WITH', trackCount: 1,
+        });
+    });
+
+    test('typed PERFORMED_WITH, not MEMBER_OF', async () => {
+        // The registry's central distinction. A friend who played guitar on
+        // one track of somebody else's album is not in their band, and both
+        // claims run Person -> Group, so only the type keeps them apart.
+        const { app } = buildApp({ performers: PERFORMERS });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.edges.find((e) => e.source === 'p:guitar').type)
+            .toBe('PERFORMED_WITH');
+    });
+
+    test('the instrument comes with them', async () => {
+        const { app } = buildApp({ performers: PERFORMERS });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.edges[1].role).toBe('guitar');
+        expect(res.body.edges[1].roles).toEqual(['guitar']);
+    });
+
+    test('a count that comes back as a Neo4j integer is a number', async () => {
+        const { app } = buildApp({
+            performers: {
+                persons: PERFORMERS.persons,
+                edges: [{
+                    ...PERFORMERS.edges[0],
+                    trackCount: { low: 3, high: 0, toNumber: () => 3 },
+                }],
+            },
+        });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.edges[1].trackCount).toBe(3);
+    });
+
+    test('somebody already on screen as a member elsewhere is not duplicated', async () => {
+        const { app } = buildApp({
+            performers: {
+                persons: [{ id: 'p:drums', name: 'A Drummer', type: 'person', color: '#aabbcc' }],
+                edges: [{ source: 'p:drums', target: 'g:other', type: 'PERFORMED_WITH', trackCount: 1, roles: [] }],
+            },
+        });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.nodes.filter((n) => n.id === 'p:drums')).toHaveLength(1);
+        expect(res.body.edges.filter((e) => e.type === 'PERFORMED_WITH')).toHaveLength(1);
+    });
+
+    test('none of them is an empty addition, not a failure', async () => {
+        const { app } = buildApp();
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.success).toBe(true);
+        expect(res.body.edges.map((e) => e.type)).toEqual(['MEMBER_OF']);
+    });
+
+    test('malformed rows are dropped rather than emitted', async () => {
+        const { app } = buildApp({
+            performers: {
+                persons: [null, { id: null, name: 'Nobody' }, PERFORMERS.persons[0]],
+                edges: [null, { source: 'p:guitar', target: null, type: 'PERFORMED_WITH' }, PERFORMERS.edges[0]],
+            },
+        });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.nodes.map((n) => n.id)).toEqual(['g:band', 'p:drums', 'p:guitar']);
+        expect(res.body.edges.filter((e) => e.type === 'PERFORMED_WITH')).toHaveLength(1);
+    });
+
+    test('members and participation are untouched', async () => {
+        const { app } = buildApp({ performers: PERFORMERS });
+        const res = await request(app).get('/api/graph/initial').expect(200);
+
+        expect(res.body.edges[0]).toMatchObject({ source: 'p:drums', type: 'MEMBER_OF' });
+        // The donut still counts the band's line-up, not everybody who played.
+        expect(res.body.participation['g:band'].members.map((m) => m.personId))
+            .toEqual(['p:drums']);
+    });
+});
+
+describe('the performer query itself', () => {
+    const performerQuery = (queries) => queries.find((q) => q.includes('PERFORMED_WITH'));
+
+    test('follows the via_group_id the write recorded', async () => {
+        // The edge exists per track and names the group it was played for.
+        // Without that equality any Person on any track of any group matches.
+        const { app, queries } = buildApp();
+        await request(app).get('/api/graph/initial').expect(200);
+
+        expect(performerQuery(queries)).toMatch(/perf\.via_group_id = g\.group_id/);
+    });
+
+    test('excludes members of the group it draws the edge to', async () => {
+        // Otherwise every member arrives twice: once on MEMBER_OF from the
+        // main query, once here on their own per-track performances.
+        const { app, queries } = buildApp();
+        await request(app).get('/api/graph/initial').expect(200);
+
+        expect(performerQuery(queries)).toMatch(/NOT \(p\)-\[:MEMBER_OF\]->\(g\)/);
+    });
+
+    test('collapses to one edge per person and group', async () => {
+        // A five-piece on fourteen tracks is five edges, not seventy.
+        const { app, queries } = buildApp();
+        await request(app).get('/api/graph/initial').expect(200);
+
+        expect(performerQuery(queries)).toMatch(/count\(DISTINCT t\) AS trackCount/);
+    });
+
+    test('is parameter-free, so nothing from the query string reaches Cypher', async () => {
+        const { app, session } = buildApp();
+        await request(app).get('/api/graph/initial').expect(200);
+
+        for (const call of session.run.mock.calls) {
+            expect(call[1] === undefined || Object.keys(call[1]).length === 0).toBe(true);
+        }
+    });
+});
+
+describe('a guest who is also in a named line-up', () => {
+    test('is excluded from the guest query, so they arrive once', async () => {
+        // Precedence one notch below membership: being printed in a track's
+        // line-up says the person played with the band, where a guest credit
+        // says only that they are on the record. The stronger claim is drawn.
+        const { app, queries } = buildApp();
+        await request(app).get('/api/graph/initial?guests=true').expect(200);
+
+        const guestQuery = queries.find((q) => q.includes('GUEST_ON'));
+        expect(guestQuery).toMatch(
+            /NOT \(p\)-\[:PERFORMED_ON \{via_group_id: g\.group_id\}\]->\(:Track\)/);
     });
 });

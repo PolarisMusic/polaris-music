@@ -195,6 +195,21 @@ const LABEL_HEIGHT_PX = 14;
  */
 const UNRELATED_EDGE_OPACITY = 0.32;
 
+/**
+ * How much heavier an edge is drawn when it touches the selection.
+ *
+ * The complement of the dimming above, and it does not cost what thinning
+ * the rest would. Narrowing an unrelated edge changes the shape of the graph
+ * as you browse, and the shape is the data; widening the one-hop ring leaves
+ * every other edge exactly as it was and only adds weight where the eye is
+ * already going.
+ *
+ * Applied only when something IS selected — the opening view is the universe
+ * and has no focus to contrast against, so thickening everything there would
+ * just be a heavier graph.
+ */
+const SELECTED_EDGE_WIDTH_SCALE = 2.2;
+
 const EDGE_WIDTH_SCALE_DESKTOP = 0.7;
 const EDGE_WIDTH_SCALE_PHONE = 0.35;
 
@@ -1801,12 +1816,18 @@ export class MusicGraph {
         // the type-pair rules below cannot tell them apart and would paint a
         // guest as a member — the one distinction this registry most cares
         // about. The declared type wins where there is one.
-        if (edgeType === 'GUEST_ON') {
+        //
+        // PERFORMED_WITH is the same problem again: somebody who played on a
+        // group's tracks without joining it. Member, guest and session player
+        // all run Person -> Group, and the three say different things — the
+        // weights and alphas in colorPalette are where that distinction is
+        // drawn, so the declared type has to reach them.
+        if (edgeType === 'GUEST_ON' || edgeType === 'PERFORMED_WITH') {
             const personNode = (adj.nodeFrom.data.type || '').toLowerCase() === 'person'
                 ? adj.nodeFrom
                 : adj.nodeTo;
-            color = this.colorPalette.getEdgeColor('GUEST_ON', personNode.id);
-            width = this.colorPalette.getEdgeWidth('GUEST_ON');
+            color = this.colorPalette.getEdgeColor(edgeType, personNode.id);
+            width = this.colorPalette.getEdgeWidth(edgeType);
         } else {
             const fromType = (adj.nodeFrom.data.type || '').toLowerCase();
             const toType = (adj.nodeTo.data.type || '').toLowerCase();
@@ -1847,8 +1868,16 @@ export class MusicGraph {
         // Width is untouched on purpose: thinning an unrelated edge as well
         // would change the shape of the graph as you browse, and the shape is
         // the data.
-        if (color !== null && !this._isNeighbourhoodEdge(adj)) {
-            color = this.colorPalette.withOpacity(color, UNRELATED_EDGE_OPACITY);
+        if (this.selectedNode) {
+            if (this._isNeighbourhoodEdge(adj)) {
+                // Weight, not just colour: on a dense neighbourhood the
+                // dimming alone leaves the edges that matter the same
+                // thickness as the hundreds behind them.
+                width = (width ?? this.ht?.config?.Edge?.lineWidth ?? 2)
+                    * SELECTED_EDGE_WIDTH_SCALE;
+            } else if (color !== null) {
+                color = this.colorPalette.withOpacity(color, UNRELATED_EDGE_OPACITY);
+            }
         }
 
         if (color !== null) adj.setData('color', color);
@@ -2216,12 +2245,21 @@ export class MusicGraph {
      * on the same node, goes. Tapping a different node moves the preview
      * there; tapping the canvas puts it away. A pointer device is unaffected.
      *
+     * A node whose name is ALREADY on screen is the exception, and it follows
+     * from the same reasoning rather than bending it. The preview buys one
+     * thing — reading the name before committing — and a visible label has
+     * already bought it. Charging a tap for what the visitor can see is a
+     * toll, not a safeguard, and it falls hardest on exactly the nodes they
+     * are most likely to want: the selection's own neighbours, which are
+     * labelled precisely because they matter.
+     *
      * @param {Object} node
      * @returns {boolean} whether the tap was spent on the preview
      * @private
      */
     _previewOnTap(node) {
         if (!this._isTouchOnly()) return false;
+        if (this._hasVisibleLabel(node)) return false;
 
         if (this._tapPreview === node.id) {
             // Second tap: let it through, and take the preview's styling off
@@ -2233,6 +2271,26 @@ export class MusicGraph {
         this._tapPreview = node.id;
         this.handleNodeHover(node, true, { immediate: true });
         return true;
+    }
+
+    /**
+     * Whether this node's name is already drawn on screen.
+     *
+     * Read from the set the collision pass last settled on, which is what the
+     * renderer itself consults — so this answers what the visitor can see
+     * rather than what the distance rule would have allowed before the pile-up
+     * at the rim was resolved.
+     *
+     * Before the first pass there is no set, and the honest answer is no: the
+     * preview is the safe side of that, costing a tap rather than a navigation
+     * nobody asked for.
+     *
+     * @param {Object} node
+     * @returns {boolean}
+     * @private
+     */
+    _hasVisibleLabel(node) {
+        return Boolean(this._visibleLabels?.has(node?.id));
     }
 
     /**
@@ -2516,18 +2574,17 @@ export class MusicGraph {
     // ========== History panel ==========
 
     /**
-     * Refetch the graph with guest credits included or excluded.
+     * Refetch the graph with a different set of guest credits.
      *
-     * A refetch rather than a client-side filter: the guest half of the payload
-     * roughly doubles the person count on a well-credited release, and holding
-     * it in memory for every visitor so that a minority can tick a box is the
-     * wrong trade. The checkbox is rare; the page load is not.
+     * A refetch rather than a client-side filter: the technical half of the
+     * payload roughly doubles the person count on a well-credited release, and
+     * holding it in memory for every visitor so that a minority can tick a box
+     * is the wrong trade. The checkbox is rare; the page load is not.
      *
-     * @param {boolean} include
+     * @private
      * @returns {Promise<void>}
      */
-    async setShowGuests(include) {
-        this.api.includeGuests = !!include;
+    async _refetchCredits() {
         // The selection and any highlight belong to the graph about to be
         // replaced; a stale node reference would survive loadJSON and quietly
         // anchor the edge picker to something no longer drawn.
@@ -2535,6 +2592,30 @@ export class MusicGraph {
         this.selectedNode = null;
         this.previousNode = null;
         await this.loader.loadGraphData();
+    }
+
+    /**
+     * Show or hide session players and featured artists — people who played on
+     * the record without being in the group. On by default.
+     *
+     * @param {boolean} include
+     * @returns {Promise<void>}
+     */
+    async setShowMusicalGuests(include) {
+        this.api.includeMusicalGuests = !!include;
+        await this._refetchCredits();
+    }
+
+    /**
+     * Show or hide credits for work on the record rather than playing on it:
+     * engineering, mixing, mastering, artwork, liner notes. Off by default.
+     *
+     * @param {boolean} include
+     * @returns {Promise<void>}
+     */
+    async setShowTechnicians(include) {
+        this.api.includeTechnicians = !!include;
+        await this._refetchCredits();
     }
 
     /**

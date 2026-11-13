@@ -172,31 +172,60 @@ test.describe('with a node selected', () => {
         expect(alphas['grp:b|per:only-b']).toBeLessThan(1);
     });
 
-    test('widths are untouched, so the shape of the graph does not move', async ({ page }) => {
-        // Thinning unrelated edges as well would change the graph's shape as
-        // you browse, and the shape is the data.
-        await boot(page);
-        const before = await page.evaluate(() => {
-            const out = {};
-            window.musicGraph.ht.graph.eachNode((n) => n.eachAdjacency((adj) => {
-                if ((adj.data?.type || '') === 'ROOT') return;
-                out[[adj.nodeFrom.id, adj.nodeTo.id].sort().join('|')] = adj.getData('lineWidth');
-            }));
-            return out;
+    /**
+     * Read every edge's width, by endpoint pair.
+     */
+    const edgeWidths = (page) => page.evaluate(() => {
+        const out = {};
+        window.musicGraph.ht.graph.eachNode((n) => n.eachAdjacency((adj) => {
+            if ((adj.data?.type || '') === 'ROOT') return;
+            out[[adj.nodeFrom.id, adj.nodeTo.id].sort().join('|')] = adj.getData('lineWidth');
+        }));
+        return out;
+    });
+
+    test('an unrelated edge keeps its width, so the graph does not reshape as you browse',
+        async ({ page }) => {
+            // This assertion used to cover EVERY edge, and its stated reason
+            // never did: "thinning unrelated edges as well would change the
+            // graph's shape as you browse, and the shape is the data". That
+            // argument is about the edges you are not looking at, and they are
+            // still untouched. The ring around the selection is now drawn
+            // heavier, which adds weight where the eye already is without
+            // moving anything else.
+            await boot(page);
+            const before = await edgeWidths(page);
+
+            await select(page, 'grp:a');
+            const after = await edgeWidths(page);
+
+            expect(after['grp:b|per:only-b']).toBe(before['grp:b|per:only-b']);
+            expect(after['grp:b|per:shared']).toBe(before['grp:b|per:shared']);
         });
+
+    test('an edge touching the selection is drawn heavier', async ({ page }) => {
+        // Dimming alone leaves the edges that matter the same thickness as the
+        // hundreds behind them, which on a dense neighbourhood is no emphasis
+        // at all.
+        await boot(page);
+        const before = await edgeWidths(page);
 
         await select(page, 'grp:a');
+        const after = await edgeWidths(page);
 
-        const after = await page.evaluate(() => {
-            const out = {};
-            window.musicGraph.ht.graph.eachNode((n) => n.eachAdjacency((adj) => {
-                if ((adj.data?.type || '') === 'ROOT') return;
-                out[[adj.nodeFrom.id, adj.nodeTo.id].sort().join('|')] = adj.getData('lineWidth');
-            }));
-            return out;
-        });
+        expect(after['grp:a|per:shared']).toBeGreaterThan(before['grp:a|per:shared']);
+        expect(after['grp:a|per:only-a']).toBeGreaterThan(before['grp:a|per:only-a']);
+    });
 
-        expect(after).toEqual(before);
+    test('with nothing selected every edge is its plain width', async ({ page }) => {
+        // The opening view is the universe and has no focus to contrast
+        // against, so thickening everything there would just be a heavier
+        // graph.
+        await boot(page);
+        const widths = Object.values(await edgeWidths(page));
+
+        expect(widths.length).toBeGreaterThan(0);
+        expect(new Set(widths).size).toBe(1);
     });
 });
 

@@ -4,7 +4,8 @@
  */
 
 import { FormBuilder } from './components/FormBuilder.js';
-import { FormLookupManager } from './components/FormLookupManager.js';
+import { FormLookupManager, reconcilableTypes } from './components/FormLookupManager.js';
+import { marksABand, assignCreditId } from './utils/bandCredit.js';
 import { api } from './utils/api.js';
 import { WalletManager } from './wallet/WalletManager.js';
 import { TransactionBuilder } from './utils/transactionBuilder.js';
@@ -22,7 +23,7 @@ import { barcodesFrom } from './utils/discogsBarcode.js';
 import { guestsForTracks } from './utils/creditScope.js';
 import {
     isCompilation, releaseArtists, trackPerformers, overridesReleaseCredit, creditsByAct,
-    isVariousArtists,
+    isVariousArtists, describeActMismatch, cleanArtistName,
 } from './utils/discogsArtists.js';
 
 /**
@@ -54,7 +55,7 @@ import {
  * are the same recording — the deliberate act the automatic bind was standing
  * in for without the evidence.
  */
-const RECONCILABLE_BY_NAME = new Set(['Person', 'Group', 'Label', 'City']);
+const RECONCILABLE_BY_NAME = new Set(['Person', 'Group', 'Label', 'City', 'PersonOrGroup']);
 
 class PolarisApp {
     constructor() {
@@ -563,9 +564,17 @@ class PolarisApp {
 
             const guest = { name };
 
-            // Emit existing person_id if bound via autocomplete
-            const personId = this.getInputValue(item, `release-guest-person-id-${index}`);
-            if (personId) guest.person_id = personId;
+            const isBand = marksABand(
+                item,
+                `release-guest-entity-type-${index}`,
+                `release-guest-is-band-${index}`);
+            if (isBand) guest.entity_type = 'group';
+
+            const boundId = this.getInputValue(item, `release-guest-person-id-${index}`);
+            const boundIsGroup = String(
+                this.getInputValue(item, `release-guest-entity-type-${index}`) || '')
+                .toLowerCase() === 'group';
+            assignCreditId(guest, boundId, isBand, boundIsGroup);
 
             const altNames = this.parseCommaSeparated(
                 this.getInputValue(item, `release-guest-altnames-${index}`));
@@ -683,7 +692,7 @@ class PolarisApp {
             const name = visible?.value?.trim();
             if (!name) continue;
 
-            if (await this.reconcileField(hiddenInput, name, [lookupType])) bound++;
+            if (await this.reconcileField(hiddenInput, name, reconcilableTypes(lookupType))) bound++;
         }
 
         if (bound > 0) {
@@ -1575,9 +1584,23 @@ class PolarisApp {
 
         const person = { name };
 
-        // Emit existing person_id if bound via autocomplete
-        const personId = this.getInputValue(item, `${type}-person-id-${parentIndex}-${index}`);
-        if (personId) person.person_id = personId;
+        // A member or guest row whose name belongs to a band, not a person —
+        // a horn section, a choir, a backing band credited as a unit. The
+        // backend recasts it as a group that performed on the recording; see
+        // hoistGroupCredits. Rows that cannot be a band have neither input,
+        // and marksABand reads false for them.
+        const isBand = marksABand(
+            item,
+            `${type}-entity-type-${parentIndex}-${index}`,
+            `${type}-is-band-${parentIndex}-${index}`);
+        if (isBand) person.entity_type = 'group';
+
+        // Emit the id bound via autocomplete, on whichever field it belongs to
+        const boundId = this.getInputValue(item, `${type}-person-id-${parentIndex}-${index}`);
+        const boundIsGroup = String(
+            this.getInputValue(item, `${type}-entity-type-${parentIndex}-${index}`) || '')
+            .toLowerCase() === 'group';
+        assignCreditId(person, boundId, isBand, boundIsGroup);
 
         // Names this person also goes by, which is the point of binding to an
         // existing node and then adding one: the alias lands on Kristen
@@ -3031,7 +3054,20 @@ class PolarisApp {
                 + `${tracksWithOwnAct} track(s) have their own act.${missing}`;
             console.log(this.compilationNote);
         } else {
-            this.compilationNote = '';
+            // Nothing marked this a compilation, but the tracks may still
+            // disagree with the release about who played — a label sampler
+            // filed under the label's own name has no placeholder to strip
+            // and no descriptor to read. See describeActMismatch.
+            this.compilationNote = describeActMismatch({
+                releaseActs: creditedArtists.length,
+                releaseActName: creditedArtists[0]?.name
+                    ? cleanArtistName(creditedArtists[0].name) : null,
+                tracksNamingOtherActs: tracksWithOwnAct + tracksWithNoAct,
+                trackCount: (discogsRelease.tracklist ?? [])
+                    .filter((t) => (t?.type_ ?? 'track') === 'track').length,
+                compilation: false,
+            });
+            if (this.compilationNote) console.warn(this.compilationNote);
         }
 
         // An import is unsaved work like any other.

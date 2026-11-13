@@ -14,9 +14,31 @@ export class GraphAPI {
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
         // Only use mock fallback when explicitly enabled
         this.useMockFallback = import.meta.env.VITE_USE_GRAPH_MOCK === 'true';
-        // Guest credits are opt-in: they roughly double the person count on a
-        // well-credited release, so the default payload is members only.
-        this.includeGuests = false;
+        // The guest bucket holds two unlike things, and they get different
+        // defaults. A session player or a featured artist is a musical
+        // connection and is what the graph is for, so those are on. Engineers,
+        // mastering, artwork and the rest are credits on the object rather
+        // than connections between musicians, and they roughly double the
+        // person count on a well-credited release, so those stay off until
+        // somebody asks. See backend graph/creditKind.js for the split.
+        this.includeMusicalGuests = true;
+        this.includeTechnicians = false;
+    }
+
+    /**
+     * Which halves of the guest bucket to ask for, as a query string.
+     *
+     * Sent explicitly rather than relying on a server default, so the two
+     * checkboxes and the payload cannot disagree: the server's own default is
+     * members only, and "musical guests on" is this client's choice.
+     *
+     * @returns {string} A leading "?" and the flags, or "".
+     */
+    creditQuery() {
+        const params = [];
+        if (this.includeMusicalGuests) params.push('musicalGuests=true');
+        if (this.includeTechnicians) params.push('technicians=true');
+        return params.length > 0 ? `?${params.join('&')}` : '';
     }
 
     /**
@@ -25,7 +47,7 @@ export class GraphAPI {
      */
     async fetchInitialGraph() {
         try {
-            const response = await fetch(`${this.baseUrl}/graph/initial${this.includeGuests ? '?guests=true' : ''}`);
+            const response = await fetch(`${this.baseUrl}/graph/initial${this.creditQuery()}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -104,7 +126,7 @@ export class GraphAPI {
      */
     async fetchInitialGraphRaw() {
         try {
-            const response = await fetch(`${this.baseUrl}/graph/initial${this.includeGuests ? '?guests=true' : ''}`);
+            const response = await fetch(`${this.baseUrl}/graph/initial${this.creditQuery()}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -129,8 +151,11 @@ export class GraphAPI {
      * @returns {Promise<Object>} Raw graph data {nodes, edges}
      */
     async fetchNeighborhoodRaw(nodeId) {
+        // The same flags: this arm answers navigating straight to a node, and a
+        // technical credit hidden on the main view must not reappear because
+        // you arrived another way.
         const response = await fetch(
-            `${this.baseUrl}/graph/neighborhood/${encodeURIComponent(nodeId)}`
+            `${this.baseUrl}/graph/neighborhood/${encodeURIComponent(nodeId)}${this.creditQuery()}`
         );
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);

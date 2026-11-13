@@ -116,10 +116,15 @@ async function addOpenTrack(page, index = 0) {
  */
 async function pickSuggestion(page, selector, text) {
     const input = page.locator(selector);
-    await expect(input.locator('xpath=ancestor::*[contains(@class,"entity-lookup-wrapper")]'))
-        .toBeAttached();
+    const wrapper = input.locator('xpath=ancestor::*[contains(@class,"entity-lookup-wrapper")]');
+    await expect(wrapper).toBeAttached();
     await input.fill(text);
-    await page.locator('.entity-lookup-dropdown .entity-lookup-item').first().click();
+    // Scoped to this field's own wrapper, where EntityLookupField._build puts
+    // its dropdown. Unscoped, `.first()` took whichever dropdown came first in
+    // the document — and with search results stubbed, the release name and
+    // track title filled moments earlier have open dropdowns of their own, so
+    // a guest row's pick silently bound the release instead.
+    await wrapper.locator('.entity-lookup-item').first().click();
 }
 
 /**
@@ -2980,5 +2985,249 @@ test.describe('a track is never bound to a stranger’s recording on its title',
 
         await expect(page.locator('[name="track-id-0"]'))
             .toHaveValue('prov:track:f1967107ff6a86e2');
+    });
+});
+
+test.describe('a release credited to one act whose tracks name others', () => {
+    /**
+     * A compilation filed under Discogs' "Various" placeholder already gets no
+     * release-level act — releaseArtists drops it. One credited to a REAL
+     * name has no placeholder to strip and no descriptor to read, so the form
+     * writes a release-level act AND per-track acts, and the release act ends
+     * up claiming recordings it had no part in.
+     *
+     * The warning reads ACTS, not line-ups. "Different players on every track,
+     * one act" is what an ensemble record is, and warning on that would fire
+     * on exactly the records the importer was taught to handle.
+     */
+    const sampler = (overrides = {}) => ({
+        id: 606060,
+        title: 'Lost Ark Studio Compilation Vol. 4',
+        year: 2014,
+        // A real name, not "Various": nothing here marks it a compilation.
+        artists: [{ id: 900, name: 'Lost Ark Studio' }],
+        labels: [{ name: 'Randm Records', catno: 'RR1' }],
+        formats: [{ name: 'CD' }],
+        identifiers: [{ type: 'Barcode', value: 'none' }],
+        tracklist: [
+            { position: '1', type_: 'track', title: 'Turns To Dust',
+                artists: [{ id: 1, name: 'The Paragraphs' }] },
+            { position: '2', type_: 'track', title: 'Out To Sea',
+                artists: [{ id: 2, name: '22 Kings' }] },
+        ],
+        ...overrides,
+    });
+
+    async function importRelease(page, release) {
+        await gotoForm(page);
+        await page.route('https://api.discogs.com/releases/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(release),
+        }));
+        await page.route('https://api.discogs.com/artists/*', (route) => route.fulfill({
+            contentType: 'application/json', body: JSON.stringify({}),
+        }));
+        await page.route('**/discogs/artist', (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, reason: 'unreachable' }),
+        }));
+
+        await page.locator('.discogs-import details').evaluate((el) => { el.open = true; });
+        await page.fill('#discogs-input', `https://www.discogs.com/release/${release.id}`);
+        await page.click('#fetch-discogs-btn');
+        await expect(page.locator('#discogs-status')).toContainText('Successfully imported');
+    }
+
+    test('the submitter is told, and told what to do about it', async ({ page }) => {
+        await importRelease(page, sampler());
+
+        const status = page.locator('#discogs-status');
+        await expect(status).toContainText('an act other than "Lost Ark Studio"');
+        await expect(status).toContainText('remove the release-level act');
+    });
+
+    test('an ensemble record with a rotating line-up says nothing', async ({ page }) => {
+        // The case this must not fire on. One act on every track, different
+        // players under each — "San Diego Sessions" has two tracks that share
+        // nobody at all, and it is one band's record.
+        await importRelease(page, {
+            id: 505050,
+            title: 'San Diego Sessions',
+            year: 2020,
+            artists: [{ id: 7, name: 'Ellis Munk Ensemble' }],
+            labels: [{ name: 'El Paraiso', catno: 'EPR1' }],
+            formats: [{ name: 'Vinyl' }],
+            identifiers: [{ type: 'Barcode', value: 'none' }],
+            tracklist: [
+                { position: 'A1', type_: 'track', title: "Munk's Dream", extraartists: [
+                    { name: 'Dominic Denholm', role: 'Bass' },
+                    { name: 'Andrew Ware', role: 'Drums' },
+                ] },
+                { position: 'B1', type_: 'track', title: "Larry's Jungle Juice", extraartists: [
+                    { name: 'Anthony Meier', role: 'Bass' },
+                    { name: 'Paul Marrone', role: 'Drums' },
+                ] },
+            ],
+        });
+
+        const status = page.locator('#discogs-status');
+        await expect(status).not.toContainText('an act other than');
+        await expect(status).not.toContainText('If this is a compilation');
+    });
+
+    test('a compilation filed under Various says nothing either', async ({ page }) => {
+        // It already has no release-level act to over-claim, and the
+        // compilation note already told the submitter what happened.
+        await importRelease(page, sampler({
+            artists: [{ id: 194, name: 'Various' }],
+            formats: [{ name: 'CD', descriptions: ['Compilation'] }],
+        }));
+
+        const status = page.locator('#discogs-status');
+        await expect(status).toContainText('Compilation: credited per track');
+        await expect(status).not.toContainText('remove the release-level act');
+    });
+});
+
+/**
+ * A credit row that names a band rather than a person.
+ *
+ * No catalogue sorts these out for you: Discogs files "The Budos Band" among a
+ * release's extraartists beside its mixing engineer, and an act's own member
+ * list can name a horn section as readily as a trumpeter. So the row looks
+ * like a person all the way through the form, and the form asks on the row
+ * instead of in a separate section the submitter has to sort credits into.
+ *
+ * What the mark buys is on the backend — hoistGroupCredits recasts the row as
+ * a group that performed on the recording, rather than storing a band as a
+ * Person. These check the half that has to happen here: that the answer
+ * reaches the bundle at all.
+ */
+const BAND_RESULT = {
+    id: 'grp:budos',
+    type: 'Group',
+    display_name: 'The Budos Band',
+    subtitle: 'Formed 2005',
+    image: null,
+    score: 10,
+};
+
+const PERSON_RESULT = {
+    id: 'psn:brenneck',
+    type: 'Person',
+    display_name: 'Thomas Brenneck',
+    subtitle: null,
+    image: null,
+    score: 9,
+};
+
+/**
+ * Open a track's own guest list.
+ *
+ * Track credits inherit from the release until you say otherwise, and the
+ * inheriting section is overlaid — Playwright reports the subsection itself
+ * intercepting the click on "+ Add Guest". Unticking is what a submitter does
+ * to give one track its own guests, so the test does it too.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {number} index
+ */
+async function addTrackGuest(page, index = 0) {
+    await page.uncheck(`[name="track-same-guests-${index}"]`);
+    await page.locator('.add-guest').nth(index).click();
+}
+
+test.describe('marking a credit as a band', () => {
+    test('a ticked release guest is submitted as a group', async ({ page }) => {
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+
+        await page.click('#add-release-guest');
+        await page.fill('[name="release-guest-name-0"]', 'The Budos Band');
+        await page.check('[name="release-guest-is-band-0"]');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.guests).toHaveLength(1);
+        expect(bundle.release.guests[0]).toMatchObject({
+            name: 'The Budos Band',
+            entity_type: 'group',
+        });
+    });
+
+    test('an untouched release guest stays a person', async ({ page }) => {
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+
+        await page.click('#add-release-guest');
+        await page.fill('[name="release-guest-name-0"]', 'Thomas Brenneck');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        expect(bundle.release.guests[0].entity_type).toBeUndefined();
+    });
+
+    test('a ticked track guest is submitted as a group', async ({ page }) => {
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+
+        await addTrackGuest(page);
+        await page.fill('[name="guest-name-0-0"]', 'The Budos Band');
+        await page.check('[name="guest-is-band-0-0"]');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        const [guest] = bundle.tracks[0].guests;
+        expect(guest).toMatchObject({ name: 'The Budos Band', entity_type: 'group' });
+    });
+
+    test('picking a Group from the search box answers for itself', async ({ page }) => {
+        // The row's lookup offers Persons and Groups together, and each result
+        // already carries a type badge. Binding a Group is the submitter
+        // saying "this is a band" — asking again with a checkbox would be
+        // asking a question they just answered.
+        await gotoForm(page, { searchResults: [BAND_RESULT] });
+        await fillMinimalRelease(page);
+
+        await addTrackGuest(page);
+        await pickSuggestion(page, '[name="guest-name-0-0"]', 'Budos');
+
+        await expect(page.locator('[name="guest-is-band-0-0"]')).toBeChecked();
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        const [guest] = bundle.tracks[0].guests;
+        expect(guest.entity_type).toBe('group');
+        // The band's own id, on the field a band's id belongs on.
+        expect(guest.group_id).toBe('grp:budos');
+        expect(guest.person_id).toBeUndefined();
+    });
+
+    test('picking a Person leaves the row a person', async ({ page }) => {
+        await gotoForm(page, { searchResults: [PERSON_RESULT] });
+        await fillMinimalRelease(page);
+
+        await addTrackGuest(page);
+        await pickSuggestion(page, '[name="guest-name-0-0"]', 'Brenneck');
+
+        await expect(page.locator('[name="guest-is-band-0-0"]')).not.toBeChecked();
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        const [guest] = bundle.tracks[0].guests;
+        expect(guest.entity_type).toBeUndefined();
+        expect(guest.person_id).toBe('psn:brenneck');
+        expect(guest.group_id).toBeUndefined();
+    });
+
+    test('a member of the act can be a band too', async ({ page }) => {
+        // The case the Budos Band example alone would have missed: a release
+        // whose line-up names a unit rather than a player.
+        await gotoForm(page);
+        await fillMinimalRelease(page);
+
+        await page.click('#add-release-group');
+        await page.fill('[name="release-group-name-0"]', 'Charles Bradley');
+        await page.click('.add-release-member');
+        await page.fill('[name="release-member-name-0-0"]', 'The Budos Band');
+        await page.check('[name="release-member-is-band-0-0"]');
+
+        const bundle = await page.evaluate(() => window.polarisApp.buildReleaseData());
+        const [member] = bundle.groups[0].members;
+        expect(member).toMatchObject({ name: 'The Budos Band', entity_type: 'group' });
     });
 });

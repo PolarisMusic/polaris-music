@@ -121,6 +121,13 @@ export function normalizeReleaseBundle(bundle) {
         sources: normalizedSources.length
     });
 
+    // A credit row that names a band becomes a band, before anything downstream
+    // reads the person lists.
+    const hoisted = hoistGroupCredits(normalizedRelease, normalizedGroups, normalizedTracks);
+    if (hoisted > 0) {
+        log.info('group_credits_hoisted', { count: hoisted });
+    }
+
     // Enforce the member/guest invariant before anything is written.
     const dropped = dropContradictoryGuests(normalizedRelease, normalizedGroups, normalizedTracks);
     if (dropped > 0) {
@@ -426,6 +433,13 @@ function normalizeRelease(release) {
             if (guest.role_detail) {
                 normalizedPerson.role_detail = guest.role_detail;
             }
+            // A row the submitter marked as a band. Kept through person
+            // normalization so hoistGroupCredits can recast it; normalizePerson
+            // itself stays about people.
+            if (isGroupCredit(guest)) {
+                normalizedPerson.entity_type = 'group';
+                if (guest.group_id) normalizedPerson.group_id = guest.group_id;
+            }
             return normalizedPerson;
         });
     }
@@ -465,6 +479,14 @@ function normalizeGroup(group) {
             // Add membership-specific fields
             if (member.from_date) normalizedPerson.from_date = member.from_date;
             if (member.to_date) normalizedPerson.to_date = member.to_date;
+            // A row the submitter marked as a band. Kept through person
+            // normalization so hoistGroupCredits can recast it; normalizePerson
+            // itself stays about people.
+            if (isGroupCredit(member)) {
+                normalizedPerson.entity_type = 'group';
+                if (member.group_id) normalizedPerson.group_id = member.group_id;
+            }
+
             // Normalize roles - collect from both role (singular) and roles (plural)
             // Use normalizeRoleInput to handle comma-separated strings like "drums, backing vocals"
             const rawRoles = [];
@@ -592,6 +614,10 @@ function normalizeTrack(track) {
                         if (Array.isArray(m.instruments)) {
                             normalizedMember.instruments = m.instruments;
                         }
+                        if (isGroupCredit(m)) {
+                            normalizedMember.entity_type = 'group';
+                            if (m.group_id) normalizedMember.group_id = m.group_id;
+                        }
                         return normalizedMember;
                     });
                 }
@@ -635,6 +661,13 @@ function normalizeTrack(track) {
             }
             if (guest.role_detail) {
                 normalizedPerson.role_detail = guest.role_detail;
+            }
+            // A row the submitter marked as a band. Kept through person
+            // normalization so hoistGroupCredits can recast it; normalizePerson
+            // itself stays about people.
+            if (isGroupCredit(guest)) {
+                normalizedPerson.entity_type = 'group';
+                if (guest.group_id) normalizedPerson.group_id = guest.group_id;
             }
             return normalizedPerson;
         });
@@ -1012,7 +1045,9 @@ function extractRelationships(release, groups, tracks, songs) {
                 from: { label: 'Group', idProp: 'group_id', id: perfGroup.group_id || null, name: perfGroup.name },
                 to: { label: 'Track', idProp: 'track_id', id: track.track_id || null, name: track.title },
                 props: {
-                    role: perfGroup.role || 'performer'
+                    role: perfGroup.role || 'performer',
+                    // Whether this band is the act or a band guesting on it.
+                    guest: perfGroup.guest === true
                 }
             });
         }
@@ -1087,6 +1122,169 @@ function personKey(person) {
 }
 
 /**
+ * Whether a credit row names a band rather than a human.
+ *
+ * Catalogues do not keep these apart. Discogs files "The Budos Band" in a
+ * release's extraartists beside its engineer, and an act's member list can
+ * name a horn section as readily as a trumpeter — so the submitter, not the
+ * importer, is the one who knows. The form asks once, on the row itself, and
+ * marks it here.
+ *
+ * Read on the way in rather than at display time, deliberately. A band stored
+ * as a Person is a Person: it comes back from the entity search as one, the
+ * next submitter binds a human slot to it, and the only way back is a
+ * MERGE_NODE event against data that is already anchored. Routing it at write
+ * time costs one pass here and nothing anywhere else, because every view
+ * already draws Group -[:PERFORMED_ON]-> Track.
+ *
+ * @param {Object} credit
+ * @returns {boolean}
+ */
+function isGroupCredit(credit) {
+    return String(credit?.entity_type || '').toLowerCase() === 'group';
+}
+
+/**
+ * Whether two performing-group entries name the same band.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {boolean}
+ */
+function sameGroup(a, b) {
+    if (!a || !b) return false;
+    if (a.group_id && b.group_id) return a.group_id === b.group_id;
+    const name = (g) => String(g.name || g.group_name || '')
+        .replace(/\s*\(\d+\)$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const an = name(a);
+    return an !== '' && an === name(b);
+}
+
+/**
+ * Recast a credit row that names a band as a performing-group entry.
+ *
+ * The shape matches what normalizeTrack emits for performed_by_groups, so the
+ * ingestion path that writes PERFORMED_ON needs no new branch.
+ *
+ * @param {Object} credit - The row, as normalized for a person.
+ * @param {Object} options
+ * @param {boolean} options.guest - Whether the row sat in a guest list.
+ * @returns {Object}
+ */
+function groupFromCredit(credit, { guest }) {
+    const group = { name: credit.name, guest };
+
+    // A group_id only, which is what binding the row to a Group in the search
+    // box writes. A person_id on a row marked as a band is a contradiction —
+    // it would resolve to a Person node, which is the thing being avoided — so
+    // it is dropped and the band resolves by name instead.
+    if (credit.group_id) group.group_id = credit.group_id;
+
+    const role = credit.role || credit.roles?.[0];
+    if (role) group.role = role;
+    if (credit.credited_as) group.credited_as = credit.credited_as;
+
+    return group;
+}
+
+/**
+ * Move every credit row that names a band out of the person lists and onto the
+ * tracks it was claimed for, as a performing group.
+ *
+ * Where each row lands follows what the row already meant:
+ *
+ *   - a guest on a track              → that track, guest: true
+ *   - a member of a track's group      → that track, guest: false
+ *   - a member of a release-level act  → every track that act performs on
+ *   - a guest on the release           → every track
+ *
+ * The last is the one judgement call. Group -[:GUEST_ON]-> Release is not in
+ * the model (GUEST_ON runs from a Person, and the GraphQL guest list is typed
+ * Person), and a release-wide credit for a band means it played across the
+ * record, so the band performs on all of it. The guest flag survives on the
+ * edge either way, so nothing has been thrown away if that reading needs
+ * narrowing later.
+ *
+ * Runs before dropContradictoryGuests, so a hoisted band can no longer be
+ * mistaken for a guest who duplicates a member.
+ *
+ * Mutates in place; returns how many rows moved so the caller can log it.
+ *
+ * @param {Object} release
+ * @param {Array} groups
+ * @param {Array} tracks
+ * @returns {number}
+ */
+function hoistGroupCredits(release, groups, tracks) {
+    let hoisted = 0;
+
+    const addToTrack = (track, group) => {
+        if (!Array.isArray(track.performed_by_groups)) track.performed_by_groups = [];
+        const already = track.performed_by_groups.find(g => sameGroup(g, group));
+        if (already) {
+            // One band named twice on a release — once as a member of the act,
+            // once in a track's credits — is one band on that track. The
+            // stronger claim wins, as it does for a person.
+            if (already.guest === true && group.guest !== true) already.guest = false;
+            return;
+        }
+        track.performed_by_groups.push({ ...group });
+    };
+
+    // Snapshot before iterating: addToTrack pushes onto the same array.
+    const take = (owner, key, onFound) => {
+        if (!Array.isArray(owner[key])) return;
+        const kept = [];
+        for (const credit of [...owner[key]]) {
+            if (isGroupCredit(credit)) {
+                onFound(credit);
+                hoisted++;
+            } else {
+                kept.push(credit);
+            }
+        }
+        if (kept.length > 0) owner[key] = kept;
+        else delete owner[key];
+    };
+
+    for (const track of tracks || []) {
+        take(track, 'guests', c => addToTrack(track, groupFromCredit(c, { guest: true })));
+
+        for (const performing of [...(track.performed_by_groups || [])]) {
+            take(performing, 'members',
+                c => addToTrack(track, groupFromCredit(c, { guest: false })));
+        }
+    }
+
+    // Which tracks a release-level act plays on. A track that names no
+    // performer of its own inherits the release's act — the same reading
+    // ingestion applies when it falls back to bundle.groups.
+    const performsHost = (track, host) => {
+        const named = (track.performed_by_groups || []).filter(g => g.guest !== true);
+        if (named.length === 0) return true;
+        return named.some(g => sameGroup(g, host));
+    };
+
+    for (const group of groups || []) {
+        take(group, 'members', (credit) => {
+            const band = groupFromCredit(credit, { guest: false });
+            for (const track of tracks || []) {
+                if (performsHost(track, group)) addToTrack(track, band);
+            }
+        });
+    }
+
+    if (release) {
+        take(release, 'guests', (credit) => {
+            const band = groupFromCredit(credit, { guest: true });
+            for (const track of tracks || []) addToTrack(track, band);
+        });
+    }
+
+    return hoisted;
+}
+
+/**
  * Remove guests who are already members of a group performing on the same thing.
  *
  * CLAUDE.md states the invariant plainly — "A Person can't be both MEMBER_OF and
@@ -1140,5 +1338,5 @@ function dropContradictoryGuests(release, groups, tracks) {
     return dropped;
 }
 
-export { extractRelationships, dropContradictoryGuests };
+export { extractRelationships, dropContradictoryGuests, hoistGroupCredits, isGroupCredit };
 export default normalizeReleaseBundle;

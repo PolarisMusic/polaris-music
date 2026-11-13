@@ -255,3 +255,53 @@ export default {
     isVariousArtists, releaseArtists, isCompilation, trackPerformers,
     overridesReleaseCredit, creditsByAct, cleanArtistName,
 };
+
+/**
+ * Warn when a release claims one act but its tracks name others.
+ *
+ * A compilation is credited to its tracks, not to a band — the registry says
+ * so, and `releaseArtists` already drops Discogs' "Various" placeholder so
+ * that a compilation filed under it gets no release-level act at all.
+ *
+ * The gap is a compilation credited to a REAL name: a label sampler under the
+ * label's, a DJ mix under the DJ's, anything hand-entered. Nothing marks it,
+ * so the form writes a release-level act AND per-track acts, and the release
+ * act ends up claiming tracks it had no part in. On Bandcamp this is the
+ * default case rather than an edge case, because a Bandcamp page carries no
+ * compilation flag of any kind.
+ *
+ * Deliberately NOT triggered by the line-up changing. "Different players on
+ * every track, one act" is what an ensemble or session record IS — "San Diego
+ * Sessions" has eleven players across seven tracks, and two of those tracks
+ * share nobody at all. Warning on that would fire on exactly the records the
+ * importer was taught to handle, and a warning people learn to dismiss costs
+ * more than it catches. What distinguishes a compilation is different ACTS,
+ * which is what this reads.
+ *
+ * @param {Object} evidence
+ * @param {number} evidence.releaseActs - Release-level acts the form will write.
+ * @param {number} evidence.tracksNamingOtherActs - Tracks crediting somebody else.
+ * @param {number} evidence.trackCount - Tracks in the release.
+ * @param {boolean} evidence.compilation - Whether it is already known to be one.
+ * @param {string} [evidence.releaseActName] - For naming it in the warning.
+ * @returns {string} The warning, or '' when there is nothing to say.
+ */
+export function describeActMismatch({
+    releaseActs, tracksNamingOtherActs, trackCount, compilation, releaseActName,
+} = {}) {
+    // Already known to be a compilation: the release-level act has been
+    // dropped and the submitter has been told. Nothing to warn about.
+    if (compilation) return '';
+    // No release-level act means nothing is over-claiming.
+    if (!(releaseActs > 0)) return '';
+    if (!(tracksNamingOtherActs > 0)) return '';
+
+    const act = releaseActName ? `"${releaseActName}"` : 'the release act';
+    const some = tracksNamingOtherActs === trackCount
+        ? `Every track names an act other than ${act}.`
+        : `${tracksNamingOtherActs} of ${trackCount} track(s) name an act other than ${act}.`;
+
+    return `${some} If this is a compilation, remove the release-level act — `
+        + 'a compilation is credited to its tracks, and leaving it there credits '
+        + `${act} with recordings it had no part in.`;
+}

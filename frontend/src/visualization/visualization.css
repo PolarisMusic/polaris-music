@@ -2102,7 +2102,7 @@ body.mini-player-visible.mini-player-embed {
     #top-bar.search-open .user-info,
     #top-bar.search-open .nav-history,
     #top-bar.search-open .stats,
-    #top-bar.search-open .show-guests,
+    #top-bar.search-open .credit-toggle,
     #top-bar.search-open .btn-top-bar-menu {
         display: none;
     }
@@ -2970,10 +2970,10 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
 }
 
 /* ---------------------------------------------------------------------------
-   Show-guests checkbox
+   Credit toggles — which credits the graph draws
    --------------------------------------------------------------------------- */
 
-.show-guests {
+.credit-toggle {
     display: flex;
     align-items: center;
     gap: 5px;
@@ -2981,13 +2981,13 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
     user-select: none;
 }
 
-.show-guests input {
+.credit-toggle input {
     margin: 0;
     cursor: pointer;
 }
 
 /* Disabled while the refetch is in flight, so a second tick cannot race it. */
-.show-guests input:disabled {
+.credit-toggle input:disabled {
     cursor: progress;
 }
 
@@ -2998,7 +2998,7 @@ body.mini-player-collapsed.mini-player-embed .mp-embed {
 @media (max-width: 768px) {
     /* Same reasoning as .stats: the bar has no width for a label, and an
        unlabelled checkbox says nothing about what it would include. */
-    .show-guests {
+    .credit-toggle {
         display: none;
     }
 }

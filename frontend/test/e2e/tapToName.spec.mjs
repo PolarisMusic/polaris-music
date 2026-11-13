@@ -126,13 +126,22 @@ const state = (page) => page.evaluate(() => ({
 test.describe('on a device that cannot hover', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
+    /*
+     * These tap a PERSON, because the preview is for a node whose name is not
+     * already on screen — which is this file's own premise, and was not what
+     * these tests were doing. They tapped a group, and a group keeps its name
+     * almost all the way out: the preview was being tested on nodes that never
+     * needed it, and a node whose label is already drawn now goes on the first
+     * tap. See 'a node whose name is already on screen' below.
+     */
+
     test('the first tap shows the name and goes nowhere', async ({ page }) => {
         await boot(page);
         const before = await state(page);
 
-        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:1')));
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:0_0')));
 
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
         expect(await state(page)).toEqual(before);
     });
 
@@ -142,73 +151,73 @@ test.describe('on a device that cannot hover', () => {
         // the tap *is* the request, and half a second of nothing reads as a
         // tap that missed.
         await boot(page);
-        const point = await pointFor(page, 'grp:1');
+        const point = await pointFor(page, 'per:0_0');
 
         await page.touchscreen.tap(point.x, point.y);
-        expect(await named(page, 'grp:1')).toBe(true);
+        expect(await named(page, 'per:0_0')).toBe(true);
     });
 
     test('the second tap on the same node goes there', async ({ page }) => {
         await boot(page);
-        const point = await pointFor(page, 'grp:1');
+        const point = await pointFor(page, 'per:0_0');
 
         await page.touchscreen.tap(point.x, point.y);
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
 
         // Re-read: nothing has moved, but reading it again is what a finger
         // does and costs nothing.
-        const again = await pointFor(page, 'grp:1');
+        const again = await pointFor(page, 'per:0_0');
         await page.touchscreen.tap(again.x, again.y);
 
         await expect.poll(() => page.evaluate(
-            () => window.musicGraph.selectedNode?.id ?? null)).toBe('grp:1');
+            () => window.musicGraph.selectedNode?.id ?? null)).toBe('per:0_0');
         await page.waitForFunction(() => !window.musicGraph.ht.busy, { timeout: 15_000 });
-        expect((await state(page)).root).toBe('grp:1');
+        expect((await state(page)).root).toBe('per:0_0');
     });
 
     test('tapping a different node moves the name rather than travelling', async ({ page }) => {
         await boot(page);
         const before = await state(page);
 
-        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:1')));
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:0_0')));
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
 
-        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:2')));
-        await expect.poll(() => named(page, 'grp:2')).toBe(true);
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:1_0')));
+        await expect.poll(() => named(page, 'per:1_0')).toBe(true);
 
-        expect(await named(page, 'grp:1')).toBe(false);
+        expect(await named(page, 'per:0_0')).toBe(false);
         expect(await state(page)).toEqual(before);
     });
 
     test('tapping the canvas puts the name away', async ({ page }) => {
         await boot(page);
 
-        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:1')));
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:0_0')));
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
 
         const empty = await emptyPoint(page);
         expect(empty).not.toBeNull();
         await page.touchscreen.tap(empty.x, empty.y);
 
-        await expect.poll(() => named(page, 'grp:1')).toBe(false);
+        await expect.poll(() => named(page, 'per:0_0')).toBe(false);
     });
 
     test('and the tap after that one starts over rather than travelling', async ({ page }) => {
         // The count belongs to a node, not to the device. Putting the preview
         // away and tapping the same node again is a first tap.
         await boot(page);
-        const point = await pointFor(page, 'grp:1');
+        const point = await pointFor(page, 'per:0_0');
         const before = await state(page);
 
         await page.touchscreen.tap(point.x, point.y);
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
 
         const empty = await emptyPoint(page);
         await page.touchscreen.tap(empty.x, empty.y);
-        await expect.poll(() => named(page, 'grp:1')).toBe(false);
+        await expect.poll(() => named(page, 'per:0_0')).toBe(false);
 
         await page.touchscreen.tap(point.x, point.y);
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
         expect(await state(page)).toEqual(before);
     });
 });
@@ -340,8 +349,9 @@ test.describe('out at the rim, where the nodes are a finger-width apart', () => 
 
     test('a tap further off than a finger still moves the name', async ({ page }) => {
         // The escape hatch, and it is distance rather than ink: these two
-        // groups are a long way apart, so the second tap is plainly aimed
-        // somewhere else and names it instead of confirming the first.
+        // people are a long way apart — opposite sides of the disk — so the
+        // second tap is plainly aimed somewhere else and names it instead of
+        // confirming the first.
         //
         // Ink was the first attempt at this test's rule and it was wrong. Out
         // at the rim a node is drawn at the two-pixel floor with its
@@ -349,13 +359,13 @@ test.describe('out at the rim, where the nodes are a finger-width apart', () => 
         // neighbour's ink has not chosen it — it has missed by two pixels.
         await boot(page, DENSE);
 
-        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:1')));
-        await expect.poll(() => named(page, 'grp:1')).toBe(true);
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:0_0')));
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
 
-        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:2')));
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:4_0')));
 
-        await expect.poll(() => named(page, 'grp:2')).toBe(true);
-        expect(await named(page, 'grp:1')).toBe(false);
+        await expect.poll(() => named(page, 'per:4_0')).toBe(true);
+        expect(await named(page, 'per:0_0')).toBe(false);
         expect(await page.evaluate(
             () => window.musicGraph.selectedNode?.id ?? null)).toBeNull();
     });
@@ -390,4 +400,74 @@ test.describe('on a device with a pointer', () => {
         await expect.poll(() => page.evaluate(
             () => window.musicGraph.selectedNode?.id ?? null)).toBe('grp:1');
     });
+});
+
+test.describe('a node whose name is already on screen', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+    /**
+     * The preview buys exactly one thing: reading the name before committing.
+     * A visible label has already bought it, so charging a tap for what the
+     * visitor can see is a toll rather than a safeguard — and it falls hardest
+     * on the nodes they are most likely to want, since a node is labelled
+     * because it matters. Groups keep their names almost all the way out.
+     */
+    const labelled = (page, nodeId) => page.evaluate(
+        (id) => Boolean(window.musicGraph._visibleLabels?.has(id)), nodeId);
+
+    test('a group’s name is drawn without being asked for', async ({ page }) => {
+        // The premise of the rest of this block, checked rather than assumed:
+        // if labelling changes, these tests should say so rather than quietly
+        // start testing the preview again.
+        await boot(page);
+
+        expect(await labelled(page, 'grp:1')).toBe(true);
+        expect(await labelled(page, 'per:0_0')).toBe(false);
+    });
+
+    test('one tap goes there, with no preview in between', async ({ page }) => {
+        await boot(page);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'grp:1')));
+
+        await expect.poll(() => page.evaluate(
+            () => window.musicGraph.selectedNode?.id ?? null)).toBe('grp:1');
+        await page.waitForFunction(() => !window.musicGraph.ht.busy, { timeout: 15_000 });
+        expect((await state(page)).root).toBe('grp:1');
+    });
+
+    test('a node with no label still costs the first tap', async ({ page }) => {
+        // The two rules live side by side, which is the point: the preview is
+        // not switched off, it is spent only where it buys something.
+        await boot(page);
+        const before = await state(page);
+
+        await page.touchscreen.tap(...Object.values(await pointFor(page, 'per:0_0')));
+
+        await expect.poll(() => named(page, 'per:0_0')).toBe(true);
+        expect(await state(page)).toEqual(before);
+    });
+
+    test('out at the rim, where names are suppressed, the preview is back',
+        async ({ page }) => {
+            // Same node type, different crowding: in the dense scene the
+            // collision pass drops most labels, and those nodes get the
+            // preview whatever the distance rule would have allowed on its
+            // own.
+            await boot(page, DENSE);
+            const before = await state(page);
+
+            const victim = await page.evaluate(() => {
+                const ids = [];
+                window.musicGraph.ht.graph.eachNode((n) => ids.push(n.id));
+                return ids.find((id) => id.startsWith('per:')
+                    && !window.musicGraph._visibleLabels?.has(id)) ?? null;
+            });
+            expect(victim).not.toBeNull();
+
+            await page.touchscreen.tap(...Object.values(await pointFor(page, victim)));
+
+            await expect.poll(() => named(page, victim)).toBe(true);
+            expect(await state(page)).toEqual(before);
+        });
 });
