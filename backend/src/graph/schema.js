@@ -1269,26 +1269,13 @@ constructor(config = {}) {
 
                 // Single-artist album fallback: if no per-track performer attribution but bundle has group(s),
                 // assume all tracks are performed by the bundle's group(s)
-                //
-                // Counted over the acts only. A guesting band — a credit row
-                // the submitter marked as a group, hoisted here by
-                // hoistGroupCredits — is a performer on the track but is not
-                // the act the release is credited to. Reading `length` alone,
-                // one guest horn section on an otherwise unattributed track
-                // was enough to suppress this fallback, and the track lost the
-                // band whose record it is. The fallback appends, for the same
-                // reason: the guest keeps its edge.
-                const namedActs = performingGroups.filter(g => g.guest !== true);
-                if (namedActs.length === 0 && Array.isArray(normalizedBundle.groups) && normalizedBundle.groups.length > 0) {
+                if (performingGroups.length === 0 && Array.isArray(normalizedBundle.groups) && normalizedBundle.groups.length > 0) {
                     this.log.debug('track_fallback_groups', { track_title: track.title });
-                    performingGroups = [
-                        ...performingGroups,
-                        ...normalizedBundle.groups.map(g => ({
-                            group_id: g.group_id || g.id,
-                            name: g.name,
-                            role: 'performer',
-                        })),
-                    ];
+                    performingGroups = normalizedBundle.groups.map(g => ({
+                        group_id: g.group_id || g.id,
+                        name: g.name,
+                        role: 'performer',
+                    }));
                 }
 
                 for (const performingGroup of performingGroups) {
@@ -1333,15 +1320,7 @@ constructor(config = {}) {
                             MATCH (t:Track {track_id: $trackId})
                             MERGE (g)-[p:PERFORMED_ON {claim_id: $claimId}]->(t)
                             SET p.credited_as = $creditedAs,
-                                p.role = $role,
-                                // A band that played on the record without
-                                // being the act it is credited to: Budos Band
-                                // on a Charles Bradley single. The edge is the
-                                // same relationship either way — it played on
-                                // the recording — and this keeps which of the
-                                // two it was, so "who is this release by" can
-                                // still be answered.
-                                p.guest = $guest
+                                p.role = $role
                         `, {
                             eventTs,
                             trackId,
@@ -1349,7 +1328,6 @@ constructor(config = {}) {
                             groupName,
                             creditedAs: performingGroup.credited_as || null,
                             role: normalizeRole(performingGroup.role),
-                            guest: performingGroup.guest === true,
                             claimId: trackOpId
                         });
                         this.log.debug('performed_on_create', { group: groupName, track: track.title });

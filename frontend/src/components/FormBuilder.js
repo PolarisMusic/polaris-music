@@ -3,20 +3,6 @@
  * Handles creating and managing complex nested forms for tracks, labels, members, etc.
  */
 
-/**
- * Credit rows whose name may belong to a band rather than a person.
- *
- * Members and guests, at release level and track level. A band turns up in
- * either: Budos Band guests on a Charles Bradley single, and an act's own
- * line-up can list a horn section as a unit.
- */
-const BAND_CAPABLE_CREDITS = new Set([
-    'member',
-    'guest',
-    'release-member',
-    'release-guest',
-]);
-
 export class FormBuilder {
     constructor() {
         this.counters = {
@@ -113,18 +99,6 @@ export class FormBuilder {
 
         const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
 
-        // Rows where the name on the sleeve may be a band rather than a
-        // person. Catalogues do not keep the two apart: Discogs files "The
-        // Budos Band" among a release's credits beside its engineer, and an
-        // act's member list can name a horn section as readily as a
-        // trumpeter. Rather than a second "Guest Bands" section the submitter
-        // has to sort credits into, the row itself asks — and the search box
-        // on these rows offers Groups as well as Persons, so picking one is
-        // the answer. Songwriters and producers are left out: WROTE and the
-        // producer credit run from a Person in this model.
-        const mayBeBand = BAND_CAPABLE_CREDITS.has(type);
-        const lookupType = mayBeBand ? 'PersonOrGroup' : 'Person';
-
         div.innerHTML = `
             <div class="nested-item-header">
                 <span class="nested-item-title">${typeLabel} ${index + 1}</span>
@@ -134,24 +108,12 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Name *</label>
                 <input type="text" name="${type}-name-${parentIndex}-${index}" required placeholder="Person name (e.g. Paul McCartney)">
-                <input type="hidden" name="${type}-person-id-${parentIndex}-${index}" data-lookup-type="${lookupType}" data-lookup-pair="${type}-name-${parentIndex}-${index}">
+                <input type="hidden" name="${type}-person-id-${parentIndex}-${index}" data-lookup-type="Person" data-lookup-pair="${type}-name-${parentIndex}-${index}">
                 <!-- Filled by an import, never typed: a photo URL is not
                      something anybody enters by hand, and the info panel has
                      an editable Photo URL row for correcting one afterwards.
                      Same treatment as the barcode and a track's ISRC. -->
                 <input type="hidden" name="${type}-photo-${parentIndex}-${index}">
-                ${mayBeBand ? `
-                <!-- Set when the search box binds this row to a Group, so a
-                     band picked from the registry needs no second answer. -->
-                <input type="hidden" name="${type}-entity-type-${parentIndex}-${index}">
-                <label class="band-toggle">
-                    <input type="checkbox" name="${type}-is-band-${parentIndex}-${index}">
-                    This credit is a band, not a person
-                </label>
-                <small>Ticked, the name becomes a group that performed on the
-                       recording rather than a person. Tick it for a horn
-                       section, a choir, or a backing band credited as a unit.</small>
-                ` : ''}
             </div>
 
             <!-- Searching an alias has to find the person: a stage name, a
@@ -204,16 +166,6 @@ export class FormBuilder {
                 </div>
             </div>
         `;
-
-        // Ticking the box by hand is the answer for a band that is not in the
-        // registry yet, which is the case the search box cannot cover.
-        const bandBox = div.querySelector(`[name="${type}-is-band-${parentIndex}-${index}"]`);
-        const entityType = div.querySelector(`[name="${type}-entity-type-${parentIndex}-${index}"]`);
-        if (bandBox && entityType) {
-            bandBox.addEventListener('change', () => {
-                entityType.value = bandBox.checked ? 'Group' : '';
-            });
-        }
 
         div.querySelector('.remove-person').addEventListener('click', () => {
             div.remove();
@@ -293,15 +245,8 @@ export class FormBuilder {
             <div class="form-group">
                 <label>Name *</label>
                 <input type="text" name="release-guest-name-${index}" required placeholder="Person name (e.g. George Martin)">
-                <input type="hidden" name="release-guest-person-id-${index}" data-lookup-type="PersonOrGroup" data-lookup-pair="release-guest-name-${index}">
+                <input type="hidden" name="release-guest-person-id-${index}" data-lookup-type="Person" data-lookup-pair="release-guest-name-${index}">
                 <input type="hidden" name="release-guest-photo-${index}">
-                <input type="hidden" name="release-guest-entity-type-${index}">
-                <label class="band-toggle">
-                    <input type="checkbox" name="release-guest-is-band-${index}">
-                    This credit is a band, not a person
-                </label>
-                <small>Ticked, the name becomes a group that performed on the
-                       recording rather than a person.</small>
             </div>
 
             <details class="alias-disclosure">
@@ -343,14 +288,6 @@ export class FormBuilder {
                 </div>
             </div>
         `;
-
-        const guestBandBox = div.querySelector(`[name="release-guest-is-band-${index}"]`);
-        const guestEntityType = div.querySelector(`[name="release-guest-entity-type-${index}"]`);
-        if (guestBandBox && guestEntityType) {
-            guestBandBox.addEventListener('change', () => {
-                guestEntityType.value = guestBandBox.checked ? 'Group' : '';
-            });
-        }
 
         div.querySelector('.remove-release-guest').addEventListener('click', () => {
             div.remove();

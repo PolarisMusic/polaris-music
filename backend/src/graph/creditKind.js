@@ -29,11 +29,11 @@
  * visible. An unrecognised technical credit shows up instead, which is mild
  * noise and is fixed by adding a word here.
  *
- * **Credit-derived edges only.** This decides how `GUEST_ON` and the
- * `PERFORMED_WITH` view-edge are drawn. It is never applied to `MEMBER_OF`:
- * membership is a roster fact, and the importer's rule governs it — "being in
- * the band makes you a member whatever you were credited for". A band's own
- * producer stays visible as a member.
+ * **Credit-derived edges only.** This decides how `GUEST_ON` credits are
+ * drawn. It is never applied to `MEMBER_OF`: membership is a roster fact, and
+ * the importer's rule governs it — "being in the band makes you a member
+ * whatever you were credited for". A band's own producer stays visible as a
+ * member.
  *
  * @module graph/creditKind
  */

@@ -334,26 +334,6 @@ input[type="checkbox"] {
     white-space: nowrap;
 }
 
-/* "This credit is a band, not a person", on member and guest rows. Sits
-   under the name it qualifies, above the aliases, so the question is read
-   while the name is still in view. */
-.band-toggle {
-    font-size: 0.85rem;
-    font-weight: 400;
-    color: var(--text-dark);
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    cursor: pointer;
-    margin-top: 0.4rem;
-}
-
-.band-toggle input[type="checkbox"] {
-    width: auto;
-    margin: 0;
-    flex: 0 0 auto;
-}
-
 /* Listen-link import report */
 .listen-link-report {
     margin-top: 1rem;
