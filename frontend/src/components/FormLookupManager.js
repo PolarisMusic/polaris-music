@@ -13,7 +13,6 @@
 
 import { EntityLookupField } from './EntityLookupField.js';
 import { SamplesChipField } from './SamplesChipField.js';
-import { recordBoundEntityType, reconcilableTypes as typesForReconcile } from '../utils/bandCredit.js';
 
 // Maps data-lookup-type values to search type filters
 const LOOKUP_TYPE_MAP = {
@@ -23,24 +22,8 @@ const LOOKUP_TYPE_MAP = {
     'Person': ['Person'],
     'Song': ['Song'],
     'Track': ['Track'],
-    'City': ['City'],
-    // A credit row that may name either. Members and guests carry this:
-    // picking from the dropdown is how the submitter says which, and the
-    // existing type badge on each result already shows it. Searching both at
-    // once beats a toggle that would have to rebind the field.
-    'PersonOrGroup': ['Person', 'Group']
+    'City': ['City']
 };
-
-/**
- * Entity types a name may be auto-matched against after an import, for a
- * field declaring this lookup type. See bandCredit.reconcilableTypes.
- *
- * @param {string} lookupType
- * @returns {string[]}
- */
-export function reconcilableTypes(lookupType) {
-    return typesForReconcile(lookupType, LOOKUP_TYPE_MAP);
-}
 
 /**
  * Show a bound entity's existing aliases beside the name that found it.
@@ -146,10 +129,7 @@ export class FormLookupManager {
                 input: visibleInput,
                 hiddenInput: hiddenInput,
                 types,
-                onBind: (result) => {
-                    fillAliasBox(visibleInput, result);
-                    recordBoundEntityType(visibleInput, result);
-                },
+                onBind: (result) => fillAliasBox(visibleInput, result),
             });
 
             this._boundFields.add(hiddenInput);
