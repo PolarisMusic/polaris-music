@@ -339,6 +339,43 @@ describe('Stage J.2 · loadGraphData', () => {
 // rebuildHashIndexFromRawGraph
 // ---------------------------------------------------------------------------
 
+describe('donuts are settled before anything draws', () => {
+    /**
+     * The reported symptom: a page load that took 27 seconds and a network
+     * tab full of `participation` requests — one per group, on every load,
+     * for data /api/graph/initial had already delivered in the same response.
+     *
+     * The cause was ordering, not the fetch. styleNode enqueues any group
+     * node with no donutStatus, enqueue() starts the HTTP immediately, and
+     * prePopulateDonutData ran *after* refresh() — so it marked nodes ready
+     * that were already in flight, and called nothing back.
+     *
+     * Asserted on the source order because that is exactly the invariant:
+     * there is no observable difference to catch afterwards, only a hundred
+     * and fifty-six requests that should not have happened.
+     */
+    const body = extractMethod('loadGraphData').body;
+
+    test('prePopulateDonutData is called', () => {
+        expect(body).toContain('prePopulateDonutData');
+    });
+
+    test('and before the refresh that draws', () => {
+        expect(body.indexOf('prePopulateDonutData'))
+            .toBeLessThan(body.indexOf('callbacks.refresh()'));
+    });
+
+    test('without asking for a redraw it has no layout for yet', () => {
+        expect(body).toMatch(/prePopulateDonutData\(\s*\{\s*redraw:\s*false\s*\}\s*\)/);
+    });
+
+    test('and is not called a second time after the draw', () => {
+        // The late call was the one that did nothing. Leaving it in would
+        // re-walk every node for no reason.
+        expect(body.split('prePopulateDonutData')).toHaveLength(2);
+    });
+});
+
 describe('Stage J.2 · rebuildHashIndexFromRawGraph', () => {
     test('builds Map<checksum256, {nodeId, name, type}> for every node', async () => {
         const stub = makeStub({

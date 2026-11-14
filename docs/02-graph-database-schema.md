@@ -1238,6 +1238,38 @@ membership is written for it, because promoting a stand-in to the band is the
 confidently-wrong answer the model warns against. No dates are set either way:
 a track credit says who played on this release, not when they joined.
 
+### A credit that names a band
+
+Bands are credited constantly. "Pearl Jam — Produced By" is on *Ten*; a group
+is routinely the writer of its own songs. Those are true credits about a band,
+and the testnet graph carries one on twenty-nine tracks.
+
+The credit belongs where credits go. A producer did not necessarily play a
+note, so `PERFORMED_ON` would claim more than anyone said, and the node
+carrying a credit is Person-shaped because that is what a credit is. The only
+thing missing is which entity the credit is about.
+
+So the credit stays put and the node gains **`SAME_AS`** to the band, written
+in one pass at the end of `processReleaseBundle` rather than branched at each
+of the five places a Person credit is written. The info panel follows it and
+offers "Main page: Pearl Jam" above everything else on the panel, because it
+changes how the rest of the panel reads. The next release crediting the same
+band resolves to the same node, since a provisional person id is a fingerprint
+of the name — so the pointer is written once and reused.
+
+The submission form asks on the row: its search box offers Groups as well as
+Persons, and a checkbox covers a band not yet in the registry.
+
+**Deliberately not a merge.** `MERGE_NODE` rewires every edge onto the survivor
+and deletes the absorbed node's own — which would put a `GUEST_ON` on a Group,
+not a thing in this model, and lose the credit on the way. `SAME_AS` says the
+subject is the same without pretending the nodes are.
+
+The same edge serves a person who ended up with more than one node, under a
+stage name or a catalogue's spelling. `reason` says which case it is, because
+the repairs differ: duplicate people eventually merge, where a band credit
+stays exactly where it is.
+
 ### Playing on the record, versus working on it
 
 `GUEST_ON` is a fallback bucket. Everybody who is not a member of the
@@ -1337,6 +1369,7 @@ is in `docs/03-event-storage.md` under EDIT_RELATIONSHIP.
 |--------------|-----------|---------|
 | MEMBER_OF | Person → Group | Group membership with dates |
 | PERFORMED_ON | Group → Track | Group performed this track |
+| SAME_AS | Person → Group or Person | What this node's subject has a page of its own as. Written when a credit names a band; the info panel follows it for "Main page" |
 | GUEST_ON | Person → Track or Release | Guest appearance (not a member). `scope` is `track` or `release`; `roles` decides whether the credit is drawn as musical or technical |
 | WROTE | Person → Song | Songwriting credit |
 | ARRANGED | Person → Track | Credited arranger for a track (group by default) |

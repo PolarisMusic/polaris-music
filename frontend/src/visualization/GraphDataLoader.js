@@ -161,6 +161,13 @@ export class GraphDataLoader {
             const jit = this.api.transformToJIT(this.rawGraph);
             this.callbacks.loadJSON(jit);
 
+            // Before anything plots. refresh() below draws, drawing styles
+            // every node, and styleNode sends any group with no donut status
+            // to the network — one request per group, on every load, for data
+            // the response above already carried. Settling them here is what
+            // makes that pre-population mean something.
+            this.callbacks.prePopulateDonutData({ redraw: false });
+
             // Before refresh(), which is what builds the layout: setting the
             // root after it would draw one view and then replace it.
             const sponsoredId = await this._sponsoredIdIfPrompt(pendingSponsored);
@@ -170,10 +177,6 @@ export class GraphDataLoader {
             this.callbacks.syncZoomSlider();
             this.callbacks.updateHistoryCount();
             await this.rebuildHashIndexFromRawGraph();
-
-            // Pre-populate donut slices from participation data bundled in the
-            // initial response, so styleNode does not trigger per-group fetches.
-            this.callbacks.prePopulateDonutData();
 
             console.log('Graph rendered');
 

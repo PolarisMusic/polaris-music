@@ -646,6 +646,13 @@ body.mini-player-visible.mini-player-embed {
     white-space: nowrap;
 }
 
+/* "Main page: X" — where a credit's subject has a page of its own. Sits at
+   the top of the panel because it changes how everything under it reads. */
+.info-main-page {
+    margin: 0 0 0.6rem;
+    font-size: 0.9rem;
+}
+
 .info-nav-link {
     color: #4A90E2;
     text-decoration: none;

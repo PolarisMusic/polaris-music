@@ -163,6 +163,26 @@ exports[`Stage H · REST endpoint snapshots GET /api/group/:groupId → 404 when
 }
 `;
 
+exports[`Stage H · REST endpoint snapshots GET /api/person/:personId → 200 carrying the page its subject has of its own 1`] = `
+{
+  "data": {
+    "groups": [],
+    "guestAppearances": 29,
+    "mainPage": {
+      "id": "group:pearljam",
+      "name": "Pearl Jam",
+      "reason": "credit names a band",
+      "type": "group",
+    },
+    "name": "Pearl Jam",
+    "person_id": "person:pearljam",
+    "songsWritten": 0,
+    "status": "ACTIVE",
+  },
+  "success": true,
+}
+`;
+
 exports[`Stage H · REST endpoint snapshots GET /api/person/:personId → 200 with groups + counts 1`] = `
 {
   "data": {
@@ -176,6 +196,7 @@ exports[`Stage H · REST endpoint snapshots GET /api/person/:personId → 200 wi
       },
     ],
     "guestAppearances": 3,
+    "mainPage": null,
     "name": "John Lennon",
     "person_id": "person:lennon",
     "songsWritten": 180,

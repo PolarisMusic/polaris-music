@@ -224,12 +224,43 @@ describe('Stage H · REST endpoint snapshots', () => {
                     { group: null, group_id: null, role: null, from_date: null, to_date: null }
                 ],
                 songsWritten: int(180),
-                guestAppearances: int(3)
+                guestAppearances: int(3),
+                mainPage: null
             })]
         });
 
         const res = await request(app).get('/api/person/person:lennon');
         expect(res.status).toBe(200);
+        expect(res.body).toMatchSnapshot();
+    });
+
+    test('GET /api/person/:personId → 200 carrying the page its subject has of its own', async () => {
+        // A band credited as the producer of its own record arrives as a
+        // Person-shaped credit, because that is what a credit is. This is the
+        // line that says the subject is a band and where its page is.
+        sharedRun.mockResolvedValueOnce({
+            records: [makeRecord({
+                p: nodeProps({ person_id: 'person:pearljam', name: 'Pearl Jam', status: 'ACTIVE' }),
+                groups: [{ group: null, group_id: null, role: null, from_date: null, to_date: null }],
+                songsWritten: int(0),
+                guestAppearances: int(29),
+                mainPage: {
+                    id: 'group:pearljam',
+                    name: 'Pearl Jam',
+                    type: 'group',
+                    reason: 'credit names a band',
+                }
+            })]
+        });
+
+        const res = await request(app).get('/api/person/person:pearljam');
+        expect(res.status).toBe(200);
+        expect(res.body.data.mainPage).toEqual({
+            id: 'group:pearljam',
+            name: 'Pearl Jam',
+            type: 'group',
+            reason: 'credit names a band',
+        });
         expect(res.body).toMatchSnapshot();
     });
 
