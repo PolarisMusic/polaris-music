@@ -79,8 +79,21 @@ export function createEntityRoutes({ db, config }) {
                     OPTIONAL MATCH (p)-[m:MEMBER_OF]->(g:Group)
                     OPTIONAL MATCH (p)-[:WROTE]->(s:Song)
                     OPTIONAL MATCH (p)-[:GUEST_ON]->(t:Track)
+                    // Where this node's subject has a page of its own. A band
+                    // credited as producer or writer of its own record arrives
+                    // as a Person-shaped credit — the credit is true and
+                    // belongs where credits go — and this is what joins it to
+                    // the band. Also the route for a person who ended up with
+                    // more than one node.
+                    OPTIONAL MATCH (p)-[same:SAME_AS]->(main)
 
                     RETURN p,
+                           CASE WHEN main IS NULL THEN null ELSE {
+                               id: coalesce(main.group_id, main.person_id),
+                               name: main.name,
+                               type: CASE WHEN main:Group THEN 'group' ELSE 'person' END,
+                               reason: same.reason
+                           } END as mainPage,
                            collect(DISTINCT {
                                group: g.name,
                                group_id: g.group_id,
@@ -107,6 +120,7 @@ export function createEntityRoutes({ db, config }) {
                     data: {
                         ...person,
                         groups: record.get('groups').filter(g => g.group !== null),
+                        mainPage: record.get('mainPage'),
                         songsWritten: record.get('songsWritten').toNumber(),
                         guestAppearances: record.get('guestAppearances').toNumber()
                     }

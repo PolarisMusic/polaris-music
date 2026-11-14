@@ -85,7 +85,16 @@
         "credited_as": { "type": "string" },
         "instruments": { "type": "array", "items": { "type": "string" } },
         "from_date": { "type": "string" },
-        "to_date": { "type": "string" }
+        "to_date": { "type": "string" },
+        "entity_type": {
+          "description": "Set to \"group\" when this credit names a band rather than a human — a band credited as producer or writer of its own record. The credit stays a credit; ingestion adds a SAME_AS pointer from the node carrying it to the band, so the info panel can offer the band's own page.",
+          "type": "string",
+          "enum": ["group"]
+        },
+        "group_id": {
+          "description": "With entity_type \"group\", the band this credit is about, where the submitter picked it out of the search box.",
+          "type": "string"
+        }
       }
     },
     "Group": {

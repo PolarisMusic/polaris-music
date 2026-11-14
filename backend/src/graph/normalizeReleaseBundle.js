@@ -426,6 +426,13 @@ function normalizeRelease(release) {
             if (guest.role_detail) {
                 normalizedPerson.role_detail = guest.role_detail;
             }
+            // Kept through person normalization so the ingest can point this
+            // node at the band it is about. normalizePerson itself stays about
+            // people.
+            if (isGroupCredit(guest)) {
+                normalizedPerson.entity_type = 'group';
+                if (guest.group_id) normalizedPerson.group_id = guest.group_id;
+            }
             return normalizedPerson;
         });
     }
@@ -465,6 +472,14 @@ function normalizeGroup(group) {
             // Add membership-specific fields
             if (member.from_date) normalizedPerson.from_date = member.from_date;
             if (member.to_date) normalizedPerson.to_date = member.to_date;
+            // Kept through person normalization so the ingest can point this
+            // node at the band it is about. normalizePerson itself stays about
+            // people.
+            if (isGroupCredit(member)) {
+                normalizedPerson.entity_type = 'group';
+                if (member.group_id) normalizedPerson.group_id = member.group_id;
+            }
+
             // Normalize roles - collect from both role (singular) and roles (plural)
             // Use normalizeRoleInput to handle comma-separated strings like "drums, backing vocals"
             const rawRoles = [];
@@ -592,6 +607,10 @@ function normalizeTrack(track) {
                         if (Array.isArray(m.instruments)) {
                             normalizedMember.instruments = m.instruments;
                         }
+                        if (isGroupCredit(m)) {
+                            normalizedMember.entity_type = 'group';
+                            if (m.group_id) normalizedMember.group_id = m.group_id;
+                        }
                         return normalizedMember;
                     });
                 }
@@ -635,6 +654,13 @@ function normalizeTrack(track) {
             }
             if (guest.role_detail) {
                 normalizedPerson.role_detail = guest.role_detail;
+            }
+            // Kept through person normalization so the ingest can point this
+            // node at the band it is about. normalizePerson itself stays about
+            // people.
+            if (isGroupCredit(guest)) {
+                normalizedPerson.entity_type = 'group';
+                if (guest.group_id) normalizedPerson.group_id = guest.group_id;
             }
             return normalizedPerson;
         });
@@ -1087,6 +1113,22 @@ function personKey(person) {
 }
 
 /**
+ * Whether a credit row names a band rather than a human.
+ *
+ * Catalogues do not keep these apart, and more to the point they should not
+ * have to: a band is frequently the producer of its own record, or the writer
+ * of its songs, and "Pearl Jam — Produced By" is a true credit about a band.
+ * The credit stays a credit, filed where credits go. The marker only says who
+ * it is about, so the node carrying it can point at the band's own page.
+ *
+ * @param {Object} credit
+ * @returns {boolean}
+ */
+function isGroupCredit(credit) {
+    return String(credit?.entity_type || '').toLowerCase() === 'group';
+}
+
+/**
  * Remove guests who are already members of a group performing on the same thing.
  *
  * CLAUDE.md states the invariant plainly — "A Person can't be both MEMBER_OF and
@@ -1140,5 +1182,5 @@ function dropContradictoryGuests(release, groups, tracks) {
     return dropped;
 }
 
-export { extractRelationships, dropContradictoryGuests };
+export { extractRelationships, dropContradictoryGuests, isGroupCredit };
 export default normalizeReleaseBundle;

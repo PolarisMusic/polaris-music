@@ -540,6 +540,26 @@ export class InfoPanelRenderer {
 
         if (nodeId) contentElement.appendChild(this._playContextButton('person', nodeId));
 
+        // Where this node's subject has a page of its own, said before
+        // anything else on the panel.
+        //
+        // A band is frequently the producer of its own record, or the writer
+        // of its songs, so "Pearl Jam — Produced By" arrives as a credit on a
+        // Person-shaped node. The credit is true and belongs where credits
+        // go; this is the line that says the subject is a band and offers its
+        // page. The same line serves a person who ended up with more than one
+        // node, under whichever name the credit used.
+        if (person.mainPage?.id) {
+            contentElement.appendChild(this._el('div', { className: 'info-main-page' },
+                this._el('strong', null, 'Main page:'),
+                ' ',
+                this._el('a', {
+                    href: '#',
+                    className: 'info-nav-link',
+                    'data-node-id': person.mainPage.id,
+                }, person.mainPage.name || person.mainPage.id)));
+        }
+
         if (person.photo) {
             contentElement.appendChild(this._el('div', { className: 'info-photo' },
                 this._el('img', { src: person.photo, alt: person.name })));

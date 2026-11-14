@@ -1971,6 +1971,28 @@ constructor(config = {}) {
                 });
             }
 
+            // ========== 7. POINT BAND CREDITS AT THE BAND ==========
+            //
+            // A band is frequently the producer of its own record, or the
+            // writer of its songs: "Pearl Jam — Produced By" is a true credit
+            // about a band. The credit belongs where credits go — a producer
+            // did not necessarily play a note, so PERFORMED_ON would be a
+            // worse home for it than GUEST_ON is — and the only thing missing
+            // is which entity it is about.
+            //
+            // So the credit stays a Person-shaped credit, and the node
+            // carrying it gets a SAME_AS edge to the band. The info panel
+            // follows it to offer the band's own page, and the next
+            // submission that credits the same band resolves to the same
+            // node, because a provisional person id is a fingerprint of the
+            // name.
+            //
+            // Deliberately not a merge. MERGE_NODE rewires every edge onto
+            // the survivor and deletes the absorbed node's own, which would
+            // put a GUEST_ON on a Group — not a thing in this model — and
+            // lose the credit in the process.
+            await this.linkGroupCredits(tx, normalizedBundle, recordResolved);
+
             // Commit the entire transaction
             await tx.commit();
 
@@ -3587,6 +3609,81 @@ constructor(config = {}) {
      * @param {string} eventHash - Hash of the source event
      * @param {number} [eventTs] - Event timestamp in epoch millis (falls back to wall-clock time)
      */
+    /**
+     * Join every credit that names a band to the band itself.
+     *
+     * One pass over the bundle rather than a branch at each of the five
+     * places a Person credit is written, because the write is the same
+     * wherever the credit sat and the sites have enough going on already.
+     *
+     * The Group is resolved the same way any other group reference is, so a
+     * row bound to a band in the search box lands on that node, and a band
+     * named only in a credit gets the provisional id its name fingerprints
+     * to — the same one a later release crediting it properly would use.
+     *
+     * @param {Object} tx - Open transaction.
+     * @param {Object} bundle - The normalized bundle.
+     * @param {Function} recordResolved - Records id translations for the caller.
+     * @returns {Promise<number>} How many pointers were written.
+     */
+    async linkGroupCredits(tx, bundle, recordResolved = () => {}) {
+        const credits = [
+            ...(bundle.release?.guests || []),
+            ...(bundle.groups || []).flatMap((g) => g.members || []),
+            ...(bundle.tracks || []).flatMap((t) => [
+                ...(t.guests || []),
+                ...(t.performed_by_groups || []).flatMap((g) => g.members || []),
+            ]),
+        ].filter((credit) => String(credit?.entity_type || '').toLowerCase() === 'group');
+
+        if (credits.length === 0) return 0;
+
+        // One pointer per (person, group), however many credits named it.
+        const seen = new Set();
+        let written = 0;
+
+        for (const credit of credits) {
+            let personId;
+            let groupId;
+            try {
+                personId = await this.resolveEntityId(tx, 'person', credit);
+                groupId = await this.resolveEntityId(tx, 'group', {
+                    ...(credit.group_id ? { group_id: credit.group_id } : {}),
+                    name: credit.name,
+                });
+            } catch (error) {
+                this.log.warn('group_credit_resolve_fail',
+                    { name: credit.name, error: error.message });
+                continue;
+            }
+
+            const key = `${personId}|${groupId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            recordResolved('person', credit.person_id, personId);
+            recordResolved('group', credit.group_id, groupId);
+
+            await tx.run(`
+                MATCH (p:Person {person_id: $personId})
+                MERGE (g:Group {group_id: $groupId})
+                ON CREATE SET g.id = $groupId,
+                    g.name = $name,
+                    g.status = 'ACTIVE',
+                    g.id_kind = 'provisional'
+                ON MATCH SET g.name = coalesce(g.name, $name)
+                MERGE (p)-[same:SAME_AS]->(g)
+                SET same.reason = 'credit names a band'
+            `, { personId, groupId, name: credit.name });
+
+            written++;
+            this.log.debug('group_credit_linked',
+                { person_id: personId, group_id: groupId, name: credit.name });
+        }
+
+        return written;
+    }
+
     async createClaim(tx, claimId, nodeType, nodeId, field, value, eventHash, eventTs) {
         const tsExpr = eventTs != null
             ? 'datetime({epochMillis: $eventTs})'
