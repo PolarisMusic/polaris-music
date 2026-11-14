@@ -60,6 +60,30 @@ describe('a single role', () => {
         expect(isPerformanceRole('executive producer')).toBe(false);
     });
 
+    test('writing it is not playing it', () => {
+        // Songwriting is recorded properly as Person -[:WROTE]-> Song. The
+        // same name arriving again as a credit on every track says nothing
+        // new and crowds out the people who were in the room.
+        expect(isPerformanceRole('written-by')).toBe(false);
+        expect(isPerformanceRole('songwriter')).toBe(false);
+        expect(isPerformanceRole('composer')).toBe(false);
+        expect(isPerformanceRole('lyrics')).toBe(false);
+        expect(isPerformanceRole('lyricist')).toBe(false);
+    });
+
+    test('but a Lyricon is an instrument, not a lyric', () => {
+        // Which is why the list carries "lyrics" and "lyricist" rather than
+        // the stem they share.
+        expect(isPerformanceRole('lyricon')).toBe(true);
+    });
+
+    test('and arranging still is playing', () => {
+        // An arranger decides what the parts are. That is musical work on the
+        // recording, not a credit for the composition.
+        expect(isPerformanceRole('arranged by')).toBe(true);
+        expect(isPerformanceRole('arrangement')).toBe(true);
+    });
+
     test('programming is playing; editing is not', () => {
         // In hip-hop and electronic music the programming IS the drum part,
         // so hiding it would hide the performance. Editing is work done to a
@@ -96,6 +120,20 @@ describe('a credit with roles of both kinds', () => {
     test('and counts as musical, so the guitarist stays on the graph', () => {
         expect(creditIsMusical(['mixed by', 'guitar'])).toBe(true);
         expect(creditIsMusical(['engineer', 'backing vocals'])).toBe(true);
+    });
+
+    test('the Aquabats credit disappears, which is the real case', () => {
+        // Verbatim from the testnet graph: a band filed as a Person, on
+        // seventeen of its own tracks and its release. Photography was always
+        // hidden; the writing credit beside it was what kept the node drawn.
+        expect(creditIsMusical(['photography by [photos]', 'written-by'])).toBe(false);
+    });
+
+    test('a producer credit is still drawn, band or not', () => {
+        // Pearl Jam produced Ten, and the Person node carrying that credit is
+        // wrong because it is a Person, not because the credit is wrong.
+        // Classification cannot fix a node that should not exist.
+        expect(creditIsMusical(['producer [produced by]'])).toBe(true);
     });
 
     test('a credit that is only technical does not', () => {
@@ -169,6 +207,10 @@ describe('the contract, from printed credit to what is drawn', () => {
         ['Co-producer', 'co-producer', ''],
         ['Arranged By', 'arranged by', ''],
         ['Programmed By', 'programmed by', ''],
+        ['Written-By', '', 'written-by'],
+        ['Lyrics By', '', 'lyrics by'],
+        ['Composed By', '', 'composed by'],
+        ['Photography By, Written-By', '', 'photography by, written-by'],
         ['Engineer', '', 'engineer'],
         ['Engineer [Assistant]', '', 'engineer [assistant]'],
         ['Mixed By', '', 'mixed by'],

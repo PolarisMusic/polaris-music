@@ -1277,11 +1277,14 @@ arrangement — an allowlist of instruments, which is what
 ondes martenot, bağlama, tabla, theremin and several hundred more, and an
 instrument missing from the list would make its player vanish. That is exactly
 the failure the split exists to end, so the default direction is visible, and
-an unrecognised technical credit shows up instead. Two calls worth stating:
+an unrecognised technical credit shows up instead. Three calls worth stating:
 producing is an artistic hand on the recording and stays visible, where an
-executive producer is its financier and does not; and programming is hidden
-from nobody, because in hip-hop and electronic music the programming *is* the
-drum part.
+executive producer is its financier and does not; programming is hidden from
+nobody, because in hip-hop and electronic music the programming *is* the drum
+part; and a songwriting credit is hidden, because the registry already records
+it properly as `Person -[:WROTE]-> Song` and the same name arriving again on
+every track says nothing new. Arranging stays visible — an arranger decides
+what the parts are, which is musical work on the recording.
 
 **This is not the same question as credit scope**, and the two lists are
 deliberately separate. `creditScope.RELEASE_ONLY` asks whether a compilation

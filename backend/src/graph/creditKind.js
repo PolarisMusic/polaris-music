@@ -63,6 +63,18 @@ const NOT_A_PERFORMANCE = [
     // a performance rather than a performance, so it stays.
     'edited', 'editing',
 
+    // Wrote it rather than played it. A songwriting credit is a real and
+    // central fact, and the registry already records it properly as
+    // Person -[:WROTE]-> Song — which is where it belongs and where it is
+    // drawn. The same name arriving a second time as a credit on every track
+    // says nothing new and crowds out the people who were in the room.
+    //
+    // "Lyricist" and "lyrics" are listed separately rather than as the stem
+    // "lyric", which would also match the Lyricon — a wind instrument, and so
+    // a performance.
+    'written-by', 'written by', 'songwriter', 'composer', 'composed by',
+    'lyrics', 'lyricist', 'words by',
+
     // The object people hold
     'artwork', 'art direction', 'artist [cover', 'cover art', 'sleeve', 'design',
     'illustration', 'illustrator', 'layout', 'photography', 'photographer', 'painting',
