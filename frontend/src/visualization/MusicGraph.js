@@ -397,7 +397,8 @@ export class MusicGraph {
                 refresh: () => this.ht.refresh(),
                 syncZoomSlider: () => this.syncZoomSlider(),
                 updateHistoryCount: () => this.updateHistoryCount(),
-                prePopulateDonutData: () => this.donut.prePopulateData(this.loader._initialParticipation),
+                prePopulateDonutData: (options) =>
+                    this.donut.prePopulateData(this.loader._initialParticipation, options),
                 // For the sponsored-node draw. selectNode goes through
                 // handleNodeClick rather than ht.onClick so the opening node
                 // arrives in exactly the state a tapped one would: centred,

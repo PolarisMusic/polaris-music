@@ -75,6 +75,16 @@ export class DonutLoader {
      */
     async loadSingle(node) {
         const groupId = node.data.group_id || node.id;
+
+        // Settled while it sat in the queue. enqueue() starts work
+        // immediately, so anything that fills a donut after that point can
+        // still find entries already waiting on a fetch they do not need.
+        if (node.getData('donutStatus') === 'ready') {
+            this.activeLoads--;
+            this.processQueue();
+            return;
+        }
+
         try {
             const data = await this.api.fetchGroupParticipation(groupId);
             const slices = this.computeSlices(data.members || []);
@@ -171,33 +181,47 @@ export class DonutLoader {
     }
 
     /**
-     * Pre-populate donut slice data on group nodes from a participation map
-     * provided by the initial graph response. Avoids one HTTP request per
-     * group during the first render pass.
+     * Settle every group node's donut from the participation map the initial
+     * graph response already carried, so the first render pass fetches
+     * nothing.
+     *
+     * **Every** group, not only the ones with rows. The map is built from
+     * `(Person)-[:MEMBER_OF]->(Group)`, so a group nobody is a member of has
+     * no entry — and leaving its donutStatus unset is what sent styleNode to
+     * the network for it. Fetching tells us the same nothing one round trip
+     * later, so an absent entry settles as an empty ring here.
+     *
+     * Must run before the first plot. styleNode enqueues on sight of a group
+     * with no status, and enqueue starts the HTTP immediately — marking the
+     * node ready afterwards does not call anything back.
      *
      * @param {Object|null|undefined} participation  groupId → { members: [...] }
+     * @param {{redraw?: boolean}} [options] - redraw false before the first
+     *        refresh, which draws anyway and has no layout to plot against yet.
      */
-    prePopulateData(participation) {
-        if (!participation) return;
+    prePopulateData(participation, { redraw = true } = {}) {
+        const map = participation || {};
+        let withMembers = 0;
+        let empty = 0;
 
-        let prePopulated = 0;
         this.callbacks.eachNode(node => {
             const nodeType = (node.data.type || '').toLowerCase();
             if (nodeType !== 'group') return;
+            if (node.getData('donutStatus') === 'ready') return;
 
             const groupId = node.data.group_id || node.id;
-            const pData = participation[groupId];
-            if (!pData || !pData.members) return;
+            const pData = map[groupId];
+            const members = pData && Array.isArray(pData.members) ? pData.members : [];
 
-            const slices = this.computeSlices(pData.members);
-            node.setData('donutSlices', slices);
+            node.setData('donutSlices', this.computeSlices(members));
             node.setData('donutStatus', 'ready');
-            prePopulated++;
+            if (members.length > 0) withMembers++; else empty++;
         });
 
-        console.log(`Donut data pre-populated for ${prePopulated} groups`);
+        console.log(`Donut data settled for ${withMembers + empty} groups `
+            + `(${withMembers} with members, ${empty} empty)`);
 
-        if (prePopulated > 0) {
+        if (redraw && withMembers + empty > 0) {
             this.callbacks.plot();
         }
     }

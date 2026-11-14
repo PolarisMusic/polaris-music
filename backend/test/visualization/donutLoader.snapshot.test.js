@@ -163,7 +163,7 @@ describe('DonutLoader · drift guard', () => {
         ['processQueue',    '()'],
         ['loadSingle',      '(node)'],
         ['computeSlices',   '(members)'],
-        ['prePopulateData', '(participation)'],
+        ['prePopulateData', '(participation, { redraw = true } = {})'],
     ])('method %s exists with signature %s', (name, sig) => {
         const expected = sig.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean).join(', ');
         const { params } = extractMethod(name);
@@ -469,18 +469,30 @@ describe('computeSlices', () => {
 // ---------------------------------------------------------------------------
 
 describe('prePopulateData', () => {
-    test('no participation map → early return, no plot, no eachNode', () => {
-        const stub = makeStub();
+    // The three tests that used to live here pinned an early return and two
+    // skips — "no participation map", "group missing from the map", "group
+    // with no members". Those skips were the defect: a group left with no
+    // donutStatus is one styleNode sends to the network, so a graph with 156
+    // groups made 156 requests on every load for data the initial response
+    // had already delivered. They are replaced, deliberately, by their
+    // opposites.
+
+    test('no participation map still settles every group', () => {
+        const groupNode = makeNode({ id: 'g:1', type: 'group', group_id: 'g:1' });
+        const stub = makeStub({ eachNodeImpl: cb => { cb(groupNode); } });
+
         compileMethod('prePopulateData').call(stub, undefined);
-        expect(stub.callbacks.plot).not.toHaveBeenCalled();
-        expect(stub.callbacks.eachNode).not.toHaveBeenCalled();
+
+        expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
     });
 
-    test('null participation → early return', () => {
-        const stub = makeStub();
+    test('null participation likewise', () => {
+        const groupNode = makeNode({ id: 'g:1', type: 'group', group_id: 'g:1' });
+        const stub = makeStub({ eachNodeImpl: cb => { cb(groupNode); } });
+
         compileMethod('prePopulateData').call(stub, null);
-        expect(stub.callbacks.plot).not.toHaveBeenCalled();
-        expect(stub.callbacks.eachNode).not.toHaveBeenCalled();
+
+        expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
     });
 
     test('skips non-group nodes', () => {
@@ -521,23 +533,49 @@ describe('prePopulateData', () => {
         expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
     });
 
-    test('group node missing from participation map → skipped (no setData, no plot)', () => {
+    test('a group missing from the map settles as an empty ring', () => {
+        // The participation map is built from (Person)-[:MEMBER_OF]->(Group),
+        // so a group nobody is a member of has no entry. Fetching it
+        // individually returns the same nothing, one round trip later.
         const groupNode = makeNode({ id: 'g:absent', type: 'group', group_id: 'g:absent' });
-        const stub = makeStub({
-            eachNodeImpl: cb => { cb(groupNode); },
-        });
+        const stub = makeStub({ eachNodeImpl: cb => { cb(groupNode); } });
+
         compileMethod('prePopulateData').call(stub, { 'g:other': { members: [] } });
-        expect(groupNode.setData).not.toHaveBeenCalled();
-        expect(stub.callbacks.plot).not.toHaveBeenCalled();
+
+        expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
+        expect(groupNode.setData).toHaveBeenCalledWith('donutSlices', []);
     });
 
-    test('group node with no members → skipped', () => {
+    test('an entry with no members list settles too', () => {
         const groupNode = makeNode({ id: 'g:nomembers', type: 'group', group_id: 'g:nomembers' });
-        const stub = makeStub({
-            eachNodeImpl: cb => { cb(groupNode); },
-        });
+        const stub = makeStub({ eachNodeImpl: cb => { cb(groupNode); } });
+
         compileMethod('prePopulateData').call(stub, { 'g:nomembers': { /* no members */ } });
+
+        expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
+    });
+
+    test('a group already settled is left alone', () => {
+        const groupNode = makeNode({ id: 'g:done', type: 'group', group_id: 'g:done' });
+        groupNode.getData = () => 'ready';
+        const stub = makeStub({ eachNodeImpl: cb => { cb(groupNode); } });
+
+        compileMethod('prePopulateData').call(stub, { 'g:done': { members: [] } });
+
         expect(groupNode.setData).not.toHaveBeenCalled();
+    });
+
+    test('redraw false skips the plot, for the call that runs before layout', () => {
+        // styleNode enqueues on sight of a group with no status and enqueue
+        // starts the HTTP straight away, so this has to run before the first
+        // refresh — where there is no layout to plot against yet.
+        const groupNode = makeNode({ id: 'g:1', type: 'group', group_id: 'g:1' });
+        const stub = makeStub({ eachNodeImpl: cb => { cb(groupNode); } });
+
+        compileMethod('prePopulateData').call(stub,
+            { 'g:1': { members: [{ personId: 'p', trackCount: 1 }] } }, { redraw: false });
+
+        expect(groupNode.setData).toHaveBeenCalledWith('donutStatus', 'ready');
         expect(stub.callbacks.plot).not.toHaveBeenCalled();
     });
 
