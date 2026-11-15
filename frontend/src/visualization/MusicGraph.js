@@ -1677,15 +1677,23 @@ export class MusicGraph {
     }
 
     /**
+     * The label's drawn size, measured once and remembered.
+     *
+     * Measuring forces a layout, so the cache is what keeps that off the
+     * per-frame path. A label that has never been displayed has no width to
+     * read and is estimated from its text until it has been drawn once.
+     *
      * @private
      * @param {object} node
+     * @param {HTMLElement|null} knownElement - the label, where the caller
+     *        already has it, which saves a lookup per label per frame.
      * @returns {{w: number, h: number}}
      */
-    _labelSize(node) {
+    _labelSize(node, knownElement = null) {
         const cached = this._labelSizes.get(node.id);
         if (cached) return cached;
 
-        const element = this.ht.labels?.getLabel?.(node.id);
+        const element = knownElement || this.ht.labels?.getLabel?.(node.id);
         // offsetWidth is 0 for a label that has never been displayed, and
         // measuring it would force a layout anyway. Estimate from the text
         // until the label has been drawn once, then cache the real figure.
@@ -1700,45 +1708,63 @@ export class MusicGraph {
     }
 
     placeNodeLabel(domElement, node) {
-        // Hide label for synthetic root node
-        if ((node.data.type || '').toLowerCase() === 'root') {
-            domElement.style.display = 'none';
+        const style = domElement.style;
+
+        // Visibility first, and nothing else for a label that will not be
+        // drawn.
+        //
+        // This runs from onPlaceLabel, which is once per label per frame. The
+        // version before this one measured and repositioned every label and
+        // then hid most of them — and the measurement is `offsetWidth`, which
+        // forces a synchronous layout. Interleaved with the `left`/`top`
+        // writes just above it, that is a read-after-write per label per
+        // frame: the browser re-lays out the document hundreds of times in
+        // every animation step. Deciding first costs one style write for a
+        // hidden label and leaves the rest untouched.
+        //
+        // Skipping the position is safe because JIT has already set it. Its
+        // own documentation: "onPlaceLabel will be triggered after updating
+        // the labels positions ... the left and top css properties are
+        // already updated to match the nodes positions." So the adjustment
+        // below reads a fresh value every frame rather than compounding, and
+        // a label that skips it for a while is simply uncentred while nobody
+        // can see it.
+        if (!this._labelShouldShow(node)) {
+            if (style.display !== 'none') style.display = 'none';
             return;
         }
+        if (style.display === 'none') style.display = '';
 
-        const style = domElement.style;
         const left = parseInt(style.left) || 0;
         const top = parseInt(style.top) || 0;
-        const w = domElement.offsetWidth;
-
+        const { w } = this._labelSize(node, domElement);
         const nodeRadius = node.getData('dim') || 10;
 
         // Center label horizontally, position below node
         style.left = (left - w / 2) + 'px';
         style.top = (top + nodeRadius + 4) + 'px';
+    }
 
-        if (!this.labelsVisible) {
-            style.display = 'none';
-            return;
-        }
+    /**
+     * Whether this label is drawn on this frame.
+     *
+     * Eligibility and collisions were both decided for the whole frame by
+     * _computeVisibleLabels; a single label cannot see the pile it is
+     * joining. A null set means no plot has run through the wrapper yet —
+     * fall back to the per-label rule rather than hiding everything.
+     *
+     * @private
+     * @param {object} node
+     * @returns {boolean}
+     */
+    _labelShouldShow(node) {
+        if ((node.data?.type || '').toLowerCase() === 'root') return false;
+        if (!this.labelsVisible) return false;
+        if (this._visibleLabels) return this._visibleLabels.has(node.id);
 
-        // Eligibility and collisions were both decided for the whole frame by
-        // _computeVisibleLabels; this call knows about one label and cannot see
-        // the pile it is joining.
-        //
-        // A null set means no plot has run through the wrapper yet — fall back
-        // to the per-label rule rather than hiding everything.
-        if (this._visibleLabels) {
-            style.display = this._visibleLabels.has(node.id) ? '' : 'none';
-            return;
-        }
-
-        const isSelected = node.getData('isSelected');
-        const sqNorm = node.pos.getc().squaredNorm();
-        const isNearCenter = sqNorm < this.labelThresholdFor(node);
-        const hoverTooltip = node.getData('hoverTooltip');
-
-        style.display = (isSelected || isNearCenter || hoverTooltip) ? '' : 'none';
+        return Boolean(node.getData('isSelected'))
+            || node.pos.getc().squaredNorm() < this.labelThresholdFor(node)
+            || Boolean(node.getData('hoverTooltip'));
     }
 
     /**

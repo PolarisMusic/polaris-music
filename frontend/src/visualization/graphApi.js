@@ -14,14 +14,16 @@ export class GraphAPI {
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
         // Only use mock fallback when explicitly enabled
         this.useMockFallback = import.meta.env.VITE_USE_GRAPH_MOCK === 'true';
-        // The guest bucket holds two unlike things, and they get different
-        // defaults. A session player or a featured artist is a musical
-        // connection and is what the graph is for, so those are on. Engineers,
-        // mastering, artwork and the rest are credits on the object rather
-        // than connections between musicians, and they roughly double the
-        // person count on a well-credited release, so those stay off until
-        // somebody asks. See backend graph/creditKind.js for the split.
-        this.includeMusicalGuests = true;
+        // Both halves of the guest bucket start off, and the split is still
+        // what makes the choice useful: a session player is a musical
+        // connection, where an engineer or a sleeve designer is a credit on
+        // the object. See backend graph/creditKind.js.
+        //
+        // Musical guests were on by default until the graph grew past a
+        // thousand nodes and the hyperbolic layout started to feel it. They
+        // are a tick away, and the two toggles stay independent so turning
+        // musicians on does not drag the crew in with them.
+        this.includeMusicalGuests = false;
         this.includeTechnicians = false;
     }
 
