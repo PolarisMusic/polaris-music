@@ -480,5 +480,9 @@ export class PathTracker {
     }
 }
 
-// Export singleton instance
-export const pathTracker = new PathTracker();
+// No singleton here, deliberately. One used to be constructed at module
+// scope, and nothing imported it: MusicGraph builds its own, and LikeManager
+// takes one as a constructor argument. So importing the class built a second
+// tracker whose constructor read the likes and the two hundred history
+// entries out of localStorage a second time, synchronously, before the graph
+// had drawn anything.

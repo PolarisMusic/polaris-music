@@ -512,4 +512,8 @@ export class WalletManager {
 }
 
 // Export singleton instance
-export const walletManager = new WalletManager();
+// No singleton here, deliberately. One used to be constructed at module
+// scope, and nothing imported it — index.html builds its own. So importing
+// the class built a second WalletManager, and its constructor builds a
+// SessionKit with a WebRenderer and the whole wallet plugin set: the 900kB
+// chunk instantiated twice on a page where one is used.
