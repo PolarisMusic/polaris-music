@@ -9,8 +9,8 @@
  * corrupting the data. So the bucket is asked for in halves, and the halves
  * get different defaults.
  *
- * Three things to hold onto. The first load has to actually ask for musical
- * guests, or the default is a lie. The technical half has to stay out until
+ * Three things to hold onto. The first load has to ask for neither, or the
+ * boxes and the payload disagree about what is on screen. The technical half has to stay out until
  * asked for, or the toggle is decoration. And a guest edge must not be painted
  * as a membership: both run Person → Group, the styling rules key off the node
  * types at each end, and the member/guest distinction is the one this registry
@@ -97,23 +97,33 @@ const lostNode = (page, id) =>
         { timeout: 10_000 });
 
 test.describe('musical guests', () => {
-    test('are on from the first load, and the request says so', async ({ page }) => {
-        // Not a server default — the server still answers a bare request with
-        // members only. The client asks, so the box and the payload cannot
-        // disagree about what is on screen.
+    test('start off, and the first request does not ask for them', async ({ page }) => {
+        // They were on by default until the graph passed a thousand nodes and
+        // the hyperbolic layout started to feel it. A tick away, and the
+        // split still decides what a tick brings in.
         const requested = await boot(page);
 
-        await expect(page.locator('#show-musical-guests')).toBeChecked();
-        expect(requested[0]).toContain('musicalGuests=true');
-        expect(await nodeIds(page)).toContain('per:sax');
+        await expect(page.locator('#show-musical-guests')).not.toBeChecked();
+        expect(requested[0]).not.toContain('musicalGuests=true');
+        expect(await nodeIds(page)).not.toContain('per:sax');
     });
 
-    test('and can be turned off, which takes the saxophonist away', async ({ page }) => {
-        await boot(page);
-        await page.locator('#show-musical-guests').uncheck();
+    test('ticking brings the saxophonist in', async ({ page }) => {
+        const requested = await boot(page);
+        await page.locator('#show-musical-guests').check();
 
-        await lostNode(page, 'per:sax');
+        await hasNode(page, 'per:sax');
+        expect(requested.some((q) => q.includes('musicalGuests=true'))).toBe(true);
         expect(await nodeIds(page)).toContain('per:drums');
+    });
+
+    test('and unticking takes them away again', async ({ page }) => {
+        await boot(page);
+        await page.locator('#show-musical-guests').check();
+        await hasNode(page, 'per:sax');
+
+        await page.locator('#show-musical-guests').uncheck();
+        await lostNode(page, 'per:sax');
     });
 
     test('a guest edge is drawn as a credit, not as a membership', async ({ page }) => {
@@ -121,6 +131,8 @@ test.describe('musical guests', () => {
         // opaque colour here means the type-pair rules claimed it as
         // MEMBER_OF, and the graph is saying the saxophonist is in the band.
         await boot(page);
+        await page.locator('#show-musical-guests').check();
+        await hasNode(page, 'per:sax');
 
         const styles = await page.evaluate(() => {
             const out = {};
@@ -143,6 +155,8 @@ test.describe('musical guests', () => {
 
     test('a guest edge is navigable like any other', async ({ page }) => {
         await boot(page);
+        await page.locator('#show-musical-guests').check();
+        await hasNode(page, 'per:sax');
 
         await page.evaluate(() => {
             const g = window.musicGraph;
@@ -170,12 +184,12 @@ test.describe('technical credits', () => {
         expect(await nodeIds(page)).not.toContain('per:sleeve');
     });
 
-    test('ticking brings the sleeve designer in without losing the musicians', async ({ page }) => {
+    test('ticking brings the sleeve designer in, and nobody else', async ({ page }) => {
         await boot(page);
         await page.locator('#show-technicians').check();
 
         await hasNode(page, 'per:sleeve');
-        expect(await nodeIds(page)).toEqual(['grp:band', 'per:drums', 'per:sax', 'per:sleeve']);
+        expect(await nodeIds(page)).toEqual(['grp:band', 'per:drums', 'per:sleeve']);
     });
 
     test('and unticking takes them away again', async ({ page }) => {
@@ -194,8 +208,10 @@ test.describe('technical credits', () => {
         await page.locator('#show-technicians').check();
         await hasNode(page, 'per:sleeve');
 
-        await page.locator('#show-musical-guests').uncheck();
-        await lostNode(page, 'per:sax');
+        expect(await nodeIds(page)).not.toContain('per:sax');
+
+        await page.locator('#show-musical-guests').check();
+        await hasNode(page, 'per:sax');
         expect(await nodeIds(page)).toContain('per:sleeve');
     });
 });
@@ -210,15 +226,15 @@ test.describe('the bar and the menu', () => {
         await hasNode(page, 'per:sleeve');
         await expect(page.locator('#menu-show-technicians')).toBeChecked();
 
-        await page.locator('#show-musical-guests').uncheck();
-        await lostNode(page, 'per:sax');
-        await expect(page.locator('#menu-show-musical-guests')).not.toBeChecked();
+        await page.locator('#show-musical-guests').check();
+        await hasNode(page, 'per:sax');
+        await expect(page.locator('#menu-show-musical-guests')).toBeChecked();
     });
 
     test('and the menu starts on the same defaults as the bar', async ({ page }) => {
         await boot(page);
 
-        await expect(page.locator('#menu-show-musical-guests')).toBeChecked();
+        await expect(page.locator('#menu-show-musical-guests')).not.toBeChecked();
         await expect(page.locator('#menu-show-technicians')).not.toBeChecked();
     });
 });
