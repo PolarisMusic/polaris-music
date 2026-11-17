@@ -232,7 +232,7 @@ export class MusicGraph {
         this.releaseOverlay = new ReleaseOrbitOverlay({
             api: this.api,
             onReleaseSelect: (details) => this._onOverlayReleaseSelect(details),
-            onGuestClick: (personId) => this.navigateToNodeId(personId)
+            onGuestSelect: (guest, release) => this._onOverlayGuestSelect(guest, release)
         });
         // InlineEditor must be constructed BEFORE InfoPanelRenderer because
         // renderGroupDetails / renderPersonDetails (now on InfoPanelRenderer)
@@ -2503,6 +2503,50 @@ export class MusicGraph {
         // has to be shown, and without this selecting an album filled a panel
         // nobody could see.
         this.peekInfoPanel();
+    }
+
+    /**
+     * A guest chip in the release orbit was tapped.
+     *
+     * The panel fills with that guest in the context of that release; the
+     * graph does not move. Clicking one used to navigate to the person, and
+     * a guest whose only edges are credits has no neighbourhood — so the
+     * destination was a bare node joined to nothing, which is a worse answer
+     * than the chip you tapped.
+     *
+     * Their own details are fetched for what the release cannot say: the
+     * other records they are on.
+     *
+     * @private
+     * @param {Object} guest - As the release detail lists them: name, roles.
+     * @param {Object} release - The release whose orbit the chip sits in.
+     */
+    async _onOverlayGuestSelect(guest, release) {
+        if (!guest) return;
+
+        // A release took the panel a moment ago, and a node's details may be
+        // in flight behind it. Same reason as a node tap, different subject.
+        this._panelEpoch += 1;
+        const epoch = this._panelEpoch;
+
+        this.infoPanel.showGuestInReleaseInInfoPanel(guest, release, null);
+        this.peekInfoPanel();
+
+        if (!guest.person_id) return;
+
+        let person = null;
+        try {
+            const response = await this.api.fetchNodeDetails(guest.person_id, 'person');
+            person = response?.data || response || null;
+        } catch (error) {
+            // The release already said who they are and what they did on it.
+            // Their other records are the part that is missing, and missing
+            // is better than an error where a list would go.
+            console.warn('Could not load guest details:', error.message);
+        }
+
+        if (epoch !== this._panelEpoch) return;
+        this.infoPanel.showGuestInReleaseInInfoPanel(guest, release, person);
     }
 
     /**
