@@ -653,6 +653,91 @@ export class InfoPanelRenderer {
     }
 
     /**
+     * Display one guest in the context of the release they were credited on
+     * (called from the overlay when a guest chip is tapped).
+     *
+     * @param {Object} guest - As the release lists them: name, roles, person_id.
+     * @param {Object} release - The release whose orbit the chip sits in.
+     * @param {Object|null} person - Their own details, once fetched. Null on
+     *        the first paint, so the panel fills immediately with what the
+     *        release already knew.
+     */
+    showGuestInReleaseInInfoPanel(guest, release, person) {
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+        if (!infoTitle || !infoContent) return;
+        this.renderGuestInRelease(guest, release, person, infoTitle, infoContent);
+    }
+
+    /**
+     * One guest, in the context of one release.
+     *
+     * The question a tapped chip asks is "who is this and what did they do
+     * here", and the answer the release already holds is their role on it.
+     * What it cannot say is where else they turn up, which is the next
+     * question and the reason their own record is fetched.
+     *
+     * No navigation offered. A guest whose only edges are credits has no
+     * neighbourhood to arrive in.
+     *
+     * @param {Object} guest
+     * @param {Object} release
+     * @param {Object|null} person
+     * @param {HTMLElement} titleElement
+     * @param {HTMLElement} contentElement
+     */
+    renderGuestInRelease(guest, release, person, titleElement, contentElement) {
+        titleElement.textContent = guest?.name || 'Unknown';
+        contentElement.replaceChildren();
+
+        // Where this credit's subject has a page of its own — a band credited
+        // as producer of its own record reaches its own page from here.
+        if (person?.mainPage?.id) {
+            contentElement.appendChild(this._el('div', { className: 'info-main-page' },
+                this._el('strong', null, 'Main page:'), ' ',
+                this._el('a', {
+                    href: '#',
+                    className: 'info-nav-link',
+                    'data-node-id': person.mainPage.id,
+                }, person.mainPage.name || person.mainPage.id)));
+        }
+
+        if (person?.photo) {
+            contentElement.appendChild(this._el('div', { className: 'info-photo' },
+                this._el('img', { src: person.photo, alt: guest?.name || '' })));
+        }
+
+        const roles = Array.isArray(guest?.roles) ? guest.roles.filter(Boolean) : [];
+        contentElement.appendChild(this._el('div', { className: 'info-section' },
+            this._el('h4', null, `On ${release?.name || 'this release'}`),
+            this._el('p', { className: 'info-meta' },
+                roles.length > 0 ? roles.join(', ') : 'Credited, role not recorded')));
+
+        // Everywhere else, which is what the release cannot tell you.
+        const elsewhere = (person?.releases || [])
+            .filter((r) => r.release_id && r.release_id !== release?.release_id);
+
+        if (elsewhere.length > 0) {
+            const list = this._el('ul', { className: 'info-list' });
+            for (const other of elsewhere) {
+                const year = other.release_date
+                    ? ` (${String(other.release_date).substring(0, 4)})`
+                    : '';
+                const how = other.as === 'member' ? 'member' : (other.roles || []).join(', ');
+                list.appendChild(this._el('li', null,
+                    this._el('strong', null, other.name || other.release_id),
+                    year,
+                    how ? ` - ${how}` : null));
+            }
+            contentElement.appendChild(this._el('div', { className: 'info-section' },
+                this._el('h4', null, 'Also on'), list));
+        } else if (person) {
+            contentElement.appendChild(this._el('p', { className: 'info-meta' },
+                'No other records in the registry yet.'));
+        }
+    }
+
+    /**
      * Order two tracks by where they physically sit on the release.
      *
      * Disc, then side, then track number — in that order, because that is how
@@ -840,11 +925,29 @@ export class InfoPanelRenderer {
                     release.labels.length > 1 ? 'Labels:' : 'Label:'), ' ', labelText));
         }
 
-        // Groups
+        // Groups, and who was in them. The act's name on its own told you
+        // The Beatles played on this record and not that Ringo did — while
+        // the Guests section below named every engineer.
         if (release.groups && release.groups.length > 0) {
             const list = this._el('ul', { className: 'info-list' });
             for (const g of release.groups) {
-                list.appendChild(this._el('li', null, this._el('strong', null, g.name)));
+                const members = Array.isArray(g.members) ? g.members.filter(Boolean) : [];
+                const lineUp = members.length > 0
+                    ? this._el('ul', { className: 'info-list info-list--nested' },
+                        ...members.map((m) => {
+                            const role = m.role || (m.roles || [])[0] || '';
+                            const name = m.person_id
+                                ? this._el('a', {
+                                    href: '#',
+                                    className: 'info-nav-link',
+                                    'data-node-id': m.person_id,
+                                }, m.name)
+                                : this._el('span', null, m.name);
+                            return this._el('li', null, name, role ? ` - ${role}` : null);
+                        }))
+                    : null;
+                list.appendChild(this._el('li', null,
+                    this._el('strong', null, g.name), lineUp));
             }
             contentElement.appendChild(this._el('div', { className: 'info-section' },
                 this._el('h4', null, 'Performed by'), list));

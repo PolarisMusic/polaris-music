@@ -294,3 +294,122 @@ test.describe('opening and closing a crowded ring', () => {
         }
     });
 });
+
+/**
+ * Tapping a guest chip.
+ *
+ * It used to navigate the graph to that person. A guest whose only edges are
+ * credits has no membership and therefore no neighbourhood, so the
+ * destination was a bare node joined to nothing — the reader pressed a thing
+ * that was already on screen, in the one context that explained it, and
+ * arrived somewhere emptier.
+ *
+ * The chip is the guest's node here. Pressing it marks the chip and fills the
+ * panel; the graph does not move.
+ */
+test.describe('a guest chip is a selection, not a destination', () => {
+    const SAX = { person_id: 'per:sax', name: 'A Saxophonist', roles: ['saxophone'] };
+
+    async function openWithGuest(page) {
+        await boot(page);
+        await page.route('**/api/release/rel:0', (route) =>
+            route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        release_id: 'rel:0', name: 'Long Player Number 0', type: 'LP',
+                        guests: [SAX],
+                        groups: [{
+                            group_id: 'grp:band', name: 'Test Band',
+                            members: [{ person_id: 'per:drums', name: 'A Drummer', role: 'drums' }],
+                        }],
+                        tracks: [],
+                    },
+                }),
+            }));
+        await page.route('**/api/person/per:sax', (route) =>
+            route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        person_id: 'per:sax', name: 'A Saxophonist', groups: [],
+                        songsWritten: 0, guestAppearances: 2, mainPage: null,
+                        releases: [
+                            { release_id: 'rel:0', name: 'Long Player Number 0',
+                              release_date: '1991-01-01', as: 'guest', roles: ['saxophone'] },
+                            { release_id: 'rel:9', name: 'Another Record',
+                              release_date: '1995-01-01', as: 'guest', roles: ['flute'] },
+                        ],
+                    },
+                }),
+            }));
+        await openOrbit(page);
+        await page.locator('.release-tile[data-release-id="rel:0"]').click();
+        await page.waitForSelector('.release-guest-chip', { timeout: 10_000 });
+    }
+
+    test('the graph does not move', async ({ page }) => {
+        await openWithGuest(page);
+        const before = await page.evaluate(() => window.musicGraph.selectedNode?.id ?? null);
+
+        await page.locator('.release-guest-chip').first().click();
+        await expect(page.locator('#info-title')).toHaveText('A Saxophonist');
+
+        expect(await page.evaluate(() => window.musicGraph.selectedNode?.id ?? null))
+            .toBe(before);
+    });
+
+    test('and no bare node is pulled into it', async ({ page }) => {
+        // The symptom: a person with nothing but credits arrived as a node
+        // joined to nothing.
+        await openWithGuest(page);
+
+        await page.locator('.release-guest-chip').first().click();
+        await expect(page.locator('#info-title')).toHaveText('A Saxophonist');
+
+        expect(await page.evaluate(
+            () => !!window.musicGraph.ht.graph.getNode('per:sax'))).toBe(false);
+    });
+
+    test('the chip is marked', async ({ page }) => {
+        await openWithGuest(page);
+        const chip = page.locator('.release-guest-chip').first();
+
+        await expect(chip).not.toHaveClass(/release-guest-chip--selected/);
+        await chip.click();
+        await expect(chip).toHaveClass(/release-guest-chip--selected/);
+    });
+
+    test('the panel says what they did on this release', async ({ page }) => {
+        await openWithGuest(page);
+
+        await page.locator('.release-guest-chip').first().click();
+
+        await expect(page.locator('#info-content')).toContainText('On Long Player Number 0');
+        await expect(page.locator('#info-content')).toContainText('saxophone');
+    });
+
+    test('and where else they turn up, this release excluded', async ({ page }) => {
+        await openWithGuest(page);
+
+        await page.locator('.release-guest-chip').first().click();
+
+        const alsoOn = page.locator('#info-content .info-section', { hasText: 'Also on' });
+        await expect(alsoOn).toContainText('Another Record');
+        await expect(alsoOn).toContainText('1995');
+        await expect(alsoOn).not.toContainText('Long Player Number 0');
+    });
+
+    test('a release names the line-up, not only the act', async ({ page }) => {
+        // The other half of the same complaint: the panel listed every guest
+        // by name and the band as a name alone.
+        await openWithGuest(page);
+
+        const performedBy = page.locator('#info-content .info-section', { hasText: 'Performed by' });
+        await expect(performedBy).toContainText('Test Band');
+        await expect(performedBy).toContainText('A Drummer');
+        await expect(performedBy).toContainText('drums');
+    });
+});

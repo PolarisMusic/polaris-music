@@ -176,6 +176,18 @@ exports[`Stage H · REST endpoint snapshots GET /api/person/:personId → 200 ca
     },
     "name": "Pearl Jam",
     "person_id": "person:pearljam",
+    "releases": [
+      {
+        "album_art": null,
+        "as": "guest",
+        "name": "Ten",
+        "release_date": "1991-08-27",
+        "release_id": "release:ten",
+        "roles": [
+          "producer",
+        ],
+      },
+    ],
     "songsWritten": 0,
     "status": "ACTIVE",
   },
@@ -199,6 +211,16 @@ exports[`Stage H · REST endpoint snapshots GET /api/person/:personId → 200 wi
     "mainPage": null,
     "name": "John Lennon",
     "person_id": "person:lennon",
+    "releases": [
+      {
+        "album_art": null,
+        "as": "member",
+        "name": "Abbey Road",
+        "release_date": "1969-09-26",
+        "release_id": "release:abbeyroad",
+        "roles": [],
+      },
+    ],
     "songsWritten": 180,
     "status": "ACTIVE",
   },
@@ -213,6 +235,16 @@ exports[`Stage H · REST endpoint snapshots GET /api/release/:releaseId → 200 
     "groups": [
       {
         "group_id": "group:beatles",
+        "members": [
+          {
+            "name": "John Lennon",
+            "person_id": "person:lennon",
+            "role": "rhythm guitar",
+            "roles": [
+              "rhythm guitar",
+            ],
+          },
+        ],
         "name": "The Beatles",
       },
     ],

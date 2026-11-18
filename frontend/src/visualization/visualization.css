@@ -653,6 +653,13 @@ body.mini-player-visible.mini-player-embed {
     font-size: 0.9rem;
 }
 
+/* A band's line-up, indented under the band on a release. */
+.info-list--nested {
+    margin: 0.2rem 0 0.4rem 1rem;
+    font-size: 0.9em;
+    opacity: 0.85;
+}
+
 .info-nav-link {
     color: #4A90E2;
     text-decoration: none;
@@ -928,6 +935,14 @@ body.mini-player-visible.mini-player-embed {
     align-items: center;
     justify-content: center;
     transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* The chip is the guest's node here, so tapping one marks it rather than
+   navigating anywhere. */
+.release-guest-chip--selected {
+    border-width: 3px;
+    transform: scale(1.18);
+    z-index: 2;
 }
 
 .release-guest-chip:hover {

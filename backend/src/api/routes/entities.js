@@ -115,11 +115,59 @@ export function createEntityRoutes({ db, config }) {
                 const record = result.records[0];
                 const person = record.get('p').properties;
 
+                // The records they are on, and how. A guest chip clicked in
+                // the release orbit opens this person in the context of one
+                // release, and "what else have they played on" is the next
+                // question a reader has.
+                //
+                // A second round trip rather than more OPTIONAL MATCHes on
+                // the query above: that one already collects three lists off
+                // one row per membership, and joining releases into it
+                // multiplies every one of them.
+                const releaseResult = await session.run(`
+                    MATCH (p:Person {person_id: $personId})
+                    CALL {
+                        WITH p
+                        MATCH (p)-[go:GUEST_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
+                        RETURN r, 'guest' AS how, go.roles AS roles
+                        UNION
+                        WITH p
+                        MATCH (p)-[go:GUEST_ON]->(r:Release)
+                        RETURN r, 'guest' AS how, go.roles AS roles
+                        UNION
+                        WITH p
+                        MATCH (p)-[:MEMBER_OF]->(:Group)-[:PERFORMED_ON]->(:Track)-[:IN_RELEASE]->(r:Release)
+                        RETURN r, 'member' AS how, null AS roles
+                    }
+                    WITH r, collect(DISTINCT how) AS hows,
+                         [x IN collect(roles) WHERE x IS NOT NULL] AS roleLists
+                    RETURN r.release_id AS release_id,
+                           r.name AS name,
+                           r.release_date AS release_date,
+                           r.album_art AS album_art,
+                           hows,
+                           reduce(acc = [], rs IN roleLists | acc + rs) AS roles
+                    ORDER BY r.release_date DESC
+                    LIMIT 60
+                `, { personId: req.params.personId });
+
+                const releases = releaseResult.records.map((r) => ({
+                    release_id: r.get('release_id'),
+                    name: r.get('name'),
+                    release_date: r.get('release_date'),
+                    album_art: r.get('album_art'),
+                    // A member of the act who also took a guest credit on one
+                    // track is both; membership is the stronger claim.
+                    as: (r.get('hows') || []).includes('member') ? 'member' : 'guest',
+                    roles: [...new Set((r.get('roles') || []).filter(Boolean))],
+                })).filter((r) => r.release_id);
+
                 res.json({
                     success: true,
                     data: {
                         ...person,
                         groups: record.get('groups').filter(g => g.group !== null),
+                        releases,
                         mainPage: record.get('mainPage'),
                         songsWritten: record.get('songsWritten').toNumber(),
                         guestAppearances: record.get('guestAppearances').toNumber()
@@ -284,15 +332,28 @@ export function createEntityRoutes({ db, config }) {
                 const release = record.get('r').properties;
 
                 // Groups that performed on this release
+                // The acts, and who was in them. The panel listed band names
+                // and nothing else, so a release told you The Beatles played
+                // on it and not that Ringo did — while naming every guest.
+                // Same query, one OPTIONAL MATCH wider.
                 const groupResult = await session.run(`
                     MATCH (t:Track)-[:IN_RELEASE]->(:Release {release_id: $releaseId})
                     MATCH (g:Group)-[:PERFORMED_ON]->(t)
-                    RETURN DISTINCT g.group_id as group_id, g.name as name
+                    WITH DISTINCT g
+                    OPTIONAL MATCH (p:Person)-[m:MEMBER_OF]->(g)
+                    RETURN g.group_id as group_id, g.name as name,
+                           collect(DISTINCT CASE WHEN p IS NULL THEN null ELSE {
+                               person_id: p.person_id,
+                               name: p.name,
+                               role: m.role,
+                               roles: m.roles
+                           } END) as members
                 `, { releaseId: req.params.releaseId });
 
                 const groups = groupResult.records.map(r => ({
                     group_id: r.get('group_id'),
-                    name: r.get('name')
+                    name: r.get('name'),
+                    members: (r.get('members') || []).filter(Boolean)
                 }));
 
                 // Guests: persons credited via GUEST_ON, at either scope.

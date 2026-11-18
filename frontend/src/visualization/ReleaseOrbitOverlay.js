@@ -17,12 +17,19 @@ export class ReleaseOrbitOverlay {
      * @param {Object} options
      * @param {Object} options.api - GraphAPI instance
      * @param {Function} options.onReleaseSelect - Called with release details when a tile is clicked
-     * @param {Function} options.onGuestClick - Called with personId when a guest chip is clicked
+     * @param {Function} options.onGuestSelect - Called with (guest, release)
+     *        when a guest chip is clicked. The chip is the guest's node here;
+     *        selecting it marks it and fills the panel rather than moving the
+     *        graph, because a guest with no membership has nothing to arrive
+     *        at — navigating to one landed on a bare node joined to nothing.
      */
-    constructor({ api, onReleaseSelect, onGuestClick }) {
+    constructor({ api, onReleaseSelect, onGuestSelect }) {
         this.api = api;
         this.onReleaseSelect = onReleaseSelect || (() => {});
-        this.onGuestClick = onGuestClick || (() => {});
+        this.onGuestSelect = onGuestSelect || (() => {});
+
+        /** The guest chip currently marked, by person_id. */
+        this.selectedGuestId = null;
 
         // State
         this.anchorNodeId = null;
@@ -130,6 +137,7 @@ export class ReleaseOrbitOverlay {
 
         this.activeReleaseId = releaseId;
         this.activeReleaseDetails = releaseDetails;
+        this.selectedGuestId = null;
         this._render(this._lastNodeRadius);
 
         if (releaseDetails) {
@@ -396,6 +404,7 @@ export class ReleaseOrbitOverlay {
 
         const resp = await this.api.fetchReleaseDetails(release.release_id);
         this.activeReleaseDetails = resp && resp.data ? resp.data : null;
+        this.selectedGuestId = null;
 
         // Re-render with guest orbit
         this._render(nodeRadius);
@@ -453,13 +462,40 @@ export class ReleaseOrbitOverlay {
             initials.textContent = this._initials(guest.name || '?');
             chip.appendChild(initials);
 
+            chip.dataset.personId = guest.person_id || '';
+            if (guest.person_id && guest.person_id === this.selectedGuestId) {
+                chip.classList.add('release-guest-chip--selected');
+            }
+
             chip.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.onGuestClick(guest.person_id);
+                this._selectGuest(guest);
             });
 
             this.cluster.appendChild(chip);
         });
+    }
+
+    /**
+     * Mark a guest chip and hand the guest to the panel.
+     *
+     * No navigation. The chip already is the guest, drawn in the one context
+     * that explains it — this release — and a guest whose only edges are
+     * credits has no neighbourhood to arrive in, so navigating produced a
+     * bare node joined to nothing.
+     *
+     * @private
+     * @param {Object} guest
+     */
+    _selectGuest(guest) {
+        this.selectedGuestId = guest?.person_id || null;
+
+        for (const chip of this.cluster.querySelectorAll('.release-guest-chip')) {
+            chip.classList.toggle('release-guest-chip--selected',
+                !!this.selectedGuestId && chip.dataset.personId === this.selectedGuestId);
+        }
+
+        this.onGuestSelect(guest, this.activeReleaseDetails);
     }
 
     _showTooltip(tileEl, release) {

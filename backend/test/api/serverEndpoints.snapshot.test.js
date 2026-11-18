@@ -229,8 +229,26 @@ describe('Stage H · REST endpoint snapshots', () => {
             })]
         });
 
+        sharedRun.mockResolvedValueOnce({
+            records: [{
+                get(key) {
+                    const row = {
+                        release_id: 'release:abbeyroad', name: 'Abbey Road',
+                        release_date: '1969-09-26', album_art: null,
+                        hows: ['member'], roles: [],
+                    };
+                    if (key in row) return row[key];
+                    throw new Error(`unexpected key: ${key}`);
+                }
+            }]
+        });
+
         const res = await request(app).get('/api/person/person:lennon');
         expect(res.status).toBe(200);
+        expect(res.body.data.releases).toEqual([{
+            release_id: 'release:abbeyroad', name: 'Abbey Road',
+            release_date: '1969-09-26', album_art: null, as: 'member', roles: [],
+        }]);
         expect(res.body).toMatchSnapshot();
     });
 
@@ -253,8 +271,27 @@ describe('Stage H · REST endpoint snapshots', () => {
             })]
         });
 
+        sharedRun.mockResolvedValueOnce({
+            records: [{
+                get(key) {
+                    const row = {
+                        release_id: 'release:ten', name: 'Ten',
+                        release_date: '1991-08-27', album_art: null,
+                        hows: ['guest'], roles: ['producer', 'producer'],
+                    };
+                    if (key in row) return row[key];
+                    throw new Error(`unexpected key: ${key}`);
+                }
+            }]
+        });
+
         const res = await request(app).get('/api/person/person:pearljam');
         expect(res.status).toBe(200);
+        // Credited on many tracks of one release, which is one line, not many.
+        expect(res.body.data.releases).toEqual([{
+            release_id: 'release:ten', name: 'Ten', release_date: '1991-08-27',
+            album_art: null, as: 'guest', roles: ['producer'],
+        }]);
         expect(res.body.data.mainPage).toEqual({
             id: 'group:pearljam',
             name: 'Pearl Jam',
@@ -303,6 +340,13 @@ describe('Stage H · REST endpoint snapshots', () => {
                     get(key) {
                         if (key === 'group_id') return 'group:beatles';
                         if (key === 'name') return 'The Beatles';
+                        // A release used to name the act and no one in it,
+                        // while listing every guest by name.
+                        if (key === 'members') return [
+                            { person_id: 'person:lennon', name: 'John Lennon',
+                              role: 'rhythm guitar', roles: ['rhythm guitar'] },
+                            null,
+                        ];
                         throw new Error(`unexpected key: ${key}`);
                     }
                 }]
