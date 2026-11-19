@@ -1235,6 +1235,33 @@ body.mini-player-visible.mini-player-embed {
     font-style: italic;
 }
 
+/* Copy a link to whatever the panel is showing. Sized and coloured as the
+   star beside it; disabled until there is something to point at. */
+.btn-share {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #888;
+    line-height: 1;
+    width: 34px;
+    height: 34px;
+    transition: color 0.2s;
+}
+
+.btn-share:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.btn-share:not(:disabled):hover {
+    color: #fff;
+}
+
+.btn-share--done {
+    color: #6BC47D;
+}
+
 /* Favorite star button in info panel */
 .btn-favorite {
     background: none;

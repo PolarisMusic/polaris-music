@@ -139,6 +139,15 @@ export class GraphDataLoader {
         }
     }
 
+    /**
+     * What a share link asked to open on, set before loadGraphData runs.
+     *
+     * Null for an ordinary visit, which is when the sponsored draw decides.
+     *
+     * @type {Object|null}
+     */
+    shareTarget = null;
+
     async loadGraphData() {
         try {
             console.log('Loading graph data...');
@@ -170,8 +179,16 @@ export class GraphDataLoader {
 
             // Before refresh(), which is what builds the layout: setting the
             // root after it would draw one view and then replace it.
-            const sponsoredId = await this._sponsoredIdIfPrompt(pendingSponsored);
-            this.openOnSponsoredNode(sponsoredId);
+            //
+            // A share link wins outright, and without waiting for the draw's
+            // grace period: somebody followed a link to one particular thing,
+            // and opening on the lottery's pick instead would answer a
+            // question nobody asked.
+            const sponsoredId = this.shareTarget?.nodeId
+                ? null
+                : await this._sponsoredIdIfPrompt(pendingSponsored);
+            const openOnId = this.shareTarget?.nodeId || sponsoredId;
+            this.openOnSponsoredNode(openOnId);
 
             this.callbacks.refresh();
             this.callbacks.syncZoomSlider();
@@ -185,8 +202,13 @@ export class GraphDataLoader {
             // anything. A draw that missed the grace above still gets here —
             // it travels, as it used to, which is the right fallback for a
             // slow chain and the wrong default for every load.
-            if (sponsoredId) {
-                const node = this.callbacks.getNode?.(sponsoredId);
+            if (this.shareTarget) {
+                // The whole target, not just the node: a release opens in the
+                // orbit and a guest chip is marked inside it, which is the
+                // context the link was taken from.
+                await this.callbacks.openShareTarget?.(this.shareTarget);
+            } else if (openOnId) {
+                const node = this.callbacks.getNode?.(openOnId);
                 if (node) this.callbacks.selectNode?.(node);
             } else {
                 const late = await pendingSponsored;
