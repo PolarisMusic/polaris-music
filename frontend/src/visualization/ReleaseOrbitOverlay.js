@@ -53,6 +53,18 @@ export class ReleaseOrbitOverlay {
          */
         this._showEpoch = 0;
 
+        /**
+         * Whether a show() has finished for the group now displayed.
+         *
+         * Not the same as `visible`, which is true from the moment a show()
+         * starts: the discography is still a spinner then, and `releases` is
+         * empty. Callers that need the orbit itself wait on ready().
+         */
+        this._loaded = false;
+
+        /** Callers parked in ready(), each resolved by the next show(). */
+        this._readyWaiters = [];
+
         // Layout constants
         this.TILE_SIZE = 34;
         this.TILE_SIZE_ACTIVE = 84;
@@ -121,6 +133,43 @@ export class ReleaseOrbitOverlay {
         this.releases = (resp && resp.releases) || [];
 
         this._render(nodeRadius);
+        this._loaded = true;
+        const waiters = this._readyWaiters;
+        this._readyWaiters = [];
+        waiters.forEach((resolve) => resolve(true));
+    }
+
+    /**
+     * Resolve once the orbit is actually built, not merely on its way.
+     *
+     * The overlay is not opened by the click that selects a group: it is
+     * opened by the callback that runs when the recentring animation has put
+     * that group where the tiles are drawn around, roughly 700ms later. Code
+     * that acts on a group and then wants its discography — restoring a shared
+     * link, say — therefore arrives too early by construction, and found an
+     * empty `releases` and returned quietly.
+     *
+     * Waiting here rather than calling show() again matters: show() clears
+     * activeReleaseId, so a second one landing behind the first would wipe a
+     * release this had just opened.
+     *
+     * @param {Object} [options]
+     * @param {number} [options.timeout] - Give up after this many ms.
+     * @returns {Promise<boolean>} Whether the orbit arrived.
+     */
+    ready({ timeout = 8000 } = {}) {
+        if (this.visible && this._loaded) return Promise.resolve(true);
+
+        return new Promise((resolve) => {
+            this._readyWaiters.push(resolve);
+            setTimeout(() => {
+                const at = this._readyWaiters.indexOf(resolve);
+                // Already settled by a show(); nothing owed.
+                if (at === -1) return;
+                this._readyWaiters.splice(at, 1);
+                resolve(false);
+            }, timeout);
+        });
     }
 
     /**
@@ -145,12 +194,44 @@ export class ReleaseOrbitOverlay {
         }
     }
 
+    /**
+     * Open a release by id, fetching its details the way a tap does, and mark
+     * a guest in it if asked.
+     *
+     * selectRelease above expects the caller to have the details already,
+     * which the tap path does and a share link does not.
+     *
+     * @param {string} releaseId
+     * @param {string|null} [guestId] - A guest chip to mark once it exists.
+     * @returns {Promise<boolean>} Whether the release was found in this orbit.
+     */
+    async openRelease(releaseId, guestId = null) {
+        if (!this.visible || !releaseId) return false;
+
+        const release = this.releases.find((r) => r.release_id === releaseId);
+        if (!release) return false;
+
+        if (this.activeReleaseId !== releaseId) {
+            await this._handleTileClick(release, null);
+        }
+
+        if (!guestId) return true;
+
+        const guest = (this.activeReleaseDetails?.guests || [])
+            .find((g) => g.person_id === guestId);
+        // A link to a guest who is no longer credited opens the release,
+        // which is the nearest true thing it can do.
+        if (guest) this._selectGuest(guest);
+        return true;
+    }
+
     /** Hide and clear the overlay. */
     hide() {
         // Any show() still in flight is now stale: it was asked for a node that
         // is no longer displayed.
         this._showEpoch += 1;
         this.visible = false;
+        this._loaded = false;
         this.anchorNodeId = null;
         this.releases = [];
         this.activeReleaseId = null;

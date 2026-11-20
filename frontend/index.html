@@ -199,6 +199,8 @@
             <div class="info-header">
                 <h2 id="info-title">Select a node</h2>
                 <button id="node-favorite" class="btn-favorite" title="Like">☆</button>
+                <button id="node-share" class="btn-share" title="Copy a link to this"
+                        aria-label="Copy a link to this" disabled>🔗</button>
                 <button id="info-close" class="btn-info-close" title="Close" aria-label="Close details">✕</button>
             </div>
 
@@ -244,6 +246,7 @@
     <script type="module">
         import { MusicGraph } from './src/visualization/MusicGraph.js';
         import { WalletManager } from './src/wallet/WalletManager.js';
+        import { parseShareTarget } from './src/utils/shareLink.js';
         import { NodeSearchBox } from './src/components/NodeSearchBox.js';
         import { MiniPlayer } from './src/visualization/MiniPlayer.js';
 
@@ -400,6 +403,31 @@
                     actionsToggle.setAttribute('aria-expanded', String(open));
                     actionsToggle.textContent = open ? 'Menu ▴' : 'Menu ▾';
                 });
+            }
+
+            // A share link, read before the first fetch so its toggles are
+            // part of the request rather than a second one. The boxes are set
+            // to match, because a view whose controls disagree with it is
+            // worse than either state on its own.
+            const shareTarget = parseShareTarget(window.location.search);
+            if (shareTarget) {
+                graph.api.includeMusicalGuests = shareTarget.musicalGuests;
+                graph.api.includeTechnicians = shareTarget.technicians;
+                for (const [id, on] of [
+                    ['show-musical-guests', shareTarget.musicalGuests],
+                    ['menu-show-musical-guests', shareTarget.musicalGuests],
+                    ['show-technicians', shareTarget.technicians],
+                    ['menu-show-technicians', shareTarget.technicians],
+                ]) {
+                    const box = document.getElementById(id);
+                    if (box) box.checked = on;
+                }
+                graph.loader.shareTarget = shareTarget;
+            }
+
+            const shareButton = document.getElementById('node-share');
+            if (shareButton) {
+                shareButton.addEventListener('click', () => graph.shareCurrent());
             }
 
             await graph.loader.loadGraphData();

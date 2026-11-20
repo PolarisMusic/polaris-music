@@ -20,6 +20,7 @@ import { ReleaseOrbitOverlay } from './ReleaseOrbitOverlay.js';
 import { InfoPanelRenderer } from './InfoPanelRenderer.js';
 import { OverlayPositioner } from './OverlayPositioner.js';
 import { FavoritesManager } from './FavoritesManager.js';
+import { buildShareUrl } from '../utils/shareLink.js';
 import { GraphDataLoader } from './GraphDataLoader.js';
 import { DonutLoader } from './DonutLoader.js';
 import { EdgeNavigator } from './EdgeNavigator.js';
@@ -406,6 +407,7 @@ export class MusicGraph {
                 // in the collapsed sheet row.
                 getNode: (id) => this.ht?.graph?.getNode?.(id) ?? null,
                 selectNode: (node) => this.handleNodeClick(node),
+                openShareTarget: (target) => this.openShareTarget(target),
                 // Set before the first refresh, so the opening layout is built
                 // around the drawn node rather than built elsewhere and then
                 // travelled away from.
@@ -2381,8 +2383,11 @@ export class MusicGraph {
         if (!node) {
             infoTitle.textContent = 'Select a node';
             infoContent.innerHTML = '<p class="placeholder">Click on a Group or Person to see details</p>';
+            this._setShareTarget(null);
             return;
         }
+
+        this._setShareTarget({ nodeId: node.id });
 
         // Skip detail fetch for synthetic root node
         if ((node.data.type || '').toLowerCase() === 'root') {
@@ -2497,12 +2502,130 @@ export class MusicGraph {
         // must not land on top of it. Same reason as a node tap, different
         // subject.
         this._panelEpoch += 1;
+        this._setShareTarget({
+            // The group, because the orbit does not exist until it is selected.
+            nodeId: this.selectedNode?.id || null,
+            releaseId: releaseDetails.release_id || null,
+        });
         this.infoPanel.showReleaseDetailsInInfoPanel(releaseDetails);
         // Populating the panel is not the same as showing it. On desktop the
         // panel is always present so this was invisible; on a phone the sheet
         // has to be shown, and without this selecting an album filled a panel
         // nobody could see.
         this.peekInfoPanel();
+    }
+
+    /**
+     * Remember what a share link would point at, and enable or disable the
+     * button accordingly.
+     *
+     * Set wherever the panel is filled, because the panel is the subject: the
+     * thing on screen is the thing a link should open on.
+     *
+     * @private
+     * @param {Object|null} target
+     */
+    _setShareTarget(target) {
+        this._shareTarget = target;
+        const button = document.getElementById('node-share');
+        if (button) button.disabled = !this.shareUrl();
+    }
+
+    /**
+     * The link to what the panel is showing, or null.
+     *
+     * The toggles are read at build time rather than stored with the target,
+     * so a link made after turning technicians on carries that and one made
+     * before does not — the link describes the view it was taken from.
+     *
+     * @returns {string|null}
+     */
+    shareUrl() {
+        if (!this._shareTarget) return null;
+        return buildShareUrl(window.location.href, {
+            ...this._shareTarget,
+            musicalGuests: !!this.api?.includeMusicalGuests,
+            technicians: !!this.api?.includeTechnicians,
+        });
+    }
+
+    /**
+     * Hand the current link to whatever the device uses for sharing.
+     *
+     * The share sheet where there is one, which is phones; the clipboard
+     * otherwise. Both can fail — a dismissed sheet rejects, and the clipboard
+     * needs a secure context and a permission — so the last resort shows the
+     * link and lets the reader copy it themselves rather than failing
+     * silently.
+     *
+     * @returns {Promise<void>}
+     */
+    async shareCurrent() {
+        const url = this.shareUrl();
+        if (!url) return;
+
+        const button = document.getElementById('node-share');
+        const say = (text) => {
+            if (!button) return;
+            const previous = button.title;
+            button.title = text;
+            button.classList.add('btn-share--done');
+            setTimeout(() => {
+                button.title = previous;
+                button.classList.remove('btn-share--done');
+            }, 1600);
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: document.title, url });
+                return;
+            } catch (error) {
+                // A dismissed sheet is not a failure and must not fall
+                // through to copying something nobody asked to copy.
+                if (error?.name === 'AbortError') return;
+            }
+        }
+
+        try {
+            await navigator.clipboard.writeText(url);
+            say('Link copied');
+            return;
+        } catch (error) {
+            console.warn('Could not copy the link:', error.message);
+        }
+
+        window.prompt('Copy this link', url);
+    }
+
+    /**
+     * Open on what a share link asked for.
+     *
+     * The node first, because a release lives in the orbit of a selected
+     * group and a guest chip lives in an open release. Each step is skipped
+     * where the link did not ask for it.
+     *
+     * @param {Object|null} target - From parseShareTarget.
+     * @returns {Promise<void>}
+     */
+    async openShareTarget(target) {
+        if (!target) return;
+
+        if (target.nodeId) {
+            const node = this.ht?.graph?.getNode?.(target.nodeId);
+            // Missing is not an error worth shouting about: a link may name a
+            // node this reader's toggles leave out, or one since merged away.
+            if (node) await this.handleNodeClick(node);
+            else console.warn('Shared node is not in this graph:', target.nodeId);
+        }
+
+        if (!target.releaseId) return;
+
+        // The click above only schedules the orbit: it is drawn when the
+        // recentring animation ends. Ask for a release before then and the
+        // overlay has an empty discography and declines.
+        await this.releaseOverlay.ready();
+        await this.releaseOverlay.openRelease(target.releaseId, target.guestId);
     }
 
     /**
@@ -2529,6 +2652,11 @@ export class MusicGraph {
         this._panelEpoch += 1;
         const epoch = this._panelEpoch;
 
+        this._setShareTarget({
+            nodeId: this.selectedNode?.id || null,
+            releaseId: release?.release_id || null,
+            guestId: guest.person_id || null,
+        });
         this.infoPanel.showGuestInReleaseInInfoPanel(guest, release, null);
         this.peekInfoPanel();
 
